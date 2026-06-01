@@ -34,6 +34,7 @@ set(SYNQT_HOST_SUITES
     remote-pages
     entity-test
     graphics
+    privacy
     memory
     monitor
 )

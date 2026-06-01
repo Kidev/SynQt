@@ -1,19 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Read ``synqt.yaml`` the one way the generator does: entities, connect points,
-scopes, the edge's browser-facing policy, routes, views, and the QML files a client
-entity holds.
+"""Read ``synqt.yaml`` the way the generator does: entities, connect points, scopes, the edge
+browser-facing policy, routes, views, and the QML files a client entity holds.
 
-Nothing here emits anything. It is the shared reading of the topology that
-:mod:`synqt.cmakegen` (the root ``CMakeLists.txt``), :mod:`synqt.maingen` (one
-``main.cpp`` per entity) and :mod:`synqt.check` all work from, so the three can never
-disagree about which file a route means, which connect points an entity owns, or which
-QML the client module compiles in.
-
-Reading is where the refusals live too, because a topology this module cannot read is
-one the generator must not silently guess at. A view that escapes the client directory,
-a route with nothing to show, two QML files claiming one type name.
+:mod:`synqt.cmakegen`, :mod:`synqt.maingen` and :mod:`synqt.check` all read the topology
+through this module. It also refuses what it cannot read: a view that escapes the client
+directory, a route with nothing to show, two QML files claiming one type name.
 """
 
 from __future__ import annotations
@@ -24,10 +17,8 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-# The OAuth provider templates are one table. `synqt add auth` writes it into synqt.yaml,
-# and this module reads it back to fill in what a hand-written short form left out. Read
-# from the scaffolder rather than copied, so the two can never describe the same provider
-# differently.
+# The OAuth provider templates, read from the `synqt add auth` scaffolder to fill in what a
+# short form leaves out.
 from . import addauth
 
 
@@ -41,18 +32,12 @@ def _holds_framework(root: Path) -> bool:
 
 
 def _is_temporary_extraction(path: Path) -> bool:
-    """Whether `path` lives in a directory that stops existing when this process does.
+    """Whether `path` is in a directory deleted when this process exits.
 
-    A single-file PyInstaller build unpacks its data into a fresh temporary directory and
-    deletes it on exit. That is fine for something read during the run (the loading-page
-    logo), and wrong for the framework root, which `synqt new` writes into the project's
-    CMakeLists.txt for every later build to resolve. A path under that directory is dead
-    the moment the command returns, and the failure surfaces days later as a CMake error
-    naming a directory nobody can find. So a bundled copy in a one-file build is not
-    offered at all, and the caller gets the message telling it to name a checkout.
-
-    A one-directory build unpacks next to its own executable and is durable, which is why
-    this compares the two rather than testing for `sys.frozen` alone.
+    A one-file PyInstaller build unpacks its data to a temporary directory. The framework
+    root is written into the project CMakeLists.txt, so it must not point there. A
+    one-directory build unpacks next to its executable and is durable, hence the comparison
+    instead of a `sys.frozen` test.
     """
     extraction = getattr(sys, "_MEIPASS", None)
     if not extraction:
@@ -66,20 +51,10 @@ def _is_temporary_extraction(path: Path) -> bool:
 def framework_root() -> Path:
     """The SynQt framework sources this CLI builds against (holds src/ and cmake/).
 
-    Three places are tried, in order of how explicit they are. ``SYNQT_ROOT`` names a
-    checkout explicitly and always wins, which is how a release smoke test or a developer
-    with two checkouts says which one to build against. Otherwise the surrounding checkout
-    is used, derived from this file's location, which is what runs when the CLI is invoked
-    out of a clone or an editable install. Failing both, the copy packaged inside the
-    distribution is used. An installed wheel and the frozen binary carry ``src/`` and
-    ``cmake/`` under ``synqt/framework/`` (see ``tools/synqt/_build_backend.py``) so that
-    ``pipx install synqt`` can scaffold and build with no checkout anywhere on the machine.
-
-    The order matters in the one case where more than one exists. Inside a checkout, the
-    sources being edited are the ones to build, never the packaged copy of them.
-
-    Every candidate is validated the same way, so a misresolved root fails here with an
-    actionable message instead of a later CMake ``${SYNQT_ROOT}/cmake/... not found``.
+    In order: ``SYNQT_ROOT``; the checkout this file sits in; the copy packaged under
+    ``synqt/framework/`` in a wheel or frozen binary (see
+    ``tools/synqt/_build_backend.py``). Each candidate is validated, so a wrong root fails
+    here with a clear message.
     """
     override = os.environ.get("SYNQT_ROOT")
     if override:
@@ -109,10 +84,8 @@ def qml_uri(project_name: str) -> str:
 
 # where things live
 
-# The folder entities of each type sit in. These are the words a developer uses, and they are
-# the words `type:` takes, so a project's tree and its configuration read the same. Entities
-# of one type sit together. A project with two databases has one `db/relational/` holding
-# both, not two unrelated directories.
+# The folder entities of each type sit in, named with the `type:` words. Entities of one
+# type share a folder.
 TYPE_FOLDERS: Dict[str, str] = {
     "client": "client",
     "web_edge": "web",
@@ -128,12 +101,9 @@ TYPE_FOLDERS: Dict[str, str] = {
 #: What an entity is when it says nothing. A plain service, with no engine behind it.
 PLAIN_TYPE = "service"
 
-#: The helper the runtime installs into an entity's QML, per type that has one. This is the
-#: whole reason a type is more than a folder name. An entity of one of these types reaches
-#: its engine through this one name and never mentions the engine. `EntityRuntime` builds
-#: exactly one of these (see `EntityRuntime::buildTypeContext`), so `Cache` is in scope in a
-#: cache entity and in no other, which is what makes the reserved-name rule narrow rather
-#: than global. A type absent from this table (`client`, `web_edge`, `service`) installs none.
+#: The helper the runtime installs into an entity QML, per type that has one (see
+#: `EntityRuntime::buildTypeContext`). A type absent from this table (`client`, `web_edge`,
+#: `service`) installs none.
 TYPE_HELPERS: Dict[str, str] = {
     "relational": "Db",
     "cache": "Cache",
@@ -141,39 +111,25 @@ TYPE_HELPERS: Dict[str, str] = {
     "jobs": "Jobs",
 }
 
-#: The helpers every service entity gets, whatever its type. The rule above is about
-#: engines. A type has one, and the helper is how its QML reaches it without naming it. This
-#: is the other kind, and there is one of them. `Log` is what an entity says about itself,
-#: and every entity has something to say, so it is installed for all of them and the
-#: reserved-name rule covers the name everywhere rather than per type.
+#: Helpers every service entity gets, whatever its type.
 UNIVERSAL_HELPERS: Tuple[str, ...] = ("Log",)
 
-#: The helpers a `network:` block grants, on any type. Where an entity may connect is a
-#: deployment's decision, not a property of what it is, so it is the topology that grants
-#: these. `network.outbound` installs `Http` restricted to the prefixes it names, and
-#: `network.inbound` installs `Api` and opens the port it names. An entity with no
-#: `network:` block gets neither and is reachable only by its mesh consumers.
+#: Helpers a `network:` block grants, on any type. `network.outbound` installs `Http`
+#: limited to its prefixes; `network.inbound` installs `Api` and opens its port.
 NETWORK_HELPERS: Dict[str, str] = {
     "outbound": "Http",
     "inbound": "Api",
 }
 
-#: What an entity may be called. An entity name is not a label. It becomes a directory under
-#: its type folder, a CMake target, the QML accessor other entities reach it through
-#: (capitalized), the subject of its mesh certificate, and the file names that certificate and
-#: its key are written to. A name that is fine in YAML and wrong in any one of those produces
-#: a failure a long way from the line that caused it, so the shape is stated once, here, and
-#: checked where names arrive. `synqt check` for the topology, `synqt mesh cert` for the name
-#: typed at a prompt.
+#: What an entity may be called. The name becomes a directory, a CMake target, a QML
+#: accessor (capitalized), the mesh certificate subject and its file names. Checked by
+#: `synqt check` and `synqt mesh cert`.
 #:
-#: Letters, digits, underscores and hyphens, starting with a letter. That is the intersection
-#: of what a path segment, a CMake target and a QML identifier prefix all accept, and it
-#: leaves out the two that matter. A separator (`/`, `\`) would write files outside the mesh
-#: directory, and a `.` leads `..` past it.
+#: Letters, digits, underscores and hyphens, starting with a letter. No separator and no
+#: `.`, so a certificate file cannot land outside the mesh directory.
 ENTITY_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
-#: How long a name may be. A directory name has a limit on every filesystem and a certificate
-#: common name has one of 64 characters in X.509, which is the lower of the two.
+#: Maximum name length: the 64-character X.509 common name limit.
 ENTITY_NAME_MAX = 64
 
 
@@ -183,10 +139,8 @@ def is_valid_entity_name(name: str) -> bool:
 
 
 def entity_type(entity: Dict[str, Any]) -> str:
-    """The one word an entity is. `client`, `web_edge`, or the engine family it runs on.
-
-    An entity that names no type is a plain service, which is the type with no engine and
-    no browser-facing side. Something whose behaviour is entirely its own QML.
+    """The one word an entity is: `client`, `web_edge`, or the engine family it runs on. No
+    type means a plain service.
     """
     declared = str(entity.get("type") or "").strip()
     return declared or PLAIN_TYPE
@@ -198,37 +152,23 @@ def type_dir(entity: Dict[str, Any]) -> str:
 
 
 def entity_dir(entity: Dict[str, Any]) -> str:
-    """The folder one entity's files live in, relative to the project root.
+    """The folder one entity files live in, relative to the project root.
 
-    Everything an entity is made of is in here and nowhere else. The entity file, the Source
-    of every connect point it owns, each of those contracts, and anything its author adds
-    beside them. Its name is the entity's, so two databases never write over each other and
-    a `.qml` dropped in the folder is importable from the entity without any wiring.
-
-    An entity with no name at all gets the bare type folder, because the generator has to
-    put its files somewhere and a path with an empty segment in it names nothing. The
-    missing name is reported by validate() rather than a second time here.
+    Named after the entity. An entity with no name gets the bare type folder; validate()
+    reports the missing name.
     """
     name = str(entity.get("name") or "")
     return f"{type_dir(entity)}/{name}" if name else type_dir(entity)
 
 
-#: Where everything SynQt writes for a project lands, relative to the project root.
-#:
-#: One folder, and nothing generated outside it: the root CMakeLists, the CMake presets, a
-#: `main.cpp` per entity, the test runner, and the Source QML the auth entity gets when
-#: identity is promoted out of the edge. An entity's own folder therefore holds only what
-#: its author wrote, which is what makes "do not edit generated files" a rule about a path
-#: rather than a rule about remembering which files those are. It is git-ignored by the
-#: scaffold and rebuilt from `synqt.yaml` on every build.
+#: Where everything SynQt writes for a project lands, relative to the project root: the root
+#: CMakeLists, the presets, a `main.cpp` per entity, the test runner and the generated auth
+#: Source QML. Git-ignored by the scaffold and rebuilt on every build.
 GENERATED_DIR = "generated"
 
-#: The whole build, inside that tree. It is included by the project's root
-#: `CMakeLists.txt` rather than being the root itself, because qmlcachegen names each
-#: compiled QML file after its path relative to the directory that declared the QML
-#: module. Declared from here, a client view one directory up compiles to
-#: `.rcc/qmlcache/<target>_../client/...`, and a path component ending in dots is not a
-#: directory Windows can create.
+#: The build, included by the project root `CMakeLists.txt`. qmlcachegen names each file
+#: after its path relative to the module directory, and a `..` component there is a
+#: directory Windows cannot create.
 GENERATED_CMAKE = "synqt.cmake"
 
 
@@ -244,43 +184,29 @@ def entity_dirs(config: Dict[str, Any]) -> Dict[str, str]:
 
 
 def contract_path(entity: Dict[str, Any], contract: str) -> str:
-    """Where the contract of a connect point this entity owns is written.
-
-    Under `generated/`, mirroring the owner's own folder, because nobody writes this file:
-    it is what `synqt` makes of the point's `export:` block, and the block is where the
-    shape of the link is declared (:mod:`synqt.contractgen`). The compiler wants a
-    file, so it gets one, beside the generated main of the entity that owns the point.
+    """Where the contract of a connect point this entity owns is written: under `generated/`,
+    mirroring the owner folder (:mod:`synqt.contractgen`).
     """
     return f"{GENERATED_DIR}/{entity_dir(entity)}/{contract}.syn"
 
 
 def source_path(entity: Dict[str, Any], contract: str) -> str:
-    """Where the Source of a connect point this entity owns lives. The entity's own file.
-
-    An entity owns one connect point and the point is named after it, so this is
-    `<folder>/<Entity>.qml` and nothing else. The author writes one file per entity, called
-    after the entity, and never types a name the framework derived.
-    """
+    """Where the Source of the connect point this entity owns lives: `<folder>/<Entity>.qml`."""
     return f"{entity_dir(entity)}/{contract}.qml"
 
 
 def authored_source_path(entity: Dict[str, Any], point: Dict[str, Any]) -> str:
-    """The Source file as its author sees it. The file to write, and the one to report.
-
-    `server:` is the escape hatch for a point whose implementation is somewhere else, and
-    the framework's own points use it to name a file that is generated outright.
+    """The Source file as its author sees it. `server:` names a file elsewhere; framework
+    points use it for a generated file.
     """
     declared = str(point.get("server") or "")
     return declared or source_path(entity, contract_of(point))
 
 
 def entity_file_path(entity: Dict[str, Any]) -> str:
-    """Where an entity's own QML lives. The file that entity *is*.
-
-    A client's is its window and has to be called `Main.qml`, because the generated main.cpp
-    loads it by that name. Every other entity's is named after the entity, and it is also
-    the Source of the point that entity owns. An entity and the surface it exports are one
-    file, because they were never two things an author wanted to keep apart.
+    """Where an entity own QML lives. A client uses `Main.qml`, which the generated main.cpp
+    loads by name. Every other entity uses its own name, and that file is also the Source of
+    the point it owns.
     """
     if is_client(entity):
         return f"{entity_dir(entity)}/Main.qml"
@@ -309,14 +235,8 @@ def client_targets(entity: Dict[str, Any]) -> List[str]:
 
 
 def has_desktop_client(config: Dict[str, Any]) -> bool:
-    """Whether this project builds a client as a native desktop app.
-
-    The generated edge reads this to decide whether a login may answer over a loopback
-    redirect, which is the only way a native app can be handed a finished sign-in. It is
-    derived from `targets:` rather than asked as a question of its own, because there is no
-    case where a project wants one answer here and the other one there. A project with no
-    desktop client has nothing that could receive a loopback answer, and issuing one anyway
-    is a redirect to a port only something hostile would be listening on.
+    """Whether this project builds a desktop client (a `desktop` target). The generated edge
+    allows a loopback login redirect only when this is true.
     """
     return any("desktop" in client_targets(entity)
                for entity in entities(config) if is_client(entity))
@@ -327,25 +247,16 @@ def is_edge(entity: Dict[str, Any]) -> bool:
 
 
 def serves_browser(entity: Dict[str, Any]) -> bool:
-    """Can a browser reach this entity directly?
-
-    A web edge, and a monitor, which serves its own operator console on its own port. Kept
-    apart from :func:`is_edge` because nearly everything that asks "is this the edge"
-    is asking about the application's edge, and a monitor is not that. It has its own
-    bundle, its own sessions and its own identity, and it must not be swept into the
-    application's login, its allowed origins or its auth links by a predicate that answers
-    a different question.
+    """Can a browser reach this entity directly? A web edge, and a monitor for its console.
+    Separate from :func:`is_edge`, which means the application edge.
     """
     return is_edge(entity) or entity_type(entity) == "monitor"
 
 
-# What an entity is allowed to reach, and what may reach it
+# What an entity may reach, and what may reach it.
 #
-# Absent, which is the default on every type, means closed. The entity makes no outbound
-# calls and serves no public surface, and the only things that can reach it are the mesh
-# consumers its connect points list. Opening it is a deployment's decision, written in one
-# place next to those consumer lists, and it opens onto named places rather than onto the
-# internet.
+# Absent (the default on every type) means closed: no outbound calls, no public surface,
+# reachable only by its mesh consumers.
 
 
 def network_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
@@ -355,39 +266,21 @@ def network_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def declares_outbound(entity: Dict[str, Any]) -> bool:
-    """Does this entity say it is in the business of calling out at all?
+    """Does this entity declare `outbound` at all?
 
-    The key being there is what installs `Http`; the list in it is what `Http` will allow.
-    The two are separate. An entity with `outbound: []` has the helper and can
-    reach nowhere, so a call is refused by name ("not in this entity's network.outbound
-    allowlist") instead of dying as a ReferenceError on a helper that is not there, which
-    is a much worse way to learn that you have a prefix to add. An entity with no
-    `outbound:` key at all does not have the helper: it is not that kind of entity.
+    The key installs `Http`; the list is what `Http` allows. With `outbound: []` a call is
+    refused by name. With no key there is no helper.
     """
     return isinstance(network_settings(entity).get("outbound"), list)
 
 
 def outbound_endpoints(entity: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """``network.outbound``, as records. Where this entity may call, and what it sends.
+    """``network.outbound``, as records: where this entity may call, and what it sends.
 
-    Two spellings, one meaning, because most entries need nothing but a prefix and a few
-    need a key:
-
-        outbound:
-          - https://api.example.com/
-          - name: ltd2
-            url: https://apiv2.legiontd2.com/
-            headers:
-              x-api-key: env:LTD2_API_KEY
-
-    A bare string becomes ``{"url": ...}``. A named entry is also what the entity calls
-    through (``Http.api("ltd2").get("players/stats/" + id)``), so the base URL and the key
-    are declared once here rather than repeated at every call site. Header values keep
-    their ``env:`` form: the secret is read from the entity's environment when the runtime
-    builds the helper, so it never lands in the resolved topology on disk.
-
-    Empty allows nothing, which is what every entity is until somebody writes down where
-    it needs to go. See :func:`declares_outbound` for why empty and absent differ.
+    A bare string becomes ``{"url": ...}``. A named entry also defines an endpoint
+    (``Http.api("name")``) with a base URL and headers. Header values keep their ``env:``
+    form and are resolved from the entity environment at run time. Empty allows nothing (see
+    :func:`declares_outbound`).
     """
     declared = network_settings(entity).get("outbound")
     if not isinstance(declared, list):
@@ -415,12 +308,7 @@ def outbound_endpoints(entity: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def outbound_allowlist(entity: Dict[str, Any]) -> List[str]:
-    """Just the URL prefixes of :func:`outbound_endpoints`, in order.
-
-    What the allowlist check is made of, and what a refusal message names. Kept separate
-    from the records because a reader asking "where may this entity reach" is asking about
-    the prefixes and nothing else.
-    """
+    """The URL prefixes of :func:`outbound_endpoints`, in order."""
     return [endpoint["url"] for endpoint in outbound_endpoints(entity)]
 
 
@@ -436,10 +324,8 @@ def serves_inbound(entity: Dict[str, Any]) -> bool:
 
 
 def network_helpers(entity: Dict[str, Any]) -> List[str]:
-    """The helper names this entity's `network:` block puts in its QML scope.
-
-    Read by the reserved-name rule as well as by the runtime, so a point called `http`
-    is refused in an entity that has `Http` and allowed in one that does not.
+    """The helper names this entity `network:` block puts in its QML scope. Also read by the
+    reserved-name rule.
     """
     helpers: List[str] = []
     if declares_outbound(entity):
@@ -449,29 +335,18 @@ def network_helpers(entity: Dict[str, Any]) -> List[str]:
     return helpers
 
 
-# One of you, or one per caller
+# One Source for everybody, or one per caller.
 #
-# Read the system as chains. Every chain starts at a client, which is one browser and is
-# never shared. Next comes the edge it connects to, and after that whatever the edge
-# reaches. `shared:` is each entity's answer to how many of it there are along that chain,
-# and it belongs to the entity rather than to a link because an entity is one thing
-# everybody reaches or one thing per caller, and it cannot be both at once for two of its
-# own surfaces.
+# `shared:` belongs to the entity, not to a link.
 #
-#   shared. True    one Source for everybody (the default). Every caller acquires a mirror
-#                   of it, so all of them see the same props and the same rows, and each
-#                   slot still runs with that caller's Caller bound.
-#   shared. False   one Source per caller. What it holds is that caller's alone. A browser
-#                   caller is a session, so their second tab continues what their first tab
-#                   was using and their private window gets its own.
+#   shared: true    one Source for everybody (the default). Each slot still runs with the
+# calling Caller bound. shared: false   one Source per caller. A browser caller is a
+# session, so tabs share one and a private window gets its own.
 
 
 def is_shared(entity: Dict[str, Any]) -> bool:
-    """Is there one of this entity for everybody, or one per caller?
-
-    Shared unless the entity says otherwise, except for a client, which is one browser and
-    has nobody to share with. `synqt check` refuses `shared: true` written on a client
-    rather than quietly ignoring it.
+    """Is there one of this entity for everybody, or one per caller? Shared unless set, except
+    for a client.
     """
     if is_client(entity):
         return False
@@ -480,13 +355,7 @@ def is_shared(entity: Dict[str, Any]) -> bool:
 
 
 def is_service(entity: Dict[str, Any]) -> bool:
-    """Everything that is not the client. The edge and every other entity type.
-
-    The one distinction the build turns on, because it is the line between what is
-    compiled to WebAssembly and served to a browser and what is compiled native and run by
-    you. `type:` says which of the eight an entity is. This says which side of that line it
-    falls on.
-    """
+    """Everything that is not the client: compiled native rather than to WebAssembly."""
     return not is_client(entity)
 
 
@@ -495,16 +364,11 @@ def connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def point_name(point: Dict[str, Any]) -> str:
-    """What a connect point is called. Its owner.
+    """What a connect point is called: its owner.
 
-    An entity has one connect point, so the owner names it. That is the whole
-    naming rule, and it is why nothing in `connect_points:` is named. There is an owner, a consumer
-    list, an `export:` block. On the wire this is the object a consumer acquires. In QML it
-    is the accessor a consumer reads (`Books.recordWinner(...)`).
-
-    The framework's own points are the exception and carry a `name:`, because the auth
-    entity owns two of them (`identity` and `sessions`) and neither is reachable from QML;
-    the edge's C++ takes them by name.
+    The name a consumer acquires and the QML accessor it reads (`Books.recordWinner(...)`).
+    Framework points carry a `name:`, because the auth entity owns two (`identity` and
+    `sessions`) that the edge C++ takes by name.
     """
     declared = point.get("name")
     if isinstance(declared, str) and declared.strip():
@@ -513,30 +377,20 @@ def point_name(point: Dict[str, Any]) -> str:
 
 
 def accessor_name(owner: str) -> str:
-    """How a consumer reaches an owner in QML: the owner's name, capitalized.
-
-    The counterpart of `EntityRuntime::accessorName`, which is what puts the
-    object in scope. This is here so the CLI can say the same word in a message and in a
-    scaffolded file without either of them guessing at it.
+    """How a consumer reaches an owner in QML: the owner name, capitalized. Mirrors
+    `EntityRuntime::accessorName`.
     """
     return f"{owner[:1].upper()}{owner[1:]}" if owner else ""
 
 
 def contract_of(point: Dict[str, Any]) -> str:
-    """The type a connect point's `export:` becomes: its owner, capitalized.
+    """The type a connect point `export:` becomes: its owner, capitalized.
 
-    One entity, one connect point, one name. `Edge` is the entity, the type its own
-    `web/edge/Edge.qml` is rooted at, and the name every consumer reaches it by
-    (`Edge.placeBid(...)`). Entity names are unique across a project, so these are too.
-
-    Nothing carries a suffix, because a suffix would be a name the framework derived and
-    the author had to type. The one place the two names have to differ is the copy the
-    compiler reads, and that is made at build time under `generated/`
-    (:func:`generated_source_path`), where no author ever looks.
-
-    `contract:` is read only for the framework's own points, whose contracts ship in the
-    runtime libraries under names of their own (the `sessions` point carries `SessionStore`).
-    A project that writes it is refused by `synqt check`.
+    `Edge` is the entity, the root type of `web/edge/Edge.qml`, and the consumer accessor.
+    The copy the compiler reads is renamed under `generated/`
+    (:func:`generated_source_path`). `contract:` is read only for framework points, whose
+    contracts ship in the runtime libraries (`sessions` carries `SessionStore`); `synqt
+    check` refuses it in a project.
     """
     declared = point.get("contract")
     if isinstance(declared, str) and declared.strip():
@@ -546,23 +400,18 @@ def contract_of(point: Dict[str, Any]) -> str:
 
 
 def behind(point: Dict[str, Any]) -> Dict[str, str]:
-    """Which entity serves each scope on a point that is a front, `{}` when it is not one.
+    """Which entity serves each scope on a front point, `{}` when it is not one.
 
-    A front is a web edge that owns a point it does not implement. It terminates the
-    browser link, holds the session, and runs the sign-in, and then hands each caller to the
-    entity that serves people of that scope. The browser reaches one accessor, named after
-    the front, whatever is behind it. Each entity behind it only ever sees callers of its own
-    scope, so it authorizes on `Caller` and never asks about scope at all.
-
-    Written as a mapping of scope to entity name::
+    A front is a web edge that owns a point it does not implement. It terminates the browser
+    link, holds the session, runs the sign-in, and hands each caller to the entity for its
+    scope. That entity only sees callers of its scope, so it authorizes on `Caller` alone.
+    Written as a scope-to-entity mapping::
 
         behind:
           anonymous: lobby
           admin: backoffice
 
-    The entities named here consume nothing of the front's. It consumes theirs, and it is
-    this block that says so, so a front does not also have to be written onto each of their
-    consumer lists.
+    The front consumes the entities behind it; they do not list the front as a consumer.
     """
     declared = point.get("behind")
     if not isinstance(declared, dict):
@@ -572,22 +421,14 @@ def behind(point: Dict[str, Any]) -> Dict[str, str]:
 
 
 def is_front(point: Dict[str, Any]) -> bool:
-    """Does this point hand its callers to entities behind it rather than implement them?
-
-    The key being written is the answer, the way `network:` works: `behind:` says the point
-    is answered by entities behind it, and what is under it says which. One with nothing
-    under it is a front that hands nobody anywhere, which `synqt check` reports rather than
-    quietly reading as an ordinary point.
+    """Is this point a front? Writing `behind:` makes it one; an empty block is reported by
+    `synqt check`.
     """
     return isinstance(point.get("behind"), dict)
 
 
 def fronted_by(config: Dict[str, Any], entity_name: str) -> List[Dict[str, Any]]:
-    """The points whose front hands some scope's callers to `entity_name`.
-
-    What an entity behind a front owns is an ordinary point of its own. This is the other
-    direction, and it is what tells the front's build which replicas it has to acquire.
-    """
+    """The points whose front hands some scope to `entity_name`: the replicas the front acquires."""
     return [cp for cp in connect_points(config)
             if entity_name in behind(cp).values()]
 
@@ -602,12 +443,8 @@ def owned_by(config: Dict[str, Any], entity_name: str) -> List[Dict[str, Any]]:
 
 
 def client_facing(config: Dict[str, Any], edge_name: str) -> List[Dict[str, Any]]:
-    """Connect points the edge owns and a client consumes (browser-reachable).
-
-    Read from what each consumer *is*, not from what it is called. A client entity is
-    whichever one has `type: client`, and it is usually called `app`. Asking for a consumer
-    named "client" found none of them, and the edge that resulted built, started, served the
-    bundle, and hosted nothing at all for the browser that connected to it.
+    """Connect points the edge owns and a client consumes (browser-reachable). A client is
+    found by `type: client`, not by name.
     """
     named = {str(entity.get("name") or "") for entity in entities(config)
              if is_client(entity)}
@@ -633,20 +470,10 @@ def contracts_of(points: List[Dict[str, Any]]) -> List[str]:
 def forwards_session(config: Dict[str, Any], point: Dict[str, Any]) -> bool:
     """Does a call on this connect point carry the session the caller is acting for?
 
-    A system is a chain, and only its first link authenticates a person: the browser reaches
-    the web edge, the edge reaches a service, that service reaches another. So a point a
-    service consumes carries one thing more than its contract declares, the session the
-    calling entity is answering, and `Caller` two links from the browser still knows who
-    that is.
-
-    A point only the browser consumes carries nothing extra, so the one caller that could
-    put a session of its own choosing on the wire has no field to put it in. (The owner
-    would ignore it anyway, but not being there is better than being ignored.)
-
-    Every client rather than the first one. In a project with two of them (an application and a
-    monitoring console, say), reading the second as a service here would put the
-    session field on a link a browser is the only consumer of, and take away the one
-    property this function exists to provide.
+    A point a service consumes carries the session of the calling entity, so `Caller` still
+    knows the user several links from the browser. A point only clients consume carries
+    nothing extra, so a browser cannot put a session on the wire. Every client counts, not
+    just the first.
     """
     clients = {str(entity.get("name") or "") for entity in entities(config)
                if is_client(entity)}
@@ -654,24 +481,19 @@ def forwards_session(config: Dict[str, Any], point: Dict[str, Any]) -> bool:
 
 
 def session_forwarding_contracts(config: Dict[str, Any]) -> Set[str]:
-    """Every contract whose slots carry a forwarded session, by name.
-
-    Read by both sides of every link, so an owner and its consumers cannot disagree about
-    a signature that only the topology decides.
+    """Every contract whose slots carry a forwarded session, by name. Read by both sides of
+    every link.
     """
     return {contract_of(point) for point in connect_points(config)
             if forwards_session(config, point) and contract_of(point)}
 
 
-#: Where each framework contract's `.syn` lives, relative to the SynQt checkout. A framework
-#: point declares no `export:` and no project carries its file, so anything pointing a
-#: compiler at one has to look here rather than in the owner's folder.
+#: Where each framework contract `.syn` lives, relative to the SynQt checkout.
 FRAMEWORK_CONTRACT_PATHS: Dict[str, str] = {
     "Identity": "src/identity/contracts/Identity.syn",
     "SessionStore": "src/identity/contracts/SessionStore.syn",
     "Pages": "src/edge/contracts/Pages.syn",
-    # Written out rather than keyed by the constants below, which are defined further
-    # down. A table at module scope cannot forward-reference them.
+    # Written out, because the constants below are defined later.
     "Ingest": "src/monitor/contracts/Ingest.syn",
     "Console": "src/monitor/contracts/Console.syn",
 }
@@ -683,12 +505,8 @@ def framework_contract_path(contract: str) -> str:
 
 
 def contract_paths(config: Dict[str, Any]) -> Dict[str, str]:
-    """Every contract in the topology, by name, with the file it is written in.
-
-    A contract sits in its owner's folder, so finding one means finding the connect point
-    that owns it. Everything that has to point a compiler at a `.syn` asks here, consumers
-    included: a consumer never holds a copy, it compiles the owner's file at the replica
-    role.
+    """Every contract in the topology, by name, with its file. A consumer compiles the owner
+    file at the replica role.
     """
     by_name = {str(entity.get("name") or ""): entity for entity in entities(config)}
     found: Dict[str, str] = {}
@@ -701,21 +519,15 @@ def contract_paths(config: Dict[str, Any]) -> Dict[str, str]:
 
 
 def all_contracts(config: Dict[str, Any]) -> List[str]:
-    """Every contract named anywhere in the topology, owner side.
-
-    What `synqt test` generates a Source half for. A test drives an owner, and any connect
-    point in the project may be the one under test, so the test target carries them all
-    rather than trying to guess which entity a `tests/tst_*.qml` file is about.
+    """Every contract named in the topology, owner side. `synqt test` builds a Source half for
+    each.
     """
     return contracts_of(list(config.get("connect_points", []) or []))
 
 
 def test_qml_files(project_dir: Optional[Path]) -> List[str]:
-    """The application's own QML test files, `tests/tst_*.qml`, by name.
-
-    Qt Quick Test discovers them by directory at run time, so this list decides only
-    whether there is a test target to build at all, and what `synqt test` reports when
-    there is not.
+    """The application QML test files, `tests/tst_*.qml`, by name. Qt Quick Test discovers them
+    by directory; this list only decides whether a test target is built.
     """
     if project_dir is None:
         return []
@@ -732,17 +544,11 @@ def scope_vocab(config: Dict[str, Any]) -> List[str]:
 
 
 def scopes_hierarchical(config: Dict[str, Any]) -> bool:
-    """Whether scope checks rank the vocabulary (a higher scope satisfies a lower one) or
-    treat it as an unordered set (a scope satisfies only itself).
+    """Whether scope checks rank the vocabulary (a higher scope satisfies a lower one) or treat
+    it as a set (a scope satisfies only itself).
 
-    Defaults to true, matching SynClientConfig and WebEdgeConfig. Emitted into BOTH mains:
-    the edge is the authoritative check, so a project that sets `scopes.hierarchical: false`
-    for set-based scopes must reach the edge, not only the client's navigation guard, or the
-    edge would keep granting a lower scope to any holder of a higher-ranked one.
-
-    Read as a boolean and nowhere else. `synqt check` refuses a non-boolean here, because
-    the string "false" is truthy in Python and would silently stay hierarchical, which is
-    the one way to get set-based scopes wrong and never hear about it.
+    Defaults to true, as SynClientConfig and WebEdgeConfig do. Emitted into both mains,
+    since the edge is the authoritative check. `synqt check` requires a real boolean.
     """
     return bool(config.get("scopes", {}).get("hierarchical", True))
 
@@ -759,14 +565,9 @@ def bundles_for(config: Dict[str, Any],
                 edge: Dict[str, Any]) -> Dict[str, Tuple[str, str]]:
     """What one web edge serves each scope, as scope -> (kind, value).
 
-    A value holding a `/` is a directory relative to the edge entity's own folder. A bare
-    name is a client entity. The rule is visible at a glance, which is why it is the rule;
-    `check.lint_bundles` refuses anything that could be read both ways rather than guessing.
-
-    An edge with no `bundles:` block serves the project's one client entity to the default
-    scope, which is exactly what the edge did before this key existed. That is what keeps
-    the key dormant. A project that never writes it resolves to the same one-entry map it
-    always had, through the same code path as a project with five.
+    A value with a `/` is a directory relative to the edge folder; a bare name is a client
+    entity. `check.lint_bundles` refuses anything ambiguous. With no `bundles:` block the
+    edge serves the one client to the default scope.
     """
     declared = edge.get("bundles")
     if not isinstance(declared, dict) or not declared:
@@ -784,12 +585,9 @@ def bundles_for(config: Dict[str, Any],
 
 
 def desktop_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:
-    """Where a client entity's native desktop build lands, project-root relative.
-
-    The platform folder (`windows/`, `macos/`, `linux/`) goes underneath this, per
-    docs/desktop.md. Same rule as `bundle_output_dir`: one client keeps the historic
-    `build/client-desktop`, and only a project holding more than one grows a directory per
-    client.
+    """Where a client native desktop build lands, project-root relative, with the platform
+    folder beneath (docs/desktop.md). One client uses `build/client-desktop`; more clients
+    get one directory each.
     """
     clients = [entity for entity in entities(config) if is_client(entity)]
     if len(clients) < 2:
@@ -798,35 +596,23 @@ def desktop_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:
 
 
 def qml_uri_for(config: Dict[str, Any], client: Dict[str, Any]) -> str:
-    """The QML module URI one client entity's module is registered under.
+    """The QML module URI of one client entity.
 
-    A project with one client keeps the URI derived from the project name, which is what
-    every route's compiled `qrc:/qt/qml/<Uri>/<view>` already says and what
-    `loadFromModule()` already looks in. A second client cannot share it: both modules
-    would claim `qrc:/qt/qml/<Uri>/Main.qml`, and the one registered last would answer for
-    every route in the other, which is a collision no error reports.
+    One client uses the URI derived from the project name. A second client needs its own, or
+    both would claim `qrc:/qt/qml/<Uri>/Main.qml`.
     """
     base = qml_uri(str(config.get("project", {}).get("name", "app")))
     clients = [entity for entity in entities(config) if is_client(entity)]
     if len(clients) < 2:
         return base
-    # Folded through `qml_uri` rather than merely capitalized, because a URI is dotted
-    # identifiers and an entity name is not held to that shape. It may carry hyphens, and
-    # `synqt add entity <name> --type monitor` produces one that does on every project it
-    # touches, since it names the console client `<name>-console`. Appending that raw gave
-    # `WatchedOps-console`, which Qt reports as an invalid module URI at build time and
-    # then cannot import at run time. The project name has been folded this way all along.
+    # Folded through `qml_uri`, because an entity name may contain hyphens
+    # (`<name>-console`) and a URI may not.
     return base + qml_uri(str(client.get("name") or ""))
 
 
 def bundle_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:
-    """Where `synqt build` assembles one client entity's bundle, project-root relative.
-
-    A project with one client keeps `build/client/`, which is the path the documentation,
-    the generated compose files, the deploy scripts and every developer's muscle memory
-    already name. Only a project that holds more than one client grows the
-    per-entity directories, which is the same rule the `bundles:` key itself follows: a
-    thing you did not ask for does not move.
+    """Where `synqt build` assembles one client bundle, project-root relative. One client uses
+    `build/client/`; more clients get one directory each.
     """
     clients = [entity for entity in entities(config) if is_client(entity)]
     if len(clients) < 2:
@@ -834,17 +620,12 @@ def bundle_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:
     return f"build/client-{client.get('name')}"
 
 
-# the edge's browser-facing policy
+# The edge browser-facing policy.
 #
-# Everything under here answers one question. What did the project DECLARE? Never "what
-# does the framework do when the project declares nothing": the defaults live once, in
+# These return what the project declared, never the framework defaults, which live in
 # `WebEdgeConfig` (src/edge/webedgeconfig.h) and `IdentityConfig`
-# (src/identity/identityconfig.h), and a second copy here would be a second thing to keep
-# in step and a silent way for the generated edge to disagree with the struct it fills.
-# So a key the project does not set is absent from what these return, and the
-# generated main then says nothing about it and lets the struct's own default stand.
-# `env_file` is the one that does supply a default, because no struct holds it: where an
-# entity's secrets live is a project-layout convention, not a runtime setting.
+# (src/identity/identityconfig.h). An unset key is absent and the struct default applies.
+# `env_file` is the exception: it is a layout convention no struct holds.
 
 
 def security_settings(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -859,13 +640,7 @@ def web_edges(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def sync_route(config: Dict[str, Any]) -> str:
-    """The path the browser upgrades on, from the first edge that names one.
-
-    The client has to agree with the edge about this, and only the edge's `public:` block
-    says it, so the client reads it from there rather than repeating the default. One
-    project, one browser-facing endpoint. A second edge that moved it would need its own
-    client anyway.
-    """
+    """The path the browser upgrades on, from the first edge that names one."""
     for entity in web_edges(config):
         declared = public_settings(entity).get("sync_route")
         if isinstance(declared, str) and declared.strip():
@@ -874,8 +649,9 @@ def sync_route(config: Dict[str, Any]) -> str:
 
 
 def client_route(config: Dict[str, Any]) -> str:
-    """The edge path that delivers the app, and mints the session when a CDN delivers it
-    instead. Read from the first edge that names one, like :func:`sync_route`."""
+    """The edge path that delivers the app, and mints the session when a CDN delivers it. Read
+    like :func:`sync_route`.
+    """
     for entity in web_edges(config):
         declared = public_settings(entity).get("client_route")
         if isinstance(declared, str) and declared.strip():
@@ -884,12 +660,8 @@ def client_route(config: Dict[str, Any]) -> str:
 
 
 def public_origin(config: Dict[str, Any]) -> str:
-    """``public.origin``: the origin browsers reach the edge at, or "".
-
-    The bind address is not this. An edge behind a proxy or a load balancer listens on
-    something private and is reached at something public, and only a deployment knows the
-    second. It matters when the client is delivered from another origin, because then the
-    app cannot read the edge off its own page.
+    """``public.origin``: the origin browsers reach the edge at, or "". Differs from the bind
+    address behind a proxy. Needed when the client is delivered from another origin.
     """
     for entity in web_edges(config):
         declared = public_settings(entity).get("origin")
@@ -899,11 +671,7 @@ def public_origin(config: Dict[str, Any]) -> str:
 
 
 def serves_client(config: Dict[str, Any]) -> bool:
-    """Does the project's web edge deliver the client bundle, or does a CDN?
-
-    False only when an edge says so explicitly (`public.serve_client: false`), because the
-    consequence of getting this wrong is an app that loads from nowhere.
-    """
+    """Does the web edge deliver the client bundle? False only with `public.serve_client: false`."""
     for entity in web_edges(config):
         if public_settings(entity).get("serve_client") is False:
             return False
@@ -916,34 +684,19 @@ def public_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
-#: What a browser-facing entity binds when it declares no ``public.port``.
-#:
-#: The generated main resolves it (``maingen``), and so does every other reader of a
-#: topology, so a project that never wrote the line is not a project with no port: it is a
-#: project with this one. Anything reasoning about which ports are taken has to say so,
-#: because the collision that matters is between two entities that both left it out.
+#: What a browser-facing entity binds when it declares no ``public.port``. Every reader of a
+#: topology applies it, so two entities that both omit the port collide.
 DEFAULT_PUBLIC_PORT = 8443
 
 
 def public_port(entity: Dict[str, Any]) -> int:
-    """The port this entity binds, declared or defaulted.
-
-    Not ``public_settings(entity).get("port")``, which answers None for the commonest case
-    there is. Two functions asked the question that way and both had the same hole: a
-    project whose edge and monitor had each left the line out passed `synqt check` and then
-    failed to bind on the first `synqt dev`, which is the exact failure the check exists to
-    report.
-    """
+    """The port this entity binds, declared or defaulted."""
     return int(public_settings(entity).get("port") or DEFAULT_PUBLIC_PORT)
 
 
 def _proxy_list(settings: Dict[str, Any], where: str) -> List[str]:
-    """The ``trusted_proxies`` of one block, or [] when it names none.
-
-    Empty (the default) means the peer address is the client address, which is what a
-    surface reached directly should think. A balancer in front makes that false for every
-    connection at once, so the list is how a deployment says which peer is not a caller.
-    The rules for reading the header are in ``src/service/clientaddress.h``.
+    """The ``trusted_proxies`` of one block, or [] when it names none. Empty means the peer is
+    the client. Header rules: ``src/service/clientaddress.h``.
     """
     declared = settings.get("trusted_proxies")
     if declared is None:
@@ -955,38 +708,28 @@ def _proxy_list(settings: Dict[str, Any], where: str) -> List[str]:
 
 
 def trusted_proxies(entity: Dict[str, Any]) -> List[str]:
-    """``public.trusted_proxies``: the hops whose ``X-Forwarded-For`` this edge believes.
-
-    The browser side of an edge. Its inbound API surface, when it has one, is a second
-    listener with its own list. See `inbound_trusted_proxies`.
+    """``public.trusted_proxies``: the hops whose ``X-Forwarded-For`` the browser listener
+    believes. See `inbound_trusted_proxies` for the API listener.
     """
     return _proxy_list(public_settings(entity), "public.trusted_proxies")
 
 
 def inbound_trusted_proxies(entity: Dict[str, Any]) -> List[str]:
-    """``network.inbound.trusted_proxies``: the same question for the API surface.
-
-    Not inherited from ``public.trusted_proxies``. They are two listeners on
-    two ports, and a deployment may put a balancer in front of one and expose the other
-    on an internal network, so taking one list to mean the other would be this framework
-    deciding to believe a header nobody said to believe.
+    """``network.inbound.trusted_proxies``: the same for the API listener. Not inherited from
+    ``public.trusted_proxies``: they are separate listeners.
     """
     return _proxy_list(inbound_settings(entity), "network.inbound.trusted_proxies")
 
 
 def replicas(entity: Dict[str, Any]) -> int:
-    """``replicas:``: how many interchangeable processes of this entity run.
-
-    One (the default, and the absence of the key) is every project that exists. More than
-    one is a promise that nothing a browser reaches lives in any single process, which
-    `synqt check` proves rather than takes on trust. See the replica rules there and
-    "Running more than one edge" in the deployment docs.
+    """``replicas:``: how many interchangeable processes of this entity run. More than one
+    requires that no browser-reachable state lives in one process, which `synqt check`
+    verifies.
     """
     declared = entity.get("replicas")
     if declared is None:
         return 1
-    # bool before int, because bool IS an int in Python and `replicas: true` would
-    # otherwise read as one replica and look like it worked.
+    # bool before int: `replicas: true` must not read as 1.
     if isinstance(declared, bool) or not isinstance(declared, int) or declared < 1:
         raise AppGenError(
             f"replicas must be a whole number of 1 or more, not {declared!r}")
@@ -996,21 +739,15 @@ def replicas(entity: Dict[str, Any]) -> int:
 def threads(entity: Dict[str, Any]) -> int:
     """``threads:``: how many IO threads a web edge spreads its browser sockets across.
 
-    One (the default, and the absence of the key) is the whole edge on one thread. More
-    than one moves each accepted socket onto a thread of its own and leaves everything else
-    exactly where it was: one QtRO host per connection, the per-session Sources, the QML
-    engine and the entity singleton all stay on the main thread.
-
-    That is what makes it a different key from ``replicas``, which is a front and asks the
-    project for four things in return. Threading asks for nothing, because nothing a
-    developer wrote moves. See "Running an edge on more than one core" in the deployment
-    docs.
+    One (the default) keeps the edge on one thread. More moves each accepted socket to an IO
+    thread; the QtRO hosts, the Sources, the QML engine and the entity singleton stay on the
+    main thread, so nothing a developer wrote moves. See "Running an edge on more than one
+    core" in the deployment docs.
     """
     declared = entity.get("threads")
     if declared is None:
         return 1
-    # bool before int, for the same reason as replicas: `threads: true` would otherwise
-    # read as one thread and look like it had been accepted.
+    # bool before int: `threads: true` must not read as 1.
     if isinstance(declared, bool) or not isinstance(declared, int) or declared < 1:
         raise AppGenError(
             f"threads must be a whole number of 1 or more, not {declared!r}")
@@ -1024,23 +761,11 @@ def tls_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def env_file(entity: Dict[str, Any]) -> str:
-    """The entity's own env file: what it declares, or ``<its directory>/.env``.
+    """The entity env file: what it declares, or ``<entity_dir>/.env``.
 
-    This is where an ``env:`` reference is answered from: the file holds the real secret,
-    synqt.yaml holds only its name. Project-root relative, like every other path in the
-    topology.
-
-    Defaulted rather than left empty because the entity's own folder is where the
-    tutorials and the scaffolded projects already put it ("the client secret lives only in
-    ``web/edge/.env``"), and a convention that every document states but nothing loads is
-    the same kind of gap as a setting nothing reads.
-
-    The directory is :func:`entity_dir`, the same answer the CMake generator, the main
-    generator and the client root lint all get for where an entity's files are. It has to
-    be that one call and not a second spelling of it. This returned ``<name>/.env`` for a
-    while after entities moved into ``<type>/<name>/``, so every generated main loaded a
-    path that did not exist and every ``env:`` reference fell through to the project file
-    or to nothing. ``env.file`` above stays as the explicit override.
+    The file holds the secrets that ``env:`` references name. Project-root relative. The
+    directory comes from :func:`entity_dir`, as for every other generator. ``env.file``
+    overrides it.
     """
     env = entity.get("env")
     if isinstance(env, dict):
@@ -1053,11 +778,8 @@ def env_file(entity: Dict[str, Any]) -> str:
 def origin_model(config: Dict[str, Any]) -> str:
     """``project.origin_model``, or "" when the project does not declare one.
 
-    The edge turns this into the session cookie's SameSite attribute: `same_origin` keeps
-    it Lax, `split_origin` needs `None; Secure` for the cookie to survive the cross-origin
-    upgrade at all. Nothing else derives from it, which is why the documented
-    `identity.session.same_site` is not a separate knob. Two spellings of one decision
-    could disagree, and the one that lost would fail silently.
+    The edge derives the session cookie SameSite from it: `same_origin` is Lax,
+    `split_origin` is `None; Secure`. There is no separate `identity.session.same_site`.
     """
     project = config.get("project")
     model = project.get("origin_model") if isinstance(project, dict) else None
@@ -1072,29 +794,16 @@ def default_scope(config: Dict[str, Any]) -> str:
 
 
 # The session credential the browser presents at the wss upgrade. Only the cookie is
-# implemented, and a subprotocol token is not a thing left to do: Qt 6.12 cannot answer the
-# handshake it would need.
-#
-# Carrying the session in `Sec-WebSocket-Protocol` requires the server to select one of the
-# offered subprotocols and echo it in the 101 response. On the QHttpServer upgrade path there
-# is no way to say which: `QHttpServerWebSocketUpgradeResponse::accept()` takes no arguments,
-# and the `QWebSocketServer` that writes the response is held in `QAbstractHttpServerPrivate`,
-# so `setSupportedSubprotocols()` cannot be reached. The upgrade then completes with nothing
-# negotiated, and the browsers disagree about what that means: Chromium 149 closes it (1006,
-# "Sent non-empty 'Sec-WebSocket-Protocol' header but no response was received") while
-# Firefox 151 opens it anyway.
-#
-# Both halves are measured, not assumed:
-# `tests/m5-webedge/tst_m5.cpp::theUpgradePathCannotNegotiateASubprotocol` pins the Qt half
-# and fails the day a Qt release makes this buildable.
+# implemented. A subprotocol token needs the server to select and echo a subprotocol, and on
+# the QHttpServer upgrade path `QHttpServerWebSocketUpgradeResponse::accept()` takes no
+# arguments. `tests/m5-webedge/tst_m5.cpp::theUpgradePathCannotNegotiateASubprotocol` fails
+# when Qt makes this possible.
 SESSION_TRANSPORTS = ("cookie",)
 
 
 def session_transport(config: Dict[str, Any]) -> str:
-    """``security.session_transport``, or "" when undeclared.
-
-    Raises :class:`AppGenError` for a transport this version cannot generate, rather than
-    emitting an edge whose behavior contradicts its own configuration.
+    """``security.session_transport``, or "" when undeclared. Raises :class:`AppGenError` for a
+    transport this version cannot generate.
     """
     declared = security_settings(config).get("session_transport")
     if declared is None:
@@ -1117,12 +826,52 @@ def identity_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
+# Personal data retention when the project says nothing: two years. Article 5(1)(e) asks for
+# no longer than necessary, and only the project knows what that is.
+DEFAULT_RETENTION_DAYS = 730
+
+
+def privacy_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``privacy:`` block, empty when the project declares none."""
+    settings = config.get("privacy")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
+def retention_days(config: Dict[str, Any]) -> int:
+    """How long this project keeps personal data, in days. Unset gives
+    ``DEFAULT_RETENTION_DAYS``; a declared value is kept as written, shorter or longer.
+    """
+    declared = privacy_settings(config).get("retention_days")
+    if isinstance(declared, bool) or not isinstance(declared, int):
+        return DEFAULT_RETENTION_DAYS
+    if declared <= 0:
+        return DEFAULT_RETENTION_DAYS
+    return declared
+
+
+def cookie_categories(config: Dict[str, Any]) -> List[str]:
+    """The non-essential cookie categories the project declared, in declaration order.
+
+    Usually empty. The session credential is exempt under Article 5(3) of the ePrivacy
+    Directive, so with no other cookie ``CookieConsent`` renders nothing.
+    """
+    declared = privacy_settings(config).get("cookies")
+    if not isinstance(declared, list):
+        return []
+    return [str(item) for item in declared if isinstance(item, str) and item.strip()]
+
+
+def erasure_offered(config: Dict[str, Any]) -> bool:
+    """Whether the client offers a signed-in visitor an Article 17 erasure request. Off unless
+    enabled; the project must connect it to a slot that acts.
+    """
+    return privacy_settings(config).get("erasure") is True
+
+
 def identity_enabled(config: Dict[str, Any], entity: Dict[str, Any]) -> bool:
     """Whether this web edge serves the login, callback and logout routes.
 
-    A project that declares no provider has no login to serve. When it does, every web
-    edge serves it unless that entity opts out with ``identity: false``, the key the
-    examples spell as ``identity: true`` on the edge that signs users in.
+    True when the project declares a provider, unless the edge sets ``identity: false``.
     """
     if not identity_providers(config):
         return False
@@ -1130,41 +879,35 @@ def identity_enabled(config: Dict[str, Any], entity: Dict[str, Any]) -> bool:
     return declared is not False
 
 
-#: The name the development sign-in's synthesized provider answers to, so a login route
-#: can ask for it and a mapping hook can tell it apart from a real one.
+#: The provider name of the development sign-in, so a login route can request it and a
+#: mapping hook can recognise it.
 DEV_STUB_PROVIDER = "dev"
 
-#: The loopback port the development sign-in listens on. Fixed rather than negotiated,
-#: because two processes have to agree on it with nothing between them to agree through:
-#: the edge serves it, and under `identity.provider_entity` the auth entity dials it.
+#: The loopback port of the development sign-in. Fixed, because the edge serves it and,
+#: under `identity.provider_entity`, the auth entity dials it.
 DEV_STUB_PORT = 8789
 
-#: Where the development sign-in's shared secret comes from. `synqt dev` mints one per
-#: run and puts it in the environment of everything it launches. Unset, both ends read
-#: the same empty string and still agree, which is what makes running an edge with --dev
-#: by hand work.
+#: The variable holding the development sign-in shared secret. `synqt dev` mints one per
+#: run. Unset, both ends read the same empty string, so an edge started with --dev by hand
+#: works.
 DEV_STUB_SECRET_VARIABLE = "SYNQT_DEV_CLIENT_SECRET"
 
-#: The client id the stub expects. Not a credential. The stub is a fake provider bound to
-#: loopback, and the secret above is the half that is checked.
+#: The client id the stub expects. Not a credential; the secret above is what is checked.
 DEV_STUB_CLIENT_ID = "synqt-dev"
 
-#: Who you are when the project configured nobody. One person, so /authorize signs them
-#: in without asking, and a project that wants a second scope adds a second entry.
+#: The default development user. One person, so /authorize signs them in without asking.
 DEV_STUB_DEFAULT_USER = {"sub": "dev",
                          "login": "dev",
                          "name": "Developer",
                          "email": "dev@localhost"}
 
-#: The identity fields a configured development user may set. They are the fields of the
-#: normalized identity object, so what a mapping hook reads here is what it reads from a
-#: real provider.
+#: The identity fields a development user may set: the fields of the normalized identity
+#: object.
 DEV_STUB_USER_FIELDS = ("sub", "login", "name", "email")
 
 
 def identity_dev_stub(config: Dict[str, Any]) -> Dict[str, Any]:
-    """The declared ``identity.dev_stub`` block, empty when there is no development
-    sign-in."""
+    """The declared ``identity.dev_stub`` block, empty when there is no development sign-in."""
     block = identity_settings(config).get("dev_stub")
     if block is True:
         return {}  # `dev_stub: true`, the shortest way to ask for the defaults
@@ -1187,11 +930,8 @@ def dev_stub_port(config: Dict[str, Any]) -> int:
 
 
 def dev_stub_users(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Who the development sign-in offers, always at least one.
-
-    A scope is what the project's own mapping hook returns for an identity, so the way to
-    reach a scope in development is to configure somebody the hook maps there. That keeps
-    the hook on the path. What is exercised under `synqt dev` is the mapping that ships.
+    """Who the development sign-in offers, always at least one. The project mapping hook maps
+    each to a scope, so `synqt dev` exercises the shipping hook.
     """
     declared = identity_dev_stub(config).get("users")
     if not isinstance(declared, list):
@@ -1208,12 +948,8 @@ def dev_stub_users(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def dev_stub_provider(config: Dict[str, Any]) -> Dict[str, Any]:
-    """The provider entry the development sign-in is, written by the framework.
-
-    Not by the project, because every field of it is decided by the fact that the stub
-    runs here. The endpoints are the stub's own routes on loopback, the issuer is the
-    address it answers at, and the client id is a constant. Leaving them to be typed would
-    make a development sign-in a thing to configure wrong.
+    """The provider entry of the development sign-in, written by the framework: the stub
+    loopback endpoints, its issuer and a constant client id.
     """
     base = f"http://127.0.0.1:{dev_stub_port(config)}"
     return {"name": DEV_STUB_PROVIDER,
@@ -1233,15 +969,9 @@ def dev_stub_provider(config: Dict[str, Any]) -> Dict[str, Any]:
 def identity_providers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The configured providers, in order. A non-mapping entry is not a provider.
 
-    A provider named after one `synqt add auth` knows gets that template's endpoints
-    filled in underneath whatever the project spelled out, so the short form the tutorials
-    write (a name, a client id, a secret) means the same thing as the long form the
-    scaffolder writes. One table, read here and written there. An edge generated from the
-    short form would otherwise carry a github provider with no authorize URL, and fail at
-    the first login rather than at generation.
-
-    The development sign-in is appended rather than written, and last rather than first,
-    so the provider a login route reaches for by default stays the project's own.
+    A provider named after a `synqt add auth` template gets that template's endpoints under
+    whatever the project wrote, so the short form and the long form mean the same. The
+    development sign-in is appended last, so the default provider stays the project's own.
     """
     providers = identity_settings(config).get("providers")
     resolved: List[Dict[str, Any]] = []
@@ -1260,10 +990,8 @@ def identity_providers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     return resolved
 
 
-# The one authorization flow this framework implements. Server-side Authorization Code
-# with PKCE, which is what `QOAuth2AuthorizationCodeFlow` runs and the only flow a browser
-# client with no secret can use safely. Named here so a project that writes something else
-# is told so, rather than generating an edge that quietly runs this one anyway.
+# The one authorization flow implemented: server-side Authorization Code with PKCE
+# (`QOAuth2AuthorizationCodeFlow`). A project that names another is refused.
 IDENTITY_FLOWS = ("authorization_code",)
 
 
@@ -1281,11 +1009,8 @@ def identity_flow(config: Dict[str, Any]) -> str:
 
 
 def identity_mapping_hook(config: Dict[str, Any]) -> str:
-    """The identity mapping hook's path, or "" when the project declares none.
-
-    Two spellings are in the docs and the examples: ``mapping: web/identity/map.qml`` and
-    ``mapping: {hook: web/identity/map.qml}``. Both mean the same file, so both are read
-    here rather than one of them quietly producing an app with no scope mapping.
+    """The identity mapping hook path, or "" when the project declares none. Reads both
+    ``mapping: <path>`` and ``mapping: {hook: <path>}``.
     """
     mapping = identity_settings(config).get("mapping")
     if isinstance(mapping, str):
@@ -1302,22 +1027,16 @@ def identity_session(config: Dict[str, Any]) -> Dict[str, Any]:
     return dict(session) if isinstance(session, dict) else {}
 
 
-# Staying signed in on the desktop
+# Staying signed in on the desktop.
 #
-# `memory` is the default and means what it has always meant. The credential lives for the
-# life of the process, so a desktop visitor signs in once per launch. `device` opts into
-# something being written to the OS secure store between launches, which is a decision about
-# the visitor's disk and so is the author's to make out loud.
+# `memory` (the default) keeps the credential for the life of the process. `device` stores
+# it in the OS secure store between launches.
 DESKTOP_SESSIONS = ("memory", "device")
 
-# What a client's store binds its credential to. Ordered, so a configured minimum is a floor.
-# Above `user` this is a property of the machine and not of the platform, which is why the
-# floor is enforced at enrolment by the edge rather than at build time.
-#
-# `hardware` is in the vocabulary and reaches the C++ enum, and no store SynQt ships reports
-# it yet, so `synqt check` refuses it as a floor. It is spelled here rather than left out so
-# that the day a Secure Enclave or TPM backend lands, the level it reports already has a name
-# and every stored credential keeps meaning what it meant.
+# What a client store binds its credential to, in order, so a configured minimum is a floor.
+# Above `user` this depends on the machine, so the edge enforces the floor at enrolment.
+# `hardware` is reserved: no shipped store reports it, and `synqt check` refuses it as a
+# floor.
 DEVICE_BINDINGS = ("user", "application", "hardware")
 
 
@@ -1342,10 +1061,8 @@ def device_settings(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def device_store(config: Dict[str, Any]) -> Dict[str, Any]:
-    """``identity.device.store``: the persistence provider the family table lives in.
-
-    Empty when none is configured, which `synqt check` refuses under ``desktop_session:
-    device`` rather than letting it degrade to a feature that silently does nothing.
+    """``identity.device.store``: the persistence provider holding the family table. Empty when
+    unset, which `synqt check` refuses under ``desktop_session: device``.
     """
     store = device_settings(config).get("store")
     return dict(store) if isinstance(store, dict) else {}
@@ -1365,30 +1082,22 @@ def device_min_binding(config: Dict[str, Any]) -> str:
 
 
 def identity_refresh(config: Dict[str, Any]) -> Dict[str, Any]:
-    """The declared ``identity.refresh`` block. How the access-token sweep is timed.
+    """The declared ``identity.refresh`` block: how the access-token sweep is timed.
 
-    ``interval_seconds`` is how often the entity holding the tokens looks for expiring
-    ones, and ``margin_seconds`` is how far ahead of expiry it renews them. Both were
-    reachable only as C++ defaults before, which made the documented "the edge refreshes
-    the access token server side" untunable. A provider issuing short-lived tokens needs a
-    margin wider than 120 seconds, and there was no way to say so.
+    ``interval_seconds`` is how often the token holder looks for expiring tokens;
+    ``margin_seconds`` is how far ahead of expiry it renews them.
     """
     refresh = identity_settings(config).get("refresh")
     return dict(refresh) if isinstance(refresh, dict) else {}
 
 
-# The auth entity: what `identity.provider_entity` implies
+# The auth entity: what `identity.provider_entity` implies.
 #
-# Setting it names an entity that owns identity and sessions, and every web edge consumes
-# both over the mesh (docs/authentication.md "Where identity runs"). The docs promise that
-# is one line of configuration and not a rewrite, so the two links it implies are
-# synthesized here rather than hand-written into every project that wants them.
-#
-# They are FRAMEWORK connect points, and that is the one way they differ from a declared
-# one: their contracts ship in the runtime library (src/identity/contracts/) rather than in
-# the owning entity's folder, so nothing generates or compiles an app-side copy for them.
-# That is what `is_framework_point` marks, and the two emitters that would otherwise reach
-# for the point's own `export:` block filter on it.
+# It names an entity that owns identity and sessions, and every web edge consumes both over
+# the mesh (docs/authentication.md "Where identity runs"). The two links are synthesized
+# here. They are framework connect points: their contracts ship in the runtime library
+# (src/identity/contracts/), so `is_framework_point` marks them and nothing generates an
+# app-side contract for them.
 AUTH_IDENTITY_POINT = "identity"
 AUTH_SESSION_POINT = "sessions"
 
@@ -1407,15 +1116,12 @@ def is_framework_point(connect_point: Dict[str, Any]) -> bool:
     return bool(connect_point.get("framework"))
 
 
-# Which SynQt runtime library a service entity links
+# Which SynQt runtime library a service entity links.
 #
-# Three, not one, and the line between them is the license. Qt HTTP Server and Qt Network
-# Authorization are GPLv3-only, so anything that links one is GPLv3: the web edge's HTTP
-# surface lives in SynQtEdge and the OAuth engine in SynQtIdentity, and a relational, cache,
-# document, jobs or plain service entity links neither. That is what makes the LGPLv3 line
-# in its generated THIRD-PARTY-LICENSES a fact about the binary rather than a claim about
-# intent (docs/licensing.md). `licenses.py` and `cmakegen.py` both read this, so what the
-# file says and what the build links cannot drift apart.
+# Split by license. Qt HTTP Server and Qt Network Authorization are GPLv3-only: the web edge
+# HTTP surface is in SynQtEdge and the OAuth engine in SynQtIdentity. Relational, cache,
+# document, jobs and plain service entities link neither, so they stay LGPLv3
+# (docs/licensing.md). `licenses.py` and `cmakegen.py` both read this.
 SERVICE_LIBRARIES: Dict[str, str] = {
     "SynQtService": "src/service",
     "SynQtIdentity": "src/identity",
@@ -1430,8 +1136,7 @@ LIBRARY_GPL_MODULES: Dict[str, List[str]] = {
     "SynQtIdentity": ["Qt Network Authorization"],
     "SynQtEdge": ["Qt Network Authorization", "Qt HTTP Server"],
     "SynQtGateway": ["Qt HTTP Server"],
-    # The monitor serves the operator console over HTTP through SynQtEdge, so it carries
-    # the same obligation. Qt Sql is LGPLv3 and adds none of its own.
+    # The monitor serves its console through SynQtEdge. Qt Sql is LGPLv3.
     "SynQtMonitor": ["Qt Network Authorization", "Qt HTTP Server"],
 }
 
@@ -1439,26 +1144,16 @@ LIBRARY_GPL_MODULES: Dict[str, List[str]] = {
 def service_libraries(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     """The SynQt runtime libraries this service entity links, most general first.
 
-    One base library says what the entity fundamentally is. The edge serves HTTP and runs
-    the login routes, so it takes `SynQtEdge`. The auth entity
-    (`identity.provider_entity`) runs the OAuth engine but no HTTP surface, because the
-    routes stay on the edge and reach it over the mesh, so it takes `SynQtIdentity`.
-    Everything else takes `SynQtService`, which links no GPLv3-only module at all.
-
-    `SynQtGateway` is added on top for an entity whose `network.inbound` opens a port,
-    whatever its type. The edge is the exception. It already serves HTTP through its own
-    library, and `synqt check` refuses `network.inbound` on it rather than letting one
-    entity carry two listeners.
-
-    A `monitor` takes `SynQtMonitor`, which is `SynQtEdge` plus a history: it serves the
-    operator console over HTTP and keeps every entity's events in SQLite. That makes it
-    GPLv3 like the edge, which is a fact about the console and not a surprise: a monitor is
-    an operations tool, not something a project conveys to its visitors.
+    The edge takes `SynQtEdge`. The auth entity (`identity.provider_entity`) takes
+    `SynQtIdentity`, since the login routes stay on the edge. A monitor takes `SynQtMonitor`
+    (`SynQtEdge` plus an SQLite history), so it is GPLv3 like the edge. Everything else
+    takes `SynQtService`, which links no GPLv3-only module. `SynQtGateway` is added for any
+    entity whose `network.inbound` opens a port, except the edge, where `synqt check`
+    refuses it.
     """
     libraries: List[str] = []
     if entity_type(entity) == "monitor":
-        # The monitor serves a console of its own, so it is an HTTP server as much as the
-        # edge is, and it keeps a history, so it links Qt Sql on top.
+        # The monitor serves a console and keeps a history, so it links Qt Sql too.
         libraries.append("SynQtMonitor")
     elif is_edge(entity):
         libraries.append("SynQtEdge")
@@ -1472,12 +1167,9 @@ def service_libraries(config: Dict[str, Any], entity: Dict[str, Any]) -> List[st
 
 
 def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Only the connect points whose contract the project itself declares.
-
-    Everything that reaches for an `export:` block (the CMake contract calls, the edge's
-    generated consumer surface) goes through this, because a framework point has none and
-    never will. Its contract ships with the runtime library that owns it
-    (src/identity/contracts/ for identity and sessions, src/edge/contracts/ for pages).
+    """Only the connect points whose contract the project declares. A framework point has no
+    `export:`; its contract ships with its runtime library (src/identity/contracts/,
+    src/edge/contracts/).
     """
     return [cp for cp in points if not is_framework_point(cp)]
 
@@ -1485,12 +1177,9 @@ def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The identity and session links `identity.provider_entity` implies, or [].
 
-    Owned by the named auth entity and consumed by every web edge that serves login. The
-    transport is left to the usual resolution, which means mutual TLS on loopback unless
-    the auth entity's `mesh:` block says otherwise, like any other mesh link.
-
-    Empty when no provider is configured. There is no login to promote, so promoting it
-    would mean bringing up an auth entity to serve nothing.
+    Owned by the auth entity and consumed by every web edge that serves login, with the
+    usual transport resolution (mutual TLS on loopback unless the auth entity `mesh:` block
+    says otherwise). Empty when no provider is configured.
     """
     owner = provider_entity(config)
     if not owner or not identity_providers(config):
@@ -1505,25 +1194,18 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
              "contract": contract,
              "owner": owner,
              "consumers": consumers,
-             # Generated, so it lives with the rest of the generated tree rather than in
-             # the auth entity's folder. Nobody writes this file and nobody edits it.
+             # Generated, so it lives in the generated tree.
              "server": f"{GENERATED_DIR}/{source_path(owning, contract)}",
              "framework": True}
             for name, contract in _AUTH_POINTS if name not in declared]
 
 
 def with_auth_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
-    """`config` with the auth entity's implied links appended to ``connect_points``.
+    """`config` with the auth entity implied links appended to ``connect_points``.
 
-    The whole topology has to see them or half the system would be wired: the auth entity
-    must host what it owns, each edge must open the consumer links, and `synqt check` must
-    hold those links to the same mesh rules as any other. So this runs once at each entry
-    point that reads the entire topology (generation, the topology writer, validation)
-    rather than being pushed into every reader.
-
-    Idempotent, and a project that declares a connect point of the same name keeps its own
-    (`synqt check` reports that collision, which is the only way it is ever intentional).
-    The input is never mutated. Callers share one loaded config.
+    Runs once at each entry point that reads the whole topology (generation, the topology
+    writer, validation). Idempotent. A declared connect point of the same name wins, and
+    `synqt check` reports it. The input is never mutated.
     """
     extra = auth_connect_points(config)
     if not extra:
@@ -1534,28 +1216,20 @@ def with_auth_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
-# The monitoring fan-in
-#
-# One connect point, owned by the monitor and consumed by every service in the project. It
-# is derived from `monitoring.entity` rather than written, for the same reason the auth
-# links are. A link every entity needs is a link nobody should have to remember to declare,
-# and one an author could forget on a single entity is a hole in the record shaped exactly
-# like the entity that was misbehaving.
+# The monitoring fan-in: one connect point, owned by the monitor, consumed by every service,
+# derived from `monitoring.entity` so no entity can be left out.
 MONITOR_POINT = "ingest"
 
-#: The console's own point, owned by the monitor and consumed by the console client. The
-#: monitor serves that client itself, which is what `serves_browser` is about: it is a web
-#: edge with a history and an operator identity, so a browser can reach it.
+#: The console point, owned by the monitor and consumed by the console client the monitor
+#: serves.
 MONITOR_CONSOLE_POINT = "console"
 
-#: The contracts the monitor owns, shipped with the runtime library like the other framework
-#: contracts (src/monitor/contracts/).
+#: The contracts the monitor owns, shipped in the runtime library (src/monitor/contracts/).
 MONITOR_CONTRACT = "Ingest"
 MONITOR_CONSOLE_CONTRACT = "Console"
 
-#: The scope an operator holds. Not in a project's own vocabulary by default: an operator is
-#: not a user of the application, and a scope that meant both would make one login reach the
-#: other's surface.
+#: The operator scope. Kept out of the project vocabulary so one login cannot reach both
+#: surfaces.
 MONITOR_SCOPE = "operator"
 
 
@@ -1571,15 +1245,10 @@ def monitor_entity(config: Dict[str, Any]) -> str:
 def monitoring_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The ingest link `monitoring.entity` implies, or [].
 
-    Consumed by every service and never by a client. A browser cannot reach the mesh at
-    all, and a client that could report events as an entity would be putting a value a
-    visitor controls where an authenticated entity name belongs, which is the one
-    conflation SynQt's two identity systems exist to prevent (docs/security.md). What the
-    browser does gets into the record through the edge that served it, where it is a fact
-    somebody observed rather than a claim somebody made.
-
-    The monitor is not a consumer of its own point. It owns it, and an entity that opened a
-    link to itself would deadlock its own event loop on the first publish.
+    Consumed by every service, never by a client: a browser cannot reach the mesh, and a
+    client reporting as an entity would conflate user and entity identity
+    (docs/security.md). Browser activity is recorded by the edge that served it. The monitor
+    does not consume its own point.
     """
     owner = monitor_entity(config)
     if not owner:
@@ -1596,14 +1265,10 @@ def monitoring_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                        "contract": MONITOR_CONTRACT,
                        "owner": owner,
                        "consumers": consumers,
-                       # Generated, like the auth points': nobody writes this file and
-                       # nobody edits it.
+                       # Generated, like the auth points.
                        "server": f"{GENERATED_DIR}/{source_path(owning, MONITOR_CONTRACT)}",
                        "framework": True})
-    # The console's own point, consumed by whichever clients the monitor serves. Gated on
-    # `operator`: the monitor holds every entity's record, so acquiring this is acquiring
-    # the whole picture, and there is no useful half of it for somebody who has not signed
-    # in.
+    # The console point, consumed by the clients the monitor serves. Gated on `operator`.
     watchers = [name for name in (entity.get("name") for entity in entities(config)
                                   if is_client(entity) and monitor_watches(entity))
                 if name]
@@ -1619,19 +1284,15 @@ def monitoring_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     return points
 
 
-#: What a category records when nothing says otherwise, and the vocabulary `monitoring.levels`
-#: is written in. `off` is the seventh word, and it names the category refused rather than
-#: a severity.
+#: The default severity per category, and the `monitoring.levels` vocabulary. `off` records
+#: nothing.
 TRACE_SEVERITIES = ("trace", "debug", "info", "warning", "error", "fatal", "off")
 TRACE_CATEGORIES = ("lifecycle", "transport", "authorization", "call", "data", "application")
 
 
 def trace_levels(config: Dict[str, Any]) -> Dict[str, str]:
-    """``monitoring.levels``: the lowest severity each category records.
-
-    A deployment setting rather than a build one, so it lands in the resolved topology and
-    is read at startup. What is not named here keeps its default, and a category set to
-    `off` records nothing at all.
+    """``monitoring.levels``: the lowest severity each category records. Read at startup from
+    the resolved topology. Unnamed categories keep their default; `off` records nothing.
     """
     monitoring = config.get("monitoring")
     if not isinstance(monitoring, dict):
@@ -1643,23 +1304,17 @@ def trace_levels(config: Dict[str, Any]) -> Dict[str, str]:
 
 
 def monitor_watches(entity: Dict[str, Any]) -> bool:
-    """Is this client the monitoring console rather than the application?
-
-    Written on the client as `console: true`. One word, because the difference is not a
-    shade of configuration. A console is delivered by the monitor, gated on `operator`, and
-    reaches the application's own entities not at all.
+    """Is this client the monitoring console (`console: true`)? A console is delivered by the
+    monitor, gated on `operator`, and reaches no application entity.
     """
     return bool(entity.get("console"))
 
 
 def with_monitoring_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
-    """`config` with the monitor's implied link appended to ``connect_points``.
+    """`config` with the monitor implied link appended to ``connect_points``.
 
-    Runs at the same entry points as :func:`with_auth_connect_points`, and for the same
-    reason: the monitor must host what it owns, every service must open its consumer link,
-    and `synqt check` must hold those links to the mesh rules like any other. Idempotent,
-    and a project that declares a point of the same name keeps its own. The input is never
-    mutated: callers share one loaded config.
+    Runs where :func:`with_auth_connect_points` runs. Idempotent; a declared point of the
+    same name wins. The input is never mutated.
     """
     extra = monitoring_connect_points(config)
     if not extra:
@@ -1670,13 +1325,10 @@ def with_monitoring_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def client_secret_variable(provider: Dict[str, Any]) -> str:
-    """The environment variable holding this provider's client secret.
+    """The environment variable holding this provider client secret.
 
-    A secret is only ever a name here. It is read from the edge environment when the
-    process starts, so it never becomes a literal in the generated source or in the
-    binary that source compiles to, which is also why a literal is refused outright
-    rather than passed through. Emitting it would bake a credential into an artifact
-    that gets copied, cached and shipped.
+    Read from the edge environment at start-up, so the secret never appears in generated
+    source or a binary. A literal is refused.
     """
     secret = provider.get("client_secret")
     if not isinstance(secret, str) or not secret.strip():
@@ -1696,15 +1348,8 @@ def client_secret_variable(provider: Dict[str, Any]) -> str:
 # routes and views
 
 def view_file_name(view: str) -> str:
-    """The QML file a route's `view` names, restoring the extension it may omit.
-
-    The name is also normalized, so the one file a route means is spelled one way
-    everywhere: `./About.qml` and `About.qml` are the same view, and writing the first
-    would otherwise put a literal `./` into both the resource alias and the compiled-in
-    `qrc:/qt/qml/<Uri>/./About.qml`, which is a second entry for one file.
-
-    Public because `synqt check` reads a view the same way this generator writes it. Two
-    copies of the spelling rule would drift and disagree about which file a route means.
+    """The QML file a route `view` names, with the extension restored and the name normalized
+    (`./About.qml` is `About.qml`). `synqt check` uses it too.
     """
     name = view.strip()
     if not name.endswith(".qml"):
@@ -1713,23 +1358,12 @@ def view_file_name(view: str) -> str:
 
 
 def view_escapes_client_directory(view: str) -> bool:
-    """Whether `view` reaches outside the client entity's directory.
+    """Whether `view` reaches outside the client entity directory.
 
-    A view is named relative to that directory, and the generator both aliases it into
-    the QML module at that relative path and compiles a `qrc:/qt/qml/<Uri>/<view>` URL
-    from it, so an absolute or parent path yields an alias and a URL that name nothing.
-
-    Both spellings of a separator, and a drive-rooted Windows path, because SynQt builds
-    on Windows hosts too: PurePosixPath reads 'C:/views/Home.qml' as relative and
-    '..\\web\\A.qml' as one part with no '..' in it, so a POSIX-only rule would wave
-    through exactly the two escapes it advertises catching, on the host where they
-    resolve. The drive rule asks for the separator after the colon: 'C:/x' and 'C:\\x'
-    are the drive-rooted paths that escape, while 'a:b.qml' is a legal POSIX filename
-    and a perfectly good view.
-
-    This is the one place the rule lives. `synqt check` reports it early, by route and
-    by file. The generator refuses it again, because nothing makes `synqt build` run
-    the check.
+    The view becomes a module alias and a `qrc:/qt/qml/<Uri>/<view>` URL, so an absolute or
+    parent path names nothing. Both separators and drive-rooted Windows paths ('C:/x',
+    'C:\\x') are handled; 'a:b.qml' is a legal file name. `synqt check` reports it early,
+    and the generator refuses it too.
     """
     name = view_file_name(view)
     spelled = PurePosixPath(name)
@@ -1738,19 +1372,12 @@ def view_escapes_client_directory(view: str) -> bool:
 
 
 def normalize_route_path(path: str) -> str:
-    """A route path spelled the one way the runtime matcher can match.
+    """A route path spelled the one way the runtime matcher matches.
 
-    RoutePattern splits a pattern with Qt::SkipEmptyParts, so an empty segment is not a
-    segment: "/c", "/c/" and "/c//" all name one route. Rebuilding the path from its
-    non-empty segments is that same rule, so the root comes back as "/": it is the one
-    path that is nothing but slashes.
-
-    Public because two places need the identical spelling. `synqt check` compares a
-    router.fallback to the declared routes through this rule, so "/c//" is accepted as
-    the route "/c". The generator then writes the fallback through it too, because the
-    client looks the fallback up with RoutePattern::matches(), which tolerates only one
-    trailing slash: the raw "/c//" would match nothing and blank the page. One rule, so
-    the two never disagree about which route a fallback means.
+    RoutePattern skips empty segments, so "/c", "/c/" and "/c//" are one route and the root
+    is "/". `synqt check` compares router.fallback through this, and the generator writes
+    the fallback through it, since RoutePattern::matches() tolerates only one trailing
+    slash.
     """
     return "/" + "/".join(segment for segment in path.split("/") if segment)
 
@@ -1768,14 +1395,9 @@ def _view_file(view: str, route_path: Any = None) -> str:
 def is_remote_route(route: Dict[str, Any]) -> bool:
     """Whether `route` is delivered by the edge on demand rather than compiled in.
 
-    A remote route has a non-empty `remote:` and no usable `view:` (the two are mutually
-    exclusive. `check.lint_remote_pages` is what rejects a route setting both). `view:`
-    still wins here so a malformed remote-only route falls through to `route_view`'s
-    ordinary "declares no view" error rather than being silently treated as remote.
-
-    Public because `synqt check` asks the same question of the same route (it skips the
-    view-file existence check for a page the edge delivers), and a second copy of the
-    rule would let the two disagree about which routes carry a file.
+    A remote route has a non-empty `remote:` and no `view:`. `view:` wins, so a malformed
+    route reaches `route_view`'s "declares no view" error. `check.lint_remote_pages` rejects
+    a route that sets both. `synqt check` uses this too.
     """
     remote = route.get("remote")
     view = route.get("view")
@@ -1786,16 +1408,9 @@ def is_remote_route(route: Dict[str, Any]) -> bool:
 def route_view(route: Dict[str, Any]) -> str:
     """The QML file one route names, or refuse to generate.
 
-    A route with no `view` must not default to Main.qml, which is the window. A `Loader`
-    bound to `Router.pageComponent` inside Main.qml would then load the window inside
-    itself. `synqt check` reports this earlier and more kindly, but nothing makes
-    `synqt build` run the check, so the generator refuses it too rather than quietly
-    emitting the recursion.
-
-    A remote route (`remote:`, no `view:`) has nothing to compile in: it is delivered by
-    the edge, not carried by the client bundle. It returns an empty string rather than
-    raising, so the route stays in the generated route table with an empty componentUrl
-    -- that empty URL is exactly what the client Router keys `resolveRemote` on.
+    A route with no `view` must not default to Main.qml, the window, which would load inside
+    itself. A remote route returns "" and keeps an empty componentUrl, which the client
+    Router uses to call `resolveRemote`.
     """
     if is_remote_route(route):
         return ""
@@ -1810,16 +1425,9 @@ def routes_for(config: Dict[str, Any],
                entity: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """The route table one client entity owns.
 
-    A client entity may declare its own `routes:` block, which is what lets a project hold
-    more than one client. A gate and an application, or an application and an operator
-    console, each with its own table. The top-level `routes:` block stays as the shorthand
-    for a project with exactly one client, which is every project written before bundles
-    existed, so nothing that works today has to be rewritten.
-
-    An entity declaring `routes: []` has an empty table rather than a missing one. The distinction
-    matters. A client with no routes of its own is a real design (a gate that is one
-    page), and inheriting the application's table there would compile the application's
-    views into it.
+    A client may declare its own `routes:`. The top-level `routes:` is the shorthand for a
+    project with one client. `routes: []` is an empty table, not a missing one, so the
+    client does not inherit the application table.
     """
     if isinstance(entity, dict):
         own = entity.get("routes")
@@ -1829,12 +1437,8 @@ def routes_for(config: Dict[str, Any],
 
 
 def all_routes(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Every route any client in this project serves, in declaration order, deduplicated.
-
-    The edge's page list is the union rather than one client's table. A remote page is
-    delivered by the edge to whichever client navigates to it, so an edge serving a gate and
-    an application has to know about both. Two clients falling back to the same shorthand
-    yield that table once, which is why this deduplicates rather than concatenating.
+    """Every route any client serves, in declaration order, deduplicated. The edge needs the
+    union, because it delivers remote pages to any client.
     """
     clients = [entity for entity in entities(config) if is_client(entity)]
     if not clients:
@@ -1849,12 +1453,8 @@ def all_routes(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def route_views(config: Dict[str, Any],
                 entity: Optional[Dict[str, Any]] = None) -> List[str]:
-    """Every distinct view file the routes name, in declaration order, minus Main.qml.
-
-    Main.qml is in the client's QML module unconditionally (it is the window), so it is
-    listed by the caller and skipped here. A route naming it adds nothing. A remote
-    route is skipped outright. A page the edge delivers on demand is never compiled
-    into the client module.
+    """Every distinct view file the routes name, in declaration order, minus Main.qml (always
+    in the module) and remote routes (never compiled in).
     """
     views: List[str] = []
     for route in routes_for(config, entity):
@@ -1871,17 +1471,12 @@ def route_views(config: Dict[str, Any],
 # QML files an entity holds
 
 def discover_singletons(entity_dir: os.PathLike[str] | str) -> List[str]:
-    """The `pragma Singleton` QML files an entity declares (e.g. the arena's World.qml).
+    """The `pragma Shared` QML files an entity declares (the arena World.qml, for one).
 
-    A generated Source is a loose filesystem QML file the runtime loads by path, not a
-    member of a QML module, so a `pragma Singleton` alongside it is not auto-registered by
-    the module system. The entity's main.cpp registers each one as a singleton type (in the
-    "SynQt" module, named after the file), so a Source that consumes it (`World.steer(...)`)
-    resolves it by name. Returns the type names (file stems), sorted for determinism.
-
-    A context object cannot stand in. A context property's QML *functions* are not callable
-    cross-document, only its signals connect, so a shared world reached as `World.board()`
-    must be a registered singleton type.
+    A Source is a loose QML file loaded by path, so the module system does not register a
+    singleton beside it. The entity main.cpp registers each one in the "SynQt" module under
+    its file name. A context property cannot stand in: its QML functions are not callable
+    across documents. Returns the file stems, sorted.
     """
     directory = Path(entity_dir)
     if not directory.is_dir():
@@ -1890,26 +1485,18 @@ def discover_singletons(entity_dir: os.PathLike[str] | str) -> List[str]:
             if declares_singleton(qml_file)]
 
 
-#: What SynQt writes, and teaches, on a QML file there is one of. QML's own word for it is
-#: `Singleton`, which names a pattern; `Shared` names what the file is for, the way an
-#: entity's file is named after the entity. `synqt build` writes `pragma Singleton` into
-#: the copy under `generated/` that the engine loads
-#: (:func:`synqt.qmlrewrite.with_engine_pragmas`), so the word an author reads and the word
-#: the engine knows are each the right one in their own place.
+#: The pragma SynQt writes on a one-per-entity QML file. `synqt build` writes `pragma
+#: Singleton` into the engine copy under `generated/`
+#: (:func:`synqt.qmlrewrite.with_engine_pragmas`).
 SHARED_PRAGMA = "Shared"
 
-#: Both spellings a file may open with. `Singleton` is still read, because it is what QML
-#: itself says and a file carrying it means exactly the same thing. Nothing has to be
-#: rewritten for a project that already had one.
+#: Both spellings a file may open with. `Singleton` means the same.
 SINGLETON_PRAGMA = re.compile(r"^[ \t]*pragma[ \t]+(?:Singleton|Shared)\b", re.MULTILINE)
 
 
 def declares_singleton(qml_file: os.PathLike[str] | str) -> bool:
-    """Whether a QML file opens with `pragma Shared` (or QML's own `pragma Singleton`).
-
-    The one place that answer is spelled out. `discover_singletons` registers an entity's
-    singletons by path, and the client's QML module marks them QT_QML_SINGLETON_TYPE, and
-    the two must never disagree about what a singleton is.
+    """Whether a QML file opens with `pragma Shared` (or `pragma Singleton`). Used by
+    `discover_singletons` and the client QT_QML_SINGLETON_TYPE marking.
     """
     path = Path(qml_file)
     if not path.is_file():
@@ -1918,21 +1505,17 @@ def declares_singleton(qml_file: os.PathLike[str] | str) -> bool:
     return SINGLETON_PRAGMA.search(text) is not None
 
 
-# Directories under the client entity that are build output, generated, or vendored;
-# never sources to compile into the QML module. Anything whose name starts with a dot
-# (.git, .cache, and a hidden file such as .Scratch.qml) is skipped as well.
+# Directories under the client that are build output, generated or vendored. Dot-prefixed
+# names (.git, .cache, .Scratch.qml) are skipped too.
 _NOT_CLIENT_SOURCE_DIRS = {"build", "generated", "CMakeFiles", "node_modules"}
 
 
 def _refuse_shadowed_type_names(files: List[str]) -> None:
-    """Refuse two QML files that would register the client module's same type name.
+    """Refuse two QML files that would register one client type name.
 
-    Qt names a QML type after the file and not after the directory it sits in
-    (Qt6QmlMacros takes the NAME_WE of each QML_FILES entry), and every file here lands
-    in the one module-root qmldir, so `pages/Header.qml` and `widgets/Header.qml` would
-    both emit `Header 1.0` and one would silently shadow the other. Silent is the whole
-    problem: the build succeeds and the wrong component renders, so this refuses instead
-    and names both files.
+    Qt names a type after its file, not its directory, and every file lands in the one
+    module qmldir, so `pages/Header.qml` and `widgets/Header.qml` would both be `Header
+    1.0`.
     """
     seen: Dict[str, str] = {}
     for name in files:
@@ -1949,26 +1532,18 @@ def _refuse_shadowed_type_names(files: List[str]) -> None:
 def client_qml_files(config: Dict[str, Any],
                      client_dir: Optional[Path],
                      entity: Optional[Dict[str, Any]] = None) -> List[str]:
-    """Every QML file the client's module compiles in, relative to the client directory.
+    """Every QML file the client module compiles in, relative to the client directory.
 
-    Main.qml first (it is the window), then the views the routes name in declaration
-    order, then every other `*.qml` under the client entity's directory. The last group
-    is what makes a view self-contained. A view that instantiates a sibling `Card.qml`,
-    or reads a `pragma Singleton` `Theme.qml`, needs that file inside the same module or
-    it fails at load with "no such file".
-
-    Without `client_dir` (a caller rendering CMake from a config alone) only the first
-    two groups are known, which is the set this generator has always emitted.
-
-    Deduplicated by relative path, so a file that a route also names is listed once, and
-    refused outright when two different paths would claim one QML type name.
+    Main.qml first, then the route views in declaration order, then every other `*.qml`
+    under the client directory, so a view can use its siblings. Without `client_dir` only
+    the first two groups are known. Deduplicated by path; two paths claiming one type name
+    are refused.
     """
     files = ["Main.qml"] + route_views(config, entity)
     if client_dir is not None and client_dir.is_dir():
         for qml_file in sorted(client_dir.rglob("*.qml")):
             relative = qml_file.relative_to(client_dir)
-            # The dot rule covers the file too (client/.Scratch.qml is an editor's
-            # leftover, not a source). The directory names only ever name directories.
+            # The dot rule covers files too (client/.Scratch.qml).
             if any(part.startswith(".") for part in relative.parts):
                 continue
             if any(part in _NOT_CLIENT_SOURCE_DIRS for part in relative.parts[:-1]):

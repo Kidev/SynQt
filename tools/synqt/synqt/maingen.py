@@ -741,9 +741,10 @@ def render_client_main(config: Dict[str, Any], uri: str,
     # synclient.h only forward-declares them, and an incomplete type misses the QObject*
     # overload and falls through to the deleted QVariant(T*) one.
     includes = ['#include "clientlogging.h"', '#include "clientupdate.h"',
-                '#include "moduleimports.h"', '#include "router.h"',
-                '#include "serveraccessor.h"', '#include "session.h"',
-                '#include "synclient.h"', '#include "synclientconfig.h"']
+                '#include "moduleimports.h"', '#include "privacy.h"',
+                '#include "router.h"', '#include "serveraccessor.h"',
+                '#include "session.h"', '#include "synclient.h"',
+                '#include "synclientconfig.h"']
     for contract in contracts:
         includes.append(f'\n#include "{contract.lower()}_replica.h"  '
                         f'// synqtRegister{contract}Replicas()')
@@ -825,6 +826,28 @@ def render_client_main(config: Dict[str, Any], uri: str,
     # rather than sending a visitor to a route the edge does not serve. They come from the
     # same `identity:` block the edge is generated from (render_edge_main), so the client
     # cannot be pointed at a route the edge answers under another name.
+    # The `privacy:` block, always emitted: retention has a default a project inherits by
+    # saying nothing, and the three QML components read the rest through the Privacy
+    # accessor. Every value here is information a visitor is entitled to under Articles 13
+    # and 14, so none of it is a secret this target should not hold.
+    privacy = appmodel.privacy_settings(config)
+    privacy_lines = ""
+    for key, field in (("policy", "privacyPolicyUrl"), ("legal_notice", "legalNoticeUrl"),
+                       ("contact", "privacyContact")):
+        value = privacy.get(key)
+        if isinstance(value, str) and value.strip():
+            privacy_lines += (f'\n    config.{field} = '
+                              f'QStringLiteral("{cxx_string_literal(value.strip())}");')
+    privacy_lines += ("\n    config.retentionDays = %d;"
+                      % appmodel.retention_days(config))
+    categories = appmodel.cookie_categories(config)
+    if categories:
+        joined = ", ".join('QStringLiteral("%s")' % cxx_string_literal(name)
+                           for name in categories)
+        privacy_lines += f"\n    config.cookieCategories = {{{joined}}};"
+    if appmodel.erasure_offered(config):
+        privacy_lines += "\n    config.erasureOffered = true;"
+
     identity = appmodel.identity_settings(config)
     auth_lines = ""
     if identity:
@@ -969,9 +992,9 @@ int main(int argc, char *argv[])
     config.scopesHierarchical = {"true" if appmodel.scopes_hierarchical(config) else "false"};
     config.routerFallback = QStringLiteral("{cxx_string_literal(router_fallback)}");
     config.routerBase = QStringLiteral("{cxx_string_literal(router_base)}");
-    config.routes = {{{route_list}}};{palette_line}{notice_line}{auth_lines}
+    config.routes = {{{route_list}}};{palette_line}{notice_line}{auth_lines}{privacy_lines}
 
-    // The engine comes first: the Router builds each route's page component
+    // The engine comes first. The Router builds each route's page component
     // with it.
     QQmlApplicationEngine engine;
 
@@ -991,7 +1014,15 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("Session"), client->session());
     engine.rootContext()->setContextProperty(QStringLiteral("Router"), client->router());
     engine.rootContext()->setContextProperty(QStringLiteral("Graphics"), &graphics);
-    // `App` is a registered QML type, not a context property: that is what makes the
+    // What the app has to tell a visitor about their data, and what this visitor said back.
+    // A context property like Session, and built with the engine because its hasConsent
+    // check is a closure that has to live in one.
+    SynQt::Privacy privacy{{config, &engine}};
+    engine.rootContext()->setContextProperty(QStringLiteral("Privacy"), &privacy);
+    // LegalFooter, CookieConsent and DataErasureRequest, registered rather than made
+    // context properties. They are types an app instantiates.
+    SynQt::registerPrivacyTypes();
+    // `App` is a registered QML type, not a context property. That is what makes the
     // App.onUpdateReady attached-handler syntax resolve, and a type shadows a context
     // property of the same name inside JS expressions.
     SynQt::registerClientUpdate();

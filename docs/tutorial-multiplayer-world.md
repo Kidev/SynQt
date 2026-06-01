@@ -3,16 +3,16 @@
 
 # The arena the edge owns
 
-With the [empty scene running](tutorial-multiplayer.md), it is time to give the edge
-a world to own. This part declares what crosses the wire, adds a GitHub guest list,
-and puts the one authoritative arena, blobs, pellets, and all, in the edge's hands.
-Here the edge computes movement itself. Every blob's position is the edge's to decide.
+With the [empty scene running](tutorial-multiplayer.md), give the edge a world to own.
+This part declares what crosses the wire, adds a GitHub guest list, and puts the one
+authoritative arena (blobs, pellets and all) on the edge. The edge computes movement
+itself and decides every blob's position.
 
 ## Step 1: The shared arena (a connect point)
 
-One connect point carries the whole game, every blob's pose and size, the pellets on
-the map, a request to aim somewhere, and an event when one blob eats another. Add it to
-`synqt.yaml`:
+One connect point carries the whole game: every blob's position and size, the pellets
+on the map, a request to aim somewhere, and an event when one blob eats another. Add it
+to `synqt.yaml`:
 
 ```yaml
 connect_points:
@@ -34,29 +34,29 @@ connect_points:
 ```
 
 > [!NOTE]
-> The two `real` arguments of `steer` are not where the player is. They
-> are the point in the world the player is aiming at, the spot under their cursor.
-> The edge will walk the blob toward that goal at the speed the blob's mass allows,
-> and stop it when it arrives. The client never sends a position, so there is no
-> position to forge. That single choice, taking intent instead of state, is what
-> makes the movement honest. `ping` returns a value, so
-> calling it is an asynchronous request whose answer arrives later, which is exactly
-> what a round trip time needs. The `blobs` model lists six roles and only those six
-> cross to a browser. The edge keeps more per player (a GitHub subject id, an aim
-> point, timestamps) that never leaves it, because those fields are not in the model.
+> The two `real` arguments of `steer` are not the player's position. They are the point
+> the player aims at, under their cursor. The edge moves the blob toward that point at
+> the speed its mass allows and stops it on arrival. The client never sends a position,
+> so it has none to forge. Taking intent instead of state is what keeps movement honest.
+>
+> `ping` returns a value, so calling it is an asynchronous request whose answer arrives
+> later, which is what measuring a round trip needs. The `blobs` model lists six roles,
+> and only those six reach a browser. The edge keeps more per player (a GitHub subject
+> id, an aim point, timestamps), and none of it leaves the edge, because the model does
+> not list it.
 
 ## Step 2: Only approved players get in
 
-Add GitHub sign in:
+Add GitHub sign-in:
 
 ```cli
 synqt add auth github
 ```
 
-Follow the same one time GitHub setup as [the auction](tutorial-sign-in.md#step-1-add-authentication):
-register an OAuth app, put the Client ID in `synqt.yaml`, and the Client secret in
-`web/edge/.env` only. When that is done, anyone can sign in, but signing in is not the
-same as being allowed in. The guest list is a scope mapping.
+Do the same one time GitHub setup as in
+[the auction](tutorial-sign-in.md#step-1-add-authentication): register an OAuth app, put
+the Client ID in `synqt.yaml`, and put the Client secret only in `web/edge/.env`. Then
+anyone can sign in, but only guests get in. The guest list is a scope mapping.
 
 Declare the scopes in `synqt.yaml`:
 
@@ -66,8 +66,9 @@ scopes:
   default: anonymous
 ```
 
-Open the identity mapping hook `synqt add auth` scaffolded, `web/edge/identity/map.qml`,
-and grant the `player` scope only to GitHub usernames you approve:
+Open the identity mapping hook that `synqt add auth` scaffolded,
+`web/edge/identity/map.qml`, and grant the `player` scope only to GitHub usernames you
+approve:
 
 ```qml
 import SynQt
@@ -84,33 +85,33 @@ IdentityMapping {
 }
 ```
 
-`identity.login` is the GitHub username. `identity.sub` (used all over the edge
-below) is the stable subject id GitHub assigns, which is what keys a player even if
-they change their display name. Everyone who signs in gets a real identity, but only
-approved logins reach the `player` scope, and the connect point below requires it.
+`identity.login` is the GitHub username. `identity.sub` (used throughout the edge below)
+is the stable subject id GitHub assigns, so it identifies a player even if they change
+their display name. Everyone who signs in gets a real identity, but only approved logins
+reach the `player` scope, which the connect point requires.
 
-`Scope` comes from this project's `scopes.order: [anonymous, player]`, generated
-beside the hook. Two members, because this game has two kinds of visitor, and no way to
-return a third by accident.
+`Scope` is generated from this project's `scopes.order: [anonymous, player]`. It has two
+members because the game has two kinds of visitor, so the hook cannot return a third by
+accident.
 
 ## Step 3: The edge owns the arena, once
 
-This is the heart of the game. The edge holds the one authoritative arena, the roster
-of players (with private bookkeeping the browser never sees), the pellets, and a
-simulation loop that moves every blob, feeds it, and resolves who eats whom.
+This is the core of the game. The edge holds the one authoritative arena: the roster of
+players (with private bookkeeping the browser never sees), the pellets, and a simulation
+loop that moves every blob, feeds it, and decides who eats whom.
 
-It goes in two files, and which one is which matters. The edge here says `shared: false`,
-so each browser session gets its own Source, which is what gives its slots a `Caller` to
-check and lets each player be sent only their own slice. There is still exactly one arena
-however many people are playing, and something that outlives any one session has to live
-somewhere none of them owns, a `pragma Shared` file of the edge's own, `World.qml`. Each
-Source is then a thin layer over the one arena.
+The code goes in two files. The edge says `shared: false`, so each browser session gets
+its own Source. That gives its slots a `Caller` to check, and lets the edge send each
+player only their own slice. But there is exactly one arena however many people play,
+and state that outlives every session must live where no session owns it: a
+`pragma Shared` file of the edge's own, `World.qml`. Each Source is a thin layer over
+that one arena.
 
 ### The arena itself, `web/edge/World.qml`
 
-One of it, for as long as the edge runs. `pragma Shared` is what says so, and every
+There is one `World` for as long as the edge runs; `pragma Shared` says so, and every
 Source the edge owns reaches it as `World`. It has no `Caller`, so it decides nothing
-about who may do what; it is handed a player and told to act.
+about permissions. It receives a player and acts.
 
 ```qml
 pragma Shared                         // one instance for the whole edge
@@ -278,10 +279,9 @@ Item {
 
 ### One player's view of it, `web/edge/Edge.qml`
 
-The connect point Source, one per browser session. It is where the caller arrives, so it
-is where the rules are. Only an approved player may steer, and the name stamped on a blob
-comes from `Caller.identity`, never from an argument. Then it publishes what the world
-holds.
+The connect point Source, one per browser session. The caller arrives here, so the rules
+live here: only an approved player may steer, and a blob's name comes from
+`Caller.identity`, never from an argument. Then it publishes what the world holds.
 
 ```qml
 import SynQt
@@ -323,27 +323,24 @@ Edge {
 ```
 
 > [!NOTE]
-> The client is trusted with very little. It supplies exactly one thing, an aim
-> point, and even that is clamped into the map. Position, speed, growth, and who eats
-> whom are all computed here, from state the edge alone holds. The `name` comes from
-> `Caller.identity.login`, never from an argument. There is no slot a client can call
-> to place itself, change its mass, or eat a bigger blob, because none of those are
-> inputs at all. This is the auction's "a consumer asks, the owner decides," taken to
-> the point where the only thing the consumer even can ask for is a direction to
-> lean.
+> The client supplies one thing, an aim point, and even that is clamped to the map. The
+> edge computes position, speed, growth and who eats whom from state only it holds. The
+> `name` comes from `Caller.identity.login`, never from an argument. No slot lets a client
+> place itself, change its mass or eat a bigger blob, because none of those are inputs.
+> This is the auction's rule taken to its limit: the only thing a consumer can ask for is
+> a direction.
 
 > [!NOTE]
-> Each session's Source pushes the whole roster every
-> tick, twenty times a second, so the work grows with the square of the player count.
-> For a handful of friends this is nothing. The pellet field already does the lighter
-> thing, republishing only when a pellet moved (`pelletsVersion`), and [the last
-> part](tutorial-multiplayer-run.md) takes the bigger step of sending each player only the
-> blobs and pellets near them, so the payload stops growing with the whole arena. The
-> split you wrote is what makes that a change to one file. The simulation is already
-> in one place, and only what each Source publishes has to narrow.
+> Each session's Source pushes the whole roster every tick, twenty times a second, so
+> the work grows with the square of the player count. For a few friends this costs
+> nothing. The pellet field already republishes only when a pellet moved
+> (`pelletsVersion`). [The last part](tutorial-multiplayer-run.md) goes further and sends
+> each player only the blobs and pellets near them, so the payload stops growing with the
+> arena. Thanks to the split you wrote, that changes one file: the simulation is already
+> in one place, and only what each Source publishes narrows.
 
-The connect point is already declared, from step 1. What is left is the one line on
-the entity that makes its Source per player, in `synqt.yaml`:
+The connect point is already declared in step 1. What remains is the line on the entity
+that makes its Source per player, in `synqt.yaml`:
 
 ```yaml
 entities:
@@ -354,24 +351,24 @@ entities:
     shared: false
 ```
 
-`scope: player` on the connect point is doing real work. A signed in visitor who is
-not on the guest list never has `arena` acquired for them, so they cannot call `steer`
-or even see the roster. The gate is the connect point rather than the UI.
+`scope: player` on the connect point is the real gate. For a signed-in visitor who is not
+on the guest list, the edge never acquires `arena`, so they cannot call `steer` or even
+see the roster. The connect point is the gate, not the UI.
 
 ## Why this movement is honest
 
-The auction refused a bid that did not beat the standing one. A naive game would
-refuse a position that moved too far. But you never gave the client a position to
-send. The edge takes an aim point and integrates the blob's motion itself, one tick
-at a time, at `speedFor(mass)` units per second:
+The auction refused a bid that did not beat the standing one. A naive game would refuse
+a position that moved too far. Here the client has no position to send at all. The edge
+takes an aim point and moves the blob itself, one tick at a time, at `speedFor(mass)`
+units per second:
 
-- A client that spams `steer` with a far corner does not jump there. It crawls there
-  at its size's speed, one tick's budget at a time.
-- A client that stops calling `steer` keeps its last goal, then goes stale and
-  drops after five seconds.
+- A client that spams `steer` toward a far corner does not jump there. It crawls there at
+  its size's speed, one tick at a time.
+- A client that stops calling `steer` keeps its last goal, then goes stale and is dropped
+  after five seconds.
 - A client cannot grow without eating, cannot eat a blob its own size or larger, and
-  cannot claim a name, because mass and identity are the edge's rather than arguments.
+  cannot claim a name: mass and identity belong to the edge, not to arguments.
 
-There is nothing to reconcile and no correction to send back, because the client was
-never the authority on where it is. The client asks for a direction to lean, and the
-edge decides everything that follows from it.
+There is nothing to reconcile and no correction to send back, because the client never
+had authority over its position. It asks for a direction, and the edge decides the
+rest.

@@ -5,8 +5,7 @@
 
 This file is what every column in `benchmarks/vs-frameworks/` is held to, and what you read
 before adding one. It exists because a table is only a comparison if every cell in it was
-produced the same way. A column measured differently is a different number wearing the
-table's formatting.
+produced the same way.
 
 The reference implementations are [`node/measure.mjs`](node/measure.mjs) (the shared
 measurement half of the Node columns) and [`bench_live.cpp`](bench_live.cpp) (the SynQt and
@@ -73,8 +72,8 @@ Two columns cannot honour this, and both say so where their number is reported:
   the interval is still an interval, but it includes an inter-process hop no other column
   pays.
 
-A column that cannot honour a rule here does not get a quiet exemption. It gets a sentence,
-in the README, in the same paragraph as its number.
+A column that cannot honour a rule here gets a sentence, in the README, in the same
+paragraph as its number, never a quiet exemption.
 
 ## The window
 
@@ -92,21 +91,20 @@ Per subscriber count, in order:
    changes, so the SynQt column cannot open-loop at all.
 5. **Drain**: 500 ms in fixed-rate mode, so frames still in flight land inside the window.
    Without it the tail of every run reads as loss that is really the harness stopping first.
-   Saturation mode needs no drain: it already waits for each frame.
+   Saturation mode needs no drain, because it already waits for each frame.
 6. **Tear down** every subscriber and the server before the next size, so a size is not
    measured with the previous one's sockets still open.
 
-`expected` is `ticks * subscribers`. **`delivered` must equal `expected`.** A column that
-dropped frames is not a faster column, it is a broken one, and every other number in it is a
-figure over the survivors.
+`expected` is `ticks * subscribers`. `delivered` must equal `expected`. A column that
+dropped frames is broken, and every number in it is a figure over the survivors rather than
+over the workload.
 
 ## The runtime
 
 A column names the runtime version it ran on, in the result file, under
 `<runtime>_version`: `qt_version`, `node_version`, `go_version`, and so on for whatever the
 column is. `compare.py` reads whichever key is there and prints it above the table, and
-`benchmarks/baselines.py` refuses a result that carries none. A number nobody can attribute
-to a version is not a measurement of anything.
+`benchmarks/baselines.py` refuses a result that carries none.
 
 The harness resolves the version rather than taking it from PATH. `node` on PATH is whichever
 version a shell last selected, and a row that moved because of that is a comparison of two
@@ -203,5 +201,4 @@ statistics.
    and dropped frames is the failure mode to look for, and it is the one `delivered ==
    expected` catches.
 
-Every column is printed, including one that loses. A comparison that prints only its
-winner is an advertisement.
+Every column is printed, including one that loses.

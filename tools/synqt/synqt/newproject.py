@@ -197,19 +197,29 @@ def _config(name: str, entities: List[Dict[str, Any]]) -> Dict[str, Any]:
         # No `origin_model`. Absent means same-origin, which is what a scaffold should be: the
         # session cookie is first-party, so nothing here depends on a browser policy that is
         # being withdrawn. `split_origin` is written by hand, by someone who has read what it
-        # costs; see docs/project-layout-and-config.md.
+        # costs. See docs/project-layout-and-config.md.
         "project": {"name": name, "version": "0.1.0", "qt_version": QT_VERSION},
         "scopes": {"order": ["anonymous", "user", "moderator", "admin"],
                    "hierarchical": True, "default": "anonymous"},
         "security": {"allowed_origins": ["self"], "cross_origin_isolation": False},
-        # Single-threaded WASM runs in every browser; set client_threads: multi to build the
-        # threaded client (implies cross-origin isolation; needs COOP/COEP, emitted for you).
+        # Single-threaded WASM runs in every browser. Set client_threads. Multi to build the
+        # threaded client (implies cross-origin isolation. Needs COOP/COEP, emitted for you).
         "build": {"client_threads": "single"},
         # On from the first commit, while the QML is still format-clean: adopting a
         # formatter later means one enormous reformatting diff nobody reviews. It reports,
         # never rewrites, and never fails the check. The rules are the project's own
-        # .qmlformat.ini; edit it or set this to false.
+        # .qmlformat.ini. Edit it or set this to false.
         "check": {"qml_format": True},
+        # Written empty rather than left out, so the keys a European app has to fill in are
+        # in front of whoever opens this file rather than in a document they have to know to
+        # look for. Empty values are the same as no block: LegalFooter leaves out a link it
+        # has no URL for, and `synqt check` says which ones are still blank.
+        #
+        # `cookies` stays empty, and it is not an oversight. The session credential is
+        # strictly necessary and exempt under Article 5(3) of the ePrivacy Directive, so a
+        # project that adds no other cookie needs no banner at all. Adding a category here is
+        # what makes CookieConsent appear. See docs/privacy.md.
+        "privacy": {"policy": "", "legal_notice": "", "contact": "", "cookies": []},
         "entities": entities,
         "connect_points": [],
     }

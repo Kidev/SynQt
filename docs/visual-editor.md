@@ -227,10 +227,10 @@ mapping hook answers with. Each of those is then a scope the project does not de
 [the change sheet](#nothing-is-written-until-you-have-read-it) names every one of them
 and Apply stays refused until you say what they hold now.
 
-That is deliberate. Working out that a row was typed over, rather than one scope removed and
-another added, means guessing it from the list before and the list after, and a guess that
-lands wrong edits a gate, or somebody's mapping hook, on a coincidence. A refusal that names
-the exact gate is something to act on; a file quietly rewritten is not. A scope that is still
+Working out that a row was typed over, rather than one scope removed and another added,
+means guessing it from the list before and the list after, and a guess that lands wrong edits
+a gate, or somebody's mapping hook, on a coincidence. A refusal that names the exact gate is
+something to act on. A file quietly rewritten is not. A scope that is still
 named somewhere cannot be removed either, and there the remover says where it is still named
 before you press it.
 

@@ -102,18 +102,32 @@ struct SynClientConfig
     int reconnectMaxMs{10000};
     int heartbeatMs{2000};
 
-    /// How long the client waits on the edge to say something, per attempt: the native
-    /// client's own HTTP requests (the session bootstrap, the sign-in claim, a device
-    /// redemption, the sign-out), and the socket handshake on both targets.
-    ///
-    /// There has to be a limit. A socket that is accepted and then answered by nobody is
-    /// not an error and never becomes one: it is what a hung reverse proxy and a load
-    /// balancer in front of a dead backend both look like, and every one of those waits is
-    /// a step the rest of the client is behind. Without this, one of them stalling is an
-    /// app that sits on its first frame for as long as it is left running, with no state
-    /// change to notice it by; with it, the wait ends and the ordinary reconnect backoff
-    /// takes over.
+    /// How long the client waits on the edge, per attempt: the native client's own HTTP requests
+    /// (session bootstrap, sign-in claim, device redemption, sign-out) and the socket handshake
+    /// on both targets. A hung proxy or a dead backend answers nothing, so the wait ends here and
+    /// the reconnect backoff takes over.
     int requestTimeoutMs{15000};
+
+    /// The project's `privacy:` block, read by the Privacy accessor and the three QML types it
+    /// backs. All of it is public information (GDPR Articles 13 and 14). `privacyPolicyUrl` and
+    /// `legalNoticeUrl` are an application route or an absolute URL, empty when undeclared;
+    /// `privacyContact` is the controller contact; `retentionDays` is how long personal data is
+    /// kept.
+    QString privacyPolicyUrl;
+    QString legalNoticeUrl;
+    QString privacyContact;
+    int retentionDays{0};
+
+    /// The non-essential cookie categories the project declared. Empty is the default and
+    /// the common case. The session credential is exempt under Article 5(3) of the ePrivacy
+    /// Directive, so a project that adds no other cookie has nothing to ask about and shows
+    /// no banner.
+    QStringList cookieCategories;
+
+    /// Whether the app offers a signed-in visitor a data erasure request. Off unless the
+    /// project turns it on, because the component only makes sense where somebody has
+    /// undertaken to act on what it sends.
+    bool erasureOffered{false};
 };
 
 } // namespace SynQt

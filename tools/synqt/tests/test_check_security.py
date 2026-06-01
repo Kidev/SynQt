@@ -422,7 +422,11 @@ class MeshCertificateTest(unittest.TestCase):
         (self.root / "synqt" / "mesh" / "ca.crt").write_text("ca")
         for name in ("web", "database"):
             (dev_dir / f"{name}.crt").write_text("dev cert")
-        self.assertEqual(warnings(config, project_dir=self.root), [])
+        # Scoped to the certificate warning rather than to the whole list: this case is
+        # about what `synqt dev` has already issued, and an assertion that the project warns
+        # about nothing at all fails the next time any unrelated rule learns to say something.
+        found = warnings(config, project_dir=self.root)
+        self.assertEqual([m for m in found if "certificate" in m], [], found)
         failures = errors(config, project_dir=self.root, starting=True)
         self.assertTrue(any("no certificate" in m for m in failures), failures)
 

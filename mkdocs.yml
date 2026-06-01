@@ -231,6 +231,7 @@ nav:
       - Security:
           - Overview: security.md
           - Content-Security-Policy: csp.md
+          - Privacy and the GDPR: privacy.md
       - Running it:
           - Running in containers: docker.md
           - Deploying: deploying.md

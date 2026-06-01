@@ -7,15 +7,8 @@
 # here; never HttpServer, NetworkAuth, or Sql (the client never listens, holds secrets,
 # or touches storage).
 
-# GLOBAL so the imported Qt targets this library PUBLIC-links (notably Qt6::Qml, inherited
-# through the public consumer surface) stay visible when a consuming executable is finalized,
-# even if that executable's own find_package did not list the component. See the note in
-# src/consumer/CMakeLists.txt: the promotion belongs to the add_subdirectory'd leaf, not each
-# consumer, and prevents the "Qml target mentioned as a dependency but not declared" warning.
-# Gui is here for one call: QDesktopServices::openUrl, which is how the native desktop
-# build hands a sign-in to the system browser. Both client targets link Gui anyway (a client
-# renders QML), and on the WebAssembly build the object file that uses it is never pulled
-# out of this static library, because nothing on that side references it.
+# GLOBAL: see the note in src/service/CMakeLists.txt. Gui is for QDesktopServices::openUrl
+# in the desktop sign-in.
 find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Network WebSockets Qml RemoteObjects GLOBAL)
 
 # synqt_add_contract, for the SessionState connect point below.
@@ -53,6 +46,8 @@ qt_add_library(SynQtClient STATIC
     graphicsprobe.h
     loopbackreceiver.cpp
     loopbackreceiver.h
+    privacy.cpp
+    privacy.h
     qmlpalette.cpp
     qmlpalette.h
     remotepageloader.cpp
@@ -73,12 +68,8 @@ qt_add_library(SynQtClient STATIC
 
 set_target_properties(SynQtClient PROPERTIES AUTOMOC ON)
 
-# Where a native client keeps the device credential that lets a visitor stay signed in
-# between launches. One store per platform, chosen here rather than at runtime, and nothing
-# at all on WebAssembly (no OS store, and the browser keeps the session cookie itself).
-#
-# There is deliberately no fallback that writes a file. A platform with no store persists
-# nothing and its visitor signs in once per launch; see src/client/nullstore.h.
+# The device credential store, one per platform, none on WebAssembly. No file fallback
+# (src/client/nullstore.h).
 if(APPLE)
     target_sources(SynQtClient PRIVATE keychainstore.cpp keychainstore.h)
     target_link_libraries(SynQtClient PRIVATE "-framework Security"
@@ -87,10 +78,7 @@ elseif(WIN32)
     target_sources(SynQtClient PRIVATE credentialmanagerstore.cpp credentialmanagerstore.h)
     target_link_libraries(SynQtClient PRIVATE Advapi32)
 elseif(UNIX AND NOT EMSCRIPTEN)
-    # libsecret (LGPL-2.1), the supported way in to org.freedesktop.secrets. Optional at
-    # configure time: a build host without the development package still produces a working
-    # client, one that does not stay signed in. It is reported either way, because "the app
-    # forgets me on Linux" must be traceable to a line in a build log.
+    # libsecret (LGPL-2.1). Optional; without it the client does not stay signed in.
     find_package(PkgConfig QUIET)
     if(PkgConfig_FOUND)
         pkg_check_modules(LIBSECRET QUIET libsecret-1)
@@ -110,14 +98,17 @@ endif()
 
 target_include_directories(SynQtClient PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# The framework's own SessionState connect point, at the consumer role: the edge owns it
-# (src/edge/contracts/) and this is the side that acquires it, so what the client compiles
-# is a Replica and never a Source. One file, read by both libraries, because an owner and a
-# consumer that disagree about a contract are a link that silently carries nothing.
-#
-# Built into the runtime rather than generated per app, because every
-# client has a session whatever its topology says, so `Session.scope` and
-# `Session.identity` must arrive in a project that declares no connect points at all.
+# The privacy components. Keep this prefix in step with the URLs in registerPrivacyTypes().
+qt_add_resources(SynQtClient "synqt_privacy_qml"
+    PREFIX "/qt/qml/SynQt/privacy"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/privacy"
+    FILES
+        privacy/LegalFooter.qml
+        privacy/CookieConsent.qml
+        privacy/DataErasureRequest.qml
+)
+
+# The SessionState replica. The contract file is shared with src/edge, which owns it.
 synqt_add_contract(SynQtClient ROLE replica
     SYN "${CMAKE_CURRENT_SOURCE_DIR}/../edge/contracts/SessionState.syn")
 

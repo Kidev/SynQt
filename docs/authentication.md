@@ -29,29 +29,29 @@ Concretely, the defaults baked in by `synqt add auth`:
 - A random state value on every authorization request (CSRF defense). The framework
   generates it itself with a cryptographic RNG and verifies it on the callback. Qt
   6.12 does generate one when none is set, and the framework still sets its own,
-  because the state is not only a CSRF token here: it is the key the pending login is
-  filed under. The PKCE verifier, the OIDC nonce and the browser binding are stored
-  against it before the browser ever leaves, and the callback is answered by looking
-  the state up and finding them. A value the framework only learns after the request
-  is built cannot be that key.
+  because the state is also the key the pending login is filed under. The framework
+  stores the PKCE verifier, the OIDC nonce and the browser binding against it before
+  the browser leaves, and answers the callback by looking the state up and finding
+  them. A value the framework only learns after the request is built cannot be that
+  key.
 - A session credential delivered as an httpOnly, Secure, SameSite cookie. httpOnly
-  keeps it unreadable by page script (so a cross site scripting bug cannot steal
-  it); Secure keeps it on TLS only; SameSite blunts cross site request forgery.
+  keeps it unreadable by page script, so a cross site scripting bug cannot steal
+  it. Secure keeps it on TLS only. SameSite blunts cross site request forgery.
 - Access, refresh, and ID tokens kept on the edge, associated with the session,
   never sent to the browser, never logged.
 - ID token signature verification against the provider JWKS when ID tokens are used
-  for identity, because Qt does not verify ID tokens out of the box. Qt also has no
-  JWT or JWKS API at all, so the framework performs the verification with the
-  pinned `jwt-cpp` library (MIT, via vcpkg), fetching and caching the provider JWKS
-  with QNetworkAccessManager; no hand rolled cryptography.
+  for identity, because Qt does not verify ID tokens itself. Qt has no JWT or JWKS
+  API, so the framework verifies with the pinned `jwt-cpp` library (MIT, via vcpkg)
+  and fetches and caches the provider JWKS with QNetworkAccessManager. There is no
+  hand rolled cryptography.
 - A nonce on every OpenID Connect authorization request, checked against the `nonce`
   claim of the ID token that comes back. It is what binds that token to this login
   rather than to one replayed from somewhere else, and it is a separate control from
-  the state above: state protects the callback, the nonce protects the token. Exactly
-  one is sent, which is worth saying because Qt adds one of its own whenever the scope
-  contains `openid`: the framework hands Qt its own random value rather than a second
-  parameter beside it, since a request carrying `nonce` twice is malformed
-  ([RFC 6749 section 3.1](https://www.rfc-editor.org/rfc/rfc6749#section-3.1)) and a
+  the state above. State protects the callback and the nonce protects the token.
+  Exactly one nonce is sent. Qt adds one of its own whenever the scope contains
+  `openid`, so the framework hands Qt its own random value rather than adding a
+  second parameter beside it. A request carrying `nonce` twice is malformed
+  ([RFC 6749 section 3.1](https://www.rfc-editor.org/rfc/rfc6749#section-3.1)), and a
   provider that enforces that refuses the login outright.
 - Session expiry and rotation: a bounded lifetime, and a fresh session id when
   privilege changes, to limit the value of a stolen session and prevent session
@@ -122,8 +122,8 @@ value another entity already serves on.
 **Nothing about the login is faked except the provider.** The random state, the PKCE
 challenge, the code exchange, the ID token and its signature check against the JWKS, the
 [mapping hook](#the-identity-mapping-hook), the session and its httpOnly cookie are the
-ones a real provider's login goes through. That is deliberate: a development sign-in that
-took a shortcut past the flow would be exercising something other than what ships.
+ones a real provider's login goes through. A development sign-in that took a shortcut past
+the flow would be exercising something other than what ships.
 
 It is also why a dev user is an *identity* rather than a scope. Sign in as one of the
 people above and you get whatever your own `map.qml` returns for them, so to reach

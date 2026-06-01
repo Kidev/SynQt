@@ -826,6 +826,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _public_origin_messages(config, release)
     messages += _cdn_delivery_messages(config)
     messages += _loading_messages(config)
+    messages += _privacy_messages(config)
     for name in sorted(entities):
         messages += _provider_messages(name, entities[name])
         messages += _provider_secret_messages(name, entities[name])
@@ -1953,6 +1954,86 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str]) -> 
             f"error: scopes.default is '{default}', which is not in scopes.order "
             f"({', '.join(scope_order)}); every new session would start with a scope that "
             "matches nothing")
+    return messages
+
+
+def _privacy_messages(config: Dict[str, Any]) -> List[str]:
+    """The `privacy:` block: its shape, and the one thing about it that is a refusal.
+
+    Everything here is information a visitor is entitled to under Articles 13 and 14, so a
+    malformed value is a page that tells them the wrong thing. The refusal is `erasure: true`
+    with nothing to erase through. The component sends the request no further than the app,
+    so a project that offers the button without a signed-in visitor to attach it to has
+    published a promise nobody can keep.
+    """
+    messages: List[str] = []
+    privacy = config.get("privacy")
+    if privacy is None:
+        # A note rather than a refusal. Whether an app owes anybody a privacy policy depends
+        # on where its visitors are and what it collects, which is not something a config
+        # file can answer, so this says where the block is and moves on. It fires once, on a
+        # project that serves a browser at all.
+        if any(appmodel.is_client(entity) for entity in config.get("entities") or []):
+            messages.append(
+                "warn: this project declares no `privacy:` block, so its client has no "
+                "privacy policy link, no legal notice and no retention period of its own "
+                "(it inherits %d days). See docs/privacy.md"
+                % appmodel.DEFAULT_RETENTION_DAYS)
+        return messages
+    if not isinstance(privacy, dict):
+        return [f"error: privacy must be a map, not {type(privacy).__name__}"]
+
+    blank: List[str] = []
+    for key in ("policy", "legal_notice", "contact"):
+        value = privacy.get(key)
+        if value is not None and not isinstance(value, str):
+            messages.append(f"error: privacy.{key} must be text, not {value!r}")
+        elif not (value or "").strip():
+            blank.append(key)
+    # `synqt new` writes these three empty, so the keys are in front of whoever opens the
+    # file. This is what asks about them again later. A note rather than a refusal: an app
+    # served to one office does not need a public legal notice, and no config file knows
+    # which app this is.
+    if blank and any(appmodel.is_client(entity) for entity in config.get("entities") or []):
+        messages.append(
+            "warn: privacy." + ", privacy.".join(blank) + " "
+            + ("is" if len(blank) == 1 else "are")
+            + " blank, so LegalFooter leaves "
+            + ("that link" if len(blank) == 1 else "those entries")
+            + " out. See docs/privacy.md")
+
+    retention = privacy.get("retention_days")
+    if retention is not None:
+        if isinstance(retention, bool) or not isinstance(retention, int):
+            messages.append(
+                f"error: privacy.retention_days must be a whole number of days, "
+                f"not {retention!r}")
+        elif retention <= 0:
+            messages.append(
+                f"error: privacy.retention_days is {retention}, which is not a period; "
+                f"leave it out to inherit the default of "
+                f"{appmodel.DEFAULT_RETENTION_DAYS} days, or name the period this project "
+                "actually keeps personal data for")
+
+    cookies = privacy.get("cookies")
+    if cookies is not None and not isinstance(cookies, list):
+        messages.append(
+            f"error: privacy.cookies must be a list of category names, not {cookies!r}")
+    elif isinstance(cookies, list):
+        for item in cookies:
+            if not isinstance(item, str) or not item.strip():
+                messages.append(
+                    f"error: privacy.cookies holds {item!r}, which is not a category name")
+
+    erasure = privacy.get("erasure")
+    if erasure is not None and not isinstance(erasure, bool):
+        messages.append(f"error: privacy.erasure must be true or false, not {erasure!r}")
+    elif erasure is True and not appmodel.identity_settings(config):
+        messages.append(
+            "error: privacy.erasure is on, but this project configures no identity, so no "
+            "visitor is ever signed in and DataErasureRequest would never appear. Configure "
+            "`identity:`, or take the key out")
+
     return messages
 
 

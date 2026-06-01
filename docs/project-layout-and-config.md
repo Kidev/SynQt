@@ -1065,14 +1065,40 @@ neither file overwrites a variable the real environment already set, so a contai
 secret store always outranks a file on disk. A deployment that sets its variables
 directly needs no file at all.
 
+### `privacy` (what a visitor is told about their data)
+
+Optional. It feeds the three QML types `LegalFooter`, `CookieConsent` and
+`DataErasureRequest`, and the `Privacy` accessor behind them. Every value is public
+information a visitor is entitled to under Articles 13 and 14 of the GDPR, so all of it is
+safe in a client served to anyone. [Privacy and the GDPR](privacy.md) is the page.
+
+```yaml
+privacy:
+  policy: /privacy                 # a route in this app, or an absolute URL
+  legal_notice: /legal             # the imprint most member states require
+  contact: privacy@example.com     # the controller contact
+  retention_days: 365              # how long this project keeps personal data
+  cookies: []                      # non-essential cookie categories
+  erasure: true                    # offer a signed-in visitor an Article 17 request
+```
+
+| key | default | meaning |
+|-----|---------|---------|
+| `policy` | none | Where the privacy policy is. `LegalFooter` leaves the link out when unset rather than pointing at a page that does not exist. |
+| `legal_notice` | none | Where the legal notice is, on the same terms. |
+| `contact` | none | The controller contact a visitor writes to. |
+| `retention_days` | `730` | How long the project keeps personal data. The default fills a gap for a project that never named a period; a project that names one keeps what it named, shorter or longer. |
+| `cookies` | `[]` | The non-essential cookie categories this project sets. Empty means no consent banner, which is correct for a project whose only cookie is the session credential, since that one is strictly necessary and exempt under Article 5(3) of the ePrivacy Directive. |
+| `erasure` | `false` | Whether the client offers a signed-in visitor an erasure request. `DataErasureRequest` hands the request to a slot the app connects, so this is the project saying somebody acts on it. Turning it on without an `identity:` block is refused, because nobody there is ever signed in. |
+
 ### `router` and `routes` (client navigation)
 
 `router` holds the navigation mode, the fallback, the prefix the app is served
-under, and the remote-page palette; `routes` is a block sequence of path to page
+under, and the remote-page palette. `routes` is a block sequence of path to page
 mappings, optionally scope gated. Both are top-level keys in `synqt.yaml`, siblings
-of `project` and `entities`, not nested under any `client` block. Together they are
+of `project` and `entities`, and not nested under any `client` block. Together they are
 the route table the client's [`Router`](runtime-api.md#client-router) resolves every
-URL against; [routes and URLs](routing.md) is what that resolution does, end to end.
+URL against. [Routes and URLs](routing.md) is what that resolution does, end to end.
 
 ```yaml
 router:
@@ -1392,16 +1418,16 @@ Either way the edge sends `Cache-Control: no-cache` on every bundle file, which
 means revalidate rather than do not store. That is what makes the `304` cheap,
 and what stops a browser pinning a stale worker.
 
-`synqt dev` always behaves as `http`: a worker serving a cached shell would fight
+`synqt dev` always behaves as `http`, because a worker serving a cached shell would fight
 the file watcher's live reload, so the dev script also unregisters any worker a
 production build left on the same origin.
 
 ### `build.desktop`
 
 A nested map under `build`, present only when the client entity lists `desktop` in
-its `targets`. A native client is not served by the edge, so unlike the browser
-client it cannot read the edge's address off the page it was delivered on: it has
-to be told. That is the whole of this section. Full treatment in
+its `targets`. The edge does not serve a native client, so unlike the browser
+client it cannot read the edge's address off the page it was delivered on. It has
+to be told, and this section is where. Full treatment in
 [desktop clients](desktop.md).
 
 ```yaml

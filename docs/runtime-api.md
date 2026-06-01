@@ -22,6 +22,7 @@ in an owned connect point's implementation.
 | `Session` | client entity QML | read-only session state, plus `login()` / `logout()` |
 | `Router` | client entity QML | scope-gated navigation over the route table, and the browser's address bar |
 | `App` | client entity QML | the running client itself: whether a newer build is ready, and applying it |
+| `Privacy` | client entity QML | what the project declared about a visitor's data, and what this visitor answered |
 | `Caller` | any owner slot (any entity) | who invoked this slot: a browser user, or a calling entity |
 | `Client` | web edge owner slots | alias for `Caller` when the caller is a browser user |
 | generated Source | an owned connect point's implementation | the owner-side write surface (`set<Model>`, property setters, signals) |
@@ -366,8 +367,45 @@ Replace the notice itself with `client.graphics_notice` in `synqt.yaml`.
 
 Ordinary 2D Qt Quick renders in software without any change.
 [Qt Quick 3D](https://doc.qt.io/qt-6/qtquick3d-index.html), `ShaderEffect` and
-[Qt Quick Effects](https://doc.qt.io/qt-6/qtquickeffects-qmlmodule.html) do not: they draw
+[Qt Quick Effects](https://doc.qt.io/qt-6/qtquickeffects-qmlmodule.html) do not. They draw
 nothing at all, which is what the notice explains.
+
+## Client: `Privacy`
+
+What the project's [`privacy:` block](project-layout-and-config.md#privacy-what-a-visitor-is-told-about-their-data)
+declared, and what this visitor said back. It is the accessor behind `LegalFooter`,
+`CookieConsent` and `DataErasureRequest`. An app that uses those three needs none of this
+directly, and an app writing its own banner uses it instead of them.
+
+| Member | Type | Meaning |
+|--------|------|---------|
+| `Privacy.policyUrl` | string | where the privacy policy is, empty when the project declared none. |
+| `Privacy.legalNoticeUrl` | string | where the legal notice is, on the same terms. |
+| `Privacy.contact` | string | the controller contact. |
+| `Privacy.retentionDays` | int | how long the project keeps personal data, so a page can state the period without a second copy of the number. |
+| `Privacy.categories` | list | the non-essential cookie categories the project declared. Empty in a project that declares none. |
+| `Privacy.consentRequired` | bool | whether there is anything to ask about. False while `categories` is empty, because the session credential is exempt. |
+| `Privacy.consentAnswered` | bool | whether this visitor has answered. |
+| `Privacy.granted` | list | what they allowed, a subset of `categories`. |
+| `Privacy.hasConsent(name)` | bool | whether this category is permitted. False until they say otherwise. |
+| `Privacy.erasureOffered` | bool | whether the project offers an erasure request. |
+| `Privacy.accept(list)` | call | record an answer. Categories the project never declared are dropped. |
+| `Privacy.acceptAll()` | call | record every declared category as allowed. |
+| `Privacy.acceptNecessaryOnly()` | call | record an answer allowing none of them. |
+| `Privacy.withdrawConsent()` | call | forget the answer, so the banner asks again. |
+
+`hasConsent` is read as a property even though it takes an argument, for the reason
+[`Session.hasScope`](#client-session) is. A binding records its dependencies from the
+properties it reads, so a plain method call would be evaluated once, while the banner was
+still up, and never again.
+
+```qml
+Analytics {
+    enabled: Privacy.hasConsent("analytics")
+}
+```
+
+[Privacy and the GDPR](privacy.md) covers the three components and what the defaults are.
 
 ## Service: `Caller`
 

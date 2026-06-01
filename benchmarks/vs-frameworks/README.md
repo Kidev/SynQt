@@ -407,8 +407,8 @@ p50 in milliseconds, and every column delivered every frame at every size:
 compiled floors, SignalR and Phoenix, and level with its own `qt-raw` control. At N=250 it
 is eleventh: SignalR at 0.396 ms, Phoenix at 0.411, Go at 0.568, Rust at 0.631, both bare
 Node columns at 1.705 and 1.807, Next.js on Node 26 at 2.545, Reverb at 2.560, `qt-raw` at
-2.604 and Next.js on Node 24 at 3.027 all come in ahead of its 3.172. That is not a rounding
-difference and it is not noise; it is the same shape the Node comparison already showed,
+2.604 and Next.js on Node 24 at 3.027 all come in ahead of its 3.172. The gap is far wider
+than this harness's spread, and it is the same shape the Node comparison already showed,
 with most of the table on the good side of it.
 
 What the shape is: **SynQt wins the fixed cost and loses the marginal one.** Adding a
@@ -445,9 +445,8 @@ the twelve cells above, by 2% to 16%, and it is furthest ahead where the framewo
 heaviest: the Next.js row gains 16% at N=50 and again at N=250, against 6% for bare Node
 there. It is behind in two, N=50 bare (a tie at 0.507 against 0.508) and N=10 Next.js. The
 CPU rows point the same way, 7.5 against 8.5 ms per thousand deliveries for bare Node at
-N=250. Single digits to 16% is not a rewrite of anybody's ordering, but it is well outside
-this harness's run-to-run spread, so a Node number quoted without its major is a number
-missing a digit.
+N=250. Single digits to 16% leaves the ordering alone and is still well outside this harness's
+run-to-run spread, so a Node number quoted without its major is a number missing a digit.
 
 ## The sweep: what each stack does with four cores
 
@@ -755,11 +754,11 @@ will move is the flatness itself, which is the whole of the argument.
 ### Most of that marginal cost was the event loop
 
 The payload sweep says Qt's per-subscriber cost is not a copy, because it does not move with
-the frame. What is left is per-socket fixed work, and the profile above had been read as
-pointing at one place: `QIODevice`'s small reads. It does point there, and there is
-something else in the same profile that nobody had looked at.
+the frame. What is left is per-socket fixed work. The profile above reads as pointing at
+`QIODevice`'s small reads, and it does point there, but the same profile has a second entry
+of comparable size.
 
-Reading it properly needs a *marginal* profile rather than a total one, because a run's
+Reading it properly needs a marginal profile rather than a total one, because a run's
 profile is mostly connection setup and publishing. Run the identical paced workload at
 twenty subscribers and at forty under callgrind and subtract: the same number of publishes,
 six thousand more deliveries, and what is left is what one delivery to one more subscriber
@@ -805,13 +804,14 @@ And on the paced sweep, which is the one the headline table reports, propagation
 | 100 | 1.193 | 0.903 | 1.32x |
 | 250 | 3.225 | 2.169 | **1.49x** |
 
-**Read the widening, not only the size.** A toggle costs a fixed part (an allocation, a free,
-two list operations) and a part that grows with the list, so the saving is 1.18x where the
-list is ten long and 1.52x where it is two hundred and fifty. Both halves are real; only the
-second one is the reason SynQt's marginal cost was above Node's and pulled further ahead with
-every subscriber added, and it is why this hid for so long. The callgrind attribution above
-understates it for exactly that reason: twenty subscribers is a very short list to walk, and
-even there the dispatcher is 12% of the marginal cost.
+**The widening is what identifies the cause.** A toggle costs a fixed part (an allocation, a
+free, two list operations) and a part that grows with the list, so the saving is 1.18x where
+the list is ten long and 1.52x where it is two hundred and fifty. Both halves are real, and
+the growing one is what put SynQt's marginal cost above Node's and widened the gap with every
+subscriber added. A fixed inefficiency would have shown a flat ratio and would have been
+easier to find. The callgrind attribution above understates the cost for the same reason:
+twenty subscribers is a short list to walk, and even there the dispatcher is 12% of the
+marginal cost.
 
 Both tables are medians of three runs on a quiet host; the two sweeps were re-run and agreed
 within 3%. Both arms come from the same binary, alternating run by run, so nothing but the
