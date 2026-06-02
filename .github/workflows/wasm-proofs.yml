@@ -149,12 +149,26 @@ jobs:
         # again, which is what the client-runtime row spent a run reporting as a stalled
         # queue. The -dev package brings the GLX loader for linking; EGL is what a modern
         # Firefox actually asks for, and nothing else here installs it.
+        #
+        # Wayland: the 6.12.0 desktop kit ships the QtWayland platform plugins, and Qt6Gui's
+        # plugin scanning find_dependency's Qt6WaylandClient, which wants the wayland-client,
+        # wayland-server, wayland-cursor and wayland-egl pkg-config modules. Without them the
+        # host configure fails the same way as without OpenGL, "Failed to find required Qt
+        # component Gui", with Wayland named forty lines up. The same packages and the same
+        # check as .github/actions/qt-kit, which this job does not use.
         shell: bash
         run: |
           set -eu
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev libgl1-mesa-dri \
-            libglx-mesa0 libegl1 libegl-mesa0 libgbm1
+            libglx-mesa0 libegl1 libegl-mesa0 libgbm1 \
+            libwayland-dev libwayland-bin
+          for w in wayland-client wayland-server wayland-cursor wayland-egl; do
+            if ! pkg-config --exists "$w"; then
+              echo "::error::$w is missing, so Qt6WaylandClient and with it Qt6Gui would not be found"
+              exit 1
+            fi
+          done
 
       - name: Cache the Qt kit
         # Kits plus the QtRemoteObjects built from source into the WASM kit below, in one tree:
@@ -318,13 +332,19 @@ jobs:
         uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies the host Qt kit needs to configure
-        # See the job above: Qt6Gui needs the OpenGL dev files or find_package(Qt6) fails on
-        # a component whose Config file is right there.
+        # See the job above: Qt6Gui needs the OpenGL dev files, and on 6.12 the Wayland dev
+        # files, or find_package(Qt6) fails on a component whose Config file is right there.
         shell: bash
         run: |
           set -eu
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev
+          sudo apt-get install -y libgl1-mesa-dev libwayland-dev libwayland-bin
+          for w in wayland-client wayland-server wayland-cursor wayland-egl; do
+            if ! pkg-config --exists "$w"; then
+              echo "::error::$w is missing, so Qt6WaylandClient and with it Qt6Gui would not be found"
+              exit 1
+            fi
+          done
 
       - name: Install the CLI's Python dependencies
         # pyyaml and brotli are needed by `synqt check`/`build` on every run, cache hit or not,

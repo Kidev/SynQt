@@ -117,13 +117,27 @@ jobs:
         # QEventDispatcherWasm::wakeUp(). The socket, the timers and the property pushes
         # carry on and posted events never arrive again, which is the shape of the Firefox
         # stall this matrix has been carrying (tests/m0-transport/FIREFOX-LINUX.md).
+        #
+        # Wayland: the 6.12.0 desktop kit ships the QtWayland platform plugins, and Qt6Gui's
+        # plugin scanning find_dependency's Qt6WaylandClient, which wants the wayland-client,
+        # wayland-server, wayland-cursor and wayland-egl pkg-config modules. The M0 edge asks
+        # for Gui, so without them its configure fails the same way as without OpenGL. The
+        # same packages and the same check as .github/actions/qt-kit, which this job does
+        # not use.
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -eu
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev libgl1-mesa-dri \
-            libglx-mesa0 libegl1 libegl-mesa0 libgbm1
+            libglx-mesa0 libegl1 libegl-mesa0 libgbm1 \
+            libwayland-dev libwayland-bin
+          for w in wayland-client wayland-server wayland-cursor wayland-egl; do
+            if ! pkg-config --exists "$w"; then
+              echo "::error::$w is missing, so Qt6WaylandClient and with it Qt6Gui would not be found"
+              exit 1
+            fi
+          done
 
       - name: Cache the Qt kit
         # The whole kit tree, kits plus the QtRemoteObjects we build from source into the WASM
