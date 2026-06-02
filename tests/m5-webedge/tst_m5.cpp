@@ -1139,6 +1139,15 @@ private slots:
         // WebEdgeConfig::SocketsPerLink, so at one link per address it is eight sockets.
         WebEdgeConfig config{makeConfig(false)};
         config.maxConnectionsPerIp = 1;
+        // The held sockets below are also the peer the handshake window is for: they
+        // complete TLS and never send a byte, and a QSslSocket's readyRead is application
+        // data only, so nothing ever stops their clock. With makeConfig's 800 ms window the
+        // first of them was aborted before the ninth arrived on any machine where eight
+        // sequential handshakes take longer than that (the macOS runner, every time), the
+        // count fell under the ceiling, and the ninth was hosted and answered. That window
+        // has its own test (stalledUpgradeClosed). Here it is lifted past everything this
+        // test waits for, so what holds the ceiling is the cap alone.
+        config.handshakeTimeoutMs = 60000;
         QQmlEngine engine;
         WebEdge edge{config, &engine};
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
