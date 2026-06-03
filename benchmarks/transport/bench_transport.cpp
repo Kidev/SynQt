@@ -17,6 +17,7 @@
 #include "rep_bench_replica.h"
 
 #include "pollingdispatcher.h"
+#include "socketoptions.h"
 #include "websockettransport.h"
 
 #include <QAbstractItemModelReplica>
@@ -38,6 +39,8 @@
 #include <QRemoteObjectPendingCallWatcher>
 #include <QStandardItemModel>
 #include <QSysInfo>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTextStream>
 #include <QUrl>
 #include <QWebSocket>
@@ -50,8 +53,46 @@ using SynQt::WebSocketTransport;
 
 namespace {
 
-// The Source under test: roundTrip echoes the payload back (a returning slot), so the
+// The Source under test. roundTrip echoes the payload back (a returning slot), so the
 // client can time a full consumer -> owner -> reply cycle.
+/// The listening socket, so the accepted connection is tuned the way the edge tunes its own.
+///
+/// QWebSocketServer accepts through a QTcpServer of its own and never surfaces the socket,
+/// and Qt sets TCP_NODELAY only on a socket QWebSocket dials out on, never on one a server
+/// accepted. The edge disables Nagle on every socket it accepts (WebEdge, and the mesh on
+/// both ends), so a harness that left it on was measuring a socket the framework never
+/// ships. It showed. After a pipelined burst the client's ACK for the last reply is
+/// delayed, Nagle then holds the source's next small frame until that ACK arrives, and the
+/// one-row model replication read 40 ms, the Linux delayed-ACK timer, instead of a tenth of
+/// a millisecond. handleConnection() is the supported way to put a QWebSocketServer behind
+/// a QTcpServer that is yours. Benchmarks/vs-frameworks does the same.
+class BenchTcpServer : public QTcpServer
+{
+    Q_OBJECT
+
+public:
+    explicit BenchTcpServer(QWebSocketServer *webSocketServer, QObject *parent = nullptr)
+        : QTcpServer{parent}
+        , m_webSocketServer{webSocketServer}
+    {
+    }
+
+protected:
+    void incomingConnection(qintptr socketDescriptor) override
+    {
+        QTcpSocket *socket{new QTcpSocket{this}};
+        if (!socket->setSocketDescriptor(socketDescriptor)) {
+            delete socket;
+            return;
+        }
+        SynQt::disableNagle(socket);
+        m_webSocketServer->handleConnection(socket);
+    }
+
+private:
+    QWebSocketServer *m_webSocketServer{nullptr};
+};
+
 class BenchBackend : public BenchSimpleSource
 {
     Q_OBJECT
@@ -315,13 +356,15 @@ int main(int argc, char *argv[])
 
     // Host: a QWebSocketServer feeding a QtRO host, one Source. Each accepted socket is
     // wrapped in the framework's WebSocketTransport and added by hand (no registry), exactly
-    // as the web edge does.
+    // as the web edge does. The listener is the benchmark's own so the accepted socket can be tuned the
+    // way the edge tunes its own (see BenchTcpServer).
     QWebSocketServer server{QStringLiteral("bench"), QWebSocketServer::NonSecureMode};
-    if (!server.listen(QHostAddress::LocalHost, 0)) {
+    BenchTcpServer listener{&server};
+    if (!listener.listen(QHostAddress::LocalHost, 0)) {
         qCritical("bench: cannot listen");
         return 1;
     }
-    const quint16 port{server.serverPort()};
+    const quint16 port{listener.serverPort()};
 
     QRemoteObjectHost host;
     host.setHostUrl(QUrl{QStringLiteral("synqt-bench:///host")},
