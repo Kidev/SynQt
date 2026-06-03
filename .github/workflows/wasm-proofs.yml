@@ -1,33 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The WebAssembly proofs that need a kit no other workflow installs, so until now they ran
-# only on the author's machine and nothing would have caught them rotting:
-#
-#   * multithread  -> tests/m0-transport/verify/run-mt.sh: the threaded client gets
-#     SharedArrayBuffer only under cross-origin isolation (COOP: same-origin +
-#     COEP: require-corp, the headers the M5 edge emits), and QtRO still works across it.
-#     This is what makes build.client_threads: multi real rather than a config string.
-#   * physics-single / physics-multi -> tests/wasm-quick3dphysics/verify/run-phys*.sh:
-#     Qt Quick 3D Physics builds, links its bundled PhysX, and boots on WASM. The spec audit
-#     once recorded "does not work on WASM"; these are the evidence that it is too strong.
-#   * client-runtime -> tests/m6-client/run-m6.sh: the client runtime above the transport
-#     (SynClient, the Server accessor, the QML canvas, and the fan-out to a second tab) in
-#     every engine that installs. browser-matrix.yml proves the transport engine by engine;
-#     this proves what is built on it, and until now its browser phase ran on a dev box or
-#     nowhere, because it needs the same WebAssembly kit as the proofs above.
-#
-# Separate from browser-matrix.yml, which installs only the single-threaded kit for the M0
-# matrix. The multithread kit needs its own QtRemoteObjects source build (the prebuilt WASM
-# kits do not ship it; see tests/m0-transport/README.md finding 1), and the physics jobs need
-# the Quick3D modules on top, so this is a heavier and more optional set.
-#
-# Manual-first (workflow_dispatch) because each job builds a Qt module from source; it also
-# runs when the proofs themselves change. fail-fast is off: these settle independent
-# questions, and the answer to one is worth having when another breaks.
-#
-# NOTE: authored for GitHub's runners and not validated on the Arch dev box (same caveat as
-# browser-matrix.yml). The aqtinstall module names are the most likely first-run adjustment.
+# The WebAssembly proofs that need a kit no other workflow installs: the multithreaded client
+# under cross-origin isolation, Qt Quick 3D Physics on both WASM kits, the client runtime in
+# every engine, and a real `synqt build` of an example. Each job builds QtRemoteObjects from
+# source into its kit.
 
 name: "[TEST] Verify the WebAssembly client proofs"
 
@@ -45,9 +22,6 @@ on:
       - "tools/synqt/synqt/build.py"
       - ".github/workflows/wasm-proofs.yml"
 
-# Nothing here writes to the repository: every job checks the tree out, builds it, and
-# uploads its artifacts, which needs no token at all. Stating that here means the run keeps
-# a read-only token whatever the repository or organisation default happens to be.
 permissions:
   contents: read
 
@@ -56,14 +30,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
-  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
-  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
-  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
-  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
-  # one of them drifts.
+  # Keep identical across every workflow. Tools/synqt/tests/test_qt_pin.py fails when one drifts.
   AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
-  # Keep in step with ctest.yml: the arena's web edge links the same SynQtEdge.
   JWT_CPP_VERSION: "v0.7.2"
 
 jobs:
@@ -76,11 +44,8 @@ jobs:
         include:
           - label: multithread-sab
             kit: wasm_multithread
-            # QtRO is only needed by the M0 spike; the physics scene does not link it.
             needs_qtremoteobjects: true
             qt_modules: qtwebsockets
-            # Whether a page is cross-origin isolated, and whether SharedArrayBuffer is
-            # therefore granted, is each engine's own decision, so all three are driven.
             browsers: chromium firefox webkit
             script: tests/m0-transport/verify/run-mt.sh
             verify_dir: tests/m0-transport/verify
@@ -99,14 +64,10 @@ jobs:
           - label: client-runtime
             kit: wasm_singlethread
             needs_qtremoteobjects: true
-            # The counter edge links SynQtIdentity, which verifies ID-token signatures.
             needs_jwt_cpp: true
             qt_modules: qtwebsockets
-            # The one proof here whose claim is per-engine rather than per-kit: the browser
-            # runs the client runtime, not just the transport under it.
             browsers: chromium firefox webkit
             script: tests/m6-client/run-m6.sh
-            # The harness (and its package.json) sits a level below the run script here.
             verify_dir: tests/m6-client/verify
     env:
       QT_VERSION: "6.12.0"
@@ -127,35 +88,10 @@ jobs:
         uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies the host Qt kit needs to configure
-        # Every proof here builds a native host binary too (the edge that serves the bundle),
-        # and Qt6GuiConfig hard-requires WrapOpenGL: without the OpenGL dev files Qt6Gui sets
-        # Qt6Gui_FOUND to FALSE and find_package(Qt6) fails with "Failed to find required Qt
-        # component Gui" while naming a Qt6GuiConfig.cmake that exists, which is what makes it
-        # slow to read. Only physics-multi survived without this, because its scene never asks
-        # for the host Gui component.
-        #
-        # The Mesa DRI drivers are for the physics-single proof's last phase, which runs the
-        # same scene as a native desktop app as a cross-check: it renders on the offscreen
-        # platform, which still needs something to rasterise with (llvmpipe, from mesa-dri;
-        # the -dev package above is for linking and does not bring it).
-        #
-        # The GLX and EGL runtimes are for the browsers, and they are required. Firefox
-        # and WebKit take the machine's GL rather than bringing a rasteriser of their own
-        # (only Chromium ships SwiftShader), and a WASM client with no WebGL context cannot
-        # start Qt Quick at all: QSGRenderLoop ends that with qFatal, which is emscripten's
-        # abort(), which sets ABORT, after which emscripten drops every callback queued
-        # through emscripten_async_call, the first hop of QEventDispatcherWasm::wakeUp().
-        # The client then connects, pushes properties and never delivers a posted event
-        # again, which is what the client-runtime row spent a run reporting as a stalled
-        # queue. The -dev package brings the GLX loader for linking; EGL is what a modern
-        # Firefox actually asks for, and nothing else here installs it.
-        #
-        # Wayland: the 6.12.0 desktop kit ships the QtWayland platform plugins, and Qt6Gui's
-        # plugin scanning find_dependency's Qt6WaylandClient, which wants the wayland-client,
-        # wayland-server, wayland-cursor and wayland-egl pkg-config modules. Without them the
-        # host configure fails the same way as without OpenGL, "Failed to find required Qt
-        # component Gui", with Wayland named forty lines up. The same packages and the same
-        # check as .github/actions/qt-kit, which this job does not use.
+        # OpenGL and Wayland dev files for the host configure (Qt6Gui's plugin scan reaches
+        # both, and find_package reports the Gui component rather than the missing library);
+        # the Mesa rasteriser and GLX/EGL runtimes for the native physics cross-check and for
+        # Firefox and WebKit, which need a WebGL context or the WASM client aborts.
         shell: bash
         run: |
           set -eu
@@ -171,11 +107,7 @@ jobs:
           done
 
       - name: Cache the Qt kit
-        # Kits plus the QtRemoteObjects built from source into the WASM kit below, in one tree:
-        # the from-source build installs into the kit prefix, so caching QT_ROOT covers download
-        # and build and every Qt step is skipped on a hit. Per-label key: each matrix row installs
-        # a different kit and module set. Keyed on the workflow file so a pinned-version change
-        # invalidates it. Same pattern as ctest.yml.
+        # Covers the from-source QtRemoteObjects too, which installs into the kit prefix.
         id: qt-cache
         uses: actions/cache@v6
         with:
@@ -184,21 +116,14 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # A pinned commit, not a release: the released line cannot address the Windows kit's
-        # per-toolchain repository folder. See browser-matrix.yml.
+        # A pinned commit, not a release. No released aqt can install the Windows kit
+        # (toolchain.AQT_VERSION).
         run: |
           python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ env.AQT_VERSION }}"
 
       - name: Install Qt host kit (desktop)
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # The physics proof builds the identical scene natively as its correctness half (a
-        # headless WASM canvas cannot be trusted to advance its frame loop); the M0 proof
-        # needs the native edge to talk to, and the client-runtime proof's edge is a real M5
-        # web edge, which is why the HTTP server and the authorization module are here too.
-        # qttasktree is not linked by anything here: Qt's own QmlAssetDownloaderPrivate
-        # declares it as a dependency, so without it every configure of a Qml-using project
-        # prints a find_package warning about a package nobody asked for (ctest.yml and
-        # benchmarks.yml install it for the same reason).
+        # qttasktree is not linked. The Qml plugin scan warns without it.
         run: |
           python -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
             -m qtwebsockets qtremoteobjects qthttpserver qtnetworkauth \
@@ -207,9 +132,7 @@ jobs:
 
       - name: Install Qt WebAssembly kit (${{ matrix.kit }})
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # all_os/wasm: the WASM kit is host-independent and published under its own host and
-        # target, not under the desktop one. See browser-matrix.yml. Its scripts arrive without
-        # the executable bit (the archives are Windows-built); the script explains why.
+        # The WASM kit is published under all_os/wasm, not under the host's desktop target.
         run: |
           python -m aqt install-qt all_os wasm "$QT_VERSION" ${{ matrix.kit }} \
             -m ${{ matrix.qt_modules }} \
@@ -218,9 +141,6 @@ jobs:
             "$QT_ROOT/$QT_VERSION/${{ matrix.kit }}"
 
       - name: Cache Emscripten
-        # emsdk is pinned to EM_VERSION but re-downloaded every run otherwise; cache the tree and
-        # re-source emsdk_env.sh on a hit. Independent of the Qt cache: the WASM compile needs
-        # emsdk present even when the kit was restored.
         id: emsdk-cache
         uses: actions/cache@v6
         with:
@@ -241,17 +161,13 @@ jobs:
             --archives qtremoteobjects --outputdir "$QT_ROOT"
 
       - name: Build QtRemoteObjects into the ${{ matrix.kit }} kit
-        # The prebuilt WASM kits ship QtWebSockets but not QtRemoteObjects; build it from the
-        # pinned source with the kit's own qt-cmake (qt-configure-module is broken on Linux)
-        # and install it into the kit prefix so the client can link it.
+        # The prebuilt WASM kits ship no QtRemoteObjects. Qt-cmake, since the kit's
+        # qt-configure-module is broken on Linux.
         if: matrix.needs_qtremoteobjects && steps.qt-cache.outputs.cache-hit != 'true'
         run: |
           source "$HOME/emsdk/emsdk_env.sh"
           QT_WASM="$QT_ROOT/$QT_VERSION/${{ matrix.kit }}"
-          # QT_HOST_PATH: a cross-compiled Qt needs its host tools pointed at explicitly. The kit
-          # carries the path from Qt's own build machine (/home/qt/work/install) and only a
-          # host-specific aqt install rewrites it, which the host-independent all_os/wasm kit is
-          # not. See .github/scripts/fix-wasm-kit-permissions.sh for the kit's other quirk.
+          # The all_os/wasm kit carries Qt's own build-machine host path, so name the host tools.
           export QT_HOST_PATH="$QT_ROOT/$QT_VERSION/gcc_64"
           "$QT_WASM/bin/qt-cmake" -S "$QT_ROOT/$QT_VERSION/Src/qtremoteobjects" \
             -B "$RUNNER_TEMP/qtro-wasm" -G Ninja \
@@ -260,9 +176,6 @@ jobs:
           cmake --install "$RUNNER_TEMP/qtro-wasm"
 
       - name: Provide jwt-cpp headers
-        # Kept in step with the same step in ctest.yml and in the example-bundle job below:
-        # SynQtIdentity verifies OIDC ID-token signatures with jwt-cpp (MIT, header-only), and
-        # without it the host configure dies on "jwt-cpp not found".
         if: matrix.needs_jwt_cpp
         shell: bash
         run: |
@@ -272,15 +185,7 @@ jobs:
           echo "JWT_CPP_INCLUDE_DIR=$RUNNER_TEMP/jwt-cpp/include" >> "$GITHUB_ENV"
 
       - name: Install the browser engines for the headless driver
-        # Most proofs here drive Chromium alone: SharedArrayBuffer and cross-origin isolation
-        # are what they measure, and Chromium reports both faithfully headless. A row that
-        # settles a per-engine question names the engines it needs instead.
-        #
-        # Installed from the harness directory, after its own npm install, so the browser is
-        # fetched by the same Playwright the script will then drive. Run from the repository
-        # root instead, npx resolves a Playwright of its own choosing and warns that project
-        # dependencies were never installed, which is a version skew waiting to happen, not
-        # just noise. browser-matrix.yml already does it this way.
+        # From the harness directory, so the browser is fetched by the Playwright the script drives.
         env:
           VERIFY_DIR: ${{ matrix.verify_dir }}
           BROWSERS: ${{ matrix.browsers || 'chromium' }}
@@ -288,7 +193,7 @@ jobs:
           set -euo pipefail
           cd "$VERIFY_DIR"
           npm install --no-audit --no-fund
-          # shellcheck disable=SC2086 -- BROWSERS is a space-separated engine list by design
+          # shellcheck disable=SC2086
           npx playwright install --with-deps $BROWSERS
 
       - name: Run ${{ matrix.script }}
@@ -296,25 +201,16 @@ jobs:
           QT_HOST: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/gcc_64
           QT_WASM: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.kit }}
           QT_WASM_MT: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.kit }}
-          # The run scripts drive the wasm kit's qt-cmake, which needs the host tools named.
           QT_HOST_PATH: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/gcc_64
-          # There is no GPU here, so tell Mesa that instead of letting each browser find out
-          # for itself. Measured on a workstation with LIBGL_ALWAYS_SOFTWARE=1: headless
-          # Firefox hands out a WebGL 2.0 context on llvmpipe with no preferences set, so
-          # the software rasteriser is enough and the browsers only ever needed it present.
+          # No GPU on a runner; Mesa's software rasteriser gives the browsers their WebGL context.
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
           source "$HOME/emsdk/emsdk_env.sh"
           ${{ matrix.script }}
 
+  # `synqt build` producing a real, servable client bundle from a real example. The bundle
+  # on disk is what is asserted. A build that skipped compilation still exits 0.
   example-bundle:
-    # `synqt build` producing a real, servable client bundle from a real example. The ctest
-    # suites compile the framework and appgen-native compiles generated entity mains, but
-    # nothing else drives the CLI through an actual Emscripten client build; that path is
-    # where the shipped-blank-page class of bug lives, and it has only ever been exercised by
-    # hand. The artifacts are what this asserts: a `synqt build` that skips compilation
-    # still exits 0 and prints a summary (it says so in its note), so only the bundle on disk
-    # separates a real build from a plausible one.
     name: example-bundle (arena, wasm)
     runs-on: ubuntu-24.04
     env:
@@ -332,8 +228,6 @@ jobs:
         uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies the host Qt kit needs to configure
-        # See the job above: Qt6Gui needs the OpenGL dev files, and on 6.12 the Wayland dev
-        # files, or find_package(Qt6) fails on a component whose Config file is right there.
         shell: bash
         run: |
           set -eu
@@ -347,14 +241,10 @@ jobs:
           done
 
       - name: Install the CLI's Python dependencies
-        # pyyaml and brotli are needed by `synqt check`/`build` on every run, cache hit or not,
-        # so they stay out of the cache-gated aqt step below.
         run: |
           python -m pip install pyyaml brotli
 
       - name: Cache the Qt kit
-        # Kit plus the QtRemoteObjects built from source into it below, in one tree. Keyed on the
-        # workflow file so a pinned-version change invalidates it. Same pattern as ctest.yml.
         id: qt-cache
         uses: actions/cache@v6
         with:
@@ -363,7 +253,6 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # aqt at the same pinned commit as the job above, for the reason it gives.
         run: |
           python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ env.AQT_VERSION }}"
 
@@ -376,7 +265,6 @@ jobs:
 
       - name: Install Qt WebAssembly kit (single-threaded) + WebSockets
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # all_os/wasm, as in the job above, and the same missing executable bits.
         run: |
           python -m aqt install-qt all_os wasm "$QT_VERSION" wasm_singlethread \
             -m qtwebsockets --outputdir "$QT_ROOT"
@@ -390,8 +278,6 @@ jobs:
             --archives qtremoteobjects --outputdir "$QT_ROOT"
 
       - name: Cache Emscripten
-        # See the proof job: emsdk is pinned but re-downloaded otherwise; cache it independently
-        # of the Qt kit since the WASM build below needs it even on a kit-cache hit.
         id: emsdk-cache
         uses: actions/cache@v6
         with:
@@ -410,7 +296,6 @@ jobs:
         run: |
           source "$HOME/emsdk/emsdk_env.sh"
           QT_WASM="$QT_ROOT/$QT_VERSION/wasm_singlethread"
-          # See the QT_HOST_PATH note in the proof job above.
           export QT_HOST_PATH="$QT_ROOT/$QT_VERSION/gcc_64"
           "$QT_WASM/bin/qt-cmake" -S "$QT_ROOT/$QT_VERSION/Src/qtremoteobjects" \
             -B "$RUNNER_TEMP/qtro-wasm" -G Ninja \
@@ -419,11 +304,6 @@ jobs:
           cmake --install "$RUNNER_TEMP/qtro-wasm"
 
       - name: Provide jwt-cpp headers
-        # The arena builds its web edge, which links SynQtIdentity, which verifies OIDC ID-token
-        # signatures with jwt-cpp (MIT, header-only). Without it the host configure dies on
-        # "jwt-cpp not found", which is what it did: the client bundle compiled, the edge did
-        # not, and this job reported it as a missing bundle rather than as the build error it
-        # was. Kept in step with the same step in ctest.yml.
         shell: bash
         run: |
           set -eu
@@ -444,10 +324,7 @@ jobs:
         run: |
           BUNDLE=examples/arena/build/client
           rc=0
-          # The module is named after the client entity, not after the word "client": the
-          # arena's is `app`. Read the name out of the manifest the bundle publishes rather
-          # than spelling it here, so renaming an entity cannot leave this check hunting for
-          # a file that was never going to exist under that name.
+          # The module is named after the client entity. The manifest says which.
           MANIFEST="$BUNDLE/synqt-manifest.json"
           if [ ! -s "$MANIFEST" ]; then
             echo "  MISSING synqt-manifest.json: nothing says what this bundle is"
@@ -463,15 +340,10 @@ jobs:
               echo "  MISSING $f"; rc=1
             fi
           done
-          # Precompression is on the first-visit critical path; the wasm dominates transfer.
           for f in "$WASM.gz" "$JS.gz"; do
             if [ -s "$BUNDLE/$f" ]; then echo "  OK      $f"; else echo "  MISSING $f"; rc=1; fi
           done
-          # The shell must stay CSP-clean: Qt's own template boots from an inline handler,
-          # which the edge's strict CSP blocks, so SynQt writes its own external boot script.
-          # The absent case is spelled out because grep says "no match" for a file that is not
-          # there, and reporting that as "free of inline script" is how this check came to
-          # certify a bundle that had never been built.
+          # The edge's CSP blocks inline script. An absent file must not read as clean.
           if [ ! -s "$BUNDLE/index.html" ]; then
             echo "  FAIL    index.html absent: nothing to check for inline script"; rc=1
           elif grep -qE '<script[^>]*>[^<]' "$BUNDLE/index.html"; then

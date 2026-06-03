@@ -1,44 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Ask every suite in the tree what it left behind.
-#
-# The cheap half of the memory story already runs on every push: tests/memory is an ordinary
-# ctest suite in ctest.yml, and it is the gate that matters, because it measures the leak
-# class this framework actually has. Every leak found here so far was *reachable* at exit (a
-# promise still on a facade, a retired node still parented, a map never pruned), which is
-# precisely what a leak checker does not report. So that suite takes one long-lived object,
-# repeats a cycle against it, and requires the heap to come back where it started.
-#
-# This workflow is the expensive half, and it covers the rest of the tree rather than the
-# four paths tst_memory was written for:
-#
-#   soak      every suite run at two repeat counts, comparing peak resident set. This sees
-#             memory the process is still holding on purpose, which is what a leak in a
-#             long-running entity looks like from outside.
-#   sanitize  the same suites rebuilt with AddressSanitizer, with every leak LeakSanitizer
-#             reports charged to whoever allocated it. This sees memory nothing points at
-#             any more, and it fails the run when a record belongs to src/.
-#
-# Both are tests/memory/run-leakcheck.sh, the same command a developer runs locally, so this
-# workflow holds no copy of the rules; see docs/development.md.
-#
-# It is not on every push because the sanitize pass rebuilds the whole tree instrumented and
-# then runs every suite two to three times slower. On demand, and whenever the runtime
-# libraries or the harness itself change.
+# tests/memory/run-leakcheck.sh over the whole tree: a soak pass, then an AddressSanitizer
+# pass that fails on a leak record rooted in src/.
 
 name: "[TEST] Look for what the suites leak"
 
 on:
   workflow_dispatch:
-  # No `paths:` filter on either trigger: the `changes` job below decides, so that the check
-  # always reports and can be required. See .github/scripts/relevant-changes.sh.
   push:
   pull_request:
 
-# Nothing here writes to the repository: every job checks the tree out, builds it, and
-# uploads its artifacts, which needs no token at all. Stating that here means the run keeps
-# a read-only token whatever the repository or organisation default happens to be.
 permissions:
   contents: read
 
@@ -47,19 +19,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
-  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
-  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
-  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
-  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
-  # one of them drifts.
+  # Keep identical across every workflow. Tools/synqt/tests/test_qt_pin.py fails when one drifts.
   AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
 
 jobs:
-  # The path decision lives here rather than on the trigger above, and that is the whole
-  # reason this job exists. A workflow skipped by a `paths:` filter reports no check at all,
-  # so a required status check on it leaves every unrelated pull request pending forever. A
-  # job skipped by an `if:` reports "skipped", and a skipped check satisfies a required one.
+  # Gates the jobs with `if:`, never `paths:`, so required checks still report.
   changes:
     name: Decide what this run has to build
     runs-on: ubuntu-24.04
@@ -68,7 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The decision is a diff, so the run needs the history on both sides of it.
           fetch-depth: 0
 
       - id: decide
@@ -86,8 +49,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-24.04
-    # An instrumented rebuild of the whole tree plus three passes over every suite. This is
-    # the blast radius of a hang, not the expected cost.
     timeout-minutes: 90
     env:
       QT_VERSION: "6.12.0"
@@ -109,21 +70,7 @@ jobs:
         uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies Qt needs to configure
-        # The same set the Linux ctest column installs, for the same reasons given there:
-        # OpenSSL for the mesh transport, libgl1-mesa-dev because Qt6GuiConfig hard-requires
-        # WrapOpenGL, the Wayland dev files Qt6WaylandClient needs (the 6.12.0 kit ships the
-        # QtWayland platform plugins, and a plugin whose dependency is missing takes Qt6Gui
-        # down with it), and the three optional engine clients that decide whether the redis,
-        # mongodb and postgres providers are compiled in at all. They are installed here so
-        # this pass covers the same code the ctest column does.
-        #
-        # libsecret-1-dev is here for the same reason and one more: without it the Linux
-        # secure store is not compiled at all, so this pass would report on a tree missing a
-        # file the shipped one has. The keyring daemon that would make it *run* is
-        # not installed, unlike the ctest column: an unlocked keyring pulls
-        # glib's caches into the process, and LeakSanitizer would charge them to us. With no
-        # session bus the store reports itself unavailable before it touches glib, which is
-        # what a runner gets anyway.
+        # No keyring daemon: LeakSanitizer would report glib's caches.
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev libgl1-mesa-dev \
@@ -188,19 +135,12 @@ jobs:
             cmake --install "$RUNNER_TEMP/$m-build"
           done
 
-      # No configure step here on purpose. This workflow used to run a `cmake -S . -B
-      # build/all` of its own, one flag short of the line tests/run-all.sh uses, and a tree
-      # configured without -DSYNQT_DEV_TOOLS=ON does not compile: tests/m8-auth includes the
-      # stub identity server, whose header refuses a build that did not ask for one. The
-      # configure line now lives in run-leakcheck.sh, once, next to the build it feeds.
       - name: Soak, then sanitize
         env:
           QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/gcc_64
         run: bash tests/memory/run-leakcheck.sh
 
       - name: Keep the sanitizer logs
-        # The classifier prints a summary; these are the records behind it, and they are the
-        # only way to read a failure after the runner is gone.
         if: always()
         uses: actions/upload-artifact@v7
         with:

@@ -2,30 +2,15 @@
 # SPDX-FileCopyrightText: 2026 The SynQt Authors
 # SPDX-License-Identifier: Apache-2.0
 
-# Regenerate AUTHORS from the commit history.
-#
-# The file is derived, never hand maintained, so it cannot drift from who actually
-# contributed. Every author of a commit reachable from HEAD is listed, plus everyone named
-# in a Co-authored-by trailer, since a pair-programmed or co-authored commit has only one
-# git author but more than one author in the sense that matters here.
-#
-# Identities are keyed on the email, not the name: the same person committing as "jane" and
-# "Jane Doe" is one entry, and the display name kept is the one from their most recent
-# commit. Names are then sorted case-insensitively, so the list does not order itself by
-# whoever happened to capitalize their name.
-#
-# Excluded: GitHub's noreply bot addresses and the accounts that automation commits under.
-# They are not authors, and this script's own commits would otherwise add one.
-#
-# Writes AUTHORS in place and exits 0 whether or not anything changed. The caller decides
-# what to do about that (see .github/workflows/authors.yml).
+# Regenerate AUTHORS from the commit history. Every commit author reachable from HEAD plus
+# every Co-authored-by trailer, keyed on the email, with the display name from the most
+# recent commit, sorted case-insensitively. Bot and automation identities are excluded.
+# Writes AUTHORS in place and exits 0 whether or not anything changed.
 
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-# Bot and automation identities, matched against the email. Anchored where possible so a
-# real address that merely contains one of these strings is not dropped.
 is_bot() {
     case "${1,,}" in
         *"[bot]@users.noreply.github.com") return 0 ;;
@@ -35,8 +20,7 @@ is_bot() {
     esac
 }
 
-# Collect "name <email>" from commit authors and from Co-authored-by trailers. Oldest first,
-# so a later commit overwrites the display name and the newest spelling of a name wins.
+# Oldest first, so the newest spelling of a name wins.
 collect() {
     git log --reverse --format='%aN <%aE>'
     git log --reverse --format='%(trailers:key=Co-authored-by,valueonly)' \
@@ -46,7 +30,6 @@ collect() {
 declare -A by_email=()
 
 while IFS= read -r line; do
-    # "Some Name <addr@example.org>": split on the last "<".
     name="${line%% <*}"
     email="${line##*<}"
     email="${email%>}"

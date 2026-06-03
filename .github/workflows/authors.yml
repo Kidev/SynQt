@@ -1,34 +1,8 @@
 # SPDX-FileCopyrightText: 2026 The SynQt Authors
 # SPDX-License-Identifier: Apache-2.0
 
-# Keep AUTHORS in step with who has actually contributed.
-#
-# Source files carry the collective notice "SPDX-FileCopyrightText: 2026 The SynQt Authors"
-# rather than any individual name (see CONTRIBUTING.md), which only means something if the
-# list of those authors is real and current. AUTHORS is generated from the commit history by
-# .github/scripts/update-authors.sh, so a contributor is added by the act of contributing and
-# nobody has to remember to edit a file.
-#
-# A pull request that regenerated the file itself is the good case, and this workflow does
-# nothing at all for it. This is the safety net for the other case: it regenerates AUTHORS
-# after a merge, and if the result differs from what is on main, it opens a pull request
-# carrying the difference.
-#
-# A pull request rather than a push, because nothing here writes to main. The branch it
-# pushes is its own and holds nothing but the regenerated file, so the maintainer reviews and
-# merges a one file diff like any other, and no automation and no app needs write access to
-# the branch that matters.
-#
-# The trigger is a merged pull request rather than a push to main, so a direct push does not
-# produce a second AUTHORS pull request chasing the first. It is `pull_request_target`, not
-# `pull_request`, for the only reason that matters here: `pull_request` from a fork gets a
-# read-only token and cannot push a branch or open anything. `pull_request_target` runs the
-# workflow file from the base branch with a writable token, so a fork's pull request cannot
-# alter what runs. Nothing from the pull request head is checked out or executed; the job
-# reads only the merge commit already on main.
-#
-# Merging the pull request this opens re-runs the workflow, which regenerates AUTHORS, finds
-# it current, and stops. There is no loop.
+# Regenerate AUTHORS after a merge and open a pull request when it differs from main.
+# Nothing from the pull request head is checked out or executed.
 
 name: "[CONTRIB] Update AUTHORS when a pull request lands"
 
@@ -36,16 +10,11 @@ on:
   pull_request_target:
     types: [closed]
     branches: [main]
-  # Regenerating on demand, for the first run and after any history rewrite.
   workflow_dispatch:
 
-# Nothing is written with the run's own GITHUB_TOKEN; the app token below carries the write.
 permissions:
   contents: read
 
-# Two pull requests merging close together would otherwise race to rebuild the branch. Queue
-# instead of cancelling: a cancelled run leaves its author out of the file until the next
-# merge.
 concurrency:
   group: authors
   cancel-in-progress: false
@@ -53,13 +22,9 @@ concurrency:
 jobs:
   update:
     name: Regenerate AUTHORS
-    # Closing a pull request without merging is not a contribution.
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-24.04
     steps:
-      # Trade the app's private key for an installation token, so the branch and the pull
-      # request come from SynQt-Operations. Scoped to the two permissions this job uses and
-      # revoked when the job ends. Pinned to a commit because it handles the private key.
       - name: Mint a token for the SynQt-Operations app
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -73,9 +38,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: main
-          # The script reads the whole history, so the default shallow clone will not do.
           fetch-depth: 0
-          # Leave the app token in the local git credential, so the push below uses it.
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Regenerate AUTHORS
@@ -83,8 +46,6 @@ jobs:
 
       - name: Open a pull request if it changed
         env:
-          # The bot account's numeric id is what links a commit to the app on GitHub, so it
-          # is looked up rather than written down: rename the app and this still resolves.
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           BRANCH: authors/update
@@ -104,17 +65,6 @@ jobs:
           git add AUTHORS
           git commit -m "Update AUTHORS"
 
-          # Why this is not a plain push. The branch survives between runs, and a second run
-          # happens only when a further pull request merged before the first AUTHORS one did.
-          # By then main has moved, and the generator has to read main's newest history or it
-          # writes a file missing the contributor who just arrived. So the branch is rebuilt
-          # from current main rather than added to, which makes it diverge from what was
-          # pushed last time, which a plain push refuses.
-          #
-          # `--force-with-lease`, not `--force`: it refuses if the branch moved since this job
-          # read it, so a hand-made fix pushed there is never silently discarded. The branch
-          # is derived state and nothing else, and rebuilding it is what keeps the open pull
-          # request showing one current commit instead of a stack of superseded ones.
           git push --force-with-lease origin "HEAD:refs/heads/${BRANCH}"
 
           open="$(gh pr list --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"

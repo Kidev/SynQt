@@ -1,47 +1,17 @@
 # SPDX-FileCopyrightText: 2026 The SynQt Authors
 # SPDX-License-Identifier: Apache-2.0
 
-# Require every contributor to accept the CLA before their pull request can be merged.
-#
-# SynQt keeps the option to license itself under other terms in the future (see CLA.md and
-# docs/licensing.md), and that option only exists if every contribution is covered. A note
-# in CONTRIBUTING.md asking people to agree is not coverage; this is the gate that makes it
-# real, and it has to be a required status check for that to hold (see "Enforcement" below).
-#
-# How it works for a contributor: on their first pull request the bot comments with a link
-# to CLA.md and the one sentence to reply with. Their reply is recorded, with the commit
-# they agreed at, in a JSON file on the `cla-signatures` branch. On every later pull request
-# the check passes without asking again. The record is in the repository rather than in a
-# third-party service, so it survives the action being unavailable and can be audited.
-#
-# The comment text is set below rather than left to the action's default, and one thing
-# about that is load bearing: `custom-notsigned-prcomment` REPLACES the default opening
-# line, and the default opening line is where the action puts the link to the document and
-# the instruction to reply by commenting. Whatever is written there has to carry both, or
-# the contributor is shown a bare sentence between two rules with nothing saying what to do
-# with it.
-#
-# Enforcement: a failing check does not block a merge on its own. Add "CLA" to main's
-# required status checks, or this workflow is advisory and someone can merge past it.
-#
-# The action is pinned to a commit rather than a tag. It runs on `pull_request_target` with
-# a writable token, so a moved tag would be a write-access supply chain problem, not a
-# broken build. Nothing from the pull request head is checked out or run by this workflow.
+# Require the CLA (CLA.md) before a pull request merges; signatures live on the
+# `cla-signatures` branch. Nothing from the pull request head is checked out or run.
 
 name: "[CONTRIB] Check the contributor license agreement"
 
 on:
-  # The contributor agrees by commenting on their pull request.
   issue_comment:
     types: [created]
-  # `pull_request_target`, not `pull_request`: recording a signature needs a writable token,
-  # which a fork's `pull_request` run does not get.
   pull_request_target:
     types: [opened, synchronize, reopened, closed]
 
-# The run's own GITHUB_TOKEN needs nothing: every write below is made with the app token,
-# which is what puts the comment, the signature commit and the check under the
-# SynQt-Operations account.
 permissions:
   contents: read
 
@@ -53,26 +23,17 @@ jobs:
   cla:
     name: CLA
     runs-on: ubuntu-24.04
-    # Run on pull request events, and on comments only when they are on a pull request
-    # (issue_comment fires for plain issues too, where there is nothing to gate).
     if: >-
       github.event_name == 'pull_request_target' ||
       (github.event.issue.pull_request &&
        contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
     steps:
-      # Trade the app's private key for an installation token, so a contributor is talked to
-      # by SynQt-Operations. The token is scoped to the four permissions this job uses and is
-      # revoked when the job ends. Pinned to a commit for the same reason the CLA action is:
-      # it handles the private key.
       - name: Mint a token for the SynQt-Operations app
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ secrets.SYNQT_CLIENT_ID }}
           private-key: ${{ secrets.SYNQT_PRIVATE_KEY }}
-          # Least privilege, one line per thing the action below does: write the signature
-          # file to the cla-signatures branch, comment on the pull request, set the check,
-          # and re-run this workflow once a signature is recorded.
           permission-contents: write
           permission-pull-requests: write
           permission-statuses: write
@@ -83,17 +44,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
-          # Where the signatures live. A branch of this repository, not a service. The path
-          # is versioned: if the CLA text ever changes materially, bump it to v2 so everyone
-          # is asked again rather than being held to terms they never saw.
+          # Bump the path to v2 when the CLA text changes materially, so everyone is asked again.
           branch: cla-signatures
           path-to-signatures: signatures/v1/cla.json
           path-to-document: https://github.com/Kidev/SynQt/blob/main/CLA.md
-          # Bots author no copyrightable work, so there is nothing for them to license.
           allowlist: github-actions[bot],dependabot[bot],synqt-operations[bot]
-          # `$you` is replaced with "you" or "you all" by the action. The sentence the
-          # contributor has to post is appended by the action right after this text, which
-          # is why this ends by pointing at it.
           custom-notsigned-prcomment: |-
             Thanks for the pull request. Before it can be merged, $you need to accept SynQt's [Contributor License Agreement](https://github.com/Kidev/SynQt/blob/main/CLA.md).
 

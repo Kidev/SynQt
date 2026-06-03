@@ -1,99 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Build and run the native C++ ctest suites (M1 through M9 plus the client-update,
-# consumer-facade, auction, arena, stall, provider, custom-provider, app-generator, desktop-client,
-# url-routing, and remote-pages fixtures) through tests/run-all.sh, the same command a developer
-# runs locally. The pytest workflow covers the pure-Python CLI and generator on all three
-# operating systems; this one covers the compiled framework, which needs the pinned Qt 6.12.0
-# host kit and its add-on modules.
-#
-# This workflow keeps no list of suites. tests/CMakeLists.txt is the registry: it builds every
-# host-kit suite into one tree, names the few whose entry point is a generator rather than CMake,
-# and fails the configure step on a suite that is in neither group. A list a workflow keeps to
-# itself is a list that drifts, which is how tests/remote-pages reached 1849 lines and five
-# commits without CI ever running it.
-#
-# Three of these suites build what a tool emits rather than what the repository stores
-# (appgen-native compiles the generated entity mains, custom-provider compiles the scaffolded
-# provider skeletons, desktop-client packages the client QML as a native app). They are what
-# catch a generator whose output no longer compiles, which no test of the generated strings can,
-# and they are the three that run outside the shared tree.
-#
-# THREE JOBS, NOT ONE, and a compiler cache under all of them. This was a single job per platform
-# that ran tests/run-all.sh end to end and then measured coverage, all in series, and it took
-# over an hour. Two changes:
-#
-#   - `tree` and `generated` are the two halves of tests/run-all.sh (SYNQT_PHASES, documented in
-#     that script) and `coverage` is the instrumented second build of the same tree. None of the
-#     three needs anything the others produce, so running them concurrently makes this column
-#     cost the longest of them instead of their sum. `generated` configures the shared tree but
-#     does not build it: all it needs from it is the suite registry the configure step writes,
-#     and each of its suites compiles a tree of its own.
-#   - Every build here goes through ccache, or sccache on MSVC, installed and restored by the
-#     qt-kit action. The two jobs get different things from it, and the difference is worth
-#     knowing. `generated` gets most of its value WITHIN one run: every generated application
-#     add_subdirectory()s the framework from ${SYNQT_ROOT}, so that job compiles SynQtService
-#     and friends nine times over and measured 49.7% hits on a completely cold cache.
-#     `tree` builds each object once, so on a cold cache it measured 0% and everything it gets
-#     comes from the entry the previous run left behind, which is what restore-keys is for.
-#     Both depend on CCACHE_NOHASHDIR, which tests/run-all.sh exports for the reason given
-#     there; without it the generated job hits nothing at all.
-#
-# Qt comes from aqtinstall and is cached between runs, keyed on the operating system and the
-# module set. The desktop kit ships QtWebSockets, QtRemoteObjects, QtHttpServer, and QtNetworkAuth
-# as prebuilt add-ons, so unlike the WASM kit (browser-matrix.yml, where QtRemoteObjects has to be
-# built from source) no source build is normally needed here. The install step still verifies each
-# required module is present and falls back to a source build for any the prebuilt kit happens to
-# omit, so a missing prebuilt add-on degrades to a slower build rather than a hard failure.
-#
-# The setup all three jobs need is one composite action (.github/actions/qt-kit) rather than three
-# copies of eleven steps, and the live provider engines the two ctest-running jobs need are
-# another (.github/actions/live-engines). Read the note at the top of qt-kit/action.yml before
-# editing either: a composite action cannot see the calling job's env from an expression, and it
-# fails silently rather than loudly when it tries.
-#
-# Runs on all three desktop platforms SynQt targets (docs/desktop.md): the suites are driven by
-# bash run scripts with Ninja, which is how the framework is actually built. Linux (gcc_64) is the
-# reference column; macOS and Windows do not block the others (fail-fast is off). Windows runs the
-# same bash scripts under the runner's Git Bash, against the MSVC kit with cl.exe put on PATH so
-# the -G Ninja line needs no per-platform variant.
-#
-# The suites are portable but the host is not, and that asymmetry has bitten twice: an assertion
-# of `file ... | grep -q ELF` reported three freshly linked executables as MISSING on macOS, and
-# the deploy folder was hard-coded to client-desktop/linux/ on every platform. Where a suite has
-# to know the host, it asks (tests/lib/native-binary.sh, build.desktop_platform()) rather than
-# assume Linux.
-#
-# Two suites cannot run everywhere and say so out loud rather than quietly passing: m6-client's
-# WASM/browser phases need a kit this workflow does not install (they belong to
-# browser-matrix.yml), so it runs its native half and announces the skip.
-#
-# A CMake warning fails this workflow. See the note on the warning check in tests/run-all.sh.
-#
-# NOTE on the Windows column, updated as it earns it. Confirmed by real runs: the setup half
-# (MSVC on PATH, the OpenSSL probe finding C:\Program Files\OpenSSL with no install needed, the
-# jwt-cpp clone, python3 through setup-python's shim), the MSVC Qt kit installing with every
-# add-on module present, and m1 configuring and compiling clean through cl.exe and Ninja.
-#
-# What has still never happened is a suite *running* to completion here. The last attempt got
-# as far as "Start 1: m1" and then hung for 78 minutes: the test binary could not resolve
-# Qt6Core.dll (see the PATH note in the run step) and died behind an error dialog. So the
-# compile path is now real evidence and the run path is not. Treat the first green Windows
-# column as the first evidence that these suites run on Windows at all.
+# Build and run the native C++ suites through tests/run-all.sh on Linux, macOS and Windows.
+# tests/CMakeLists.txt is the registry of suites. This file keeps no list of its own.
 
 name: "[TEST] Build and test the C++ runtime"
 
 on:
   workflow_dispatch:
-  # No `paths:` filter on either trigger: the `changes` job below decides, so that the check
-  # always reports and can be required. See .github/scripts/relevant-changes.sh.
   push:
   pull_request:
 
-# Nothing here writes to the repository: every job checks the tree out, builds it, and
-# uploads its artifacts, which needs no token at all. Stating that here means the run keeps
-# a read-only token whatever the repository or organisation default happens to be.
 permissions:
   contents: read
 
@@ -102,46 +19,22 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
-  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
-  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
-  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
-  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
-  # one of them drifts.
+  # Keep AQT_VERSION, QT_VERSION and EM_VERSION identical across every workflow;
+  # tools/synqt/tests/test_qt_pin.py fails when one drifts.
   AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
-  # Workflow level rather than per job: the three jobs below need the identical kit, and three
-  # copies of this block would be three things to remember to change together. They reach the
-  # composite action as explicit inputs, never as env; see the note at the top of that file.
   QT_VERSION: "6.12.0"
   QT_ROOT: ${{ github.workspace }}/Qt
-  # qttasktree is not linked by anything here: Qt6QmlConfig pulls in its QML plugin packages,
-  # one of which (Qt6QmlAssetDownloaderPrivate) depends on Qt6TaskTree, so every configure
-  # that finds Qml warns it could not be found. Installing it costs one small archive and
-  # removes the warning at its source rather than muting it. qtquicktimeline is there for the
-  # same reason and is new at 6.12: Qt6Quick3DAssetUtils gained a dependency on Qt6QuickTimeline,
-  # and the Qml plugin scan reaches it, so a kit with Quick3D and no QuickTimeline warns on
-  # every configure. The tree's warning gate fails a run on any Qt warning it has not named,
-  # so this is what the macOS column was failing on rather than anything it compiled.
+  # qttasktree and qtquicktimeline are not linked. The Qml plugin scan warns without them,
+  # and tests/run-all.sh fails on any Qt warning.
   QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree qtquick3d qtquicktimeline qtshadertools"
-  # jwt-cpp v0.7.1 is the floor, not a preference: JwksVerifier builds the RSA public key
-  # from the JWK modulus/exponent with jwt::helper::create_public_key_from_rsa_components,
-  # which does not exist before v0.7.1. v0.7.2 is what the vcpkg baseline resolves to, so
-  # this matches what the code is actually developed against.
+  # v0.7.1 is the floor: JwksVerifier needs jwt::helper::create_public_key_from_rsa_components.
   JWT_CPP_VERSION: "v0.7.2"
-  # Qt Quick needs a platform plugin even for a boot-and-quit; offscreen keeps the QML fixtures
-  # (the auction, the arena, the desktop client) headless.
   QT_QPA_PLATFORM: offscreen
 
 jobs:
-  # The path decision lives here rather than on the trigger above, and that is the whole
-  # reason this job exists. A workflow skipped by a `paths:` filter reports no check at all,
-  # so a required status check on it leaves every unrelated pull request pending forever. A
-  # job skipped by an `if:` reports "skipped", and a skipped check satisfies a required one.
-  #
-  # It also publishes the platform matrix, for the same reason tests/CMakeLists.txt publishes
-  # the suite list: two jobs run on all three platforms, and two YAML copies of the same
-  # matrix is a pair that drifts. A job cannot share a `strategy` block with another, but it
-  # can read one from an output, so the three platforms are written once here.
+  # A job skipped by `if:` reports "skipped" and satisfies a required check. A workflow
+  # skipped by a `paths:` filter reports nothing. The platform matrix is published here so
+  # the two matrix jobs share one copy.
   changes:
     name: Decide what this run has to build
     runs-on: ubuntu-24.04
@@ -151,7 +44,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The decision is a diff, so the run needs the history on both sides of it.
           fetch-depth: 0
 
       - id: decide
@@ -170,9 +62,6 @@ jobs:
               ".github/scripts/relevant-changes.sh" >> "$GITHUB_OUTPUT"
 
       - id: matrix
-        # One line of JSON, because that is what fromJSON() takes and a matrix cannot be
-        # anchored or reused in YAML. `label` names the column and keys every cache; the
-        # other three are what aqtinstall and the kit layout need.
         run: |
           {
             echo -n 'value={"include":['
@@ -182,17 +71,12 @@ jobs:
             echo ']}'
           } >> "$GITHUB_OUTPUT"
 
-  # The framework and its own ctest suites. The long pole of the three on every platform,
-  # and the one whose timeout has to survive a Windows column that once hung for 78 minutes.
+  # Phases [1/3] and [2/3] of tests/run-all.sh. The shared tree and its ctest suites.
   tree:
     name: tree (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
-    # Not a budget, a blast radius: a test process that stops making progress otherwise sits
-    # here for the default six hours, and one already did. CTest's own per-test timeout is not
-    # enough on its own; it waits on the test's output pipe, which a crashed process's
-    # error-reporting child can hold open after the test itself is gone.
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -226,31 +110,14 @@ jobs:
         run: |
           set -u -o pipefail
 
-          # Windows resolves a DLL through the executable's own directory and then PATH; it has
-          # no RPATH, which is the only reason the other two columns need nothing here. A freshly
-          # linked tst_m1.exe sits in the build tree and Qt6Core.dll sits in the kit's bin, so
-          # without this the loader finds nothing and the process dies before main(), and the
-          # runner blocks on the resulting error dialog instead of reporting it. That is exactly
-          # what happened: m1 printed "Start 1: m1" and hung for 78 minutes until the job was
-          # cancelled, having compiled perfectly. The build itself was never affected because
-          # linking reads the .lib import libraries, and repc.exe and qmlimportscanner.exe run
-          # fine from inside the kit's bin, next to the DLLs they need.
+          # Windows has no RPATH: the test binaries find the Qt DLLs through PATH.
           if [ "$RUNNER_OS" = "Windows" ]; then
             export PATH="$(cygpath -u "$QT_HOST")/bin:$PATH"
           fi
 
-          # Phases [1/3] and [2/3] of tests/run-all.sh: configure and build the shared tree,
-          # then run its ctest suites. That script is the same command a developer runs
-          # locally, and tests/CMakeLists.txt is the registry it reads, so a suite that is
-          # neither built nor explicitly accounted for fails the configure step and this
-          # workflow keeps no list of its own to drift from. A CMake warning fails the run
-          # there too. Phase [3/3] is the `generated` job below.
           SYNQT_PHASES=tree bash tests/run-all.sh
 
       - name: Report what the compiler cache did
-        # Printed, never asserted. The hit rate is the evidence that the split and the cache are
-        # doing what the header claims, and a legitimately cold run on a new key reports a low
-        # one, so there is no number here to fail on. This is here to be read.
         if: always()
         shell: bash
         run: |
@@ -261,14 +128,14 @@ jobs:
             sccache --show-stats
           fi
 
-  # The suites that compile what a generator emitted. They need no engine: none of them
-  # touches a database, a cache or a document store.
+  # Phase [3/3] of tests/run-all.sh. The suites that compile what a generator emitted. Each
+  # builds a tree of its own, so the Windows column needs about 33 minutes cold.
   generated:
     name: generated (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
@@ -295,29 +162,14 @@ jobs:
         run: |
           set -u -o pipefail
 
-          # Windows resolves a DLL through the executable's own directory and then PATH; it has
-          # no RPATH, which is the only reason the other two columns need nothing here. A freshly
-          # linked tst_m1.exe sits in the build tree and Qt6Core.dll sits in the kit's bin, so
-          # without this the loader finds nothing and the process dies before main(), and the
-          # runner blocks on the resulting error dialog instead of reporting it. That is exactly
-          # what happened: m1 printed "Start 1: m1" and hung for 78 minutes until the job was
-          # cancelled, having compiled perfectly. The build itself was never affected because
-          # linking reads the .lib import libraries, and repc.exe and qmlimportscanner.exe run
-          # fine from inside the kit's bin, next to the DLLs they need.
+          # Windows has no RPATH: the test binaries find the Qt DLLs through PATH.
           if [ "$RUNNER_OS" = "Windows" ]; then
             export PATH="$(cygpath -u "$QT_HOST")/bin:$PATH"
           fi
 
-          # Phase [3/3] of tests/run-all.sh: the suites whose entry point is a generator rather
-          # than CMake. It configures the shared tree, because the configure step is what writes
-          # the registry it reads, and deliberately does not build it: each of these suites
-          # compiles a tree of its own from $REPO_ROOT and links nothing out of that one.
           SYNQT_PHASES=generated bash tests/run-all.sh
 
       - name: Report what the compiler cache did
-        # Printed, never asserted. The hit rate is the evidence that the split and the cache are
-        # doing what the header claims, and a legitimately cold run on a new key reports a low
-        # one, so there is no number here to fail on. This is here to be read.
         if: always()
         shell: bash
         run: |
@@ -328,15 +180,7 @@ jobs:
             sccache --show-stats
           fi
 
-  # Linux only: gcov reads counters written by the compiler that produced them, so the figure
-  # is a property of one toolchain and measuring it on three would be three answers to one
-  # question. A second, instrumented build of the same tree, which used to run after the real
-  # suites in the same job and now runs beside them: it is Debug and unoptimized, so it proves
-  # nothing about the build that has to stay green, and there was never a reason for it to wait.
-  #
-  # It runs the tree's ctest suites, so it needs the same live engines the `tree` job does; the
-  # provider proofs skip without them and the number would drop for a reason that is not a
-  # change in coverage.
+  # A second, instrumented build of the tree; Linux only, since gcov is per toolchain.
   coverage:
     name: coverage (linux)
     runs-on: ubuntu-24.04
@@ -349,8 +193,6 @@ jobs:
       - uses: ./.github/actions/qt-kit
         with:
           label: linux
-          # Its own cache key: this build is Debug and instrumented, so it shares not one
-          # object with the other two and would only evict them.
           phase: coverage
           aqt_host: linux
           aqt_arch: linux_gcc_64
@@ -371,8 +213,7 @@ jobs:
         shell: bash
         env:
           QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/gcc_64
-          # The ratchet. Raise it when the number goes up; never lower it to make a branch
-          # green. docs/development.md says what the figure does and does not claim.
+          # Raise it when the number goes up. Never lower it to make a branch green.
           CXX_FLOOR: "78"
           HALVES: cxx
           BUILD_DIR: build/coverage
@@ -387,9 +228,6 @@ jobs:
           if-no-files-found: ignore
 
       - name: Report what the compiler cache did
-        # Printed, never asserted. The hit rate is the evidence that the split and the cache are
-        # doing what the header claims, and a legitimately cold run on a new key reports a low
-        # one, so there is no number here to fail on. This is here to be read.
         if: always()
         shell: bash
         run: |

@@ -1,31 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Close the WebKit / Safari column of the M0 browser matrix on hosts the primary dev machine
-# (Arch Linux) cannot run: Playwright's WebKit needs Debian/Ubuntu system libraries, and real
-# Safari needs macOS. This workflow provisions the pinned toolchain (Qt 6.12.0 + Emscripten
-# 5.0.5, with QtRemoteObjects built from source into the WASM kit; the prebuilt kit does not
-# ship it, see tests/m0-transport/README.md finding 1), then runs the M0 verifier, which drives
-# Chromium + Firefox + WebKit through all four QtRO-over-WebSockets directions and reconnect.
-#
-#   * ubuntu  -> Playwright WebKit (Safari's engine) with its Linux deps installed;
-#   * macOS   -> Playwright WebKit on macOS, the closest automatable stand-in for Safari.app
-#     (real Safari.app would need safaridriver + `safaridriver --enable`; that is a follow-up).
-#
-# It runs on dispatch and when the M0 spike or this file changes. There is no schedule: a
-# run provisions the WASM toolchain and builds a Qt module from source, so it is started
-# when somebody wants the answer rather than on a clock.
-#
-# What moves under this workflow is the browser, not the spike: the verifier floats Playwright
-# on ^1.49, so each run resolves whatever engine build is current that day. The engine columns
-# of "runs in current Chrome, Firefox, and Safari" are therefore only as fresh as the last
-# dispatch, which is why the run records the engine versions it drove (see verify.mjs). A green
-# run that cannot say what it ran proves less than it looks like, and a green run from six
-# months ago says nothing about today's WebKit. Dispatch it before making the claim.
-#
-# NOTE: this workflow is authored to run on GitHub's runners and cannot be validated on the Arch
-# dev box; the aqtinstall arch/module names and the per-OS Qt install directory are the most
-# likely first-run adjustments.
+# The M0 browser matrix (Chromium, Firefox, WebKit; ws and wss; reconnect) and the
+# split-origin cookie measurement. Builds QtRemoteObjects into the WASM kit.
 
 name: "[TEST] Run the browser matrix (Chromium, Firefox, WebKit)"
 
@@ -33,20 +10,10 @@ on:
   workflow_dispatch:
   push:
     paths:
-      # Exactly what a run compiles. The M0 spike is self-contained (its own edge and client,
-      # its own QIODevice adapter), so it does not build src/transport or src/client and those
-      # paths do not appear here: a workflow that runs on a change it cannot
-      # exercise reads as coverage without being any.
       - "tests/m0-transport/**"
-      # The split-origin rig runs here for one reason: this is the only workflow with a
-      # WebKit runtime, and WebKit is the engine its documented table cannot fill in
-      # locally. It compiles nothing, so it is cheap to carry alongside the M0 build.
       - "tests/split-origin/**"
       - ".github/workflows/browser-matrix.yml"
 
-# Nothing here writes to the repository: every job checks the tree out, builds it, and
-# uploads its artifacts, which needs no token at all. Stating that here means the run keeps
-# a read-only token whatever the repository or organisation default happens to be.
 permissions:
   contents: read
 
@@ -55,12 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # aqtinstall, pinned to a commit and not to a release: no released aqt can install the
-  # Windows kit, because Qt publishes the Windows desktop repository one folder per toolchain
-  # and aqt only learned to look there after the last release. tools/synqt/synqt/toolchain.py
-  # carries the full note. Keep this identical in ctest.yml, browser-matrix.yml,
-  # wasm-proofs.yml, benchmarks.yml and leaks.yml; tools/synqt/tests/test_qt_pin.py fails when
-  # one of them drifts.
+  # Keep identical across every workflow. Tools/synqt/tests/test_qt_pin.py fails when one drifts.
   AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
 
 jobs:
@@ -99,31 +61,7 @@ jobs:
         uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies Qt needs to configure (Linux)
-        # Qt6GuiConfig hard-requires WrapOpenGL, so without the OpenGL dev files Qt6Gui sets
-        # Qt6Gui_FOUND to FALSE and find_package(Qt6) fails with "Failed to find required Qt
-        # component Gui" while pointing at a Qt6GuiConfig.cmake that plainly exists, which is
-        # what makes this one slow to read: the file it names is not the file that is missing.
-        # libgl1-mesa-dev pulls the libglvnd dev files, covering CMake's OPENGL_opengl_LIBRARY,
-        # OPENGL_glx_LIBRARY, and OPENGL_INCLUDE_DIR. macOS has OpenGL in the SDK and needs
-        # none of this, which is why only the Linux column ever failed here.
-        #
-        # The rasteriser and the GLX and EGL runtimes are for the browsers rather than for
-        # the build. The M0 client is an ApplicationWindow, so it needs a WebGL context to
-        # start its scene graph, and only Chromium brings a rasteriser of its own; Firefox
-        # and WebKit take the machine's GL and get nothing on a runner where Mesa is absent.
-        # A WASM client that cannot create the context does not just fail to draw: Qt ends
-        # it with qFatal, which is emscripten's abort(), which sets ABORT, after which every
-        # callback queued through emscripten_async_call is dropped, which is the first hop of
-        # QEventDispatcherWasm::wakeUp(). The socket, the timers and the property pushes
-        # carry on and posted events never arrive again, which is the shape of the Firefox
-        # stall this matrix has been carrying (tests/m0-transport/FIREFOX-LINUX.md).
-        #
-        # Wayland: the 6.12.0 desktop kit ships the QtWayland platform plugins, and Qt6Gui's
-        # plugin scanning find_dependency's Qt6WaylandClient, which wants the wayland-client,
-        # wayland-server, wayland-cursor and wayland-egl pkg-config modules. The M0 edge asks
-        # for Gui, so without them its configure fails the same way as without OpenGL. The
-        # same packages and the same check as .github/actions/qt-kit, which this job does
-        # not use.
+        # OpenGL and Wayland for Qt6Gui's plugin scan; Mesa and GLX/EGL for the browsers' WebGL.
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -140,11 +78,7 @@ jobs:
           done
 
       - name: Cache the Qt kit
-        # The whole kit tree, kits plus the QtRemoteObjects we build from source into the WASM
-        # kit below: that build installs into the kit prefix, so one cache of QT_ROOT covers both
-        # the download and the from-source build, and every Qt install/build step is skipped on a
-        # hit. Keyed on the workflow file so a change to the pinned Qt/aqt/emsdk versions (all env
-        # here) or the install steps invalidates it. Same pattern as ctest.yml.
+        # Covers the from-source QtRemoteObjects too, which installs into the kit prefix.
         id: qt-cache
         uses: actions/cache@v6
         with:
@@ -153,16 +87,8 @@ jobs:
 
       - name: Install aqtinstall
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # A pinned commit rather than a release, because aqt's last release cannot install the
-        # Windows kit: Qt publishes the Windows desktop repository one folder per toolchain
-        # (windows_x86/desktop/qt6_6120/qt6_6120_msvc2022_64/), and the support for addressing
-        # it landed after 3.3.0 shipped. Linux and macOS still get the flat folder, which is
-        # why this was invisible everywhere but the Windows column.
-        #
-        # Never a branch or a tag that moves: this job holds a token and produces artifacts
-        # the rest of the pipeline trusts, so what provisions it is one reviewed tree. Moving
-        # it is a reviewed edit, in every workflow at once, and tools/synqt/synqt/toolchain.py
-        # is where the reasoning lives.
+        # A pinned commit, not a release. No released aqt can install the Windows kit
+        # (toolchain.AQT_VERSION).
         run: |
           python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ env.AQT_VERSION }}"
 
@@ -176,10 +102,7 @@ jobs:
 
       - name: Install Qt WASM kit (single-threaded) + WebSockets
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # all_os/wasm, not <host>/desktop: the WASM kit is one host-independent build published
-        # under its own host and target, and asking for it under the desktop target fails with
-        # "Failed to locate XML data for Qt version", which reads like the version is gone
-        # rather than like the coordinates are wrong.
+        # The WASM kit is published under all_os/wasm, not under the host's desktop target.
         run: |
           python -m aqt install-qt all_os wasm \
             "$QT_VERSION" wasm_singlethread \
@@ -195,9 +118,6 @@ jobs:
             "$QT_VERSION" --archives qtremoteobjects --outputdir "$QT_ROOT"
 
       - name: Cache Emscripten
-        # emsdk is downloaded and pinned to EM_VERSION on every run otherwise; the SDK version is
-        # fixed, so cache the whole tree and re-source emsdk_env.sh on a hit. Independent of the
-        # Qt cache: a later WASM compile needs emsdk present even when the kit was restored.
         id: emsdk-cache
         uses: actions/cache@v6
         with:
@@ -213,17 +133,13 @@ jobs:
 
       - name: Build QtRemoteObjects into the WASM kit
         if: steps.qt-cache.outputs.cache-hit != 'true'
-        # The prebuilt WASM kit ships QtWebSockets but not QtRemoteObjects; build it from the
-        # pinned source with the kit's qt-cmake (its qt-configure-module is broken on Linux) and
-        # install it into the kit prefix so the M0 client can link it.
+        # The prebuilt WASM kit ships no QtRemoteObjects. Qt-cmake, since the kit's
+        # qt-configure-module is broken on Linux.
         run: |
           source "$HOME/emsdk/emsdk_env.sh"
           QT_WASM="$QT_ROOT/$QT_VERSION/wasm_singlethread"
           SRC="$QT_ROOT/$QT_VERSION/Src/qtremoteobjects"
-          # QT_HOST_PATH: a cross-compiled Qt must be told where its host tools are. The kit
-          # carries Qt's own build-machine path (/home/qt/work/install), and only a
-          # host-specific aqt install rewrites it, which the host-independent all_os/wasm kit
-          # is not, so it has to be named here.
+          # The all_os/wasm kit carries Qt's own build-machine host path, so name the host tools.
           export QT_HOST_PATH="$QT_ROOT/$QT_VERSION/${{ matrix.qt_host_dir }}"
           "$QT_WASM/bin/qt-cmake" -S "$SRC" -B "$RUNNER_TEMP/qtro-wasm" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$QT_WASM"
@@ -243,23 +159,14 @@ jobs:
         env:
           QT_HOST: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.qt_host_dir }}
           QT_WASM: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/wasm_singlethread
-          # run-m0.sh configures the client through the wasm kit's qt-cmake, which needs the
-          # host tools named (see the QtRemoteObjects build step).
           QT_HOST_PATH: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.qt_host_dir }}
-          # No GPU here, so say so rather than letting each engine find out for itself.
-          # Measured on a workstation forced to llvmpipe this way: headless Firefox hands out
-          # a WebGL 2.0 context with no preferences set, so Mesa's software rasteriser is
-          # all the browsers ever needed. Harmless on macOS, which ignores it.
+          # No GPU on a runner; Mesa's software rasteriser gives the browsers their WebGL context.
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
           source "$HOME/emsdk/emsdk_env.sh"
           tests/m0-transport/verify/run-m0.sh
 
-      # The two test sites must be real, separate registrable domains or no third-party
-      # cookie rule applies and the measurement is void. Chromium and Firefox can be told to
-      # map them; WebKit cannot, and WebKit is Safari's engine, which is the one browser
-      # whose cookie policy split-origin cannot afford to guess at. So map them for real
-      # here, which is the only place this project has a WebKit runtime.
+      # WebKit cannot be told to map hosts, so the hosts file does.
       - name: Map the split-origin test sites
         shell: bash
         run: tests/local-network/local-network.sh hosts
@@ -276,10 +183,6 @@ jobs:
           path: build/m0-verify.log
           if-no-files-found: ignore
 
-      # The gate asserts the three findings that have a local baseline; it asserts nothing
-      # about WebKit, because there is no baseline to assert yet. Passing is therefore not
-      # the WebKit result, this file is, and the split-origin table in
-      # docs/project-layout-and-config.md stays marked inference until someone reads it.
       - name: Archive the split-origin measurement
         if: always()
         uses: actions/upload-artifact@v7

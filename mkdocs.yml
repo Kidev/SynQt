@@ -12,9 +12,6 @@ site_author: Kidev
 repo_url: https://github.com/Kidev/SynQt
 repo_name: Kidev/SynQt
 edit_uri: edit/main/docs/
-# The entity, not a literal (c): Material inserts this line into the footer as HTML,
-# and the file itself stays ASCII like the rest of the repository. Quoted, because a
-# bare `&` opens a YAML anchor.
 copyright: "&copy; 2026 SynQt - kidev"
 
 theme:
@@ -22,12 +19,6 @@ theme:
   language: en
   logo: assets/synqt.svg
   favicon: assets/synqt.ico
-  # overrides/partials/nav.html: drops the unclickable "SynQt" text label from the
-  # top of the left nav drawer (Material's stock partial puts the site name there
-  # as plain text next to the logo link, not as a link itself).
-  # overrides/partials/footer.html: labels the previous and next links with the
-  # section title when the page they point at is called "Overview", so the last
-  # page of a tutorial offers the next tutorial by name.
   custom_dir: overrides
   features:
     - navigation.instant
@@ -42,13 +33,8 @@ theme:
     - toc.follow
     - search.suggest
     - search.highlight
-  # Single scheme, no toggle: SynQt's docs are dark themed only (see extra.css
-  # for the actual brand hex values; primary/accent here just need to be valid
-  # Material color names, since --md-primary-fg-color and --md-accent-fg-color
-  # are overridden unconditionally right after). Not "black": Material special
-  # cases that one with a hardcoded `[data-md-color-primary=black] .md-header`
-  # background rule that bypasses --md-primary-fg-color entirely, so the
-  # override below would have no visible effect on the header.
+  # Dark only. The brand colours are in extra.css. Not "black": Material hardcodes that
+  # header background past --md-primary-fg-color.
   palette:
     - scheme: slate
       primary: indigo
@@ -56,75 +42,46 @@ theme:
 
 extra_css:
   - stylesheets/extra.css
-  # The scrollbar the page draws for itself. Its own file because the C++ reference in
-  # the frame on /api/ loads the same one (see the Doxyfile), so the bar there and the
-  # bar here are one thing rather than two that have to be kept looking alike.
+  # Also loaded by the C++ reference in the frame on /api/ (see the Doxyfile).
   - stylesheets/scrollbar.css
   - stylesheets/home.css
   - stylesheets/download-modal.css
   - stylesheets/api-shell.css
 
-# The "Download" nav entry below points at https://get.synqt.org/. That URL now
-# serves the installer script itself (for `curl | sh`), so the user-facing
-# download page it used to serve lives here: download-modal.js intercepts the
-# nav link and opens a modal instead, falling back to the plain link with JS off.
 extra_javascript:
+  # Opens the Download nav entry as a modal. Https://get.synqt.org/ serves the installer script.
   - javascripts/download-modal.js
-  # Keeps the address bar, the browser tab and the frame on /api/ in step; see
-  # docs/api.md and overrides/api.html.
   - javascripts/api-shell.js
-  # Redraws the header's repository facts from the last ones this browser received
-  # when the GitHub API refuses a fetch (its hourly allowance is sixty requests).
   - javascripts/source-facts.js
-  # The home page's "What it looks like" project: the tree and diagram triggers, the
-  # code glossary, and the explanation under the file being read.
   - javascripts/home-flow.js
-  # Draws the scrollbar from under the header down, where the platform draws one that
-  # takes space. The document keeps scrolling; only the bar is ours. The C++ reference
-  # runs this same file inside the frame on /api/ (see the Doxyfile), where it draws the
-  # same bar for the pane that scrolls there.
+  # Also run by the C++ reference in the frame on /api/ (see the Doxyfile).
   - javascripts/scrollbar.js
 
 extra:
   generator: false
-  # The home page's <title> (overrides/main.html). Kept short enough to survive a browser
-  # tab and a search result, where the bare site name says nothing about what SynQt is.
+  # The home page's <title> (overrides/main.html).
   tagline: Build complete web systems using QML
 
-# Generates the Doxygen C++ reference into the built site under /api/ref/, which the
-# shell page at /api/ (docs/api.md) shows in a frame, and rewrites its navigation (see
-# docs/api-reference.md). Skipped with a warning when doxygen is not installed.
 hooks:
+  # The Doxygen C++ reference under /api/ref/, shown in a frame by docs/api.md.
   - tools/docs-hooks/doxygen.py
-  # Appends a content hash to the extra_css and extra_javascript references above, so a
-  # deploy can never pair this page's new script with a reader's cached stylesheet.
+  # Content hashes on the extra_css and extra_javascript references.
   - tools/docs-hooks/assets.py
-  # Publishes the design editor at /designer/, copied from the directory `synqt design`
-  # serves out of the installed package, so the editor docs/visual-editor.md describes is
-  # the one the command opens. It refuses to publish an asset that names another host: this
-  # copy is static, so no header goes over it to refuse the fetch at run time.
+  # The design editor at /designer/, copied from what `synqt design` serves.
   - tools/docs-hooks/designer.py
 
-# What `mkdocs serve` rebuilds on. It watches this file and docs/ by itself, and nothing
-# else: everything the site is also built from has to be named here or an edit to it is
-# invisible until the server is restarted, which is a slow way to find out that the page
-# in front of you is stale. That is the page templates, and the whole of what the C++
-# reference under /api/ is made of: the headers it documents, the Doxyfile, and the
-# stylesheets, templates and hook that shape the result.
+# Everything the site is built from besides this file and docs/.
 watch:
   - overrides
   - src
   - Doxyfile
   - tools/docs-hooks
-  # The design editor itself, which the hook above copies to /designer/.
   - tools/synqt/synqt/assets/design
 
 plugins:
   - search
-  # Converts GitHub style alerts (> [!NOTE], > [!TIP], ...) into Material
-  # admonitions at build time, so the source markdown stays unchanged and keeps
-  # rendering on GitHub too. aliases:false keeps IMPORTANT and CAUTION as their own
-  # types (styled in stylesheets/extra.css) instead of folding them into tip/warning.
+  # GitHub style alerts as Material admonitions. Aliases:false keeps IMPORTANT and CAUTION
+  # as their own types (styled in stylesheets/extra.css).
   - callouts:
       aliases: false
 
@@ -139,21 +96,14 @@ markdown_extensions:
   - pymdownx.snippets
   - pymdownx.highlight:
       anchor_linenums: true
-      # Route ```qml code blocks through the SynQt QML lexer (tools/pygments-synqt),
-      # so a Contract.onSignal: attached handler colors the same way as the hand
-      # authored home page tooltip. The built-in `qml` alias would otherwise win.
+      # The SynQt lexers from tools/pygments-synqt, over the built-in aliases.
       extend_pygments_lang:
         - name: qml
           lang: synqt-qml
-        # And ```yaml blocks through the SynQt YAML lexer, which reads a connect
-        # point's export: block as the contract it is rather than as one string:
-        # the member kind, each type, each declared width and each name are told
-        # apart, the same way they are on the .syn reference pages.
         - name: yaml
           lang: synqt-yaml
   - pymdownx.superfences:
       custom_fences:
-        # Renders ```mermaid fenced blocks as diagrams.
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
@@ -163,11 +113,7 @@ markdown_extensions:
   - toc:
       permalink: true
 
-# A link inside the docs that points at nothing is a broken page, so it fails the build
-# rather than scrolling past as an INFO line (which is what happened when a heading was
-# renamed and five links to its anchor went stale unnoticed). Only in-repo links are
-# raised: an absolute or external URL is nobody's to validate here. `mkdocs build
-# --strict` is what turns these warnings into a non-zero exit.
+# `mkdocs build --strict` turns these warnings into a failed build.
 validation:
   omitted_files: warn
   absolute_links: info
@@ -208,11 +154,6 @@ nav:
           - A database of your own: tutorial-advanced-database.md
           - A cache of your own: tutorial-advanced-cache.md
           - An identity service of your own: tutorial-advanced-identity.md
-  # Grouped rather than flat. Every page here used to be one row of the left menu, which
-  # made the Framework tab a column of twenty-one entries that ran past the fold on any
-  # laptop and gave a reader no way to see the shape of it. The four that introduce the
-  # model stay at the top level, because they are what somebody arriving reads in order;
-  # the rest are collapsed under the question they answer, and open when you are in them.
   - Framework:
       - Architecture: architecture.md
       - Programming model: programming-model.md
@@ -242,21 +183,11 @@ nav:
           - Browser coverage: browser-proofs.md
       - Examples: examples.md
       - Licensing: licensing.md
-  # Straight into the generated Doxygen reference, so it is one click from every page
-  # rather than one click behind the page that introduces it. A real page of this site
-  # (docs/api.md), not an absolute link out of it: the reference is shown in a frame on
-  # that page, so this tab behaves like every other one, keeps its active state, and does
-  # not reload the header on the way in.
   - C++ reference: api.md
-  # The design editor itself, published at this URL by tools/docs-hooks/designer.py rather
-  # than written as a page. It must stay a URL nothing here builds to: the hook refuses a
-  # site where a page claims it, because a page there would be overwritten and its entry in
-  # sitemap.xml would make instant navigation swap the editor into this shell.
+  # Published by tools/docs-hooks/designer.py. The hook refuses a site where a page claims it.
   - Designer: /designer/
   - Download: https://get.synqt.org/
 
-# The guide to the editor. Not in the nav because the tab above goes to the editor itself,
-# which is what somebody looking for it wants; the guide is linked from the quick start,
-# from Getting started, and from the editor's own page.
+# The editor's guide. Linked from the quick start, Getting started and the editor itself.
 not_in_nav: |
   visual-editor.md

@@ -1,51 +1,20 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Run the deterministic checks (the synqt CLI, the synqtc contract generator, the docs' Pygments
-# lexers, the committed benchmark baselines, the docs' mermaid diagrams, the design editor's
-# rules, and the attack index) on every push and pull request. The attack index is
-# tests/security/attacks.json: every attack SynQt claims to defend and the test that proves it
-# still fails, checked here because an entry naming a test that no longer exists is a claim
-# nothing backs, and nothing else would notice. The suites are pure Python and run across the
-# three desktop operating systems SynQt supports as native targets (Linux, macOS, Windows; see
-# docs/desktop.md): they drive the generators and CLI and assert on the emitted CMake, presets,
-# topology, and config, so they need no Qt build or display and run identically on all three
-# runners. The mesh-CA tests shell out to openssl, which ships on all three GitHub runner images.
-#
-# The benchmark suite here is the cheap half of the benchmark gate: it reads the committed
-# baselines under benchmarks/results/ and asserts the claims benchmarks/README.md makes about them
-# still hold. It measures nothing, so it is machine-independent and belongs on every push. The half
-# that actually runs the harnesses needs Qt and a quiet machine, and lives in benchmarks.yml.
-#
-# One job here does run a browser: the design editor is a page, and most of what it does (the
-# canvas, the drag that draws a connect point, the plan digest behind Apply) exists nowhere a
-# Python test can reach. It needs Chromium and nothing else, no Qt and no display, which is why
-# it belongs in this gate rather than with the WebAssembly proofs.
-#
-# The heavier, platform-specific checks live elsewhere and are not duplicated here: the WASM
-# QtRO-over-WebSockets browser matrix is browser-matrix.yml, and the C++ ctest suites need a full
-# Qt 6.12.0 build (and, for several, a display, generated certs, or the WASM kit), which the
-# per-entity CMake projects build on demand rather than in this fast cross-OS gate.
+# The checks that need no Qt.
 
 name: "[TEST] Run the Python test suites"
 
 on:
   push:
-    # authors.yml pushes its branch with a GitHub App token, and an app token's push starts
-    # workflows where a GITHUB_TOKEN push starts none. That branch holds one regenerated file,
-    # so skip the push run; the pull request it opens is still tested through `pull_request`,
-    # which is what a required check has to report on.
+    # authors.yml's branch; its pull request is still tested.
     paths-ignore:
       - "AUTHORS"
   pull_request:
 
-# Nothing here writes to the repository: every job checks the tree out, builds it, and
-# uploads its artifacts, which needs no token at all. Stating that here means the run keeps
-# a read-only token whatever the repository or organisation default happens to be.
 permissions:
   contents: read
 
-# A newer push to the same ref supersedes an in-flight run.
 concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
@@ -57,9 +26,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Named images rather than the -latest aliases, so a run a year from now is the run
-        # that happened today. These are what the aliases point at as of this writing; move
-        # them deliberately when the next image goes GA.
         os: [ubuntu-24.04, macos-26, windows-2025]
     steps:
       - uses: actions/checkout@v7
@@ -70,8 +36,7 @@ jobs:
           cache: pip
 
       - name: Install the CLI, contract generator, and docs lexers (editable) plus test deps
-        # brotli lets the bundle-precompress test produce the .br copy (the CLI skips it gracefully
-        # without the package, but the test asserts it, so install it here).
+        # brotli. The bundle-precompress test asserts the .br copy.
         run: python -m pip install --upgrade pip && python -m pip install -e ./tools/synqt -e ./tools/synqtc -e ./tools/pygments-synqt pytest brotli
 
       - name: Confirm openssl is available (the mesh-CA tests use it)
@@ -83,9 +48,6 @@ jobs:
           benchmarks/tests -q
 
   coverage:
-    # One runner: coverage of pure Python is the same number everywhere, so measuring it on
-    # three would be three copies of one figure. It is a separate job from pytest so that a
-    # coverage floor can fail without hiding which platform a real test failure was on.
     name: CLI coverage floor
     runs-on: ubuntu-24.04
     steps:
@@ -104,17 +66,10 @@ jobs:
       - name: Confirm openssl is available (the mesh-CA tests use it)
         run: openssl version
 
-      # Through the script rather than as two inline commands, so the floor lives in one
-      # place instead of being a number here that a local run cannot see. The script picks
-      # the floor from what it finds: this job installs no Qt kit, so the qmllint and
-      # qmlformat tests skip and the lower of its two floors applies. Both are ratchets:
-      # raise them when the number goes up, never lower one to make a branch green.
       - name: Measure and enforce the floor
         run: HALVES=py tests/run-coverage.sh
 
   node-checks:
-    # One runner: both of these read text that is the same on every platform. They are a
-    # separate job from pytest because nothing else here needs node.
     name: node checks
     runs-on: ubuntu-24.04
     steps:
@@ -124,28 +79,17 @@ jobs:
         with:
           node-version: "20"
 
-      # Same floating major the docs theme loads at runtime (unpkg.com/mermaid@11), so this
-      # checks the diagrams against the parser the live page actually uses. --no-save: there is
-      # no node package here to add a dependency to, only this check.
+      # The same floating major the docs theme loads at runtime.
       - name: Install mermaid (the version the docs site loads) and a DOM for it
         run: npm install --no-save mermaid@11 jsdom
 
       - name: Parse every diagram in docs/
         run: node tools/check-mermaid/check-mermaid.mjs docs
 
-      # The design editor paints a subset of the `synqt check` rules and must never become a
-      # second opinion on them. The Python suite reads the same topologies.json and asserts
-      # the command line reaches the same verdict for every case; this asserts the module the
-      # browser loads does. It imports the shipped asset by path and installs nothing.
       - name: Check the editor's rules against the shared topologies
         run: node tools/check-designrules/check-designrules.mjs
 
   designer:
-    # The design editor in a real browser, which is the only place most of it exists: the
-    # canvas, the drag that draws a connect point, the inspector, and the plan digest that
-    # ties Apply to the change set that was shown. The Python suite reaches the server and
-    # the page's text; this reaches the page. It needs no Qt and no display, only Chromium,
-    # so it belongs in this gate rather than with the WebAssembly proofs.
     name: design editor (browser)
     runs-on: ubuntu-24.04
     steps:
@@ -160,7 +104,6 @@ jobs:
         with:
           node-version: "20"
 
-      # The editor is served by the CLI, which resolves the contract compiler beside it.
       - name: Install the CLI and the contract generator (editable)
         run: >
           python -m pip install --upgrade pip &&
