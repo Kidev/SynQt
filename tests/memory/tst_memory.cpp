@@ -31,6 +31,9 @@
 #include "webedgeconfig.h"
 #include "websockettransport.h"
 
+#include "synclient.h"
+#include "synclientconfig.h"
+
 #include "probe_sourcehelper.h"  // synqtRegisterProbeSources()
 
 #include <QCoreApplication>
@@ -69,6 +72,8 @@ using SynQt::IdentityConfig;
 using SynQt::IdentityProvider;
 using SynQt::MeshTransportMode;
 using SynQt::SessionManager;
+using SynQt::SynClient;
+using SynQt::SynClientConfig;
 using SynQt::Topology;
 using SynQt::WebEdge;
 using SynQt::WebEdgeConfig;
@@ -273,9 +278,19 @@ Growth measureConfirmed(int warmupCycles, int measuredCycles, qint64 allowedPerC
 /// QRemoteObjectHost plus node taken up and down once, with no SynQt in the picture,
 /// retains about twenty kilobytes a cycle on this Qt. What this test is for is the thing
 /// SynQt owns, which is retiring the old node rather than replacing the pointer to it, and
-/// that failure costs a node: this bound is two orders of magnitude under one and two
+/// that failure costs a node. This bound is two orders of magnitude under one and two
 /// orders over what a reconnect measures.
 constexpr qint64 AllowedBytesPerRetiredLink{2048};
+
+/// What one client's whole visit may leave behind, measured over the same shape from the
+/// other end. A `SynClient` that connects to an edge and is then destroyed.
+///
+/// The same reasoning and the same order of magnitude as the link budget above, because a
+/// client connecting builds the same three things a consumer link does (a node, a
+/// transport and the replicas on it) and destroying it has to retire all of them. It is set
+/// here rather than shared, because the failure this is written for costs about four
+/// kilobytes a visit and a bound that cannot see four kilobytes would not be a bound.
+constexpr qint64 AllowedBytesPerClientVisit{2048};
 
 QSslConfiguration insecureClientConfig()
 {
@@ -891,6 +906,70 @@ private slots:
         QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
                  qPrintable(growth.describe("an answer no route handler is waiting for",
                                             budgetFor(growth, AllowedBytesPerCycle))));
+    }
+
+    // The client end of the same question, and the one that matters most for the one
+    // process a person leaves open all day.
+    //
+    // `SynClient::connectToEdge` runs once per `start()` and once per reconnect, and each
+    // pass builds a node, a transport and the framework's own SessionState replica on it.
+    // The node and the transport are retired by `teardown()`. The replica has to be given
+    // to the node to be retired with it, because `QRemoteObjectNode::acquire<T>()` hands
+    // back an object with no parent (`new ObjectType(this, name)`, and
+    // `QRemoteObjectReplica`'s constructor is `QObject(nullptr)`). The node knows the
+    // replica's *implementation* through a weak pointer and does not own the replica.
+    // Without that one line a client on a flaky network keeps one replica per reconnect
+    // for as long as the tab stays open, which is exactly the shape a browser client is
+    // worst placed to survive.
+    //
+    // The cycle is a whole client rather than a reconnect because it is cheaper and says
+    // more. One visit exercises the same path, and a client that has been destroyed may
+    // hold nothing at all.
+    void aClientThatComesAndGoesLetsGoOfEverythingItAcquired()
+    {
+        QQmlEngine engine;
+        WebEdge edge{edgeConfig(), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        SynClientConfig clientSettings;
+        clientSettings.edgeUrl = QUrl{edge.wssOrigin() + QStringLiteral("/sync")};
+        clientSettings.connectPoints = {{QStringLiteral("probe"), QStringLiteral("Probe")}};
+        clientSettings.pinnedCaCertPath = QStringLiteral(MEMORY_CERT_DIR "/ca.crt");
+        clientSettings.reconnectBaseMs = 200;
+
+        const auto oneVisit{[&clientSettings, &engine]() {
+            SynClient client{clientSettings, &engine};
+            client.start();
+            if (!QTest::qWaitFor([&client]() {
+                    return client.state() == QStringLiteral("connected");
+                }, 10000)) {
+                return false;
+            }
+            // The visit ends here. Everything below is the client being destroyed, which
+            // is what this measures. Deferred deletes are drained so the next cycle does
+            // not start with the last one's teardown still queued.
+            return true;
+        }};
+
+        // Every visit builds a Session, a Router and a Privacy accessor on the one engine
+        // this test shares across them, and each of those puts a closure or two in that
+        // engine's JavaScript heap (`Session.hasScope` is a function-valued property). The
+        // engine reclaims those on its own schedule, which is not once per cycle, so they
+        // are collected here rather than left to read as a leak of the client's: measured,
+        // they are about 2.7 KB a visit and go to zero under a collection, while the
+        // replica this test was written for does not move under one at all.
+        const auto visitAndSettle{[&oneVisit, &engine]() {
+            const bool connected{oneVisit()};
+            QTest::qWait(20);
+            engine.collectGarbage();
+            return connected;
+        }};
+
+        const Growth growth{measureConfirmed(3, 30, AllowedBytesPerClientVisit, visitAndSettle)};
+        QVERIFY2(growth.completed, "the client did not reach the edge");
+        QVERIFY2(withinBudget(growth, AllowedBytesPerClientVisit),
+                 qPrintable(growth.describe("a client connecting and being destroyed",
+                                            budgetFor(growth, AllowedBytesPerClientVisit))));
     }
 
     void theMeshLinkLetsGoOfEveryRetiredNode()

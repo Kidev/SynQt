@@ -19,6 +19,11 @@ qt_standard_project_setup()
 if(NOT TARGET SynQtEdge)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge" "${CMAKE_BINARY_DIR}/SynQtEdge")
 endif()
+# The client runtime too: what a client keeps across a visit is measured here from the
+# client's own end, against a real edge (aClientThatComesAndGoesLetsGoOfEverythingItAcquired).
+if(NOT TARGET SynQtClient)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 set(MEMORY_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
@@ -46,6 +51,7 @@ target_compile_definitions(tst_memory PRIVATE
 
 target_link_libraries(tst_memory PRIVATE
     SynQtEdge
+    SynQtClient
     Qt6::Core
     Qt6::Network
     Qt6::Qml

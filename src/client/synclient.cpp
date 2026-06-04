@@ -760,7 +760,8 @@ void SynClient::teardown()
         deleteSoon(m_node);  // deletes the replicas it parents
         m_node = nullptr;
     }
-    // Parented to the node just retired, so this is a name for something already gone.
+    // A child of the node retired (bindSessionState), so this is a name for
+    // something already gone.
     m_sessionState = nullptr;
 }
 
@@ -877,6 +878,13 @@ void SynClient::bindSessionState()
     // the app's own generated code and works the same in a project that declares no
     // connect points at all.
     auto *replica{m_node->acquire<SessionStateReplica>(QStringLiteral("SessionState"))};
+    // Given to the node, because acquire() does not: a typed replica comes back with no
+    // parent (`new ObjectType(this, name)` over a `QObject(nullptr)` constructor) and the
+    // node holds only a weak reference to its implementation. teardown() retires the node
+    // on every reconnect and this is what makes the replica go with it. Without it a client
+    // on a flaky network kept one of these per reconnect for as long as the tab was open.
+    // tests/memory measures the visit, and EntityRuntime does the same for a mesh link.
+    replica->setParent(m_node);
     m_sessionState = replica;
     connect(replica, &SessionStateReplica::sessionChanged, this,
             [this]() { applySessionState(); });
