@@ -1195,6 +1195,55 @@ private slots:
         afterRelease->deleteLater();
     }
 
+    // The other half of "releasing a socket readmits the next caller", and the half the
+    // test above never reached. A socket that was UPGRADED and then closed.
+    //
+    // QHttpServer counts sockets at accept and counts them back down on the socket's
+    // `disconnected`, and its upgrade path wildcard-disconnects the socket the moment an
+    // upgrade is accepted (`socket->disconnect()` in QHttpServerHttp1ProtocolHandler, Qt
+    // 6.12.0), which takes that receiver with it. So every accepted WebSocket link held its
+    // slot for the life of the process. After `max_connections_per_ip * SocketsPerLink`
+    // links from one address, ever, that address was refused at accept, silently, and after
+    // the global figure so was everybody. The edge keeps the count itself now
+    // (WebEdge::trackPendingUpgrade), on the raw socket's own destruction, which is the
+    // one event no hand-over can disconnect.
+    void aClosedWebSocketLinkGivesItsSocketBack()
+    {
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxConnectionsPerIp = 1;
+        config.handshakeTimeoutMs = 60000;
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *landing{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(landing);
+        const QByteArray cookie{sessionCookie(landing)};
+        landing->deleteLater();
+        QVERIFY(!cookie.isEmpty());
+
+        // Well past the socket ceiling, one link at a time, each closed before the next.
+        const int links{config.maxConnectionsPerIp * WebEdgeConfig::SocketsPerLink + 2};
+        for (int i{0}; i < links; ++i) {
+            QWebSocket socket;
+            QSignalSpy connected{&socket, &QWebSocket::connected};
+            QSignalSpy disconnected{&socket, &QWebSocket::disconnected};
+            socket.setSslConfiguration(insecureClientConfig());
+            QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+            request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+            request.setRawHeader("Cookie", cookie);
+            request.setSslConfiguration(insecureClientConfig());
+            socket.open(request);
+            QVERIFY2(QTest::qWaitFor([&connected]() { return connected.count() >= 1; }, 5000),
+                     qPrintable(QStringLiteral("link %1 of %2 was refused: %3")
+                                    .arg(i + 1).arg(links).arg(socket.errorString())));
+            socket.close();
+            QTRY_VERIFY(disconnected.count() >= 1);
+            // The edge learns of the close on its own loop. Give it the turn.
+            QTest::qWait(20);
+        }
+    }
+
     void connectionCapRefusesTheOneOverTheLimit()
     {
         // docs/security.md states these caps are applied inside the verifier, "so a

@@ -395,12 +395,26 @@ private:
     int m_activeGlobal{0};
     QHash<QString, int> m_activePerIp;
 
+    /// Socket caps. Every socket accepted and not yet destroyed, keyed by the peer's own
+    /// address, because at accept there is no request to read a forwarding header from.
+    ///
+    /// Counted here rather than through QHttpServerConfiguration::setMaximumConnections
+    /// and setMaximumConnectionsPerHost, which count the same thing and cannot count it
+    /// back down for a WebSocket link: QHttpServer decrements on the socket's
+    /// `disconnected`, and its upgrade path wildcard-disconnects the socket as it hands it
+    /// over, so every accepted link held its slot for the life of the process (Qt 6.12.0,
+    /// QHttpServerHttp1ProtocolHandler). The raw socket's destruction is the one event no
+    /// hand-over can take away, and it is what these are decremented on. See
+    /// trackPendingUpgrade and tests/m5-webedge's aClosedWebSocketLinkGivesItsSocketBack.
+    int m_socketsGlobal{0};
+    QHash<QString, int> m_socketsPerIp;
+
     /// Attempts on the password gate, per visitor address, in a fixed window.
     ///
-    /// The gate derives a PBKDF2 at the operator store's round count, which is deliberately
-    /// expensive and is deliberately run on this edge's own event loop. Without a budget
+    /// The gate derives a PBKDF2 at the operator store's round count, which is
+    /// expensive by design and runs on this edge's own event loop. Without a budget
     /// that makes an unauthenticated POST the cheapest way there is to stop the edge
-    /// answering anybody: a handful of requests a second is enough to keep the loop busy,
+    /// answering anybody. A handful of requests a second is enough to keep the loop busy,
     /// and the same requests are a password guess apiece. Keyed the way the connection caps
     /// and the device route are keyed, so a balancer in front does not put every visitor in
     /// one bucket.

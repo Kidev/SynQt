@@ -268,9 +268,16 @@
     {
       "id": "socket-flood-that-never-becomes-a-connection",
       "what": "One address opens sockets and never finishes a request on any of them. The per-IP and global connection caps are counted in hostConnection(), which runs once an upgrade has been accepted, so a peer that never gets that far was never counted by them; if it also never goes idle it never hits the keep-alive timeout either, and the only remaining bound was the 64 KiB header ceiling, days away at a byte every few seconds. One address could hold as many sockets as the process had descriptors.",
-      "defended_by": "Qt 6.12's QHttpServerConfiguration::setMaximumConnections and setMaximumConnectionsPerHost, counted at accept rather than at upgrade, set from the link ceilings a project already chose times WebEdgeConfig::SocketsPerLink. Releasing a socket readmits the next caller, so the ceiling does not lock an address out after a burst.",
+      "defended_by": "A socket ceiling the edge counts itself at accept (WebEdge::trackPendingUpgrade), set from the link ceilings a project already chose times WebEdgeConfig::SocketsPerLink, and counted back down when the raw socket is destroyed. Releasing a socket readmits the next caller, so the ceiling does not lock an address out after a burst.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "socketCapRefusesAPeerThatOpensSocketsAndSendsNothing"
+    },
+    {
+      "id": "socket-ceiling-that-never-counts-a-link-back-down",
+      "what": "An address opens its quota of WebSocket links over the life of the process, page loads and reconnects included, and is then refused at accept although none of them is still open. Qt 6.12's QHttpServerConfiguration socket ceilings decrement on the socket's `disconnected`, and QHttpServer's upgrade path wildcard-disconnects the socket as it hands it over, so an upgraded socket held its slot forever; after the global figure every address was refused. A client reconnecting with backoff walked into it on its own.",
+      "defended_by": "The edge keeps the count on the raw socket's own destruction, which an upgrade cannot disconnect, and does not hand Qt the two ceilings at all.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "aClosedWebSocketLinkGivesItsSocketBack"
     },
     {
       "id": "oversized-request-body",

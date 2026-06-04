@@ -361,16 +361,25 @@ read them.
 - Connection caps. `security.max_connections_per_ip` (20) and
   `security.max_connections_global` (1000), applied inside the upgrade verifier, so
   a connection over the cap is refused before a socket exists.
-- Socket caps. The same two numbers, times eight, given to Qt as
-  `QHttpServerConfiguration::setMaximumConnectionsPerHost` and `setMaximumConnections`
-  (Qt 6.12). These count at accept rather than at upgrade, which is what makes them the
-  bound on a peer that opens sockets and never finishes a request. The two ceilings
-  count different things and the socket one has to be the looser, because a visitor
-  fetches the bundle over as many as six parallel HTTP connections before it opens its
-  one sync link; a socket ceiling set equal to the link ceiling would refuse real
-  browsers long before it refused an attacker. Eight is that headroom, it is derived
-  rather than configured because there is no way for a project to pick it usefully, and
-  releasing a socket readmits the next caller.
+- Socket caps. The same two numbers, times eight, counted by the edge at accept rather
+  than at upgrade, which is what makes them the bound on a peer that opens sockets and
+  never finishes a request. The two ceilings count different things and the socket one
+  has to be the looser, because a visitor fetches the bundle over as many as six parallel
+  HTTP connections before it opens its one sync link; a socket ceiling set equal to the
+  link ceiling would refuse real browsers long before it refused an attacker. Eight is
+  that headroom, it is derived rather than configured because there is no way for a
+  project to pick it usefully, and releasing a socket readmits the next caller.
+
+    The edge counts these itself although Qt 6.12 offers the same two ceilings
+    (`QHttpServerConfiguration::setMaximumConnections` and
+    `setMaximumConnectionsPerHost`), because Qt's cannot count a WebSocket link back down:
+    it decrements on the socket's `disconnected`, and its upgrade path disconnects every
+    receiver of that socket's signals as it hands the socket over. Under Qt's ceilings an
+    address that had opened its quota of links over the life of the process, page loads and
+    reconnects included, was refused at accept from then on, and after the global quota so
+    was everybody. The edge decrements when the raw socket is destroyed instead, which no
+    hand-over can take away, and `tests/m5-webedge` opens more links than the ceiling from
+    one address, one at a time, to hold it to that.
 - Message size cap. `security.max_message_bytes` (1 MiB) is set on each accepted
   browser socket as both the message and the frame limit, so an oversized frame is
   rejected as it arrives rather than after it is buffered.

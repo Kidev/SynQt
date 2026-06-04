@@ -1077,18 +1077,10 @@ bool WebEdge::start()
     if (m_config.maxRequestsPerSecond > 0) {
         httpConfiguration.setRateLimitPerSecond(m_config.maxRequestsPerSecond);
     }
-    // The ceiling on sockets, as opposed to the ceiling on links below it.
-    //
-    // max_connections_per_ip and max_connections_global are counted in hostConnection(),
-    // which runs once an upgrade has been accepted, so neither of them ever saw a peer that
-    // opens a socket and does not finish a request. That peer used to have no bound at all
-    // beyond the header ceiling it would take days to reach, and docs/security.md said so
-    // rather than defending it. These two are Qt 6.12's, they are counted at accept, and
-    // they are what closes it. The multiplier is in webedgeconfig.h with its reasoning.
-    httpConfiguration.setMaximumConnections(
-        static_cast<quint32>(m_config.maxConnectionsGlobal * WebEdgeConfig::SocketsPerLink));
-    httpConfiguration.setMaximumConnectionsPerHost(
-        static_cast<quint32>(m_config.maxConnectionsPerIp * WebEdgeConfig::SocketsPerLink));
+    // The ceiling on sockets, as opposed to the ceiling on links, is not one of these: it is
+    // counted by the edge in trackPendingUpgrade(), at accept, because Qt's own two knobs
+    // for it (setMaximumConnections and setMaximumConnectionsPerHost) never count a
+    // WebSocket link back down. See the note on m_socketsPerIp.
     m_httpServer->setConfiguration(httpConfiguration);
     if (m_config.serveClient) {
         m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
@@ -1321,6 +1313,25 @@ bool WebEdge::start()
 
 void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
 {
+    // The socket ceilings, first and at accept. max_connections_per_ip and
+    // max_connections_global are counted in hostConnection(), once an upgrade has been
+    // accepted, so neither of them sees a peer that opens a socket and never finishes a
+    // request. This is the bound on that peer, times SocketsPerLink so a browser fetching
+    // its bundle over six parallel connections is not what it refuses. Keyed by the peer's
+    // own address. There is no request yet to read a forwarding header from, which is also
+    // true of the Qt ceiling this replaces. Counted back down when the socket is destroyed,
+    // below, which an upgrade cannot disconnect the way it disconnects the socket's signals.
+    const QString address{normalizedAddress(socket->peerAddress()).toString()};
+    const int perIpCeiling{m_config.maxConnectionsPerIp * WebEdgeConfig::SocketsPerLink};
+    const int globalCeiling{m_config.maxConnectionsGlobal * WebEdgeConfig::SocketsPerLink};
+    if (m_socketsGlobal >= globalCeiling || m_socketsPerIp.value(address) >= perIpCeiling) {
+        emit upgradeRejected(QStringLiteral("socket cap reached"));
+        socket->abort();
+        return;
+    }
+    ++m_socketsGlobal;
+    ++m_socketsPerIp[address];
+
     const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
     QTimer *timer{new QTimer{socket}};
     timer->setSingleShot(true);
@@ -1381,7 +1392,7 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
     // Conditional for the same reason as the timer above: the key is reusable, so a
     // teardown running late must not evict the entry a newer connection put there.
     QObject *tag{new QObject{socket}};
-    connect(tag, &QObject::destroyed, this, [this, key, socket]() {
+    connect(tag, &QObject::destroyed, this, [this, key, socket, address]() {
         // Null as well as this socket, because by the time a child's destroyed() runs the
         // parent has already cleared every QPointer to itself: the entry this handler is
         // here to clean up reads as null rather than as the socket it names. A live entry
@@ -1389,6 +1400,13 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
         const QPointer<QAbstractSocket> held{m_pendingRawSockets.value(key)};
         if (held.isNull() || held.data() == socket) {
             m_pendingRawSockets.remove(key);
+        }
+        // The socket is gone, whichever path it took: closed by QHttpServer after a
+        // request, or destroyed with the connection it was upgraded into. Its slot in the
+        // socket ceilings goes with it.
+        --m_socketsGlobal;
+        if (--m_socketsPerIp[address] <= 0) {
+            m_socketsPerIp.remove(address);
         }
     });
     m_pendingRawSockets.insert(key, socket);
