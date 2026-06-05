@@ -756,6 +756,16 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
     if (scope.isEmpty()) {
         qWarning("SynQt: refusing a login the identity mapping hook could not place: %s",
                  qPrintable(scopeError));
+        // The exchange has already happened, so the provider's tokens are held under the
+        // state key waiting for a session to be rekeyed to, and there will be none. Let go
+        // of them here. Left where they were, every refused sign-in kept an entry for the
+        // life of the process, and its refresh token was spent against the provider on every
+        // sweep, on behalf of a visitor who was never signed in.
+        if (m_backend) {
+            m_backend->releaseTokens(exchange.tokenKey);
+        } else {
+            releaseRemoteTokens(exchange.tokenKey.toLatin1());
+        }
         if (context.isDesktop()) {
             return loopbackRedirect(context, QString{}, QStringLiteral("access_denied"));
         }

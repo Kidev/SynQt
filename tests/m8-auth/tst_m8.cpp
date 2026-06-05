@@ -1998,10 +1998,36 @@ private slots:
                  "a login the hook could not place must set no session cookie");
     }
 
+    // A refused login must leave nothing behind, and it left the tokens. The exchange
+    // stores the provider's access, refresh and ID tokens under the state key before the
+    // hook is asked, and a refusal returned without releasing them. One entry per refused
+    // attempt for the life of the process, each with a refresh token the sweep went on
+    // spending against the provider on behalf of a visitor who was never signed in. Any
+    // signed-in account the hook does not place could grow it, one callback at a time.
+    void aLoginTheHookRefusesLeavesNoTokensBehind()
+    {
+        QQmlEngine engine;
+        std::unique_ptr<WebEdge> edge{
+            edgeWithHook(&engine, QStringLiteral(M8_SRCDIR "/web/identity/outofrange.qml"))};
+        QVERIFY2(edge->start(), qPrintable(edge->errorString()));
+        QVERIFY(edge->identityProvider()->backend() != nullptr);
+
+        for (int attempt{0}; attempt < 3; ++attempt) {
+            QTest::ignoreMessage(QtWarningMsg,
+                                 QRegularExpression{QStringLiteral(
+                                     "refusing a login the identity mapping hook could not "
+                                     "place")});
+            const Response callback{completeLoginOn(edge->serverPort(), QString{})};
+            QCOMPARE(callback.status, 302);
+            QVERIFY(sessionToken(callback.setCookie).isEmpty());
+        }
+        QCOMPARE(edge->identityProvider()->backend()->heldTokenCount(), 0);
+    }
+
     void aHookThatDoesNotAnswerFailsTheLoginClosed()
     {
-        // There used to be a `return QStringLiteral("user")` here, so a hook that failed
-        // outright handed out an authenticated scope to everybody who signed in.
+        // A `return QStringLiteral("user")` fallback here would let a hook that fails
+        // outright hand out an authenticated scope to everybody who signs in.
         QQmlEngine engine;
         std::unique_ptr<WebEdge> edge{
             edgeWithHook(&engine, QStringLiteral(M8_SRCDIR "/web/identity/noanswer.qml"))};

@@ -97,6 +97,12 @@ public:
 
     void releaseTokens(const QString &key);
 
+    /// How many token entries this engine is holding, under state keys and session ids
+    /// alike. A count and nothing else. It exists so a test can ask whether a login that
+    /// minted no session left its tokens behind, which is not a question `tokens()` can
+    /// answer without the key.
+    int heldTokenCount() const;
+
     /// Refresh every stored access token that is within `marginSeconds` of expiry, using its
     /// refresh token, without involving the browser. Returns how many were refreshed. Called
     /// both directly and by the periodic sweep timer.

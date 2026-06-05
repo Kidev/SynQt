@@ -351,6 +351,11 @@ void OAuthBackend::releaseTokens(const QString &key)
     m_tokens.remove(key);
 }
 
+int OAuthBackend::heldTokenCount() const
+{
+    return static_cast<int>(m_tokens.size());
+}
+
 void OAuthBackend::setAutoRefresh(int intervalSeconds, int marginSeconds)
 {
     m_refreshMargin = marginSeconds;
