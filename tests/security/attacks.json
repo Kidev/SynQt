@@ -611,9 +611,16 @@
     {
       "id": "outbound-allowlist-escaped-by-a-redirect",
       "what": "An allowlisted third party answers a redirect to a host network.outbound never named. Qt follows it by default and carries the request's headers, which on this path are the endpoint's own credential headers, so the deployment's API key leaves and the entity reaches somewhere it may not.",
-      "defended_by": "Http sends every call under UserVerifiedRedirectPolicy and puts each hop through the same allowlist the first one passed; a target it does not cover is never allowed and the reply is abandoned.",
+      "defended_by": "Http sends every call under UserVerifiedRedirectPolicy and holds each hop to the network.outbound entry the call was made through; a target outside it is never allowed and the reply is abandoned.",
       "file": "tests/m9-providers/tst_m9.cpp",
       "test": "aRedirectOutOfTheAllowlistIsRefused"
+    },
+    {
+      "id": "outbound-key-carried-to-another-allowlisted-endpoint",
+      "what": "A project declares two named network.outbound endpoints with two keys. The first answers a redirect to the second. Qt builds the redirected request as a copy of the original, headers included, so the first endpoint's key was sent to the second, which is a third party the deployment named but never meant to hold that credential.",
+      "defended_by": "A redirect must stay under the endpoint the call started at, not merely inside the allowlist; one that leaves it is refused and the reply abandoned before a header reaches the new host.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "aRedirectToAnotherEndpointDoesNotCarryTheFirstOnesKey"
     },
     {
       "id": "id-token-with-no-expiry",

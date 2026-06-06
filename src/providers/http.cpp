@@ -399,18 +399,26 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
     }
 
     // Each hop, before it is taken. `redirectAllowed()` is the only thing that lets the
-    // transport continue under UserVerifiedRedirectPolicy, so a target the allowlist does
-    // not cover is simply never allowed: the promise is rejected with the place it tried
-    // to go, and the reply is abandoned before a single header reaches it.
+    // transport continue under UserVerifiedRedirectPolicy, so a target that is not under
+    // the endpoint this call started at is never allowed. The promise is rejected
+    // with the place it tried to go, and the reply is abandoned before a single header
+    // reaches it.
+    //
+    // Under this endpoint, and not merely somewhere in the allowlist. The redirected
+    // request is a copy of the original, headers included (Qt drops only Content-Length
+    // and Content-Type, and only when the method downgrades), so whatever follows the
+    // redirect carries this endpoint's credential headers with it. Another entry in the
+    // allowlist is another third party with a key of its own, and this one's key was never
+    // meant for it. A redirect that leaves the endpoint is refused on the same grounds as
+    // one that leaves the list.
+    const QString endpointUrl{endpoint->url};
     QObject::connect(reply, &QNetworkReply::redirected, promise,
-                     [this, promise, reply](const QUrl &redirect) {
-        if (match(redirect) == nullptr) {
+                     [promise, reply, endpointUrl](const QUrl &redirect) {
+        if (!isUnder(redirect, QUrl{endpointUrl})) {
             promise->reject(
-                QStringLiteral("refusing a redirect to %1, which is not in this entity's "
-                               "network.outbound allowlist (%2)")
-                    .arg(redirect.toString(QUrl::RemoveUserInfo),
-                         allowed().isEmpty() ? QStringLiteral("empty")
-                                             : allowed().join(QStringLiteral(", "))));
+                QStringLiteral("refusing a redirect to %1, which is not under the "
+                               "network.outbound entry this call was made through (%2)")
+                    .arg(redirect.toString(QUrl::RemoveUserInfo), endpointUrl));
             reply->abort();
             return;
         }

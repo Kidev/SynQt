@@ -853,8 +853,11 @@ Authorization and data:
   runtime compares scheme, host, port and path segments rather than the text of the
   URL, so a prefix cannot be escaped by spelling; a prefix that is wider than it needs
   to be is still a wider place for those headers to reach. Every redirect is compared
-  the same way, so an allowlisted host cannot send those headers elsewhere by
-  answering `302`.
+  the same way, against the entry the call was made through rather than against the
+  whole list, so an allowlisted host cannot send those headers elsewhere by answering
+  `302`, and cannot send them to another allowlisted host either: the redirected request
+  is a copy of the first one, headers included, and one endpoint's key was never meant
+  for the next.
 - Signing out is a server side end to a session, and it takes the browser's live
   connections with it. Nothing on the client is trusted to stop reading. It is reached
   by a navigation, so the edge refuses one that another site started: the browser says

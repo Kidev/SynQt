@@ -1142,7 +1142,84 @@ private slots:
         QVERIFY2(reached.isEmpty(), reached.constData());
     }
 
-    /// The other half of the same gate: a redirect that stays inside the allowlist is
+    /// A redirect to ANOTHER allowlisted endpoint is the same leak one door over.
+    ///
+    /// The check above asks whether the target is in the allowlist at all, and a project
+    /// with two named endpoints holding two keys has two places in it. Qt builds the
+    /// redirected request as a copy of the original (createRedirectRequest, qtbase 6.12.0:
+    /// only Content-Length and Content-Type go, and only when the method downgrades), so
+    /// the first endpoint's credential headers travel to the second. Both are places the
+    /// deployment named, and that is exactly why the second must not see the first's key:
+    /// "an allowlisted third party is not the same thing as a trusted one" is the rule
+    /// this file is written under, and one endpoint's key was never meant for the other.
+    /// So a redirect is held to the endpoint the call started at, not to the list.
+    void aRedirectToAnotherEndpointDoesNotCarryTheFirstOnesKey()
+    {
+        QJSEngine engine;
+        QNetworkAccessManager network;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
+
+        // The second endpoint: declared, with a key of its own, and it records every
+        // header that reaches it.
+        QTcpServer other;
+        QVERIFY(other.listen(QHostAddress::LocalHost, 0));
+        QByteArray reached;
+        connect(&other, &QTcpServer::newConnection, this, [&other, &reached]() {
+            QTcpSocket *socket{other.nextPendingConnection()};
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, &reached]() {
+                reached += socket->readAll();
+                if (!reached.contains("\r\n\r\n")) {
+                    return;
+                }
+                socket->write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi");
+                socket->flush();
+                socket->disconnectFromHost();
+            });
+        });
+
+        // The first endpoint, which sends every caller on to the second.
+        QTcpServer first;
+        QVERIFY(first.listen(QHostAddress::LocalHost, 0));
+        const QString away{QStringLiteral("http://127.0.0.1:%1/v2/taken")
+                               .arg(other.serverPort())};
+        connect(&first, &QTcpServer::newConnection, this, [&first, away]() {
+            QTcpSocket *socket{first.nextPendingConnection()};
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, away]() {
+                if (!socket->readAll().contains("\r\n\r\n")) {
+                    return;
+                }
+                socket->write("HTTP/1.1 302 Found\r\nLocation: " + away.toUtf8()
+                              + "\r\nContent-Length: 0\r\n\r\n");
+                socket->flush();
+                socket->disconnectFromHost();
+            });
+        });
+
+        HttpEndpointConfig one;
+        one.name = QStringLiteral("one");
+        one.url = QStringLiteral("http://127.0.0.1:%1/v1/").arg(first.serverPort());
+        one.headers.insert(QStringLiteral("x-api-key"), QStringLiteral("key-of-one"));
+        HttpEndpointConfig two;
+        two.name = QStringLiteral("two");
+        two.url = QStringLiteral("http://127.0.0.1:%1/v2/").arg(other.serverPort());
+        two.headers.insert(QStringLiteral("x-api-key"), QStringLiteral("key-of-two"));
+        Http http{&network, &engine, /*release*/ false, {one, two}};
+
+        http.api(QStringLiteral("one"))->get(QStringLiteral("thing"))
+            ->then(engine.evaluate(QStringLiteral("(function(r){ probe.record('followed'); })")),
+                   engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
+
+        QTRY_VERIFY(probe.last.isValid());
+        QVERIFY2(probe.last.toString().contains(QStringLiteral("refusing a redirect")),
+                 qPrintable(QStringLiteral("the call was answered with '%1' rather than "
+                                           "refused").arg(probe.last.toString())));
+        QTest::qWait(200);
+        QVERIFY2(!reached.contains("key-of-one"), reached.constData());
+        QVERIFY2(reached.isEmpty(), reached.constData());
+    }
+
+    /// The other half of the same gate. A redirect that stays inside the allowlist is
     /// followed, so the check above is not satisfied by refusing every redirect there is.
     void aRedirectInsideTheAllowlistIsFollowed()
     {
