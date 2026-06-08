@@ -380,6 +380,7 @@ read them.
     was everybody. The edge decrements when the raw socket is destroyed instead, which no
     hand-over can take away, and `tests/m5-webedge` opens more links than the ceiling from
     one address, one at a time, to hold it to that.
+
 - Message size cap. `security.max_message_bytes` (1 MiB) is set on each accepted
   browser socket as both the message and the frame limit, so an oversized frame is
   rejected as it arrives rather than after it is buffered.
