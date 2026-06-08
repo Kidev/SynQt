@@ -3,31 +3,31 @@
 
 # SynQt benchmarks
 
-Correctness lives in `tests/`; this tree is performance. SynQt's core is a live data path
+Correctness lives in `tests/`. This tree is performance. SynQt's core is a live data path
 across a transport the Qt for WebAssembly docs call unsupported, so its speed and scaling
 are measured rather than assumed. Each harness pins Qt 6.12.0, records the host and Qt
 version in its output, warms up before measuring, and reports the full distribution
-(p50/p95/p99, not just the mean). Results are committed as baselines under `results/` so a
-later change that regresses one is visible in review; re-run on a fixed runner to compare.
+(p50/p95/p99 rather than only the mean). Results are committed as baselines under `results/` so a
+later change that regresses one is visible in review. Re-run on a fixed runner to compare.
 
-**Two toolchains are represented here, and each file says which one it is.** The native
+Two toolchains are represented here, and each file says which one it is. The native
 harnesses (transport, the edge's HTTP path, mesh, sessions, persistence, monitor, fanout,
-capstone, and every column of vs-frameworks but `replicas`) were re-run on Qt 6.12.0. The ones that
-need a WebAssembly kit (client bundle weight and frame time, remote-pages) and the two that
-have not been swept since (buildtime, the `replicas` sweep) are still the 6.11.1 run they
-say they are. Every environment block below names the file's own `qt_version`, so the two
-groups are told apart by reading rather than by remembering.
+capstone, and every column of vs-frameworks, the `replicas` sweep included) were re-run on
+Qt 6.12.0. The ones that need a WebAssembly kit (client bundle weight and frame time,
+remote-pages) and buildtime are still the 6.11.1 run they say they are. Every
+environment block below names the file's own
+`qt_version`, so the two groups are told apart by reading rather than by remembering.
 
 A number carries the toolchain it was taken on, and relabelling one makes it a different
-claim. So a baseline moves only by being measured again: the 6.12.0 group was re-run in one
+claim. So a baseline moves only by being measured again. The 6.12.0 group was re-run in one
 session on one machine, the way the environment blocks say, and the 6.11.1 group is
 untouched until the same is done for it.
 
-**Two changes landed between those two runs, and the fan-out numbers carry both.** Every
-generated service, edge and monitor now asks for Qt's polling event dispatcher instead of
+Two changes landed between those two runs, and the fan-out numbers carry both. Every
+generated service, edge and monitor asks for Qt's polling event dispatcher instead of
 GLib's, which is worth 18% more deliveries a second at ten subscribers and 52% at two
 hundred and fifty, because GLib made a socket's write-notifier toggle walk a list of every
-socket in the process; and a threaded edge now hands a whole pass to each socket thread in one
+socket in the process. And a threaded edge hands a whole pass to each socket thread in one
 crossing instead of one per connection, which is worth 14% to 18% of its throughput. The
 measurements are in
 [benchmarks/vs-frameworks](vs-frameworks/README.md#most-of-that-marginal-cost-was-the-event-loop).

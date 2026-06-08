@@ -177,6 +177,7 @@ nav:
           - Running in containers: docker.md
           - Deploying: deploying.md
           - Monitoring: monitoring.md
+      - Benchmarks: benchmarks.md
       - Contributing:
           - Developer guide: development.md
           - C++ API reference: api-reference.md
