@@ -2,14 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // A TechEmpower-style HTTP benchmark server on SynQt's own web stack: QHttpServer (the class
-// the web edge uses) in front of the QSQLITE engine configured exactly as the sqlite
-// persistence provider configures it; WAL, a busy timeout, parameterised queries, and a
-// single connection driven from the event loop (SynQt serialises persistence on the entity's
-// loop rather than racing threads). The six routes are the canonical TechEmpower test types
-// (plaintext, json, single query, multiple queries, updates, fortunes), so the numbers a
-// load generator reports here are directly comparable to the framework rows TechEmpower
-// publishes. This measures the edge's request stack, not the QtRO live path (that is the
-// transport benchmark). Together they characterise both halves of the edge.
+// the web edge uses) in front of an in-memory QSQLITE database with the sqlite persistence
+// provider's busy timeout, parameterised queries, and a single connection driven from the
+// event loop (SynQt serialises persistence on the entity's loop rather than racing threads).
+// An in-memory database has no WAL (the pragma below leaves it in `memory` journal mode)
+// and no file to sync, so the database routes measure the request stack and SQLite's own
+// work, not storage. The six routes are the canonical TechEmpower test types
+// (plaintext, json, single query, multiple queries, updates, fortunes). The plaintext and
+// json numbers are directly comparable to the framework rows TechEmpower publishes; the
+// database ones are not, because TechEmpower runs those against a networked server. This
+// measures the edge's request stack, not the QtRO live path (that is the transport
+// benchmark). Together they characterise both halves of the edge.
 
 #include "pollingdispatcher.h"
 
@@ -26,6 +29,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QTcpServer>
+#include <QTextStream>
 #include <QUrlQuery>
 #include <QVariant>
 
@@ -113,13 +117,15 @@ bool seedDatabase(QSqlDatabase &database)
         QStringLiteral("A computer scientist is someone who fixes things that aren't broken."),
         QStringLiteral("After enough decimal places, nobody gives a damn."),
         QStringLiteral("A bad random number generator: 1, 1, 1, 1, 1, 4.33e+67, 1, 1, 1"),
-        QStringLiteral("A computer program does what you tell it to do, not what you want it to do."),
+        QStringLiteral("A computer program does what you tell it to do, "
+                       "not what you want it to do."),
         QStringLiteral("Emacs is a nice operating system, but I prefer UNIX. (Tom Christiansen)"),
         QStringLiteral("Any program that runs right is obsolete."),
         QStringLiteral("A list is only as strong as its weakest link. (Donald Knuth)"),
         QStringLiteral("Feature: A bug with seniority."),
         QStringLiteral("Computers make very fast, very accurate mistakes."),
-        QStringLiteral("<script>alert(\"This should not be displayed in a browser alert box.\");</script>"),
+        QStringLiteral("<script>alert(\"This should not be displayed in a browser alert "
+                       "box.\");</script>"),
         QStringLiteral("Frameworks come and go; the benchmark abides.")};
     QSqlQuery insertFortune{database};
     insertFortune.prepare(QStringLiteral("INSERT INTO fortune (id, message) VALUES (?, ?)"));
@@ -150,7 +156,19 @@ int main(int argc, char *argv[])
     const QCommandLineOption portOption{QStringLiteral("port"),
         QStringLiteral("Listen port."), QStringLiteral("port"), QStringLiteral("8480")};
     parser.addOption(portOption);
+    // The Qt this binary is linked against, for the loader to record. Every other harness
+    // writes its own baseline and reads `qVersion()` on the way past. This one is driven by
+    // a Node loader that cannot see the kit, so the binary that did the work answers for it
+    // rather than the driver carrying a literal.
+    const QCommandLineOption qtVersionOption{QStringLiteral("print-qt-version"),
+        QStringLiteral("Print the Qt version this binary links and exit.")};
+    parser.addOption(qtVersionOption);
     parser.process(app);
+
+    if (parser.isSet(qtVersionOption)) {
+        QTextStream{stdout} << QString::fromLatin1(qVersion()) << Qt::endl;
+        return 0;
+    }
 
     QSqlDatabase database{QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"))};
     database.setDatabaseName(QStringLiteral(":memory:"));

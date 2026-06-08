@@ -16,7 +16,7 @@ BUNDLE_DIR="${1:?usage: measure-bundle.sh <bundle-dir> <label> --out <file.json>
 LABEL="${2:?missing label}"
 shift 2
 OUT=""
-QT_VERSION="6.12.0"
+QT_VERSION="unknown"   # run-bench.sh asks the kit; a default here would be a second answer
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT="$2"; shift 2 ;;

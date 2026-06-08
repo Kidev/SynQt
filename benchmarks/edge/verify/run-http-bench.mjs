@@ -15,7 +15,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -149,6 +149,16 @@ async function startEdge() {
     throw new Error("bench edge did not answer within 15s");
 }
 
+// The Qt the built edge links, asked of the edge itself. A literal here would be a record of
+// whatever the last person to edit this file believed, which is how this baseline came to
+// claim 6.11.1 for a run made against the 6.12.0 kit. Every other harness in this tree reads
+// qVersion() on the way past and this is the closest equivalent for one driven from Node.
+function edgeQtVersion() {
+    const probe = spawnSync(edgeBin, ["--print-qt-version"], { encoding: "utf8" });
+    const reported = (probe.stdout || "").trim();
+    return /^\d+\.\d+\.\d+/.test(reported) ? reported : "unknown";
+}
+
 function hostLabel() {
     try {
         const osRelease = fs.readFileSync("/etc/os-release", "utf8");
@@ -188,7 +198,7 @@ async function main() {
         note: "TechEmpower test types on SynQt's QHttpServer + QSQLITE edge stack. "
             + "Load: dependency-free keep-alive loader; methodology matches TechEmpower/wrk "
             + "(warm up, sweep connections, report req/s and latency percentiles).",
-        qt_version: "6.11.1",
+        qt_version: edgeQtVersion(),
         host: hostLabel(),
         target_host: host,
         arch: os.arch(),

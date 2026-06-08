@@ -39,11 +39,26 @@ npm install --no-audit --no-fund
 npx --yes playwright install chromium
 cd "$REPO_ROOT"
 
+# The Qt a kit is, asked of the kit. Both writers below record it, and a default in each of
+# them is two answers to one question. They disagreed once, and a run wrote one file saying
+# 6.12.0 beside another saying 6.11.1 for the same kit.
+kit_qt_version() { # bin/qt-cmake path
+    local qmake
+    qmake="$(dirname "$1")/qmake6"
+    if [ -x "$qmake" ]; then
+        "$qmake" -query QT_VERSION
+    else
+        echo unknown
+    fi
+}
+
 # Build one kit, weigh it, and drive it. $1 = kit label, $2 = qt-cmake path, $3.. = extra cmake args.
 build_measure_drive() {
     local kit="$1"; shift
     local qtcmake="$1"; shift
     local build_dir="build/bench-client-wasm-${kit}"
+    local qt_version
+    qt_version="$(kit_qt_version "$qtcmake")"
 
     echo "== build scene (${kit}) =="
     "$qtcmake" -S benchmarks/client/scene -B "$build_dir" -G Ninja \
@@ -54,10 +69,12 @@ build_measure_drive() {
 
     echo "== weigh bundle (${kit}) =="
     bash benchmarks/client/measure-bundle.sh "$build_dir" "scene-${kit}" \
+        --qt-version "$qt_version" \
         --out "${RESULTS_DIR}/client-bundle-${kit}-${HOST_TAG}.json"
 
     echo "== frame time (${kit}) =="
     node benchmarks/client/frame-time.mjs --dir "$build_dir" --label "scene-${kit}" \
+        --qt-version "$qt_version" \
         --out "${RESULTS_DIR}/client-frametime-${kit}-${HOST_TAG}.json"
 }
 

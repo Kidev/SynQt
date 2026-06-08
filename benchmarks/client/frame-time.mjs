@@ -33,7 +33,7 @@ function hostLabel() {
 
 function parseArgs(argv) {
     const args = {
-        dir: "", label: "scene", out: "", bucket: 25, headless: true, qtVersion: "6.11.1"
+        dir: "", label: "scene", out: "", bucket: 25, headless: true, qtVersion: "unknown"
     };
     for (let i = 0; i < argv.length; i += 1) {
         const key = argv[i];
