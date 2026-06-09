@@ -866,7 +866,10 @@ Authorization and data:
 - The console's password gate has a per address budget. The check behind it is a slow
   key derivation on purpose, which makes an unauthenticated request both a guess and a
   way to occupy the edge; the budget is spent before the password is read, so the
-  refusal says nothing about it and carries `Retry-After`.
+  refusal says nothing about it and carries `Retry-After`. It is also a POST that ends
+  in a session, so it refuses a form another site submitted on the same terms as the
+  sign-out route: the browser says where the request came from in `Sec-Fetch-Site`, and
+  a cross-site one is refused before the credentials are read.
 
 System wide:
 

@@ -1638,6 +1638,56 @@ private slots:
                  "an edge whose sign-in is a password gate must serve the picker too");
     }
 
+    // The password gate is a POST that ends in a session, so it is the same cross-site
+    // target the sign-out route is. Another page can submit a form here with credentials
+    // of its own, the Lax cookie stays home on a cross-site POST, and the gate would mint a
+    // fresh operator session in the visitor's browser (a login CSRF). The browser says
+    // where a request came from, and the gate reads it the way sign-out does.
+    void thePasswordGateRefusesAFormAnotherSiteSubmitted()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.signInPath = QStringLiteral("/monitor/signin");
+        config.signInScope = QStringLiteral("moderator");
+        config.signIn = [](const QString &name, const QString &password) {
+            return name == QLatin1String("alice") && password == QLatin1String("pw");
+        };
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const auto post{[&](const QByteArray &site) {
+            QNetworkRequest request{QUrl{edge.httpOrigin() + QStringLiteral("/monitor/signin")}};
+            request.setSslConfiguration(insecureClientConfig());
+            useOnlyTheCookiesNamedHere(request);
+            request.setHeader(QNetworkRequest::ContentTypeHeader,
+                              QByteArrayLiteral("application/x-www-form-urlencoded"));
+            if (!site.isEmpty()) {
+                request.setRawHeader("Sec-Fetch-Site", site);
+            }
+            QNetworkReply *reply{m_nam.post(request, QByteArrayLiteral("name=alice&password=pw"))};
+            QSignalSpy finished{reply, &QNetworkReply::finished};
+            finished.wait(5000);
+            return reply;
+        }};
+
+        // Valid credentials, submitted from elsewhere: refused, and no session is set.
+        QNetworkReply *crossSite{post("cross-site")};
+        QCOMPARE(statusOf(crossSite), 403);
+        QVERIFY(sessionCookie(crossSite).isEmpty());
+        crossSite->deleteLater();
+
+        // The same credentials from the application's own page, and from a caller that
+        // is not a browser at all: both are the gate working, so that the refusal above is
+        // not the gate refusing everybody.
+        for (const QByteArray &site : {QByteArrayLiteral("same-origin"), QByteArray{}}) {
+            QNetworkReply *own{post(site)};
+            QCOMPARE(statusOf(own), 200);
+            QVERIFY2(sessionCookie(own).startsWith("synqt_session="),
+                     sessionCookie(own).constData());
+            own->deleteLater();
+        }
+    }
+
     void aDevEdgePicksAScopeAndHandsBackASession()
     {
         // The accept case, and it is not padding: a gate tested only by refusals passes

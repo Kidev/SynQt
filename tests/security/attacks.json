@@ -637,6 +637,13 @@
       "test": "logoutFromAnotherSiteIsRefused"
     },
     {
+      "id": "password-gate-login-csrf",
+      "what": "Another site submits a form to the entity password gate (`sign_in`) carrying credentials of its own. The Lax session cookie stays home on a cross-site POST, so the gate minted a fresh session at the sign-in scope and set it in the visitor's browser: the visitor was signed in as somebody else's operator without having done anything.",
+      "defended_by": "The gate reads Sec-Fetch-Site the way the sign-out route does and refuses a cross-site request (and a same-site one under the same-origin model) before the credentials are read; a caller that is not a browser sends none and is unaffected.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "thePasswordGateRefusesAFormAnotherSiteSubmitted"
+    },
+    {
       "id": "operator-enumeration-by-clock",
       "what": "The console's sign-in answers one refusal to every failure, but returned before deriving when the operator name was unknown, so the clock said which names exist and a guesser could spend every attempt on one that does.",
       "defended_by": "OperatorStore::verify reads the whole list and derives once either way, against the first credential's parameters when the name is unknown.",

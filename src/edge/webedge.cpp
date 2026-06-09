@@ -576,6 +576,23 @@ constexpr int kMaxRateEntries{4096};
 /// which names exist.
 QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
 {
+    // Not from another site. This is a POST that ends in a session being handed out, and a
+    // page elsewhere can submit a form here with whatever credentials it likes: the Lax
+    // cookie stays home on a cross-site POST, so the gate would mint a fresh session at
+    // `signInScope` and set it in the visitor's browser, signing them in as somebody else's
+    // operator. The browser says where a request came from in `Sec-Fetch-Site`, and a
+    // caller that is not a browser sends none. The rule and its reasoning are the sign-out
+    // route's (IdentityProvider::handleLogout), applied to the other route that changes who
+    // a session is.
+    const QByteArray site{request.value("Sec-Fetch-Site")};
+    if (site == "cross-site"
+        || (site == "same-site" && m_config.originModel != QLatin1String("split_origin"))) {
+        emit signInRefused(QString{});
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   QByteArrayLiteral("sign in from the application"),
+                                   QHttpServerResponder::StatusCode::Forbidden};
+    }
+
     // Budgeted before the password is so much as read, so a refusal here says nothing about
     // the credential and costs nothing to give. See m_signInRate: what is being rationed is
     // the PBKDF2 below as much as the guess in front of it.
