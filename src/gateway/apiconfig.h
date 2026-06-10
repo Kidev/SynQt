@@ -36,9 +36,11 @@ struct ApiConfig
     bool anonymous{false};  ///< `public: true`: no key required, said out loud
 
     /// Browser callers. A request carrying an `Origin` this list does not name is refused
-    /// before a handler runs, and the preflight is answered for the ones it does name.
-    /// Empty (the default) means no browser may call in, which is what a machine-facing
-    /// API wants: a key in a page is not a secret.
+    /// before a handler runs, and the preflight a browser sends first is answered for the
+    /// ones it does name (ApiServer::preflightAnswer), with the answer to the real request
+    /// carrying `Access-Control-Allow-Origin` for that origin alone. Empty (the default)
+    /// means no browser may call in, which is what a machine-facing API wants. A key in a
+    /// page is not a secret.
     QStringList allowedOrigins;
 
     /// Resource limits, enforced before a handler sees anything.

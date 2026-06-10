@@ -270,6 +270,61 @@ private slots:
                       QByteArrayLiteral("https://partner.example")).status, 200);
     }
 
+    /// A browser is what `allowed_origins` exists for, and a browser never sends the key
+    /// on its first request. A cross-origin call carrying `X-API-Key` is preflighted with
+    /// an OPTIONS that carries no key, and the real request is sent only if the preflight
+    /// is answered with the origin and the header allowed. Until this was written the
+    /// preflight was refused with a 401 and no CORS header, so a browser could never reach
+    /// a surface that had named its origin, which is the one thing the key exists to do.
+    void aNamedOriginIsAnsweredThePreflightABrowserSendsFirst()
+    {
+        const auto preflight{[&](const QByteArray &origin) {
+            QNetworkRequest request{url(QStringLiteral("/lots"))};
+            request.setRawHeader(QByteArrayLiteral("Origin"), origin);
+            request.setRawHeader(QByteArrayLiteral("Access-Control-Request-Method"),
+                                 QByteArrayLiteral("GET"));
+            request.setRawHeader(QByteArrayLiteral("Access-Control-Request-Headers"),
+                                 QByteArrayLiteral("x-api-key, content-type"));
+            QNetworkReply *reply{m_network.sendCustomRequest(request, QByteArrayLiteral("OPTIONS"))};
+            QSignalSpy finished{reply, &QNetworkReply::finished};
+            finished.wait(5000);
+            return reply;
+        }};
+
+        // The named origin. The preflight is answered, and answered with exactly what the
+        // browser asked about, so the real request follows.
+        QNetworkReply *allowed{preflight(QByteArrayLiteral("https://partner.example"))};
+        QCOMPARE(allowed->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 204);
+        QCOMPARE(allowed->rawHeader("Access-Control-Allow-Origin"),
+                 QByteArrayLiteral("https://partner.example"));
+        QVERIFY2(allowed->rawHeader("Access-Control-Allow-Headers").toLower().contains("x-api-key"),
+                 allowed->rawHeader("Access-Control-Allow-Headers").constData());
+        QVERIFY(allowed->rawHeader("Access-Control-Allow-Methods").contains("GET"));
+        QVERIFY(allowed->rawHeader("Vary").contains("Origin"));
+        allowed->deleteLater();
+
+        // And the real request, which does carry the key, comes back with the header the
+        // browser needs to hand the answer to the page.
+        QNetworkRequest real{url(QStringLiteral("/lots"))};
+        real.setRawHeader(QByteArrayLiteral("Origin"), QByteArrayLiteral("https://partner.example"));
+        real.setRawHeader(QByteArrayLiteral("X-API-Key"), QByteArrayLiteral("right-key"));
+        QNetworkReply *reply{m_network.get(real)};
+        QSignalSpy finished{reply, &QNetworkReply::finished};
+        finished.wait(5000);
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+        QCOMPARE(reply->rawHeader("Access-Control-Allow-Origin"),
+                 QByteArrayLiteral("https://partner.example"));
+        reply->deleteLater();
+
+        // An origin nobody named gets no preflight answer and no header, so a key that
+        // leaked into a page there still buys nothing. Refused rather than answered: the
+        // absence of Access-Control-Allow-Origin is what stops the browser.
+        QNetworkReply *refused{preflight(QByteArrayLiteral("https://evil.example"))};
+        QCOMPARE(refused->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 403);
+        QVERIFY(refused->rawHeader("Access-Control-Allow-Origin").isEmpty());
+        refused->deleteLater();
+    }
+
     void aBodyOverTheLimitIsRefusedBeforeTheHandler()
     {
         const QByteArray big{QByteArrayLiteral(R"({"name":")")

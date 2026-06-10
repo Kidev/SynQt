@@ -30,6 +30,7 @@
 
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace SynQt {
@@ -107,6 +108,8 @@ QString methodOf(const QHttpServerRequest &request)
         return QStringLiteral("PATCH");
     case QHttpServerRequest::Method::Head:
         return QStringLiteral("HEAD");
+    case QHttpServerRequest::Method::Options:
+        return QStringLiteral("OPTIONS");
     default:
         return QStringLiteral("UNKNOWN");
     }
@@ -232,6 +235,54 @@ QString ApiServer::originOf(const QHttpServerRequest &request) const
         request.headers().value(QHttpHeaders::WellKnownHeader::Origin).toByteArray());
 }
 
+std::optional<QHttpServerResponse> ApiServer::preflightAnswer(const QHttpServerRequest &request,
+                                                              const QString &origin) const
+{
+    // What makes an OPTIONS a preflight rather than a request. An Origin and the method the
+    // browser is asking about. An OPTIONS without them is an ordinary request and goes on to
+    // the routes, where a handler may have been declared for it.
+    const QByteArray askedMethod{
+        request.headers().value(QByteArrayLiteral("Access-Control-Request-Method")).toByteArray()};
+    if (request.method() != QHttpServerRequest::Method::Options || origin.isEmpty()
+        || askedMethod.isEmpty()) {
+        return std::nullopt;
+    }
+    if (!m_config.allowedOrigins.contains(origin)) {
+        // The same refusal a real request from this origin gets, with no CORS header on it,
+        // which is what tells the browser not to send the real one. A key that leaked into
+        // a page here still buys nothing.
+        return errorResponse(403, QStringLiteral("origin %1 is not allowed to call this API")
+                                      .arg(origin));
+    }
+    QHttpServerResponse response{QHttpServerResponse::StatusCode::NoContent};
+    QHttpHeaders headers{response.headers()};
+    headers.append(QByteArrayLiteral("Access-Control-Allow-Origin"), origin.toUtf8());
+    headers.append(QByteArrayLiteral("Access-Control-Allow-Methods"),
+                   QByteArrayLiteral("GET, POST, PUT, DELETE, PATCH, HEAD"));
+    // The headers the browser asked about, echoed. The key header is what every browser
+    // caller has to ask for, and echoing the list rather than allowing everything keeps
+    // the answer to what the page sends.
+    const QByteArray askedHeaders{
+        request.headers().value(QByteArrayLiteral("Access-Control-Request-Headers")).toByteArray()};
+    headers.append(QByteArrayLiteral("Access-Control-Allow-Headers"),
+                   askedHeaders.isEmpty() ? m_config.keyHeader : askedHeaders);
+    headers.append(QByteArrayLiteral("Access-Control-Max-Age"), QByteArrayLiteral("600"));
+    headers.append(QHttpHeaders::WellKnownHeader::Vary, QByteArrayLiteral("Origin"));
+    response.setHeaders(std::move(headers));
+    return response;
+}
+
+void ApiServer::allowOrigin(QHttpServerResponse &response, const QString &origin)
+{
+    // The origin asking, never `*`, and `Vary` so a cache in between does not hand one
+    // origin's answer to another. No `Allow-Credentials`: a caller authenticates with the
+    // key header, and a cookie is not something this surface reads.
+    QHttpHeaders headers{response.headers()};
+    headers.append(QByteArrayLiteral("Access-Control-Allow-Origin"), origin.toUtf8());
+    headers.append(QHttpHeaders::WellKnownHeader::Vary, QByteArrayLiteral("Origin"));
+    response.setHeaders(std::move(headers));
+}
+
 bool ApiServer::withinRate(const QString &caller)
 {
     if (m_config.ratePerMinutePerIp <= 0) {
@@ -314,18 +365,34 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
 {
     // The address this request is counted against, which is the peer's until the topology
     // names a proxy in front of this surface. Resolved once, and the only client address
-    // that goes any further: the rate limit keys on it and the handler is handed it.
+    // that goes any further. The rate limit keys on it and the handler is handed it.
     const QString caller{callerAddress(request)};
     if (!withinRate(caller)) {
         emit requestRefused(QStringLiteral("rate limit for %1").arg(caller));
         return settled(errorResponse(429, QStringLiteral("too many requests")));
     }
 
+    // A browser's preflight, before the key is looked for. A preflight never carries one,
+    // and a surface that refused it could not be reached from a page at all, whatever
+    // `allowed_origins` said. It is rate limited like every other request, above.
+    const QString origin{originOf(request)};
+    if (std::optional<QHttpServerResponse> preflight{preflightAnswer(request, origin)}) {
+        return settled(std::move(*preflight));
+    }
+    // Whether the answer, whatever it turns out to be, is one a page at this origin may
+    // read. Decided here rather than at each answer, and only for an origin the surface
+    // names. The refusal below is what an origin it does not name gets, with nothing on it.
+    const bool corsAllowed{!origin.isEmpty() && m_config.allowedOrigins.contains(origin)};
+
     int status{400};
     const QString refusal{refuse(request, &status)};
     if (!refusal.isEmpty()) {
         emit requestRefused(refusal);
-        return settled(errorResponse(status, refusal));
+        QHttpServerResponse refused{errorResponse(status, refusal)};
+        if (corsAllowed) {
+            allowOrigin(refused, origin);
+        }
+        return settled(std::move(refused));
     }
 
     // QHttpServerRequest hands the path and the query already separated, so the query is
@@ -351,9 +418,12 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
     auto promise{std::make_shared<QPromise<QHttpServerResponse>>()};
     QFuture<QHttpServerResponse> future{promise->future()};
     promise->start();
-    auto answer = [promise](QHttpServerResponse &&response) {
+    auto answer = [promise, corsAllowed, origin](QHttpServerResponse &&response) {
         if (promise->future().isFinished()) {
             return;
+        }
+        if (corsAllowed) {
+            allowOrigin(response, origin);
         }
         promise->addResult(std::move(response));
         promise->finish();
@@ -368,8 +438,12 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
 
     if (!m_api->dispatch(apiRequest)) {
         apiRequest->deleteLater();
-        return settled(errorResponse(404, QStringLiteral("no route for %1 %2")
-                                              .arg(methodOf(request), path)));
+        QHttpServerResponse unrouted{errorResponse(404, QStringLiteral("no route for %1 %2")
+                                                            .arg(methodOf(request), path))};
+        if (corsAllowed) {
+            allowOrigin(unrouted, origin);
+        }
+        return settled(std::move(unrouted));
     }
     if (apiRequest->isAnswered()) {
         return future;  // answered synchronously, which is the ordinary case

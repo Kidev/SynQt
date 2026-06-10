@@ -782,7 +782,10 @@ opinion.
 Nothing about who may call reaches the handler, because it was settled before the
 handler existed. `synqt check` refuses an inbound surface with no API keys unless it
 says `public: true`, and the framework checks the rate limit, the key, the origin and
-the body size in that order, answering the request itself when any of them fails.
+the body size in that order, answering the request itself when any of them fails. A
+browser's preflight is answered between the first two, since it carries no key by
+design. For an origin in `allowed_origins` it is allowed, and for any other refused, so
+a page elsewhere never gets as far as sending the real request.
 
 ### `Jobs`: timers and a bounded queue
 
