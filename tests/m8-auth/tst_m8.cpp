@@ -1326,10 +1326,22 @@ private slots:
         QCOMPARE(record->scope, QStringLiteral("moderator"));
         QCOMPARE(record->identity.value(QStringLiteral("sub")).toString(), QStringLiteral("alice"));
 
+        // An elevation on one edge rotates the credential, and the browser goes on holding
+        // the old one in a cookie no slot call can rewrite. The next page load may land on
+        // any replica, so the hand-off from the old id to the new has to be known on every
+        // edge. Without it edge B saw the old id removed, found no hand-off for it, and
+        // minted a fresh anonymous session in its place, which signed a visitor out for
+        // having been signed in on the other replica.
+        const QByteArray rotated{edgeA->setScope(token, QStringLiteral("admin"))};
+        QVERIFY(!rotated.isEmpty());
+        QTRY_VERIFY(edgeB->isLive(rotated));
+        QTRY_COMPARE(edgeB->rotationOf(token), rotated);
+        QCOMPARE(edgeB->lookup(rotated)->scope, QStringLiteral("admin"));
+
         // Revocation on one edge propagates everywhere.
-        edgeA->revoke(token);
-        QTRY_VERIFY(!authStore.isLive(token));
-        QTRY_VERIFY(!edgeB->isLive(token));
+        edgeA->revoke(rotated);
+        QTRY_VERIFY(!authStore.isLive(rotated));
+        QTRY_VERIFY(!edgeB->isLive(rotated));
     }
 
     // AUTH-2: the edge refreshes an access token before it expires, server-side, using the

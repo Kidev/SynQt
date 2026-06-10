@@ -175,13 +175,21 @@ QByteArray SessionManager::setScope(const QByteArray &wasId, const QString &scop
     // First, so that everything still naming the old credential is holding the new one
     // before anybody acts on the removal below.
     emit sessionRotated(previous, record.id);
+    emit rotationRecorded(QString::fromLatin1(previous), QString::fromLatin1(record.id));
     emit sessionRemoved(QString::fromLatin1(previous));
     if (m_remote) {
+        // In this order, because the other replicas apply them in it: the new session
+        // first, so the hand-off has something live to point at. The hand-off next, so
+        // the removal that follows is read there as a rotation and not as the end of a
+        // session. The removal last.
         QMetaObject::invokeMethod(m_remote, "putSession",
                                   Q_ARG(QString, QString::fromLatin1(record.id)),
                                   Q_ARG(QString, record.scope),
                                   Q_ARG(QString, identityToJson(record.identity)),
                                   Q_ARG(double, static_cast<double>(record.createdMs)));
+        QMetaObject::invokeMethod(m_remote, "rotateSession",
+                                  Q_ARG(QString, QString::fromLatin1(previous)),
+                                  Q_ARG(QString, QString::fromLatin1(record.id)));
         QMetaObject::invokeMethod(m_remote, "removeSession",
                                   Q_ARG(QString, QString::fromLatin1(previous)));
     }
@@ -234,6 +242,8 @@ void SessionManager::attachRemote(QObject *sessionReplica)
             this, SLOT(applyUpsert(QString, QString, QString, double)));
     connect(sessionReplica, SIGNAL(sessionRemoved(QString)),
             this, SLOT(applyRemove(QString)));
+    connect(sessionReplica, SIGNAL(sessionRotated(QString, QString)),
+            this, SLOT(applyRotation(QString, QString)));
 }
 
 void SessionManager::applyUpsert(const QString &token, const QString &scope,
@@ -246,7 +256,32 @@ void SessionManager::applyUpsert(const QString &token, const QString &scope,
     record.createdMs = static_cast<qint64>(createdMs);
     m_sessions.insert(record.id, record);  // authoritative: overwrite the local copy
     trackExpiry(record);
-    emitUpsert(record);  // let the auth entity's Sources forward it; edges have no observer
+    emitUpsert(record);  // let the auth entity's Sources forward it. Edges have no observer
+}
+
+void SessionManager::applyRotation(const QString &from, const QString &to)
+{
+    const QByteArray previous{from.toLatin1()};
+    const QByteArray next{to.toLatin1()};
+    if (previous.isEmpty() || next.isEmpty() || previous == next) {
+        return;
+    }
+    // Already held. This is the rotation this manager made, echoed back by the store, or a
+    // repeat. The entry keeps the clock it started on either way (see setScope on why a
+    // refreshed clock would keep a hand-off alive indefinitely), and nothing here is told
+    // twice.
+    if (m_rotations.contains(previous)) {
+        return;
+    }
+    m_rotations.insert(previous, Rotation{next, QDateTime::currentMSecsSinceEpoch()});
+    if (const auto record{m_sessions.find(next)}; record != m_sessions.end()) {
+        record->rotatedFrom = previous;
+    }
+    // Everything on this process still naming the old credential moves to the new one:
+    // the Callers of a tab that happened to be connected here, and the edge's own tables
+    // (WebEdge::followRotation), exactly as they do for a rotation made here.
+    emit sessionRotated(previous, next);
+    emit rotationRecorded(from, to);
 }
 
 void SessionManager::applyRemove(const QString &token)

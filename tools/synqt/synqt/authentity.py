@@ -98,6 +98,12 @@ SessionStore {
         Sessions.applyRemove(token);
     }
 
+    // A scope change on one edge, carried to every other. The browser's next page load
+    // may land anywhere, and the replica it lands on has to know what the old id became.
+    function rotateSession(from, to) {
+        Sessions.applyRotation(from, to);
+    }
+
     function onUpserted(token, scope, identityJson, createdMs) {
         root.emitSessionUpserted(token, scope, identityJson, createdMs);
     }
@@ -106,9 +112,14 @@ SessionStore {
         root.emitSessionRemoved(token);
     }
 
+    function onRotated(from, to) {
+        root.emitSessionRotated(from, to);
+    }
+
     Component.onCompleted: {
         Sessions.sessionUpserted.connect(onUpserted);
         Sessions.sessionRemoved.connect(onRemoved);
+        Sessions.rotationRecorded.connect(onRotated);
         const rows = Sessions.snapshot();
         for (let i = 0; i < rows.length; ++i) {
             const row = rows[i];

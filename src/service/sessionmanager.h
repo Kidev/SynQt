@@ -116,6 +116,10 @@ public slots:
     void applyUpsert(const QString &token, const QString &scope,
                      const QString &identityJson, double createdMs);
     void applyRemove(const QString &token);
+    /// A rotation another process made, or this one's echoed back. Records the hand-off
+    /// (rotationOf) and moves everything here still naming `from` to `to`, the way a
+    /// local setScope does. An entry already held is left on the clock it started on.
+    void applyRotation(const QString &from, const QString &to);
 
 signals:
     /// Emitted on every table change, so the auth entity's Session Sources forward it to the
@@ -123,6 +127,11 @@ signals:
     void sessionUpserted(const QString &token, const QString &scope,
                          const QString &identityJson, double createdMs);
     void sessionRemoved(const QString &token);
+    /// A hand-off recorded on this manager, in the form the SessionStore contract carries
+    /// so the auth entity's Source can forward it to every edge. Raised by a rotation
+    /// made here and by one applied from the store alike. The originating edge ignores
+    /// its own echo, since it already holds the entry.
+    void rotationRecorded(const QString &from, const QString &to);
 
     /// The same session under a new credential, after a scope change rotated it.
     ///

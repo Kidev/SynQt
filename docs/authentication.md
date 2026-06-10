@@ -384,36 +384,40 @@ and the two customizations either side of it.
   signed out, and the client comes back as an anonymous visitor.
 
 None of that changes for a desktop app that stays signed in between launches
-(`identity.desktop_session: device`). What it keeps in the OS secure store is not a
-session: it is a single-use credential it spends at the next launch for a session of
-exactly the length above, so the TTL, the rotation and the revocation here are the
+(`identity.desktop_session: device`). What it keeps in the OS secure store is a
+single-use credential rather than a session. It spends that credential at the next
+launch for a session of exactly the length above, so the TTL, the rotation and the
+revocation here are the
 same numbers either way. See
 [storing the session](desktop.md#storing-the-session).
 
 ## Where identity runs: at the edge, or as its own entity
 
-By default identity runs in process on the web edge. This is the simplest and is
-right for most systems: one edge, one place that holds tokens and issues sessions.
+By default identity runs in process on the web edge. This is the simplest arrangement
+and the right one for most systems, with one edge and one place that holds tokens and
+issues sessions.
 
 For larger systems with several edges or services that all need a common notion of
 sessions, identity can be promoted to a dedicated auth entity by setting
 `identity.provider_entity` to that entity's name. The auth entity owns the identity
-and session connect points; the edges consume them over the mesh (mutually
+and session connect points. The edges consume them over the mesh (mutually
 authenticated like any mesh link). This centralizes token handling and session
 state behind one internal service, and keeps the secrets in one place. The user
-facing flow is unchanged; only where the session state lives moves. Promoting to an
-auth entity is a configuration change, not a rewrite, because the edge already
+facing flow is unchanged. Only where the session state lives moves. Promoting to an
+auth entity is a configuration change rather than a rewrite, because the edge already
 talks to identity through a connect point boundary.
 
 It is what a [replicated edge](deploying.md#8-running-more-than-one-edge) requires, and
-`synqt check` refuses `replicas: > 1` without it. Three things move with it, and the last
-two are less obvious than the first: the session table, so a visitor is not signed in on
-one replica and anonymous on the next; the pending login, so the OAuth callback can be
-answered by whichever process the balancer sends it to rather than only the one that began
-it; and the desktop claim code, which the native client redeems over a connection of its
-own that lands independently of the browser that produced it. Every replica presents one
-entity identity, so the auth entity is answering one consumer that happens to be several
-processes.
+`synqt check` refuses `replicas: > 1` without it. Four things move with it. The session
+table moves, so a visitor is not signed in on one replica and anonymous on the next. The
+hand-off a scope change leaves behind moves, so a visitor whose session `Caller.setScope`
+rotated on one replica is handed the new credential on their next page load whichever
+replica it lands on, rather than a fresh anonymous session. The pending login moves, so
+whichever process the balancer sends the OAuth callback to can answer it, rather than
+only the one that began it. And the desktop claim code moves, which the native client
+redeems over a connection of its own that lands independently of the browser that
+produced it. Every replica presents one entity identity, so the auth entity is answering
+one consumer that happens to be several processes.
 
 It is also one line, because everything the line implies is generated. Declare
 the entity, name it, and `synqt build` writes the two connect points (`identity` and

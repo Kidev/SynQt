@@ -3,13 +3,21 @@
 
 // The session connect point, owned by a dedicated auth entity when
 // identity.provider_entity is set (docs/authentication.md "Where identity runs"). The
-// edges consume it over the mesh: they write sessions to the authoritative store with the
+// edges consume it over the mesh. They write sessions to the authoritative store with the
 // slots and keep a local read cache from the signals (so the upgrade verifier stays
 // synchronous). Row changes are announced as signals with scalar params, which replicate
-// reliably over the mesh; identity travels as a JSON string.
+// reliably over the mesh. Identity travels as a JSON string.
+//
+// A rotation travels too. A scope change rotates the credential, and the browser goes on
+// holding the old one in a cookie nothing on the live link can rewrite. Its next page load
+// may land on any replica, and the replica it lands on has to know what the old id became
+// (SessionManager::rotationOf). Sent as its own pair rather than read off the remove that
+// follows it, because a removal on its own says the session ended.
 contract SessionStore {
     slot putSession(string token, string scope, string identityJson, real createdMs)
     slot removeSession(string token)
+    slot rotateSession(string from, string to)
     signal sessionUpserted(string token, string scope, string identityJson, real createdMs)
     signal sessionRemoved(string token)
+    signal sessionRotated(string from, string to)
 }
