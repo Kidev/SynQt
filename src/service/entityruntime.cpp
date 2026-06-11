@@ -44,9 +44,9 @@ namespace SynQt {
 
 namespace {
 
-// Resolve a provider/settings map (from the topology) into a ProviderConfig. A value of the
-// form "env:VAR" is read from the entity environment (secrets never live as literals in the
-// resolved topology). Fields absent from the map keep their ProviderConfig defaults.
+// Resolve a provider/settings map from the topology into a ProviderConfig. An "env:VAR"
+// value is read from the entity environment, so secrets are never literals in the resolved
+// topology. Absent fields keep their ProviderConfig defaults.
 QString resolveEnv(const QVariant &value)
 {
     const QString text{value.toString()};
@@ -94,14 +94,11 @@ EntityRuntime::EntityRuntime(Topology topology, QQmlEngine *engine, QObject *par
 EntityRuntime::~EntityRuntime()
 {
     // The sink this runtime installed holds a raw pointer to a child of this object, and
-    // the tracer outlives it: `Tracer::instance()` is a function-local static, so it is
-    // destroyed after main's own locals, and its destructor stops the writer thread, which
-    // can deliver one last batch on the way down. Without this that batch reaches an
-    // IngestClient that is already gone.
+    // the tracer outlives it: `Tracer::instance()` is a function-local static destroyed
+    // after main's locals, and its destructor may deliver one last batch.
     //
-    // Only the sink this runtime installed. Clearing unconditionally would silence one
-    // something else owns, which is the same reason buildIngest only ever enables the
-    // tracer and never disables it.
+    // Only this runtime's sink is cleared, never one something else installed, which is
+    // also why buildIngest only ever enables the tracer.
     if (m_installedSink) {
         Tracer::instance()->setSink(Tracer::Sink{});
     }
@@ -122,8 +119,7 @@ bool EntityRuntime::buildTypeContext()
             m_persistence.reset();
             return false;
         }
-        // A schema that did not apply is fatal. Every Source on this entity is written
-        // against it, so starting would only move the failure to the first query.
+        // A schema that did not apply is fatal: every Source here is written against it.
         if (!m_topology.schema.isEmpty() && !m_persistence->migrate(m_topology.schema, &error)) {
             m_errorString = error;
             m_persistence.reset();
@@ -135,9 +131,9 @@ bool EntityRuntime::buildTypeContext()
         if (m_cache == nullptr) {
             return false;
         }
-        // Unlike a database, an unreachable cache is not fatal. A cache miss is a normal
-        // outcome, the provider reports isHealthy(), and an external engine may come up
-        // after the entity does. It is still said out loud, never swallowed.
+        // An unreachable cache is not fatal: a miss is normal, the provider reports
+        // isHealthy(), and an external engine may start after the entity. It is still
+        // logged.
         QString error;
         if (!m_cache->connect(&error)) {
             qWarning("SynQt: cache provider '%s' is not connected: %s",
@@ -160,31 +156,25 @@ bool EntityRuntime::buildTypeContext()
         m_typeContext.insert(QStringLiteral("Jobs"), new Jobs{1000, this});
     }
 
-    // For every type, unlike the helpers above. Those exist because a type has an engine
-    // behind it, and are absent where there is none. Every entity has something to say
-    // about itself, so every entity gets this one.
+    // Installed for every type, unlike the engine helpers above.
     m_typeContext.insert(QStringLiteral("Log"), new Log{this});
-    // The name this process records under, set once here rather than passed to every call
-    // site. It is also why an entity cannot claim to be another one: the stamp is applied
-    // on the way out of the pipeline, past anything QML can reach.
+    // The name this process records under, set once. The stamp is applied as events leave
+    // the pipeline, beyond QML's reach, so an entity cannot record as another.
     Tracer::instance()->setEntity(m_topology.entity);
     applyTraceLevels();
     buildIngest();
 
-    // `Http` is granted by the topology, not by the type. Any entity that declares
-    // `network.outbound` gets it, restricted to exactly the prefixes in that list, and an
-    // entity that declares none does not get it at all. An empty list still installs the
-    // helper and allows nothing, so a call names the config key it is missing instead of
-    // dying on an undefined `Http`. An entity is closed until a deployment opens it, and it
-    // is opened onto named places rather than onto the internet.
+    // `Http` is granted by the topology, not the type: an entity that declares
+    // `network.outbound` gets it, limited to those prefixes, and one that declares none
+    // does not. An empty list still installs the helper and allows nothing, so a call names
+    // the missing config key.
     if (m_topology.outboundDeclared) {
         m_network = new QNetworkAccessManager{this};
         applyEnvironmentProxy(m_network);
         const bool release{m_topology.provider.value(QStringLiteral("release"), true).toBool()};
-        // A declared header may be an `env:` reference, and this is where it stops being
-        // one: read from this process's environment, held in the helper, and attached to
-        // the request. It is never written to the resolved topology, never reaches the
-        // entity's QML, and so cannot be logged by it.
+        // A declared header may be an `env:` reference, resolved here from this process's
+        // environment and held in the helper. It never reaches the resolved topology or the
+        // entity's QML.
         QList<HttpEndpointConfig> endpoints;
         endpoints.reserve(m_topology.outbound.size());
         for (const OutboundEndpoint &declared : std::as_const(m_topology.outbound)) {
@@ -205,14 +195,10 @@ bool EntityRuntime::buildTypeContext()
 
 /// How much this entity records, from `monitoring.levels`.
 ///
-/// Applied whether or not there is a monitor, and before the sink is installed: the levels
-/// govern what a local exporter or a test harness sees as much as what a monitor does. A
-/// category nobody named keeps its default, so turning one up is one line and costs the
-/// others nothing.
+/// Applied with or without a monitor, before the sink is installed: the levels also govern
+/// a local exporter or a test harness. Unnamed categories keep their default.
 ///
-/// A word this build does not know is reported rather than guessed at. Reading an unknown
-/// level as the quietest one it could have meant is how an operator ends up watching a
-/// category they believe they turned on.
+/// An unknown level word is reported and its category keeps the default.
 void EntityRuntime::applyTraceLevels()
 {
     for (auto it{m_topology.traceLevels.constBegin()};
@@ -223,7 +209,7 @@ void EntityRuntime::applyTraceLevels()
             continue;
         }
         if (it.value() == QLatin1String("off")) {
-            // Off is not a severity. It is every severity refused.
+            // Off refuses every severity, so it has its own setter.
             Tracer::instance()->setCategoryOff(category);
             continue;
         }
@@ -237,13 +223,11 @@ void EntityRuntime::applyTraceLevels()
     }
 }
 
-/// Point the tracer at the monitor, if this entity has one to report to.
+/// Point the tracer at the monitor, if this entity has one.
 ///
-/// The client is built whether or not the link is up. An entity that starts before its
-/// monitor spools until it arrives, which is the window an operator most often wants and
-/// the one a naive implementation drops on the floor. The Replica is attached when the
-/// link comes up and detached when it goes away, and neither is anything the entity's own
-/// code sees.
+/// The client is built whether or not the link is up: an entity that starts before its
+/// monitor spools until it arrives. The Replica is attached when the link comes up and
+/// detached when it goes; the entity's own code sees neither.
 void EntityRuntime::buildIngest()
 {
     const bool reports{std::any_of(m_topology.connectPoints.cbegin(),
@@ -253,11 +237,9 @@ void EntityRuntime::buildIngest()
                 && (point.owner != m_topology.entity);
     })};
     if (!reports) {
-        // No monitor in this topology, so nothing to point the tracer at. It is left
-        // exactly as it was found rather than switched off here. The process tracer starts
-        // off (see Tracer::instance), so an application that never asked for monitoring
-        // already pays nothing, and turning it off from here would also silence a sink
-        // something else installed, such as a local exporter or a test harness.
+        // No monitor in this topology. The tracer is left as found: it starts off (see
+        // Tracer::instance), and switching it off here would also silence a sink something
+        // else installed (a local exporter, a test harness).
         return;
     }
 
@@ -266,8 +248,8 @@ void EntityRuntime::buildIngest()
                             : m_topology.spoolDir + QLatin1String("/monitoring.spool")};
     m_ingest = new IngestClient{spool, m_topology.spoolCapBytes, this};
     Tracer::instance()->setEnabled(true);
-    // The sink runs on the tracer's writer thread, and IngestClient is built for that: it
-    // writes to the Replica's socket or to a file, and never waits on either.
+    // The sink runs on the tracer's writer thread, and IngestClient never waits on the
+    // Replica's socket or on its file.
     IngestClient *ingest{m_ingest};
     Tracer::instance()->setSink([ingest](const QList<TraceEvent> &batch) {
         ingest->publish(batch);
@@ -312,14 +294,14 @@ void EntityRuntime::installAccessor(const ConnectPointConfig &connectPoint)
     if (m_accessors.contains(name)) {
         return;
     }
-    // The facade is what QML talks to. It forwards properties, models and signals,
-    // turns a returning slot into a promise, and feeds the `<Contract>.on<Signal>` attached
-    // handlers. It is built here, before the link, and kept for the life of the runtime, so
-    // a reconnect hands the same object a fresh Replica and every binding against it holds.
+    // QML talks to the facade: it forwards properties, models and signals, turns a
+    // returning slot into a promise, and feeds the `<Contract>.on<Signal>` handlers. Built
+    // before the link and kept for the life of the runtime, so a reconnect gives the same
+    // object a new Replica.
     ConsumerBase *facade{makeConsumer(connectPoint.contract)};
     if (facade == nullptr) {
-        // No consumer surface registered for this contract (a Replica-only build). There is
-        // nothing to put in scope until a link acquires the dynamic Replica itself.
+        // No consumer surface for this contract (a Replica-only build); nothing goes in
+        // scope until a link acquires the dynamic Replica.
         return;
     }
     facade->setPoint(connectPoint.name);
@@ -344,23 +326,22 @@ QObject *EntityRuntime::consumedReplica(const QString &owner, const QString &con
 
 bool EntityRuntime::start()
 {
-    // Build the type's backend once, so every owned Source is created with its helper
-    // (Db/Cache/Docs/Http/Jobs) already in context. An entity that cannot serve its type
-    // never reaches enableRemoting(): a consumer being refused acquisition is a far better
-    // failure than one acquiring a Source whose every call will fail.
+    // Build the type's backend once, so every owned Source is created with its helper (Db,
+    // Cache, Docs, Http, Jobs) in context. An entity that cannot serve its type never
+    // reaches enableRemoting(), so consumers are refused instead of acquiring a failing
+    // Source.
     if (!buildTypeContext()) {
         return false;
     }
 
-    // The helper goes on the ROOT context as well as on each Source's, because the entity's
-    // own singleton is created by the engine in the root context and it is the entity: it is
-    // where state that outlives any one Source belongs, and it cannot hold that state if it
-    // cannot reach the engine behind it. Without this, `Db.exec(...)` in an entity singleton
-    // is a ReferenceError that reads like a working line. Each Source's own context sets the
-    // same objects again, which is what keeps the shadowing check below meaningful.
-    // The same is true of anything the entity's main contributed (`Api` for an inbound
-    // surface, the auth entity's engines). The singleton is where routes are declared and
-    // where startup work happens, so what it needs has to be in scope there too.
+    // The helper goes on the root context as well as on each Source's. The entity singleton
+    // is created in the root context and holds the state that outlives a Source, so it must
+    // reach the engine; otherwise `Db.exec(...)` there is a ReferenceError. Each Source's
+    // context sets the same objects again, which keeps the shadowing check below
+    // meaningful.
+    //
+    // The same applies to what the entity main contributed (`Api`, the auth entity's
+    // engines): the singleton declares routes and runs startup work.
     if (m_engine) {
         for (auto it{m_typeContext.constBegin()}; it != m_typeContext.constEnd(); ++it) {
             m_engine->rootContext()->setContextProperty(it.key(), it.value());
@@ -373,10 +354,9 @@ bool EntityRuntime::start()
         }
     }
 
-    // Every owner this entity consumes goes into QML scope before the first Source is
-    // built, because a shared entity builds one at start-up and a binding in it against an
-    // accessor that does not exist yet reads as nothing for good. Opening the links happens
-    // further down. This is only the name coming into scope.
+    // Every consumed owner is put in QML scope before the first Source is built: a shared
+    // entity builds one at start-up, and a binding against a missing accessor would stay
+    // empty. The links open further down.
     for (const ConnectPointConfig &connectPoint : m_topology.consumed()) {
         installAccessor(connectPoint);
     }
@@ -389,10 +369,9 @@ bool EntityRuntime::start()
             host->setContextObject(it.key(), it.value());
         }
         for (auto it{m_entityContext.constBegin()}; it != m_entityContext.constEnd(); ++it) {
-            // The type's own helper wins. An entity contributing its own `Db` would leave
-            // every Source on it calling something other than the provider the config
-            // selected, and silently, because the name still resolves. Refusing the
-            // override and saying so is the only outcome that cannot look like it worked.
+            // The type's own helper wins. An entity defining its own `Db` would make every
+            // Source call something other than the configured provider, silently, so the
+            // override is refused and reported.
             if (m_typeContext.contains(it.key())) {
                 qWarning("SynQt: entity '%s' contributed '%s', which its %s type already "
                          "provides; keeping the type's helper",
@@ -413,8 +392,8 @@ bool EntityRuntime::start()
         m_ownedHosts.append(host);
     }
 
-    // Open a consumer link for every connect point this entity consumes, and only
-    // those (deny by default, no link to an owner this entity does not consume from).
+    // Open a consumer link for every connect point this entity consumes, and only those
+    // (deny by default).
     for (const ConnectPointConfig &connectPoint : m_topology.consumed()) {
         openConsumerLink(connectPoint);
     }
@@ -423,9 +402,8 @@ bool EntityRuntime::start()
 
 void EntityRuntime::openConsumerLink(const ConnectPointConfig &connectPoint)
 {
-    // The owner goes into QML scope now, not when the handshake finishes. A binding in this
-    // entity's QML is evaluated on its first frame, and a name that resolves to nothing
-    // then reads as nothing for good.
+    // The owner name goes into QML scope now, not after the handshake: bindings evaluate on
+    // the first frame.
     installAccessor(connectPoint);
 
     MeshClient *client{new MeshClient{this}};
@@ -434,49 +412,42 @@ void EntityRuntime::openConsumerLink(const ConnectPointConfig &connectPoint)
             [this, connectPoint](QIODevice *device) {
                 const QString key{connectPoint.owner + QLatin1Char('/') + connectPoint.name};
                 QRemoteObjectNode *node{new QRemoteObjectNode{this}};
-                // The node owns the transport it was handed, so retiring the node below
-                // takes the socket with it, in that order (a node tears down its own
-                // connections before its children are destroyed). MeshClient hands
-                // ownership to whoever takes the device, and this is where it is taken.
+                // The node owns the transport it was given, so retiring the node takes the
+                // socket with it (a node closes its connections before its children are
+                // destroyed). MeshClient hands ownership to whoever takes the device.
                 device->setParent(node);
                 node->addClientSideConnection(device);
                 node->setHeartbeatInterval(1000);
                 QRemoteObjectDynamicReplica *replica{node->acquireDynamic(connectPoint.name)};
                 replica->setParent(node);
-                // A reconnect is a new node, a new replica and a new transport. The one
-                // this link used before is finished with. Retired after this turn, so the
-                // facade below has already been pointed at the fresh Replica and nothing
-                // still on the stack is reading the old one.
+                // A reconnect is a new node, replica and transport. The old ones are
+                // retired after this turn, once the facade points at the new Replica.
                 if (QRemoteObjectNode *previous{m_consumedNodes.value(key)}) {
                     deleteSoon(previous);
                 }
                 m_consumedNodes.insert(key, node);
                 m_consumedReplicas.insert(key, replica);
 
-                // Announce the Replica once it can be connected to. A dynamic
-                // Replica has no signals or slots until it is initialized, so C++ that
-                // adopts one (the edge's IdentityProvider and SessionManager) has to wait
-                // for this rather than for the transport.
+                // Announce the Replica once it can be connected to: a dynamic Replica has
+                // no signals or slots until initialized, so C++ that adopts one (the edge's
+                // IdentityProvider and SessionManager) waits for this.
                 connect(replica, &QRemoteObjectDynamicReplica::initialized, this,
                         [this, connectPoint, replica]() {
                             emit consumedReplicaReady(connectPoint.owner, connectPoint.name,
                                                       replica);
                         });
 
-                // Point the consumer facade at the fresh Replica. The facade is what QML
-                // reaches this owner through (returning-slot promises,
-                // `<Contract>.on<Signal>`), and installAccessor built it before the link,
-                // so this is the same object across every reconnect.
+                // Point the consumer facade at the new Replica. installAccessor built it
+                // before the link, so it is the same object across reconnects.
                 if (ConsumerBase *existing{m_consumerFacades.value(key)}) {
                     existing->setReplica(replica);
                     return;
                 }
-                // No facade for this contract, and nothing else this entity's QML could
-                // reach the owner through: the raw dynamic Replica takes the name, once
-                // there is one. A framework point takes none, because the C++ that adopts
-                // it does so through consumedReplicaReady above.
-                if (!connectPoint.framework && m_engine
-                        && !m_accessors.contains(accessorName(connectPoint.owner))) {
+                // No facade for this contract: the raw dynamic Replica takes the name,
+                // again on every reconnect, since the replaced one is retired above. A
+                // framework point takes none; its C++ adopts it through
+                // consumedReplicaReady.
+                if (!connectPoint.framework && m_engine) {
                     m_accessors.insert(accessorName(connectPoint.owner), replica);
                     m_engine->rootContext()->setContextProperty(
                         accessorName(connectPoint.owner), replica);
