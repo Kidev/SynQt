@@ -3,132 +3,118 @@
 
 # Architecture
 
-This page describes how SynQt is put together and why each Qt technology was
-chosen. A SynQt system is a set of
-entities connected in a small service mesh. Each decision below cites the
-Qt 6.12 documentation it relies on.
+This page describes how SynQt is built and why it uses each Qt technology. A SynQt
+system is a set of entities connected in a small service mesh. Each decision below cites
+the Qt 6.12 documentation it relies on.
 
 ## Entities
 
-An entity is a SynQt node: a unit of the system with its own folder, its own
-binary, its own identity, and its own place in the topology. There are two kinds.
+An entity is one unit of a SynQt system, with its own folder, binary, identity and
+place in the topology. There are two kinds.
 
-- A client entity is a Qt Quick app: QML compiled to WebAssembly and run in the
-  browser, and optionally the same QML built as a native desktop application for
-  Windows, macOS, and Linux from one codebase (see [desktop
-  clients](desktop.md)). It is untrusted. Because the browser sandbox is the
-  tightest target it is written against, it can only connect out, never listen,
-  and a native build keeps exactly that shape. A project has at least one (the
-  user facing app) and may have more, with a separate admin app the usual second
-  one. Each gets its own bundle, and an edge's
+- **A client entity** is a Qt Quick app: QML compiled to WebAssembly and run in the
+  browser. The same QML can also build as a native desktop app for Windows, macOS and
+  Linux (see [desktop clients](desktop.md)). A client is untrusted. It is written for
+  the browser sandbox, the tightest target, so it can only connect out, never listen,
+  and a native build keeps that shape. A project has at least one client (the app
+  users see) and may have more; a separate admin app is the usual second one. Each
+  client gets its own bundle, and an edge's
   [`bundles:`](project-layout-and-config.md#bundles-which-scope-is-served-which-client)
-  decides which scope is served which.
-- A service entity is a native binary. It can listen and connect. Services carry
-  types. The most important one is the web edge. An entity of `type: web_edge`
-  serves a client bundle and accepts that client's connection, and it is the only
-  type a browser can reach. Other services (a database, a cache, a gateway, a jobs
-  runner, an auth service, or anything custom) have no public exposure and are
-  reachable only by the entities the topology allows, unless one deliberately opens
-  an HTTP surface with
+  decides which scope is served which bundle.
+- **A service entity** is a native binary that can listen and connect. Each service has
+  a type. The most important is the web edge: an entity of `type: web_edge` serves a
+  client bundle and accepts that client's connection, and it is the only type a browser
+  can reach. Other services (a database, a cache, a gateway, a jobs runner, an auth
+  service, or your own) are not exposed publicly. Only the entities the topology allows
+  can reach them, unless one opens an HTTP surface on purpose with
   [`network.inbound`](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it).
 
-A familiar client and server pair maps onto this model directly. The process that
-serves the app and faces the internet is the service entity holding the web edge
-type, and the browser app is the client entity. Everything else is a
-service entity you add as needed.
+A classic client and server maps directly onto this model. The browser app is the
+client entity, and the process that serves it and faces the internet is the web edge.
+Everything else is a service entity you add when you need it.
 
-A real system is more than a browser and one process. It has durable storage,
-caching, scheduled work, and integrations. Forcing all of that into a single
-server process, or pushing it onto third party products with their own
-deployment and security models, splinters the toolchain and the security model.
-Making every such component a first class SynQt entity means one toolchain, one
-contract format, one transport mechanism, and one security model across the
-whole system.
+A real system also needs durable storage, caching, scheduled work and integrations.
+Cramming all of that into one server process, or handing it to third party products
+with their own deployment and security models, splits the toolchain and the security
+model. SynQt makes each of these components an entity, so the whole system has one
+toolchain, one contract format, one transport and one security model.
 
 ## What the browser sandbox forces
 
-A browser is a sandbox. A WebAssembly program built with Qt can make HTTP
-requests to its own origin or to a CORS enabled server, and can open a WebSocket
-to any host, but it cannot open a listening socket of any kind. The Qt for
-WebAssembly platform notes are explicit that QWebSocketServer is unusable in the
-browser, and that QtRemoteObjects can ride QtWebSockets only if you supply your
-own QIODevice. This fixes the direction of the client link:
+A WebAssembly program built with Qt can make HTTP requests to its own origin or to a
+CORS enabled server, and can open a WebSocket to any host. It cannot open a listening
+socket of any kind. The Qt for WebAssembly platform notes state that QWebSocketServer
+does not work in the browser, and that QtRemoteObjects runs over QtWebSockets only
+through a QIODevice you supply. This fixes the direction of the client link:
 
 - A client entity is always a connector. It reaches exactly one web edge entity
   over a WebSocket it opens itself.
 - A web edge entity is always a listener for the browser link.
 
-Building the client natively for the desktop does not relax this. SynQt keeps the
-native client to the same connector-only shape, so the browser sandbox stays the
-contract the client is written to and one codebase serves both targets. The only
-differences are on the client side (it terminates its own TLS, and it is told
-where the edge is), covered in [desktop clients](desktop.md).
+A native desktop build of the client keeps the same connector-only shape, so one
+codebase serves both targets. It differs only on the client side: it terminates its own
+TLS and is told where the edge is (see [desktop clients](desktop.md)).
 
-Service to service links are not subject to the browser sandbox, so they use more
-direct and more efficient transports, described under
-[Plane B: transport](#plane-b-transport-the-secure-pipes) below.
+Links between services are outside the browser sandbox, so they use more direct and
+efficient transports, described under
+[Plane B: transport](#plane-b-transport-the-secure-pipes).
 
 ## Three planes
 
-SynQt separates concerns into three planes. Keeping them distinct lets the
-security model stay strict without making the programming model painful.
+SynQt separates its concerns into three planes. Keeping them apart lets the security
+model stay strict while the programming model stays simple.
 
 ### Plane A: delivery (how the client reaches the browser)
 
-The compiled WebAssembly client (a `.wasm` module, a loader, and assets) is
-static content. The web edge serves it over HTTPS using QHttpServer, stamping the
-browser isolation headers and content security policy. Delivery is one
-directional and stateless. Once the browser has the bundle, plane A is finished.
+The compiled WebAssembly client (a `.wasm` module, a loader and assets) is static
+content. The web edge serves it over HTTPS with QHttpServer and adds the browser
+isolation headers and the content security policy. Delivery is one way and stateless:
+once the browser has the bundle, plane A is done.
 
-Rationale: QHttpServer gives a small routing server with `route()` for paths,
+QHttpServer is a small routing server: `route()` for paths,
 `QHttpServerResponse::fromFile()` for assets, and `addAfterRequestHandler()` for
-stamping headers. Using the web edge to both serve the bundle and accept the
-browser connection means one port, one certificate, and one origin, which is the
-simplest same origin arrangement to reason about (see [security](security.md)).
+headers. The web edge both serves the bundle and accepts the browser connection, so
+there is one port, one certificate and one origin, the simplest arrangement to reason
+about (see [security](security.md)).
 
 ### Plane B: transport (the secure pipes)
 
 Plane B has one pipe per link in the mesh.
 
-- Browser to web edge: a single secure WebSocket (wss). It is the only long lived
-  connection from the browser. Before it is accepted, the edge verifies the
-  request origin and the user session credential (checked in detail in
-  [End to end data flow](#end-to-end-data-flow)). The browser side
-  socket is a QWebSocket, which in WebAssembly maps onto the browser's native
-  WebSocket. QtRemoteObjects does not speak WebSocket, so SynQt wraps the socket
-  in a QIODevice adapter (the pattern from the QtRemoteObjects WebSockets example
-  and the QtMqtt websocketiodevice example) and hands it to the QtRO node. The
-  edge accepts upgrades through QHttpServer, whose base QAbstractHttpServer
-  exposes `addWebSocketUpgradeVerifier()`, run with the full request before a
-  socket exists.
-- Service to service (the mesh default, whether the link crosses a host or stays
-  on one, where it binds to loopback): QtRemoteObjects over a mutually
-  authenticated TLS connection. The host side uses QSslServer and the client side a
-  QSslSocket. Both verify the other against a project private certificate
-  authority, with `QSslConfiguration::setPeerVerifyMode(QSslSocket::VerifyPeer)`.
-  This is the QtRO SSL example pattern, and it gives encryption plus mutual
-  authentication, where each entity proves its identity by certificate. The accepted
-  socket is handed to the QtRO node with `addHostSideConnection()` (host) and
-  `addClientSideConnection()` (consumer).
-- Service to service on the same host (opt in): QtRemoteObjects over a local
-  socket (QLocalServer and QLocalSocket). The socket is a filesystem object
-  protected by filesystem permissions and never touches the network, so the
-  operating system enforces which user may connect, but not which entity. On this
-  transport the calling entity's name is trusted by colocation. You opt into it
-  for co located, equally trusted entities. The default even on one host is the
-  mutual TLS link over loopback, which keeps entity identity certificate
+- **Browser to web edge:** one secure WebSocket (wss), the browser's only long lived
+  connection. Before accepting it, the edge verifies the request origin and the session
+  credential (see [End to end data flow](#end-to-end-data-flow)). The browser side
+  socket is a QWebSocket, which in WebAssembly maps onto the browser's own WebSocket.
+  QtRemoteObjects does not speak WebSocket, so SynQt wraps the socket in a QIODevice
+  adapter (the pattern from the QtRemoteObjects WebSockets example and the QtMqtt
+  websocketiodevice example) and hands it to the QtRO node. The edge accepts upgrades
+  through QHttpServer, whose base class QAbstractHttpServer offers
+  `addWebSocketUpgradeVerifier()`, which sees the full request before a socket exists.
+- **Service to service (the mesh default):** QtRemoteObjects over mutually
+  authenticated TLS, across hosts or on one host bound to loopback. The host uses
+  QSslServer and the consumer a QSslSocket. Each verifies the other against the
+  project's private certificate authority with
+  `QSslConfiguration::setPeerVerifyMode(QSslSocket::VerifyPeer)`. This is the QtRO SSL
+  example pattern: encryption plus mutual authentication, with each entity proving its
+  identity by certificate. The accepted socket goes to the QtRO node with
+  `addHostSideConnection()` (host) or `addClientSideConnection()` (consumer).
+- **Service to service on one host (opt in):** QtRemoteObjects over a local socket
+  (QLocalServer and QLocalSocket). The socket is a filesystem object guarded by
+  filesystem permissions and never touches the network. The OS controls which user may
+  connect, not which entity, so on this transport the calling entity's name is trusted
+  by colocation. Use it only for colocated entities you trust equally. Even on one host
+  the default is mutual TLS over loopback, which keeps entity identity certificate
   authenticated everywhere (see [security](security.md)).
 
 ### Plane C: objects (the shared object tree)
 
-This is the plane developers program against. The owner of a connect point holds
-a QtRemoteObjects Source, the authoritative QObject whose properties, signals, and
-slots define the API. Each consumer holds a Replica, a live proxy of that Source.
-In QtRO, properties and signals travel from Source to Replica, and slots travel
-from Replica to Source. A Replica behaves like any other QObject,
-so it appears in QML (or in another entity's code) as a normal object with
-bindable properties and callable methods. A boundary therefore reads like local
-code without hiding that it is asynchronous.
+You program against this plane. The owner of a connect point holds a QtRemoteObjects
+Source: the authoritative QObject whose properties, signals and slots define the API.
+Each consumer holds a Replica, a live proxy of that Source. Properties and signals
+travel from Source to Replica, and slot calls travel from Replica to Source. A Replica
+behaves like any other QObject, so in QML (or in another entity's code) it is a normal
+object with bindable properties and callable methods. Code across a boundary reads like
+local code, and still shows that it is asynchronous.
 
 ```mermaid
 flowchart LR
@@ -159,17 +145,17 @@ flowchart LR
   style susers fill:#def,stroke:#39c,color:#1a1a2e
 ```
 
-In the graph, thick arrows are owner to consumer (properties and signals) and thin
-arrows are consumer to owner (slots). The browser's `Server` mirrors the edge's
-`Edge` Source over wss, and the edge's `Store` mirrors the store entity's own Source
-over mutual TLS. Only the edge faces the internet. The store is internal only.
+Thick arrows go from owner to consumer (properties and signals), thin arrows from
+consumer to owner (slots). The browser's `Server` mirrors the edge's `Edge` Source over
+wss, and the edge's `Store` mirrors the store entity's Source over mutual TLS. Only the
+edge faces the internet; the store is internal.
 
 ## Runtime components
 
-The framework ships a client runtime (linked into the WebAssembly client), a
-service runtime (linked into every native entity), and a thin generated layer.
-The names below are the C++ class names, and the
-[C++ API reference](api-reference.md) documents their members.
+The framework has a client runtime (linked into the WebAssembly client), a service
+runtime (linked into every native entity), and a thin generated layer. The names below
+are C++ class names; the [C++ API reference](api-reference.md) documents their
+members.
 
 Client runtime (WebAssembly, and the same runtime linked into a native desktop
 build, see [desktop clients](desktop.md)):
@@ -192,54 +178,54 @@ Service runtime (native, used by every service entity):
   needs, and exposes consumed connect points by owner name (for example
   `Store`).
 - `ConnectPointHost`: for each owned connect point, instantiates the Source
-  (backed by the entity's QML), calls `enableRemoting()`, and (for per session or
-  per peer instances) creates one Source per session or per calling entity.
-- `MeshTransport`: the QtRO transport for service links: QSslServer and QSslSocket
-  with mutual verification against the project CA by default (bound to loopback
-  when the link stays on one host), and QLocalServer and QLocalSocket for opt in
-  local links. The consumer side keeps its link up: an owner that is not there yet,
-  and one that goes away later, are retried with a capped exponential backoff, and
-  each time the link comes back the consumer re-acquires the connect point by
-  itself. So entities may start in any order, and one service can be restarted
-  under a deploy without restarting the entities that consume it.
-- `Provider` (on entities with an engine): the backend behind the entity's connect
-  points, selected by config. The default is an embedded engine (SQLite for
-  persistence, in memory for cache); a third party engine is masked behind the same
-  entity through the same interface (see [providers](providers.md)).
-- `WebEdge` (only on a `type: web_edge` entity): owns the QHttpServer,
-  TLS for the public port, static bundle serving, the header policy, the
-  WebSocket upgrade pipeline, the SessionManager, and the optional IdentityProvider.
-  Under [`threads: N`](deploying.md#running-one-edge-on-more-than-one-core) it also owns
-  the IO threads accepted browser sockets are spread across. Only the socket moves: the
-  QtRO host each connection gets, the Sources it acquires, the QML engine and the entity
-  singleton all stay on the main thread, which is why threading an edge changes nothing
-  about how it is written.
+  (backed by the entity's QML) and calls `enableRemoting()`. A shared entity keeps one
+  Source and gives each caller a mirror of it; under `shared: false` it creates one
+  Source per caller (per session for a browser, per calling entity on the mesh).
+- `MeshServer` and `MeshClient`: the two ends of a service link. By default they are a
+  QSslServer and a QSslSocket that verify each other against the project CA (bound to
+  loopback on one host); an opt in local link uses QLocalServer and QLocalSocket. The
+  consumer keeps its link up. It retries an owner that is not up yet, or that goes away
+  later, with capped exponential backoff, and re-acquires the connect point each time
+  the link returns. Entities can therefore start in any order, and a deploy can restart
+  one service without restarting its consumers.
+- `IPersistenceProvider`, `ICacheProvider` and `IDocumentProvider` (on entities with an
+  engine): the backend behind the entity's connect points, chosen by config. The default
+  is an embedded engine (SQLite for persistence, in memory for cache and documents). A
+  third party engine sits behind the same entity through the same interface (see
+  [providers](providers.md)).
+- `WebEdge` (only on a `type: web_edge` entity): owns the QHttpServer, TLS on the public
+  port, static bundle serving, the header policy, the WebSocket upgrade pipeline, the
+  SessionManager and the optional IdentityProvider. Under
+  [`threads: N`](deploying.md#running-one-edge-on-more-than-one-core) it also owns the IO
+  threads that accepted browser sockets are spread across. Only the socket moves: each
+  connection's QtRO host, the Sources it acquires, the QML engine and the entity
+  singleton stay on the main thread, so threading an edge changes nothing in how you
+  write it.
 
 Generated layer:
 
-- From each connect point's `export:` block, the build generates a QtRO Source header and
-  Replica header (via repc) and the registrations needed on each side. This gives
-  every connect point a compile time checked shape on both ends, so a version skew
-  between two entities is a build error, not a runtime surprise.
+- From each connect point's `export:` block, the build generates a QtRO Source header, a
+  Replica header (with repc) and the registrations each side needs. Every connect point
+  gets a shape checked at compile time on both ends, so a version mismatch between two
+  entities fails the build instead of failing at run time.
 
 ## Why the QtRO registry is not used
 
-QtRemoteObjects offers a registry that lets nodes discover sources and connect to
-them automatically: once a node joins the registry, it can acquire any source on
-the network and the registry initiates the connection for it. Ambient discovery
-and ambient connection make the set of reachable objects implicit and grow the
-attack surface of any node that can reach the registry, which rules the registry
-out for a security sensitive mesh.
+QtRemoteObjects offers a registry through which nodes discover sources and connect to
+them automatically. A node that joins the registry can acquire any source on the
+network, and the registry opens the connection for it. That makes the set of reachable
+objects implicit and widens the attack surface of every node that can reach the
+registry, so a security sensitive mesh cannot use it.
 
-SynQt instead derives the topology from the declared connect points (each names
-its owner and its allowed consumers) and opens only those connections, each
-mutually authenticated. There is no dynamic discovery and no ambient authority. An
-entity can reach only what configuration says it may. The trade of convenience for
-security is revisited in [security](security.md).
+SynQt derives the topology from the declared connect points instead (each names its
+owner and its allowed consumers) and opens only those connections, each mutually
+authenticated. An entity reaches only what the configuration allows, with no dynamic
+discovery and no ambient authority. [Security](security.md) covers this trade of
+convenience for security.
 
 ## End to end data flow
 
-A full path, from cold load to a database write:
+One full path, from a cold page load to a database write:
 
 ```mermaid
 sequenceDiagram
@@ -269,77 +255,71 @@ sequenceDiagram
     E-->>B: items model update over wss (no refresh code anywhere)
 ```
 
-Two authorization checks happened, at two trust boundaries: the edge authorized
-the user, and the database authorized the edge.
+Two authorization checks ran at two trust boundaries: the edge authorized the user, and
+the database authorized the edge.
 
 ## Technology choices and their justification
 
-- Client UI and logic: QML compiled by the Qt Quick Compiler. qmlcachegen (or
-  qmlsc with the commercial extensions), driven automatically by
-  `qt_add_qml_module`, turns each document into a compilation unit (structure,
-  byte code, and native C++ for the bindings it can lower). The shipped client is
-  compiled ahead of time rather than parsed at runtime. qmltc (whole component
-  compilation) is a technology preview that needs private Qt API and gives no cross
-  patch binary compatibility, so it is an opt in optimization rather than the default.
-- Client packaging: WebAssembly via Emscripten, pinned to the Qt selected version
+- **Client UI and logic:** QML compiled by the Qt Quick Compiler. qmlcachegen (or qmlsc
+  with the commercial extensions), which `qt_add_qml_module` runs automatically, turns
+  each document into a compilation unit: structure, byte code, and native C++ for the
+  bindings it can lower. The shipped client is compiled ahead of time, not parsed at
+  run time. qmltc (whole component compilation) is a technology preview that needs
+  private Qt API and breaks binary compatibility across patch releases, so SynQt does not
+  use it.
+- **Client packaging:** WebAssembly through Emscripten, pinned to the version Qt selects
   (5.0.5 for 6.12.0) for reproducible, ABI compatible builds.
-- Object protocol: QtRemoteObjects, which models the Source and Replica split,
-  generates marshaling from a declarative interface (repc), and surfaces Replicas
-  as ordinary QObjects. Every link in the mesh reuses it, browser and service
-  links alike.
-- Browser transport: QWebSocket bridged into QtRO with a QIODevice adapter, the
-  only transport that works from the browser sandbox and reaches an arbitrary
-  host.
-- Mesh transport: QtRO over QSslSocket and QSslServer with mutual verification on
-  every link by default (bound to loopback when the link stays on one host), with
-  QLocalSocket as an opt in for co located, equally trusted entities. The TLS path
-  gives encryption and certificate based mutual authentication. The local socket
-  avoids the network entirely but identifies the calling user rather than the
-  calling entity. QtRO has no built in security, so this transport layer is where
-  confidentiality and peer authentication come from.
-- Delivery and upgrade: QHttpServer on the web edge, serving the bundle, stamping
-  headers, and verifying WebSocket upgrades on one origin.
-- User identity: Qt Network Authorization (QOAuth2AuthorizationCodeFlow) on the
-  edge, PKCE on by default since 6.8, run server side so the client secret never
-  reaches the browser.
-- Durable persistence (the relational type): a provider behind the entity. The
-  default is Qt SQL with the bundled SQLite driver, the in process database with the
-  best test coverage on all platforms, running no separate daemon. The same entity
-  can be backed by a third party engine (PostgreSQL, MySQL, MongoDB, Redis) through a
-  provider, masked behind the entity so consumers and the security model do not
-  change (see [providers](providers.md)). The default provider serializes writes and
-  sets a busy timeout, because SQLite can block under concurrent transactions (see
-  [entities](entities.md)).
+- **Object protocol:** QtRemoteObjects. It models the Source and Replica split,
+  generates marshaling from a declarative interface (repc), and exposes Replicas as
+  ordinary QObjects. Every link in the mesh uses it, browser and service links alike.
+- **Browser transport:** QWebSocket bridged into QtRO with a QIODevice adapter. It is
+  the only transport that works from the browser sandbox and reaches any host.
+- **Mesh transport:** QtRO over QSslSocket and QSslServer, verifying both ends on every
+  link by default (bound to loopback on one host), with QLocalSocket as an opt in for
+  colocated, equally trusted entities. TLS gives encryption and mutual authentication by
+  certificate. The local socket avoids the network entirely, but identifies the calling
+  user, not the calling entity. QtRO has no security of its own, so confidentiality and
+  peer authentication come from this layer.
+- **Delivery and upgrade:** QHttpServer on the web edge serves the bundle, adds headers,
+  and verifies WebSocket upgrades, all on one origin.
+- **User identity:** Qt Network Authorization (QOAuth2AuthorizationCodeFlow) on the
+  edge, with PKCE on by default since Qt 6.8. It runs on the server, so the client
+  secret never reaches the browser.
+- **Durable persistence** (the relational type): a provider behind the entity. The
+  default is Qt SQL with the bundled SQLite driver: an in process database with no
+  separate daemon and the best test coverage on every platform. A provider can put
+  PostgreSQL or MySQL behind the same entity (and MongoDB behind a document entity,
+  Redis behind a cache), so consumers and the security model do not change (see
+  [providers](providers.md)). The
+  default provider serializes writes and sets a busy timeout, because SQLite can block
+  under concurrent transactions (see [entities](entities.md)).
 
 ## Threading and isolation posture
 
-The single threaded WebAssembly client is the default, because it runs in every
-modern browser with no special hosting requirements and the client's job is UI
-plus a network connection. The multi threaded client needs SharedArrayBuffer,
-which the browser only grants to a cross origin isolated page (the COOP and COEP
-headers the edge can emit). It remains available behind configuration. Service
-entities are native and run their own event loops. The database entity owns its
-SQLite connection on the thread that created it, per the Qt SQL threading rule.
+The single threaded WebAssembly client is the default. It runs in every modern browser
+with no special hosting, and a client only has to draw a UI and hold a network
+connection. The multi threaded client needs SharedArrayBuffer, which the browser grants
+only to a cross origin isolated page (the COOP and COEP headers the edge can send); turn
+it on in the configuration. Service entities are native and run their own event loops.
+The database entity uses its SQLite connection only on the thread that created it, as Qt
+SQL requires.
 
-## What is intentionally out of scope
+## Out of scope
 
-- Server delivered, runtime *compiled* QML views. The bundle's own views are compiled
-  ahead of time by qmlcachegen and want their QML at build time. A peripheral view can
-  instead be delivered by the edge and interpreted at run time as a
-  [remote page](remote-pages.md), which keeps it out of the bundle and editable without
-  a client rebuild. That path is interpreted, so it suits campaign and landing pages
-  rather than per-frame views. Access to data is controlled at the connect point
-  and route guard level in both cases.
-- A novel storage engine. The relational type embeds SQLite by default and masks
-  third party engines (PostgreSQL, MySQL, MongoDB, Redis) behind a provider rather
-  than reimplementing durability. Writing a brand new storage engine is out of scope;
-  using an existing one through a provider is supported (see
-  [providers](providers.md)).
-- Multi instance horizontal scaling of a *stateful* entity. A web edge does scale out
-  ([running more than one edge](deploying.md#8-running-more-than-one-edge)), and it can
-  because a replicated edge is a front. It carries the session, hands each
-  caller to the entity that answers for them, and holds nothing itself, which `synqt
-  check` proves rather than assumes. A service entity that owns state is one process. The
-  mesh model does not preclude a future clustered entity, but it is not specified here.
-- Browser to browser connections. All traffic flows through entities, which is
-  also where authorization lives.
+- **Server delivered QML views compiled at run time.** qmlcachegen compiles the
+  bundle's own views ahead of time, so it needs their QML at build time. A peripheral
+  view can instead come from the edge as a [remote page](remote-pages.md), interpreted
+  at run time. That keeps it out of the bundle and editable without a client rebuild.
+  Being interpreted, it suits campaign and landing pages, not views redrawn every frame.
+  Either way, connect points and route guards control access to data.
+- **A new storage engine.** An entity type embeds its default engine (SQLite for a
+  relational entity, memory for a cache or document entity) and puts a third party
+  engine (PostgreSQL, MySQL, MongoDB, Redis) behind a provider. SynQt leaves durability
+  to an existing engine behind a provider (see [providers](providers.md)).
+- **Running several instances of a stateful entity.** A web edge does scale out
+  ([running more than one edge](deploying.md#8-running-more-than-one-edge)), because a
+  replicated edge is a front: it carries the session, hands each caller to the entity
+  that answers for them, and holds no state itself, which `synqt check` verifies. A
+  service entity that owns state runs as one process.
+- **Browser to browser connections.** All traffic flows through entities, which is also
+  where authorization happens.

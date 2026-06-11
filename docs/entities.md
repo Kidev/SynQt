@@ -187,8 +187,10 @@ counters, memoized results), owned by one entity, consumed by the entities that
 need it.
 
 Backend: in process memory (a bounded map with a least recently used eviction
-policy, in the spirit of QCache), with optional periodic persistence to disk so a
-restart does not lose everything. No separate cache server is run.
+policy, in the spirit of QCache). With a `file` configured it loads that snapshot when
+it connects and writes one when it disconnects, so a clean restart does not lose
+everything. A process that is killed rather than stopped writes nothing. No separate
+cache server is run.
 
 Contract shape (illustrative): `get(string key)`, `set(string key, var value, int
 ttlSeconds)`, `del(string key)`, `incr(string key)`, matching the `Cache` helper the

@@ -79,9 +79,10 @@ reason, never as the request that carried it. A provider password, an OAuth toke
 
 That is a property of the call sites, and under it the pipeline has a backstop for the one
 place an application decides what a record carries. Every event passes through the same
-function on its way to the ring, and an attribute whose *name* names a credential
-(`password`, `secret`, `token`, `authorization`, `cookie`, `credential`, `api_key`,
-`private_key`, `bearer`, matched anywhere in the name and in any case) is recorded as
+function on its way to the ring, and an attribute whose name names a credential
+(`password`, `passphrase`, `secret`, `token`, `authorization`, `cookie`, `credential`,
+`bearer`, and `api key` or `private key` in any of their spellings, matched anywhere in
+the name and in any case) is recorded as
 `[redacted]`, with the name kept so the record says a value was held back rather than
 reading as though there was none. So `Log.warn("refused", { authorization: header })` does
 not put a bearer token in this console. It reads names and never values, because a filter

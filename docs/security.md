@@ -508,26 +508,26 @@ handler:
 
 - Content Security Policy. The default is restrictive: `default-src 'self'`,
   `connect-src 'self'` (the client may talk only to its own origin, the sync
-  endpoint; the edge also appends the sync endpoint's explicit `wss://` origin to
+  endpoint, and the edge also appends the sync endpoint's explicit `wss://` origin to
   `connect-src` when it serves the page, so the upgrade is allowed even where a
   browser does not extend `'self'` to WebSocket schemes), `script-src 'self'
   'wasm-unsafe-eval'` (WebAssembly instantiation needs `wasm-unsafe-eval` and
   nothing more), `img-src 'self' data:` and `style-src 'self' 'unsafe-inline'`
-  (the Qt loader styles its canvas inline and may use data images; these are the
-  only widenings in the default and they are confined to images and styles),
+  (the Qt loader styles its canvas inline and may use data images, and these are the
+  only widenings in the default, confined to images and styles),
   `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` (no framing,
   blocking clickjacking). Widen only with intent.
 - Cross origin isolation. When `cross_origin_isolation` is true (required for the
   multi threaded client), the edge sends COOP `same-origin` and COEP `require-corp`,
   which the browser requires before granting SharedArrayBuffer. In this mode the
   edge also adds `worker-src 'self' blob:` to the CSP. The `blob:` half is a margin
-  for a future toolchain rather than a present need: the pinned kit spawns its pthread
+  for a future toolchain rather than a present need. The pinned kit spawns its pthread
   workers from same origin URLs, and the real threaded bundle served under a strict
   `worker-src 'self'` stayed isolated, spawned every worker, and logged no violation
-  in Chromium and Firefox, and the multi threaded proof now serves its bundle under
+  in Chromium, Firefox and WebKit, and the multi threaded proof serves its bundle under
   that strict policy on every run, in every engine it can launch, reporting any
   violation by directive. It is kept because a future Emscripten could go back to
-  `blob:` workers, and because it widens the attack surface by almost nothing:
+  `blob:` workers, and because it widens the attack surface by almost nothing, since
   constructing a `blob:` worker already requires script execution, which `script-src`
   governs. See [CSP](csp.md) for the measurement. The single threaded default needs
   none of this.
@@ -685,36 +685,37 @@ page protects the page's markup, never the data the page later reads.
   mesh peer is its verified certificate subject, and tokens and certificate private
   material reach no trace call at all. Under that, the pipeline redacts: every event
   passes through `Tracer::record`, which replaces the value of any attribute whose name
-  names a credential (`password`, `secret`, `token`, `authorization`, `cookie`,
-  `credential`, `api_key`, `private_key`, `bearer`, matched case-insensitively anywhere
-  in the name, so `set-cookie`, `refreshToken` and `clientSecret` are all covered) with
+  names a credential (`password`, `passphrase`, `secret`, `token`, `authorization`,
+  `cookie`, `credential`, `bearer`, and `api key` or `private key` in any of their
+  spellings, matched case-insensitively anywhere in the name, so `set-cookie`,
+  `refreshToken` and `clientSecret` are all covered) with
   `[redacted]`, keeping the name so the record says a value was held back rather than
   reading as though there was none. It runs past anything QML can reach, which is what
-  makes it cover [`Log`](runtime-api.md#log-what-an-entity-records-about-itself) too: an application that writes
+  makes it cover [`Log`](runtime-api.md#log-what-an-entity-records-about-itself) too. An application that writes
   `Log.warn("refused", { authorization: header })` does not put a bearer token in the
-  operator's console. Two things it deliberately does not do. It does not read values,
+  operator's console. Two things it does not do. It does not read values,
   because a filter that guesses at what a value looks like misses and then reads as a
-  guarantee; and it does not read the message, which is prose an operator wrote and
-  searches on. So it is the backstop under the call-site discipline and not a substitute
-  for it: a credential you pass under a name that does not say what it is still gets
+  guarantee, and it does not read the message, which is prose an operator wrote and
+  searches on. So it is the backstop under the call-site discipline rather than a substitute
+  for it. A credential you pass under a name that does not say what it is still gets
   recorded, exactly as it would in any other log.
 
 ## Development code is absent from a release build
 
 A development convenience that ships is a back door. SynQt has two worth naming. The stub identity provider signs anybody in as a preconfigured person with
 no password, so a developer can exercise the whole login flow without registering an OAuth
-application. The scope picker (`synqt dev --identity-picker`) goes further: it skips the flow
+application. The scope picker (`synqt dev --identity-picker`) goes further. It skips the flow
 entirely and mints a session at whichever scope you click. Both exist because they make
 development faster, and neither must be in anything you deploy.
 
-The usual way to arrange that is a runtime check, and SynQt has several: the stub server
-starts only under `--dev`, which `synqt serve` and every built artifact never pass; it
-refuses to be constructed without an acknowledgement that can only be written on purpose;
-the runtime refuses the `devStub` provider entry unless the same flag is set; and the
+The usual way to arrange that is a runtime check, and SynQt has several. The stub server
+starts only under `--dev`, which `synqt serve` and every built artifact never pass. It
+refuses to be constructed without an acknowledgement that can only be written on purpose.
+The runtime refuses the `devStub` provider entry unless the same flag is set. And the
 picker's routes are registered only when `--identity-picker` came alongside `--dev`. More
-gates is better than one, and it is still the wrong shape. A capability that is *in* the
+gates is better than one, and it is still the wrong shape. A capability that is in the
 binary can be reached through a bug in whichever check is doing the work, through an
-argument someone passes, or simply read out of the strings by anybody holding the artifact.
+argument someone passes, or read out of the strings by anybody holding the artifact.
 
 So the release build does not contain it. Three independent layers, in the order they fail:
 
