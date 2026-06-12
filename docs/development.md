@@ -87,21 +87,24 @@ two it is allowed to.
 | `SynQtService`   | [`src/service`](https://github.com/Kidev/SynQt/tree/main/src/service)    | Qt Core, Network, Qml, RemoteObjects, WebSockets, OpenSSL | What every service entity needs and nothing more: `EntityRuntime` and `ConnectPointHost` (topology and hosting), the mesh transport (`MeshServer`, `MeshClient`, `MeshPeer`), `SessionManager` and `Caller`. Every module here is LGPLv3, which is what makes a relational, cache, document, jobs or plain service entity LGPLv3. |
 | `SynQtIdentity`  | [`src/identity`](https://github.com/Kidev/SynQt/tree/main/src/identity)   | `SynQtService`, Qt NetworkAuth, jwt-cpp | The login engine: `OAuthBackend` (the client secret and the tokens), `EdgeReplyHandler`, `JwksVerifier` (ID token signatures against the provider JWKS), and `IdentityService` with the `Identity` and `SessionStore` connect points a dedicated auth entity owns. Qt Network Authorization is GPLv3-only, so this is a library of its own and only the edge and the auth entity link it. |
 | `SynQtEdge`      | [`src/edge`](https://github.com/Kidev/SynQt/tree/main/src/edge)      | `SynQtIdentity`, Qt HttpServer | The one entity a browser reaches: `WebEdge` (bundle serving, the header policy, the WebSocket upgrade pipeline), `IdentityProvider` (the login, callback and logout routes), the `Pages` connect point (`PageStore`, `PagesService`, `PagesEdgeSource`) and the dev-only `StubIdentityServer`. Qt HTTP Server is GPLv3-only, so only a `type: web_edge` entity links this. |
-| `SynQtGateway`   | [`src/gateway`](https://github.com/Kidev/SynQt/tree/main/src/gateway)   | `SynQtService`, Qt HttpServer | The inbound HTTP surface an entity's `network.inbound` opens: `ApiServer` (the rate, key, origin and body-size checks, run before any handler exists) and the `Api` helper the entity's own singleton declares its routes on. Qt HTTP Server again, and not `SynQtIdentity`: a gateway authenticates machine callers with a key, so it has no reason to carry Qt Network Authorization. |
+| `SynQtGateway`   | [`src/gateway`](https://github.com/Kidev/SynQt/tree/main/src/gateway)   | `SynQtService`, Qt HttpServer | The inbound HTTP surface an entity's `network.inbound` opens: `ApiServer` (the rate, key, origin and body-size checks, run before any handler exists) and the `Api` helper the entity's own singleton declares its routes on. Qt HTTP Server again, without `SynQtIdentity`, because a gateway authenticates machine callers with a key, so it has no reason to carry Qt Network Authorization. |
 | `SynQtProviders` | [`src/providers`](https://github.com/Kidev/SynQt/tree/main/src/providers)  | Qt Sql, optional hiredis and mongo-c                               | The backend facing family interfaces (`IPersistenceProvider`, `IDocumentProvider`, `ICacheProvider`), the bundled providers (`sqlite`, `postgres`, `mysql`, the `memory` cache), the optional external ones (`redis`, `mongodb`, gated by their client libraries), the `ProviderRegistry` a custom provider registers with, and the entity QML helpers `Db`, `Cache`, `Docs`, `Http`, and `Jobs`. |
+| `SynQtMonitor`   | [`src/monitor`](https://github.com/Kidev/SynQt/tree/main/src/monitor)    | `SynQtEdge`, Qt Sql | What a `type: monitor` entity is: `SynQtEdge` serving the operator console, plus `EventStore` (the SQLite history), `MonitorService` (the `ingest` and `console` connect points) and the two exporters (`OtlpExporter`, `JsonlExporter`). GPLv3 like the edge, which follows from the console and matters little for an operations tool nobody conveys. |
+| `SynQtContract`  | [`src/contract`](https://github.com/Kidev/SynQt/tree/main/src/contract)   | Qt Core, Gui | `SourceModel`, the model a generated Source publishes its rows through, a `QStandardItemModel` a consumer cannot write into. Linked by [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake) into every owner, which is why a service that owns a connect point links Qt Gui. |
+| `SynQtTesting`   | [`src/testing`](https://github.com/Kidev/SynQt/tree/main/src/testing)    | `SynQtService`, `SynQtProviders`, Qt Qml | `EntityTest`, the `SynQt.Test` import behind `synqt test`. It loads one owned Source on its own, mints its `Caller` through the same factories the transports use, and substitutes only the engine behind a helper. Linked by the generated test runner and by nothing a project deploys. |
 
 The client links only `SynQtTransport`, `SynQtClient`, and `SynQtConsumer`. It never links
-`SynQtService` or `SynQtProviders`; the build fails on purpose if it tries, because those
+`SynQtService` or `SynQtProviders`. The build fails if it tries, because those
 carry storage drivers and credentials that must never reach the browser.
 
-The license is what separates the last three. Qt HTTP Server and Qt Network
-Authorization are GPLv3-only, and linking one makes that entity's binary GPLv3, so they are
-reached only through `SynQtEdge`, `SynQtIdentity` and `SynQtGateway`.
-`appmodel.service_libraries` says which of the four an entity links, and both the
-generated CMake and its generated
-`THIRD-PARTY-LICENSES` read that one function, so what the file claims and what the binary
-links cannot drift apart. A topology with no web edge and no auth entity never adds those
-directories at all, so those modules need not even be installed.
+The license is what separates `SynQtEdge`, `SynQtIdentity`, `SynQtGateway` and
+`SynQtMonitor` from the rest. Qt HTTP Server and Qt Network Authorization are GPLv3-only,
+and linking one makes that entity's binary GPLv3, so they are reached only through those
+four. `appmodel.service_libraries` says which of the five service libraries an entity
+links, and both the generated CMake and its generated `THIRD-PARTY-LICENSES` read that one
+function, so what the file claims and what the binary links cannot drift apart. A topology
+with no web edge, no auth entity and no monitor never adds those directories at all, so
+those modules need not even be installed.
 
 ## The tooling ([`tools/`](https://github.com/Kidev/SynQt/tree/main/tools))
 
@@ -250,22 +253,22 @@ five commits without ever running.
 | [`consumer-facade`](https://github.com/Kidev/SynQt/tree/main/tests/consumer-facade)        | The `<Owner>.on<Signal>` handlers and the returning slot promise. |
 | [`fix1-auction`](https://github.com/Kidev/SynQt/tree/main/tests/fix1-auction)           | The auction tutorial as an acceptance fixture. |
 | [`fix2-arena`](https://github.com/Kidev/SynQt/tree/main/tests/fix2-arena)             | The multiplayer arena tutorial as an acceptance fixture. |
-| [`appgen-native`](https://github.com/Kidev/SynQt/tree/main/tests/appgen-native)          | The generated CMake and mains actually compile for every entity, the monitor included: it is a mesh owner and a browser-facing server at once, so nothing but a build says whether its two halves assemble into one binary. |
-| [`monitor-console`](https://github.com/Kidev/SynQt/tree/main/tests/monitor-console) | The monitoring console in a real browser, against a monitor the scaffolder wrote when the suite ran. It drives the delivery gate (a bundle outside the caller's scope is a 404, not a 403), the sign-in form and its inline script under the strict CSP, and the console itself, and it reads the monitor's own record to prove the console reached it. Written after everything else was green; it found seven defects, four of them outside monitoring (see the suite's README). |
-| [`identity-picker`](https://github.com/Kidev/SynQt/tree/main/tests/identity-picker) | The development scope picker in a real browser, and the one claim about it that no in-process test can make: two tabs of one browser context share one cookie jar (RFC 6265 scopes a cookie to a host, not a port), so a second per-tab sign-in must not become the first. Three tabs, a moderator and a user side by side, and the bundle the edge answers with is how each tab is asked who it is. |
-| [`dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) | Development-only code is absent from a release build rather than disabled inside it. It configures the framework twice, once with `SYNQT_DEV_TOOLS` and once without, and reads the symbol tables: the release archive must not contain the development sign-ins, the development archive must, and a development header must refuse to be included by a build that did not ask for one. `DEV_SYMBOLS` in that suite is the list, so covering a new development-only type is a word rather than a test. |
+| [`appgen-native`](https://github.com/Kidev/SynQt/tree/main/tests/appgen-native)          | The generated CMake and mains compile for every entity, the monitor included. It is a mesh owner and a browser-facing server at once, so nothing but a build says whether its two halves assemble into one binary. |
+| [`monitor-console`](https://github.com/Kidev/SynQt/tree/main/tests/monitor-console) | The monitoring console in a real browser, against a monitor the scaffolder wrote when the suite ran. It drives the delivery gate (a bundle outside the caller's scope is a 404 rather than a 403), the sign-in form and its inline script under the strict CSP, and the console itself, and it reads the monitor's own record to prove the console reached it. It was written after everything else was green and found seven defects, four of them outside monitoring (see the suite's README). |
+| [`identity-picker`](https://github.com/Kidev/SynQt/tree/main/tests/identity-picker) | The development scope picker in a real browser, and the one claim about it that no in-process test can make. Two tabs of one browser context share one cookie jar (RFC 6265 scopes a cookie to a host rather than a port), so a second per-tab sign-in must not become the first. Three tabs, a moderator and a user side by side, and the bundle the edge answers with is how each tab is asked who it is. |
+| [`dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) | Development-only code is absent from a release build rather than disabled inside it. It configures the framework twice, once with `SYNQT_DEV_TOOLS` and once without, and reads the symbol tables. The release archive must not contain the development sign-ins, the development archive must, and a development header must refuse to be included by a build that did not ask for one. `DEV_SYMBOLS` in that suite is the list, so covering a new development-only type is a word rather than a test. |
 | [`desktop-client`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client)         | The native desktop client target compiles, installs, boots, and, once deployed with `--deploy`, carries its own Qt rather than the host's. |
 | [`fix3-stall`](https://github.com/Kidev/SynQt/tree/main/tests/fix3-stall)             | Edge delivered pages end to end, seeded by the production per connection `Caller`. |
 | [`url-routing`](https://github.com/Kidev/SynQt/tree/main/tests/url-routing)            | The route table and the single page application fallback. |
 | [`remote-pages`](https://github.com/Kidev/SynQt/tree/main/tests/remote-pages)           | The framework's own `Pages` connect point and its page store. |
 | [`entity-test`](https://github.com/Kidev/SynQt/tree/main/tests/entity-test)            | The `SynQt.Test` harness an application's own QML tests use, driven against a Source written the way an application writes one. |
-| [`graphics`](https://github.com/Kidev/SynQt/tree/main/tests/graphics)               | The fallback for a browser with no WebGL: what the runtime net recognises, that it chains to the handler already installed, the notice, and the route guard. Its `tst_softwarebackend` renders each candidate type on the raster adaptation and counts pixels, which is what decides whether a type needs the accelerated pipeline rather than a reading of Qt's source. |
-| [`privacy`](https://github.com/Kidev/SynQt/tree/main/tests/privacy)                 | The `Privacy` accessor and the three QML types it backs. It holds the two filters that decide what a visitor has actually permitted: a category the project never declared cannot be granted, and a stored answer naming a category the project has since dropped does not survive into the new configuration. Its `tst_privacycomponents` instantiates `LegalFooter`, `CookieConsent` and `DataErasureRequest` through `import SynQt`, which is what catches the resource prefix and the registered URL drifting apart. |
-| [`memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory)                 | What a repeated workload leaves behind: browser connections, page loads, retired edges, sessions, sign outs and mesh reconnects, each run twice over one long lived object, with the second run required to keep no more than the first. One of them retires an edge while a browser is still holding it, which is the case closing first hides. The sign out case is measured as a difference against the same visit ending in a closed tab, because what it owns is the sign out path and not the cost of a visitor. Its `run-leakcheck.sh` runs the rest of the tree and the benchmarks under LeakSanitizer. |
+| [`graphics`](https://github.com/Kidev/SynQt/tree/main/tests/graphics)               | The fallback for a browser with no WebGL: what the runtime net recognises, that it chains to the handler already installed, the notice, and the route guard. Its `tst_softwarebackend` renders each candidate type on the raster adaptation and counts pixels, which decides whether a type needs the accelerated pipeline, rather than a reading of Qt's source. |
+| [`privacy`](https://github.com/Kidev/SynQt/tree/main/tests/privacy)                 | The `Privacy` accessor and the three QML types it backs. It holds the two filters that decide what a visitor has permitted. A category the project never declared cannot be granted, and a stored answer naming a category the project has since dropped does not survive into the new configuration. Its `tst_privacycomponents` instantiates `LegalFooter`, `CookieConsent` and `DataErasureRequest` through `import SynQt`, which catches the resource prefix and the registered URL drifting apart. |
+| [`memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory)                 | What a repeated workload leaves behind: browser connections, page loads, retired edges, sessions, sign outs, mesh reconnects and a client's whole visit, each run twice over one long lived object, with the second run required to keep no more than the first. One of them retires an edge while a browser is still holding it, which is the case closing first hides. The sign out case is measured as a difference against the same visit ending in a closed tab, because what it owns is the sign out path rather than the cost of a visitor. Its `run-leakcheck.sh` runs the rest of the tree and the benchmarks under LeakSanitizer. |
 | [`monitor`](https://github.com/Kidev/SynQt/tree/main/tests/monitor)                | The event pipeline every entity carries and the choke points that feed it. Its `tst_pipeline` covers the record, the bounded ring that drops the oldest and counts what it dropped, the per category levels and the writer thread, and links Qt Core and Qt Test and nothing else, which is what keeps the pipeline out of the GPLv3 libraries. Its `tst_instrumentation` drives a real edge and a real session store and asserts both halves of each gate, plus that no credential reaches the record. Its `tst_export` holds the OTLP encoding to the field names OpenTelemetry publishes and proves a collector that is down costs the monitor no history and no time. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
-| [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [designer](visual-editor.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and is what proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium; run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
-| [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which is what makes `split_origin` a measurement rather than folklore. No Qt at all: two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
+| [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [designer](visual-editor.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium. Run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
+| [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which makes `split_origin` a measurement rather than folklore. No Qt at all, only two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
 
 One directory there is not a suite.
 [`tests/local-network`](https://github.com/Kidev/SynQt/tree/main/tests/local-network) is the
@@ -640,26 +643,30 @@ tests/memory/run-leakcheck.sh --soak       # the fast half, no instrumented rebu
 Both passes configure and build the tree themselves, with the same flags
 [`tests/run-all.sh`](https://github.com/Kidev/SynQt/blob/main/tests/run-all.sh) uses, so
 what they measure is the binaries you would have run anyway. `-DSYNQT_DEV_TOOLS=ON` is part
-of that line and not optional: `tests/m8-auth` includes the stub identity server, whose
-header refuses a build that did not ask for one.
+of that line and not optional, because `tests/m8-auth` includes the stub identity server,
+whose header refuses a build that did not ask for one.
 
 The soak pass runs every suite in the tree at two `-repeat` counts and compares the peak
 resident set, which is a broad net for a path nobody wrote a steady-state test for. The
 sanitizer pass rebuilds the tree with AddressSanitizer, runs it again, and charges each
-leak LeakSanitizer reports to whoever allocated it: a record counts as ours when a frame of
+leak LeakSanitizer reports to whoever allocated it. A record counts as ours when a frame of
 ours appears near the top of its stack, and only a direct record counts at all, since an
 indirect one names a child of a leaked root rather than a culprit. It fails the run on a
 record rooted in `src/`. Reports rooted in a suite are printed too and are worth fixing,
-but they are a fixture a test never freed, not a defect in what ships.
+but they are a fixture a test never freed rather than a defect in what ships.
 
 One shape it can see and still cannot attribute is listed on its own. LeakSanitizer calls a
 block direct only when no other leaked block points at it, so a leaked graph whose members
-all point at each other produces no direct record at all: every block is somebody's child.
-A QObject tree is that shape by construction, since a child holds a pointer back to its
-parent. Such a process is named with what it lost rather than counted as zero, and it is
-not charged to a file, because in a graph lost whole the allocation site is where a block
-was born and not what dropped it. The soak pass is the gate that sees this shape, since
-memory a process is still holding is exactly what a peak resident set measures.
+all point at each other produces no direct record at all, because every block is somebody's
+child. A QObject tree is that shape by construction, since a child holds a pointer back to
+its parent. Such a process is named with what it lost rather than counted as zero, and it
+is not charged to a file, because in a graph lost whole the allocation site is where a
+block was born rather than what dropped it. The soak pass is the gate that sees this
+shape, since memory a process is still holding is exactly what a peak resident set
+measures. The listing is still worth reading. The client's `SessionState` replica,
+acquired without a parent and so left behind on every reconnect, showed up there as thirty
+records in the generated replica header before any gate had a number for it, and
+`tests/memory` measures a client's visit now because it did.
 
 Both passes name what they did not measure. A suite that will not run twice in one process
 is listed rather than dropped, and the benchmark harnesses that stand up whole systems are
@@ -762,7 +769,7 @@ These are the checks that report on an open pull request and can be required:
 | `CLA` | [`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) |
 | `pytest (ubuntu-24.04)`, `pytest (macos-26)`, `pytest (windows-2025)` | [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) |
 | `CLI coverage floor`, `node checks`, `design editor (browser)` | [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) |
-| `ctest (linux)`, `ctest (macos)`, `ctest (windows)` | [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) |
+| `tree (linux)`, `tree (macos)`, `tree (windows)`, `generated (linux)`, `generated (macos)`, `generated (windows)`, `coverage (linux)` | [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) |
 | `leaks (linux)` | [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) |
 
 A check is named by its job's `name:` with the matrix values substituted, so renaming a job
