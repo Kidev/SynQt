@@ -123,8 +123,8 @@ anywhere else. The only SynQt-specific type is `EntityTest`.
 
 The line between the two is what a test here can be trusted to prove.
 
-**Real**: the Source, compiled from your QML through the same generated
-`<Owner>Source` type the entity uses. `Caller`, minted through the same factory the
+**Real**: the Source, compiled from your QML through the same generated type the
+entity uses (`Edge` for an `edge` entity). `Caller`, minted through the same factory the
 mesh and the web edge mint it through, including the typed `emit<Signal>` methods and
 hierarchical `hasScope`. The entity type helpers, `Db`, `Cache`, `Docs` and `Jobs`, are the
 same classes an entity gets, and so is `Log`, which every entity has.
