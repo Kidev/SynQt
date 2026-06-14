@@ -108,7 +108,7 @@ The Article 17 request, as a button and a confirmation.
 DataErasureRequest {
     id: erasure
 
-    onConfirmed: Server.Account.eraseMe().then(() => erasure.reportAccepted(),
+    onConfirmed: Server.eraseMe().then(() => erasure.reportAccepted(),
                                                error => erasure.reportFailed(error))
 }
 ```

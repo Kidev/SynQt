@@ -81,8 +81,8 @@ This:
    set the redirect URL to the edge callback, put the secret in the edge `.env`)
    and nothing else.
 
-Supported provider templates ship for common OAuth2 and OpenID Connect providers.
-A generic template lets you point at any compliant provider by URL.
+Two providers are templated by name, `github` and `google`. Any other name becomes a
+generic OpenID Connect entry whose issuer and endpoints you point at the provider.
 
 To require login for the whole app rather than allow anonymous read:
 

@@ -19,7 +19,7 @@ Item {
     id: root
 
     // Connect this to the slot that erases the caller's data, for example
-    // `onConfirmed: Server.Account.eraseMe()`.
+    // `onConfirmed: Server.eraseMe()`.
     signal confirmed()
 
     // What the app calls when its slot has answered, so the visitor is told rather than

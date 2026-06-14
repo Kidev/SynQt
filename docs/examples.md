@@ -575,9 +575,8 @@ not know a database exists; it only ever talks to the edge.
 
 ### What this example demonstrates
 
-- Three entities, two boundaries. The edge authorizes the user (the scope on the member,
-  and `Caller` for the rest); the topology puts the database out of the browser's reach by
-  listing one consumer.
+- Three entities, two boundaries. The edge authorizes the user (`Caller` in every slot);
+  the topology puts the database out of the browser's reach by listing one consumer.
 - The full user authorization matrix lives on the edge: anonymous cannot add, a
   user removes only rows whose `ownerSub` matches their own `Caller.identity.sub`,
   a moderator removes any. No client supplied value participates in the ownership
@@ -597,7 +596,7 @@ not know a database exists; it only ever talks to the edge.
   configured, or secured; it is a SynQt entity in the same toolchain and security
   model.
 - The same connect point mechanism carries both links. `Server` (browser to
-  edge over wss) and `Store.items` (edge to database over the mesh) are the same
+  edge over wss) and `Store` (edge to database over the mesh) are the same
   programming model with different transports underneath.
 
 ## Example 5: a storefront with edge-delivered campaign pages

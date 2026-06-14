@@ -3,28 +3,27 @@
 
 # Running a project in containers
 
-`synqt docker` turns a project into a Dockerfile, a compose file, and the configuration
-that wires them together, so somebody with Docker and nothing else can run the whole
-system:
+`synqt docker` turns a project into a Dockerfile, a compose file and the configuration
+that connects them, so anyone with only Docker can run the whole system:
 
 ```cli
 synqt docker init
 synqt docker up
 ```
 
-That is the whole quick start. There is no Qt, no Emscripten, no certificate authority and
-no engine to install. The first `up` builds an image that provisions the pinned
-toolchain, compiles every entity, issues a development mesh certificate authority into a
-volume, and starts one container per entity.
+That is all. There is no Qt, Emscripten, certificate authority or engine to install. The
+first `up` builds an image that installs the pinned toolchain, compiles every entity,
+issues a development mesh certificate authority into a volume, and starts one container
+per entity.
 
-This is the fastest way to try somebody else's project, or to hand a reviewer something
-that runs. It is not a deployment. The certificate authority it creates is thrown away with
-the volume it lives in, and [deploying](deploying.md) is the page for the real thing.
+This is the fastest way to try someone else's project, or to give a reviewer something that
+runs. It is not a deployment: the certificate authority disappears with its volume. See
+[deploying](deploying.md) for a real deployment.
 
 ## What gets generated
 
-`synqt docker init` reads `synqt.yaml` and writes five files. All five are derived from the
-topology, so regenerate them with `--force` rather than editing them.
+`synqt docker init` reads `synqt.yaml` and writes five files, all derived from the topology.
+Regenerate them with `--force` instead of editing them.
 
 | File | What it is |
 | --- | --- |
@@ -34,12 +33,11 @@ topology, so regenerate them with `--force` rather than editing them.
 | `synqt.docker.yaml` | The [profile](project-layout-and-config.md#configuration-resolution-order) that says where each entity answers on the container network |
 | `.dockerignore` | Keeps the mesh keys, the `.env` files, and any host build out of the build context |
 
-It also fills in the `env:` references your configuration makes. A credential that only ever
-exists between two containers, a database password among them, is generated rather than
-asked about. A secret that comes from outside, an OAuth client secret above all, is asked
-for, and an empty answer leaves a placeholder in the entity's `.env` to fill in later.
-Nothing typed there reaches `synqt.yaml`, the image, or the repository. Pass `--no-input` to
-ask nothing at all, which is what a script wants.
+It also fills in your configuration's `env:` references. A credential that only exists
+between two containers, such as a database password, is generated. A secret from outside,
+above all an OAuth client secret, is asked for; an empty answer leaves a placeholder in the
+entity's `.env` to fill in later. Nothing you type reaches `synqt.yaml`, the image or the
+repository. Pass `--no-input` to ask nothing, for scripts.
 
 ## The commands
 
@@ -48,41 +46,41 @@ synqt docker init            # generate everything, asking about secrets it cann
 synqt docker init --force    # regenerate after changing the topology
 synqt docker up              # build the images and start every container
 synqt docker up --detach     # the same, in the background
+synqt docker up --no-build   # start what is already built without rebuilding first
 synqt docker down            # stop everything, keep the certificates and the data
 synqt docker down --volumes  # and throw those away too, for a clean slate
 synqt docker ca              # copy out the authority behind the browser certificate
 ```
 
-`up` and `down` are `docker compose` with the two checks worth making first, so you do not
-have to remember them. Everything they do is in the generated compose file, so plain `docker
-compose` works if you would rather use it directly.
+`up` and `down` run `docker compose` after two useful checks, so you need not remember
+them. Everything they do is in the generated compose file, so plain `docker compose` works
+too.
 
-Options on `init`:
+Options for `init`:
 
-- `--client image` (the default) builds the browser bundle inside the image, so the machine
-  needs no Qt and no Emscripten. `--client host` leaves it out and mounts the bundle
-  `synqt build` produced locally, read-only. The first is the one to hand somebody. The
-  second is much faster to iterate on, because a change to the client's QML is a `synqt
-  build --client wasm` rather than an image rebuild.
-- `--port` publishes the edge somewhere other than the port in `synqt.yaml`, for when
-  something else on the machine already has it.
-- `--subnet` moves the private network, for when `172.30.238.0/24` collides with something.
+- **`--client image`** (the default) builds the browser bundle inside the image, so the
+  machine needs no Qt and no Emscripten. **`--client host`** leaves it out and mounts the
+  bundle `synqt build` produced locally, read only. Use the first to hand the project to
+  someone; the second is much faster to iterate with, because a client QML change needs
+  `synqt build --client wasm` instead of an image rebuild.
+- **`--port`** publishes the edge on another port than the one in `synqt.yaml`, when
+  something on the machine already uses it.
+- **`--subnet`** moves the private network, when `172.30.238.0/24` collides with something.
 
 ## How the containers are arranged
 
-Every entity gets a container of its own, because that is what an entity is, a separate
-binary that in a deployment is on a separate host. A compose file with one box in it would
-teach the opposite, and the mesh links here are real mutual TLS across a container network
-rather than loopback with the interesting part switched off.
+Every entity gets its own container, because an entity is a separate binary that runs on
+a separate host in a deployment. The mesh links are real mutual TLS across a container
+network, not loopback with the checks turned off.
 
-Only the web edge publishes a port. Everything else is reachable only from inside the
-container network, which is the [deny by default](security.md) topology said in compose.
+Only the web edge publishes a port. Everything else is reachable only inside the container
+network: the [deny by default](security.md) topology, expressed in compose.
 
 ### Why the addresses are written down
 
-A mesh endpoint is read into a `QHostAddress`, which holds an address rather than a name, so an
-entity cannot dial a compose service by name. `synqt.docker.yaml` therefore pins one address
-per entity, and the compose network hands each container exactly that address:
+A mesh endpoint is read into a `QHostAddress`, which holds an address, not a name, so an
+entity cannot reach a compose service by name. So `synqt.docker.yaml` pins one address per
+entity, and the compose network gives each container exactly that address:
 
 ```yaml
 entities:
@@ -92,42 +90,39 @@ entities:
     mesh: { host: 172.30.238.12 }
 ```
 
-The certificates still verify. A peer is identified by the entity name in its certificate,
-never by the address it answered on, which is why moving an entity to a different address
-changes nothing about who it is allowed to be.
+The certificates still verify: a peer is identified by the entity name in its certificate,
+never by its address, so moving an entity to another address does not change who it is.
 
 ### The certificates
 
-A one-shot `mesh-init` container runs before anything else and issues a development
-certificate authority plus one certificate per entity into a shared volume. Every entity
-waits for it to have exited successfully rather than merely started, so nothing comes up
-holding a certificate signed by an authority the others do not trust.
+A one-shot `mesh-init` container runs first and issues a development certificate authority,
+plus one certificate per entity, into a shared volume. Every entity waits until it has
+exited successfully, not merely started, so no entity starts with a certificate the others
+do not trust.
 
-It issues one more, of a different kind, the edge's browser-facing certificate, for
-`localhost`, from the same authority. That is not a mesh identity and it is not what a
-deployment would use. It exists because a scaffolded `synqt.yaml` points `tls:` at a
-certificate you have not obtained yet, and an edge with no certificate listens on a port
-whose handshake can never complete. So `https://localhost:8443` works, and your browser
-warns once that it does not know the issuer, which is the true state of affairs rather
-than a plaintext port pretending to be something else.
+It also issues the edge's browser-facing certificate for `localhost`, from the same
+authority. That is not a mesh identity, and a deployment would not use it. It exists
+because a scaffolded `synqt.yaml` points `tls:` at a certificate you have not obtained yet,
+and an edge without a certificate would listen on a port whose handshake can never
+complete. So `https://localhost:8443` works, and your browser warns once about the unknown
+issuer, which is accurate.
 
-Clicking through the warning is enough to look at the app, and not enough to develop
-against it, because a browser gives an origin whose certificate it distrusts no service
-worker, so a bundle that installs one runs a degraded copy of itself for as long as you
-leave it. `synqt docker ca` writes the authority to `synqt/mesh/docker-ca.crt` and prints
-the one command that trusts it on this machine. Trusting it is a decision about your
-machine, so the command is printed rather than run. Until you remove it, that authority can vouch for any name to
-your browser.
+Clicking through the warning lets you look at the app, but is not enough to develop
+against it: a browser refuses service workers to an origin whose certificate it distrusts,
+so a bundle that installs one runs in a degraded mode. `synqt docker ca` writes the
+authority to `synqt/mesh/docker-ca.crt` and prints the command that trusts it on this
+machine. Trusting it is your decision about your machine, so the command is printed, not
+run. Until you remove it, that authority can vouch for any name to your browser.
 
-The authority is created on the first `up` and reused after, so no key is in the image and
-none is in the repository. `synqt docker down --volumes` removes it, and the next `up`
-issues a fresh one. If you trusted the old one, remove it from your store then, because the
-new one is a different authority.
+The authority is created on the first `up` and reused afterwards, so no key is in the image
+or the repository. `synqt docker down --volumes` removes it, and the next `up` issues a new
+one. If you trusted the old one, remove it from your trust store then, because the new one
+is a different authority.
 
 ### Where a browser reaches the edge
 
-A container binds every interface, and compose publishes one port on the machine you are
-sitting at, so `synqt.docker.yaml` writes down the address a visitor types:
+A container binds every interface, and compose publishes one port on your machine, so
+`synqt.docker.yaml` records the address a visitor types:
 
 ```yaml
 entities:
@@ -136,115 +131,109 @@ entities:
       origin: https://localhost:8443
 ```
 
-This is not a duplicate of the bind. Three things are built out of it and every one of them
-is matched whole. They are the OAuth `redirect_uri` an identity provider compares character for
-character, what `self` expands to in `security.allowed_origins` when the upgrade checks the
-browser's `Origin` header, and the sync endpoint the [CSP](csp.md) names. An edge that took
-its bind address for its identity would call itself `https://0.0.0.0:8443` and then refuse
-the only origin a browser can arrive with.
+This is not the bind address. Three exact matches are built from it: the OAuth
+`redirect_uri`, which an identity provider compares character by character; what `self`
+expands to in `security.allowed_origins` when the upgrade checks the browser's `Origin`
+header; and the sync endpoint the [CSP](csp.md) names. An edge that used its bind address
+as its identity would call itself `https://0.0.0.0:8443` and refuse the only origin a
+browser can arrive with.
 
-It is also the callback URL to register with the identity provider, which is the one step in
-signing in that cannot be done from inside the project. `synqt docker init` prints it:
+It also gives the callback URL to register with the identity provider, the one sign-in step
+you cannot do from inside the project. `synqt docker init` prints it:
 
 ```
 https://localhost:8443/auth/callback
 ```
 
-Register that exact string. A provider that was given anything else sends the browser
-somewhere it cannot come back from, and the app sits on its sign-in screen with nothing in
-the log.
+Register that exact string. With anything else, the provider sends the browser somewhere
+it cannot return from, and the app stays on its sign-in screen with nothing in the log.
 
 ### Engines
 
-An entity backed by PostgreSQL, MySQL, Redis, or MongoDB gets an engine container, wired to
-that entity and to nothing else. The credential is generated at `init` and written once into
-the entity's `.env`, under both SynQt's name for it and the engine image's, so one value
-serves both ends of the connection.
+An entity backed by PostgreSQL, MySQL, Redis or MongoDB gets an engine container, connected
+to that entity only. The credential is generated at `init` and written once into the
+entity's `.env`, under both SynQt's name and the engine image's name, so one value serves
+both ends.
 
-The engine shares its entity's network namespace, which is the one arrangement in here that
-does not read as obvious. An external provider refuses an unverified connection in release
-unless the engine is on loopback, and that refusal is right, because a database password
-crossing a network in the clear is a database password on the network. Rather than switching the guard
-off for the convenience of a quick start, the engine container holds its entity's address on
-the mesh network and the entity joins its namespace. The entity then reaches its engine at
-`127.0.0.1` for real, nothing about that link is on a wire, and nothing had to be relaxed to
-make it work. It also leaves the engine unreachable from every other container, which is
-stricter than the entities themselves manage.
+The engine shares its entity's network namespace, which needs explaining. An external
+provider refuses an unverified connection in release unless the engine is on loopback, and
+rightly so: a database password sent in the clear is exposed on the network. Instead of
+turning that check off for a quick start, the engine container holds its entity's address on
+the mesh network, and the entity joins its namespace. The entity then really reaches its
+engine at `127.0.0.1`, the link never touches a wire, and no check was relaxed. It also
+leaves the engine unreachable from every other container, which is stricter than for the
+entities themselves.
 
-One topology this cannot express is a web edge that owns an engine of its own. A shared
-namespace cannot publish a port, so `synqt docker init` stops and says so. Move the engine
-behind a relational entity, which is where it belongs regardless.
+One topology this cannot express: a web edge that owns its own engine. A shared namespace
+cannot publish a port, so `synqt docker init` stops and says so. Put the engine behind a
+relational entity, where it belongs anyway.
 
 ## The image
 
-Three stages, and the split is about what has to be rebuilt when.
+Three stages, split by how often each must be rebuilt.
 
-**`toolchain`** installs the pinned Qt kit, and for `--client image` the pinned Emscripten
-and a WebAssembly Qt kit as well. The prebuilt WebAssembly kits ship QtWebSockets but not
-QtRemoteObjects, so this stage also builds that module from the pinned source and installs
-it into the kit. Without it the client cannot link a single connect point. This stage depends
-on two version numbers and on nothing in your project, so it is built once and reused for
-every later change to the app. It is also the slow one, and the reason the first `up` takes
-a while.
+**`toolchain`** installs the pinned Qt kit, and for `--client image` also the pinned
+Emscripten and a WebAssembly Qt kit. The prebuilt WebAssembly kits ship QtWebSockets but
+not QtRemoteObjects, so this stage builds that module from the pinned source into the kit;
+without it the client could not link a single connect point. The stage depends only on two
+version numbers, not on your project, so it is built once and reused for every later
+change. It is the slow stage, which is why the first `up` takes a while.
 
-**`build`** installs `synqt` and compiles every entity with `--profile docker` applied. The
-synqt it installs is the checkout the CLI itself is running out of, handed to the build as
-four named contexts ([`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake), [`src/`](https://github.com/Kidev/SynQt/tree/main/src), [`tools/synqtc/`](https://github.com/Kidev/SynQt/tree/main/tools/synqtc)
-and [`tools/synqt/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt), which is what
-installing the CLI needs beside it) and read fresh on every build, so an image is never
-built from a copy of the framework that has gone stale. `synqt docker init` writes the path
-into the compose file and `synqt docker up` passes the live one through, so a checkout that
-moves needs no regeneration.
+**`build`** installs `synqt` and compiles every entity with `--profile docker`. It installs
+synqt from the checkout the CLI runs from, passed to the build as four named contexts
+([`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake),
+[`src/`](https://github.com/Kidev/SynQt/tree/main/src),
+[`tools/synqtc/`](https://github.com/Kidev/SynQt/tree/main/tools/synqtc) and
+[`tools/synqt/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt), what installing the
+CLI needs) and read fresh on every build, so an image is never built from a stale copy of
+the framework. `synqt docker init` writes the path into the compose file, and
+`synqt docker up` passes the current one, so a moved checkout needs no regeneration.
 
-To build against a different one, point `SYNQT_SRC` at its top directory:
+To build against another checkout, point `SYNQT_SRC` at its top directory:
 
 ```cli
 SYNQT_SRC=~/src/SynQt synqt docker up
 ```
 
-Or replace the install outright with a name, a wheel or a git URL:
+Or replace the install with a package name, a wheel or a git URL:
 
 ```cli
 SYNQT_PIP_SPEC=./vendor/synqt synqt docker up
 ```
 
-Both go in the environment rather than in `--build-arg`, because `up --build` takes no
-build arguments. The generated compose file reads these variables and passes them through.
-A CLI installed from a wheel rather than run out of a checkout has no sources to hand over,
-and its generated Dockerfile installs the published distribution instead.
+Both go in the environment, not in `--build-arg`, because `up --build` takes no build
+arguments; the generated compose file passes these variables through. A CLI installed from
+a wheel has no sources to hand over, so its generated Dockerfile installs the published
+distribution instead.
 
-**`runtime`** is what runs: the built artifacts, the Qt shared libraries and QML
-modules they load, and the CLI (so the certificate service has it). No compilers, no Qt
-sources, no toolchain. It runs as a non-root user.
+**`runtime`** is what runs: the built artifacts, the Qt shared libraries and QML modules
+they load, and the CLI (for the certificate service). No compilers, no Qt sources, no
+toolchain. It runs as a non-root user.
 
 ## Rebuilding after a change
 
-A change to your QML or your contracts is `synqt docker up` again. The toolchain layer is
-cached, so it rebuilds the app and nothing under it. A change to the topology, adding an
-entity or a connect point, needs `synqt docker init --force` first, because the compose file
-and the address profile are generated from it.
+After changing your QML or contracts, run `synqt docker up` again. The toolchain layer is
+cached, so only the app rebuilds. After changing the topology (adding an entity or a
+connect point), run `synqt docker init --force` first, because the compose file and the
+address profile come from it.
 
-For a tight loop on the client, `--client host` is the mode to be in. Run `synqt build
---client wasm` on your machine, and the edge picks the new bundle up from the mounted directory with
-no image rebuild at all. That does need a local Emscripten kit, which is what the default
-mode exists to avoid.
+For fast client iteration, use `--client host`. Run `synqt build --client wasm` on your
+machine, and the edge picks up the new bundle from the mounted directory with no image
+rebuild. This needs a local Emscripten kit, which the default mode avoids.
 
 ## What this is not
 
-The generated setup is a development system, and two things about it are not
-production-shaped:
+The generated setup is a development system. Two parts differ from production:
 
 - **The mesh certificate authority is created inside the compose project.** A deployment
-  issues its certificates on a machine you control, and the CA private key never reaches a
+  issues certificates on a machine you control, and the CA private key never reaches a
   running entity. See [step 2 of deploying](deploying.md#2-issue-the-mesh-certificates).
-- **The browser-facing certificate is self-issued and names `localhost`.** A deployment
-  serves a certificate for its real name from an authority browsers already trust, and the
-  `tls:` block in your `synqt.yaml` is where that one is named. The docker profile overrides
-  it for this one way of running and nothing else.
+- **The browser-facing certificate is self-issued for `localhost`.** A deployment serves a
+  certificate for its real name, from an authority browsers already trust, named in the
+  `tls:` block of your `synqt.yaml`. The docker profile overrides it for this setup only.
 
-`synqt check --release` is the command that holds a configuration to the rules a shipped
-system has to meet. Run it against the profile you intend to deploy, never against
-`docker`.
+`synqt check --release` checks a configuration against the rules for a shipped system. Run
+it against the profile you will deploy, never against `docker`.
 
-Everything else, the entity boundaries, the mutual TLS between them, the consumer
-allowlists, the scope gating, is the same code and the same configuration a deployment runs.
+Everything else (entity boundaries, mutual TLS between them, consumer allowlists, scope
+gating) is the same code and configuration a deployment runs.
