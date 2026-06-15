@@ -60,6 +60,7 @@ my-app/
     store/
 
   CMakePresets.json       # written per build; CMake reads presets from here and nowhere else
+  CMakeUserPresets.json   # the same, for the kit resolved on this machine
 ```
 
 Principles:
@@ -1268,6 +1269,7 @@ varies about a development run is passed to the run:
 | `--no-open` | opens a browser | do not open a browser tab |
 | `--no-watch` | watches | serve once instead of watching sources and rebuilding on every edit |
 | `--desktop` | browser | run the client as a native window against the same dev edge |
+| `--identity-picker` | the project's own sign-in | replace every sign-in with one page listing the project's scopes, so a scope can be held without a provider ([the scope picker](authentication.md#skipping-the-flow-the-scope-picker)) |
 | `--profile NAME` | none | layer `synqt.NAME.yaml` over `synqt.yaml`, which is where a per developer override belongs |
 
 Two things about a development run are not adjustable at all. The
