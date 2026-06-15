@@ -1,12 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""``synqt new``: scaffold a new project (the npm-shaped entry point).
+"""``synqt new``: scaffold a new project.
 
-Writes a minimal but complete topology (a client and a web edge) plus the folders,
-the .gitignore that keeps mesh keys and the toolchain cache out of git, and CMake
-presets. It prints the client GPLv3 conveyance reminder, because the client is served to
-every visitor and its source obligation is real (docs/licensing.md).
+Writes a client and a web edge, the folders, a .gitignore that keeps mesh keys and the
+toolchain cache out of git, and the CMake presets. Prints the client GPLv3 conveyance
+reminder (docs/licensing.md).
 """
 
 from __future__ import annotations
@@ -21,11 +20,8 @@ from . import addentity, appgen, appmodel, devidentities, licenses, presets, too
 
 QT_VERSION = toolchain.QT_VERSION
 
-# The qmlformat settings a scaffolded project gets, and the only source of truth for them
-# (there is no copy anywhere. See QmlFormatSettingsSourceTest). Inline rather than read from
-# disk because the released CLI is a PyInstaller --onefile binary with no data files, and a
-# `synqt new` that set check.qml_format without shipping the settings would warn on every
-# check from the very first one.
+# The qmlformat settings of a scaffolded project, and their only copy (see
+# QmlFormatSettingsSourceTest). Inline, because the frozen CLI has no data files.
 QMLFORMAT_INI = """; SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 ; SPDX-License-Identifier: Apache-2.0
 ;
@@ -97,8 +93,8 @@ ApplicationWindow {
     height: 240
     title: "SynQt app"
 
-    // Surfaces the connection state to the browser console. A boot sentinel `synqt dev`
-    // (and the browser end-to-end check) watch for. Invisible. Harmless in the shipped app.
+    // Logs the connection state to the browser console. `synqt dev` and the browser
+    // end-to-end check watch for these lines. It draws nothing.
     Item {
         property string status: "state=" + Session.state
         onStatusChanged: console.log("SynQt client: " + status)
@@ -107,9 +103,8 @@ ApplicationWindow {
 
     Label {
         anchors.centerIn: parent
-        // On one line, because the scaffold ships with check.qml_format on, and
-        // qmlformat reflows a wrapped expression, so a hand-wrapped ternary here would
-        // report the new project as unformatted on its very first `synqt check`.
+        // On one line: qmlformat reflows a wrapped expression, and the scaffold ships
+        // with check.qml_format on.
         text: Session.state === "connected" ? "Connected" : "Connecting..."
     }
 }
@@ -118,13 +113,8 @@ ApplicationWindow {
 
 def write_client_main(project_dir: os.PathLike[str] | str,
                       entity: Dict[str, Any]) -> Optional[str]:
-    """Give a client entity the one file it cannot start without, unless it has one.
-
-    The generated client main.cpp does `engine.loadFromModule(uri, "Main")`, so `Main.qml` is
-    the root object and its name is not a choice. A client with no such file builds, loads,
-    logs nothing and renders a blank page, which is why it is written with the entity rather
-    than left to be remembered. `synqt new` writes it, and so does a client drawn in the
-    editor. Returns the project-relative path when it wrote one.
+    """Give a client entity its `Main.qml`, unless it has one. The generated main.cpp loads
+    "Main" as the root object. Returns the project-relative path when it wrote one.
     """
     relative = appmodel.entity_file_path(entity)
     target = Path(project_dir) / relative
@@ -136,19 +126,13 @@ def write_client_main(project_dir: os.PathLike[str] | str,
 
 
 def entity_singleton(name: str) -> str:
-    """An entity's own QML, while the entity exports nothing. One object, alive as long as
-    the entity is.
+    """An entity own QML while the entity exports nothing: one object, alive as long as the
+    entity.
 
-    Shared because there is one of this entity. ``appmodel.discover_singletons`` finds it by
-    its ``pragma Shared`` and the generated main registers it under the entity's own QML
-    module, so anything the entity owns reaches it by name. ``synqt build`` writes the line
-    as the ``pragma Singleton`` QML knows into the copy under ``generated/``
-    (:mod:`synqt.qmlrewrite`). Exporting a connect point turns this same file into that
-    point's Source (:func:`synqt.addcontract.write_source`), because an entity and the
-    surface it exports are one file.
-
-    Written the way ``qmlformat`` would write it, so a scaffolded project passes its own
-    ``synqt check`` with nothing to reformat first.
+    Marked ``pragma Shared``, so ``appmodel.discover_singletons`` finds it and the generated
+    main registers it; ``synqt build`` writes ``pragma Singleton`` into the copy under
+    ``generated/`` (:mod:`synqt.qmlrewrite`). Exporting a connect point turns this file into
+    the Source (:func:`synqt.addcontract.write_source`). Formatted as ``qmlformat`` would.
     """
     type_name = f"{name[:1].upper()}{name[1:]}"
     return ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
@@ -158,10 +142,9 @@ def entity_singleton(name: str) -> str:
             "\n"
             "import SynQt\n"
             "\n"
-            f"// The '{name}' entity itself: one of it, for as long as the entity runs, and one\n"
-            "// whatever the entity answers to `shared:`. State that belongs to the whole\n"
-            "// entity goes here rather than in a Source when the entity is not shared,\n"
-            "// because a Source is then one caller's and dies with them.\n"
+            f"// The '{name}' entity itself: one instance for as long as the entity runs,\n"
+            "// whatever `shared:` says. State that belongs to the whole entity goes here,\n"
+            "// because an unshared entity's Source belongs to one caller and ends with them.\n"
             f"// Every Source this entity owns reaches it as "
             f"`{type_name}`.\n"
             "QtObject {\n"
@@ -171,12 +154,7 @@ def entity_singleton(name: str) -> str:
 
 def write_entity_qml(project_dir: os.PathLike[str] | str,
                      entity: Dict[str, Any]) -> Optional[str]:
-    """Give an entity its own file, unless it has one. Returns the path when it wrote one.
-
-    Every entity has one from the moment it exists, before it owns or consumes anything. An
-    entity that is in synqt.yaml with an empty directory beside it is an entity nobody can
-    open.
-    """
+    """Give an entity its own file, unless it has one. Returns the path when it wrote one."""
     if appmodel.is_client(entity):
         return write_client_main(project_dir, entity)
     relative = appmodel.entity_file_path(entity)
@@ -194,31 +172,22 @@ class NewProjectError(Exception):
 
 def _config(name: str, entities: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
-        # No `origin_model`. Absent means same-origin, which is what a scaffold should be: the
-        # session cookie is first-party, so nothing here depends on a browser policy that is
-        # being withdrawn. `split_origin` is written by hand, by someone who has read what it
-        # costs. See docs/project-layout-and-config.md.
+        # No `origin_model`: absent means same-origin, with a first-party session cookie.
+        # `split_origin` is a hand edit (docs/project-layout-and-config.md).
         "project": {"name": name, "version": "0.1.0", "qt_version": QT_VERSION},
         "scopes": {"order": ["anonymous", "user", "moderator", "admin"],
                    "hierarchical": True, "default": "anonymous"},
         "security": {"allowed_origins": ["self"], "cross_origin_isolation": False},
-        # Single-threaded WASM runs in every browser. Set client_threads. Multi to build the
-        # threaded client (implies cross-origin isolation. Needs COOP/COEP, emitted for you).
+        # Single-threaded WASM runs in every browser. `client_threads: multi` builds the
+        # threaded client (implies cross-origin isolation; COOP/COEP are emitted).
         "build": {"client_threads": "single"},
-        # On from the first commit, while the QML is still format-clean: adopting a
-        # formatter later means one enormous reformatting diff nobody reviews. It reports,
-        # never rewrites, and never fails the check. The rules are the project's own
-        # .qmlformat.ini. Edit it or set this to false.
+        # On from the start, while the QML is format-clean. It reports, never rewrites, and
+        # never fails the check. The rules are in .qmlformat.ini.
         "check": {"qml_format": True},
-        # Written empty rather than left out, so the keys a European app has to fill in are
-        # in front of whoever opens this file rather than in a document they have to know to
-        # look for. Empty values are the same as no block: LegalFooter leaves out a link it
-        # has no URL for, and `synqt check` says which ones are still blank.
-        #
-        # `cookies` stays empty, and it is not an oversight. The session credential is
-        # strictly necessary and exempt under Article 5(3) of the ePrivacy Directive, so a
-        # project that adds no other cookie needs no banner at all. Adding a category here is
-        # what makes CookieConsent appear. See docs/privacy.md.
+        # Written empty so the keys are visible. Empty values are the same as no block, and
+        # `synqt check` lists the blank ones. `cookies` stays empty: the session credential
+        # is exempt under Article 5(3) of the ePrivacy Directive, and adding a category
+        # makes CookieConsent appear (docs/privacy.md).
         "privacy": {"policy": "", "legal_notice": "", "contact": "", "cookies": []},
         "entities": entities,
         "connect_points": [],
@@ -231,27 +200,20 @@ def _write_qmlformat_settings(root: Path) -> None:
 
 
 def write_gitignore(root: Path) -> None:
-    """The .gitignore every SynQt project gets, scaffolded or copied from an example.
-
-    One function because there are two ways to start a project and only one right answer to
-    "what must never be committed". A copied example with no .gitignore at all leaves a
-    mesh private key and a machine's toolchain cache one `git add -A` away from a
-    repository.
+    """The .gitignore every SynQt project gets, scaffolded or copied from an example. Keeps
+    mesh private keys and the toolchain cache out of git.
     """
     (root / ".gitignore").write_text(
-        "# SynQt: never commit mesh private keys, the toolchain cache, or anything\n"
-        "# generated. generated/ holds the build and one main.cpp per entity, written\n"
-        "# from synqt.yaml every time. CMakeLists.txt at the root is yours and is kept;\n"
-        "# the presets beside it are regenerated with the toolchain they point at.\n"
+        "# SynQt: never commit mesh private keys, the toolchain cache, or generated files.\n"
+        "# generated/ holds the build and one main.cpp per entity, rewritten from\n"
+        "# synqt.yaml. The root CMakeLists.txt is yours; the presets beside it are\n"
+        "# regenerated.\n"
         f"{appmodel.GENERATED_DIR}/\nbuild/\n/CMakePresets.json\n/CMakeUserPresets.json\n"
         "synqt/toolchain/\nsynqt/mesh/*.key\n"
-        # A copy of the container authority's certificate, written by `synqt docker ca`
-        # for you to trust on this machine. Public, so not a secret. Issued into a volume
-        # on this machine, so not the same file on anybody else's.
+        # The container CA certificate `synqt docker ca` writes. Public, but
+        # machine-specific.
         "synqt/mesh/dev/\nsynqt/mesh/docker-ca.crt\n.env\n"
-        # The people this machine's developer signs in as under
-        # `synqt dev --identity-picker`. One machine's convenience: committing it
-        # would put a colleague's address in the repository.
+        # The people this developer signs in as under `synqt dev --identity-picker`.
         f"{devidentities.FILE_NAME}\n")
 
 
@@ -260,32 +222,27 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
              starting: Optional[List[Tuple[str, str]]] = None) -> str:
     """Write a new project: a client, a web edge, and whatever `starting` names.
 
-    `starting` is `(name, type)` pairs and comes only from `synqt create`, which asks for
-    both. `synqt new` has no flag for it. An entity is something somebody named, naming one
-    on a project-creation flag meant a `<name>:<type>` pair nobody enjoyed writing, and
-    `synqt add entity <name> --type <type>` is the one shape that already says it.
+    `starting` is `(name, type)` pairs from `synqt create`. `synqt new` has no such flag;
+    use `synqt add entity <name> --type <type>`.
     """
     root = Path(parent_dir) / name
     if root.exists() and any(root.iterdir()):
         raise NewProjectError(f"{root} already exists and is not empty")
     root.mkdir(parents=True, exist_ok=True)
+    # `name` may be a path (`../shop`, `.`); the project is named after its last component.
+    project_name = root.resolve().name
 
-    # Named for what they are rather than for their type, because the type is already the
-    # folder they sit in: the client is `client/app/`, the edge is `web/edge/`. An entity
-    # called `web` would land in `web/web/`, and every entity of that type after it would
-    # have to explain why it was not allowed the same name.
+    # Named for their role: the client is `client/app/`, the edge `web/edge/`.
     entities: List[Dict[str, Any]] = [
         {"name": "app", "type": "client", "targets": ["wasm"]},
-        # The edge ships with TLS to the browser already configured, pointing at the
-        # conventional place for the certificate. `synqt dev` runs plaintext on localhost
-        # and ignores it. `synqt build --release` and `synqt serve` require either this or
-        # public.tls_terminated_upstream, so a new project meets that rule from its first
-        # release build rather than discovering it at the deployment.
+        # The edge is scaffolded with browser TLS pointing at the conventional certificate
+        # path. `synqt dev` runs plaintext and ignores it; `synqt build --release` and
+        # `synqt serve` require this or public.tls_terminated_upstream.
         {"name": "edge", "type": "web_edge",
          "tls": {"cert_file": "certs/edge/fullchain.pem",
                  "key_file": "certs/edge/privkey.pem"}},
     ]
-    config = _config(name, entities)
+    config = _config(project_name, entities)
     if auth:
         # Mark the edge so the license generator knows it links Network Authorization.
         config["entities"][1]["identity"] = True
@@ -298,23 +255,18 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     (root / ".env.example").write_text("# Entity secrets (env: references), never committed\n")
     _write_qmlformat_settings(root)
 
-    # A starting entity is scaffolded by `synqt add entity` itself, so the two paths cannot
-    # drift, with the same config block, same provider defaults, same folder and same entity file.
-    # Writing a bare `{name, kind, blueprint}` here would leave a project whose
-    # relational entity has no provider settings and no schema, unlike the same entity added
-    # a command later. It runs after .env.example exists because an external provider
-    # appends its secret to it.
+    # A starting entity is scaffolded by `synqt add entity` itself, after .env.example
+    # exists (an external provider appends its secret there).
     for entity_name, entity_type in starting or []:
         addentity.scaffold(root, entity_name, entity_type)
     config = yaml.safe_load((root / "synqt.yaml").read_text())
 
     presets.write(root, config)
-    # The buildable app. The multi-binary CMakeLists and one main.cpp per entity, derived
-    # from the topology so the scaffold compiles as-is (client + edge, no connect points).
+    # The buildable app: the CMake and one main.cpp per entity, from the topology.
     appgen.generate(root, config)
 
     lines = [
-        f"Scaffolded '{name}'. Next:",
+        f"Scaffolded '{project_name}'. Next:",
         f"  cd {name} && synqt dev",
         "",
         licenses.CLIENT_GPL_WARNING,

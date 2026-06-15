@@ -3,12 +3,9 @@
 
 """`synqt examples` and `synqt new <name> --example <example>`: copying a shipped example.
 
-The examples themselves are checked by test_examples.py. This is about the copy.
-
-The quick start is one command away from a running system because of these, so what is
-asserted here is the whole promise. The example the page names exists, a copy of it passes
-`synqt check`, and the copy is a project rather than a directory somebody still has to
-finish (a name of its own, a .gitignore, and no leftover of the machine it was copied from).
+test_examples.py checks the examples themselves. Here: the example the quick start names
+exists, a copy passes `synqt check`, and the copy is a finished project (its own name, a
+.gitignore, nothing left from the source machine).
 """
 
 import tempfile
@@ -17,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from synqt import check, cli, examples
+from synqt import check, cli, examples, newproject
 
 
 class ExamplesListingTest(unittest.TestCase):
@@ -28,8 +25,7 @@ class ExamplesListingTest(unittest.TestCase):
             self.assertTrue((examples.root() / name / "synqt.yaml").is_file(), name)
 
     def test_the_example_the_quick_start_names_is_shipped(self):
-        """docs/quick-start.md tells a first reader to copy this one, and a page that names
-        an example the CLI does not carry is a page whose first command fails."""
+        """The example docs/quick-start.md names is shipped."""
         self.assertIn("stall", [name for name, _ in examples.available()])
 
     def test_each_one_says_what_it_is(self):
@@ -62,18 +58,14 @@ class ExampleScaffoldTest(unittest.TestCase):
         self.assertEqual(config["project"]["name"], "shop")
 
     def test_the_commentary_in_the_example_survives_the_rename(self):
-        """An example's synqt.yaml is commented throughout and is the first file a reader
-        opens. Re-serialising it would hand them the same project with the explanations
-        deleted."""
+        """The comments in an example synqt.yaml survive the rename."""
         root, _ = self._copy()
         text = (root / "synqt.yaml").read_text()
         self.assertIn("# The stall storefront", text)
         self.assertIn("name: shop", text)
 
     def test_the_copy_is_told_what_never_to_commit(self):
-        """An example in the repository carries no .gitignore, because the repository has
-        one. A copy is its own repository, and a mesh private key is one `git add -A` from
-        being in it."""
+        """The copy gets a .gitignore that keeps mesh keys out."""
         root, _ = self._copy()
         ignored = (root / ".gitignore").read_text()
         self.assertIn("synqt/mesh/*.key", ignored)
@@ -88,8 +80,7 @@ class ExampleScaffoldTest(unittest.TestCase):
         self.assertFalse((root / ".env").exists())
 
     def test_an_example_that_reads_a_secret_says_which_one(self):
-        """gavel signs people in, so it will not start until a client secret is placed.
-        Saying so in a file beats saying it in a stack trace on the first run."""
+        """gavel needs a client secret; the copy's .env.example names it."""
         root, printed = self._copy(name="auction", example="gavel")
         self.assertIn("GITHUB_CLIENT_SECRET=", (root / ".env.example").read_text())
         self.assertIn(".env.example", printed)
@@ -100,8 +91,7 @@ class ExampleScaffoldTest(unittest.TestCase):
         self.assertNotIn(".env.example", printed)
 
     def test_the_client_conveyance_warning_is_printed(self):
-        """The client is served to every visitor whichever way the project started, so the
-        GPLv3 reminder is not something `--example` gets to skip."""
+        """The client GPLv3 reminder is printed for `--example` too."""
         _, printed = self._copy()
         self.assertIn("GPLv3", printed)
 
@@ -123,8 +113,7 @@ class ExampleScaffoldTest(unittest.TestCase):
             examples.scaffold(root.parent, root.name, "stall")
 
     def test_an_empty_directory_is_taken_as_the_target(self):
-        """`mkdir shop && cd shop` then scaffolding into it is how `synqt new` already
-        behaves, and the two shapes should not differ."""
+        """An empty directory is taken as the target, as `synqt new` does."""
         parent = Path(tempfile.mkdtemp())
         (parent / "shop").mkdir()
         examples.scaffold(parent, "shop", "stall")
@@ -133,8 +122,7 @@ class ExampleScaffoldTest(unittest.TestCase):
 
 class ExampleCommandLineTest(unittest.TestCase):
     def test_auth_and_example_together_are_refused(self):
-        """An example has already decided whether it signs people in. Priming a provider
-        into one would edit the file the reader is about to be told to read."""
+        """`--auth` with `--example` is refused: the example decides its own sign-in."""
         parent = tempfile.mkdtemp()
         self.assertEqual(cli.main(["new", "shop", "--example", "stall",
                                    "--auth", "github", "--parent-dir", parent]), 1)
@@ -143,3 +131,29 @@ class ExampleCommandLineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProjectNameFromAPathTest(unittest.TestCase):
+    """`synqt new` takes a directory (`../shop`, `~/src/shop`, `.`); the project is named after
+    its last component.
+    """
+
+    def test_a_new_project_given_a_path_is_named_after_its_directory(self):
+        parent = Path(tempfile.mkdtemp())
+        printed = newproject.scaffold(parent, str(parent / "nested" / "shop"))
+        config = yaml.safe_load((parent / "nested" / "shop" / "synqt.yaml").read_text())
+        self.assertEqual(config["project"]["name"], "shop")
+        self.assertIn("Scaffolded 'shop'", printed)
+
+    def test_an_example_copied_to_a_path_is_named_after_its_directory(self):
+        parent = Path(tempfile.mkdtemp())
+        examples.scaffold(parent, str(parent / "nested" / "shop"), "stall")
+        config = yaml.safe_load((parent / "nested" / "shop" / "synqt.yaml").read_text())
+        self.assertEqual(config["project"]["name"], "shop")
+
+    def test_a_dot_names_the_directory_it_is_run_in(self):
+        root = Path(tempfile.mkdtemp()) / "shop"
+        root.mkdir()
+        newproject.scaffold(root, ".")
+        config = yaml.safe_load((root / "synqt.yaml").read_text())
+        self.assertEqual(config["project"]["name"], "shop")

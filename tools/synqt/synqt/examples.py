@@ -3,15 +3,9 @@
 
 """The example systems the CLI ships, and ``synqt new <name> --example <example>``.
 
-An example is a whole project, not a snippet. The same `synqt.yaml`, the same entity
-folders and the same QML a hand-built one has, which is why starting from one is a copy and
-not a template expansion. What the copy changes is the project's name, and what it adds is
-the two files a checkout of an example does not carry because the repository already has
-them elsewhere (a `.gitignore` and a `.env.example`).
-
-They are read out of the framework root, the same directory `src/` and `cmake/` come from,
-so a checkout uses the examples being edited and an installed wheel uses the copy vendored
-inside it (`tools/synqt/_build_backend.py` puts them there).
+An example is a whole project, copied as is. The copy changes the project name and adds a
+`.gitignore` and a `.env.example`. Examples are read from the framework root: the checkout,
+or the copy a wheel vendors (`tools/synqt/_build_backend.py`).
 """
 
 from __future__ import annotations
@@ -31,20 +25,13 @@ class ExampleError(Exception):
     """A bad example name or an unusable examples directory, surfaced without a traceback."""
 
 
-# Written from one machine's run and meaningless on another, or somebody's secrets. The
-# vendoring step drops the same names, so this matters only in a checkout, where a developer
-# who has run `synqt dev` in `examples/gavel` has all of them lying about.
+# Machine-specific output or secrets. The vendoring step drops the same names.
 _SKIP = {"build", "generated", "CMakeUserPresets.json", ".env", "certs", "__pycache__"}
 
 
 def root() -> Path:
-    """Where the shipped examples live.
-
-    `appmodel.framework_root` answers the same question for `src/` and `cmake/` and is not
-    reused, for one reason. It refuses a copy unpacked into a temporary directory, because a
-    path that disappears at exit must never be baked into a project's CMake. Copying a
-    directory out of one is fine, so the frozen binary can offer examples even though it can
-    never be a SYNQT_ROOT.
+    """Where the shipped examples live. Unlike `appmodel.framework_root`, a temporary unpack
+    directory is accepted, since the files are copied out and not referenced.
     """
     override = os.environ.get("SYNQT_ROOT")
     candidates = [Path(override).expanduser().resolve() / "examples"] if override else []
@@ -60,12 +47,8 @@ def root() -> Path:
 
 
 def headline(directory: Path) -> str:
-    """One line saying what an example is, read off the title of its own README.
-
-    The READMEs are written `# stall: a storefront with edge-delivered campaigns`, so the
-    half after the colon is the sentence and the half before it is the name already in the
-    first column. Nothing is written down twice. An example whose README says something else
-    is listed by whatever its title says.
+    """One line describing an example: its README title after the colon (`# stall: a storefront
+    with edge-delivered campaigns`).
     """
     readme = directory / "README.md"
     if not readme.is_file():
@@ -115,12 +98,7 @@ def secrets(node: Any) -> List[str]:
 
 
 def _env_example(config: Dict[str, Any]) -> str:
-    """A `.env.example` naming every secret the copied project reads from its environment.
-
-    An example in the repository has none, because the repository is not where anybody runs
-    one. A copy is, and a project whose edge will not start until `GITHUB_CLIENT_SECRET` is
-    set should say so in a file rather than in a stack trace.
-    """
+    """A `.env.example` naming every secret the copied project reads from its environment."""
     header = "# Entity secrets (env: references), never committed\n"
     return header + "".join(f"{name}=\n" for name in secrets(config))
 
@@ -142,18 +120,16 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, example: str) -> str
     if destination.exists() and any(destination.iterdir()):
         raise newproject.NewProjectError(f"{destination} already exists and is not empty")
     if destination.exists():
-        # copytree will not write into a directory that is already there, and an empty one
-        # is what `mkdir app && cd app` leaves. Taking it as the target rather than refusing
-        # it keeps the two `synqt new` shapes behaving the same way.
+        # Accept an existing empty directory as the target (copytree refuses existing ones).
         destination.rmdir()
     _copy(directory, destination)
+    project_name = destination.resolve().name  # `name` may be a path. See newproject
 
     config_path = destination / "synqt.yaml"
-    # Edited rather than re-serialised, because an example's synqt.yaml is a file somebody
-    # is meant to read: it is commented throughout, and yaml.safe_dump would hand the reader
-    # a version of their new project with every one of those comments deleted.
+    # Edited in place, keeping the example's comments.
     config_path.write_text(
-        yamledit.set_scalar(config_path.read_text(encoding="utf-8"), "project.name", name),
+        yamledit.set_scalar(config_path.read_text(encoding="utf-8"), "project.name",
+                            project_name),
         encoding="utf-8")
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
@@ -163,13 +139,11 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, example: str) -> str
     appgen.generate(destination, config)
 
     about = headline(directory)
-    lines = [f"Copied the '{example}' example into '{name}'"
+    lines = [f"Copied the '{example}' example into '{project_name}'"
              + (f": {about}." if about else "."),
              f"  cd {name} && synqt dev"]
     if secrets(config):
-        # Named here rather than left to the first failed start. An example that signs
-        # people in needs a provider registered and a secret placed, and neither is
-        # something a copy can do for somebody.
+        # An example that signs people in needs a provider registered and a secret placed.
         lines.append("")
         lines.append("  It reads secrets from the environment. See .env.example and the "
                      "example's own README.md.")
