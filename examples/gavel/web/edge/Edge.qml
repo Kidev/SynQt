@@ -29,9 +29,16 @@ Edge {
     // `Books` is how the edge reaches the books entity, the same way the browser reaches
     // the edge with `Server`. An entity has one connect point, so its name is the whole
     // address.
-    Component.onCompleted: Books.winnerRecorded.connect(lot.recordWinner)
+    Component.onCompleted: {
+        Books.winnerRecorded.connect(lot.recordWinner);
+        // The Hall as the ledger holds it. A returning slot resolves when the answer comes
+        // back, so an edge that starts after a lot was closed shows those winners too.
+        Books.recentWinners().then(rows => {
+            lot.winners = rows;
+        });
+    }
 
-    // A signed-in user is asking to bid. Whether their bid is good enough is ours to say.
+    // A signed-in user is asking to bid. Whether their bid is good enough is the edge's to say.
     function placeBid(amount) {
         if (amount <= lot.highBid) {
             Caller.emitBidRejected("Your bid must beat " + lot.highBid + ".");

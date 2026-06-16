@@ -38,10 +38,7 @@ entities:
   - name: edge
     type: web_edge
     identity: true
-    # Serving the browser over TLS in a release build. `synqt dev` ignores this and
-    # runs plaintext on localhost. `synqt build --release` and `synqt serve` require
-    # either this block or public.tls_terminated_upstream, so that nothing ships
-    # reachable over http:// with nobody named as the one who was meant to stop it.
+    # Browser TLS for a release build. `synqt dev` serves plaintext on localhost.
     tls:
       cert_file: certs/edge/fullchain.pem
       key_file: certs/edge/privkey.pem
@@ -88,8 +85,11 @@ connect_points:
   - owner: books
     consumers: [edge]
     # A recorded winner is announced as a scalar signal (scalars replicate reliably), and
-    # the edge maintains the browser-facing Hall from it.
+    # the edge maintains the browser-facing Hall from it. `recentWinners` is the other
+    # half. An edge that starts after a lot was closed pulls the rows once rather than
+    # waiting for a winner that has already been announced.
     export: |
       prop int count                                                  // recorded winners
       slot recordWinner(string[80] item, string[80] winner, int amount)  // edge -> books
+      slot var recentWinners()   // the Hall as it stands, for an edge that just came up
       signal winnerRecorded(string[80] item, string[80] winner, int amount)

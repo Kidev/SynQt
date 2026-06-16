@@ -647,6 +647,7 @@ connect_points:
     export: |
       model items(string[40] sku, string[80] title, int price)
       slot restock(string[40] sku, string[80] title, int price)
+      slot var list()                     // the shelves, for an edge that just came up
       signal itemStocked(string[40] sku, string[80] title, int price)
 ```
 

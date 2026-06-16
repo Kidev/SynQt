@@ -6,36 +6,49 @@ import SynQt
 // The authoritative stock on the stock entity.
 //
 // The connect point lists one consumer, the edge, so nothing else opens a link to this
-// entity and the browser cannot reach it at all. That list is the rule; there is no check
+// entity and the browser cannot reach it at all. That list is the rule. There is no check
 // in here about who is calling, because there is nobody else who could be.
 //
-// The Db helper (parameterized query/exec, so a value can never become SQL) backs the
-// durable store when the persistence blueprint provisions it (schema.sql); this in-memory
-// seed keeps the connect-point contract identical while the SQLite provider is wired in,
-// and announces each item to the edge so the browser-facing Catalog fills itself.
+// Every value reaches the table through `Db` as a separate parameter, so no value can ever
+// become SQL. The table is the one `schema.sql` beside this file declares, applied at
+// startup, so a restocked shelf is still stocked after a restart.
 Stock {
     id: inventory
 
-    property var store: []
+    Component.onCompleted: inventory.openShop()
 
     function restock(sku, title, price) {
-        inventory.store.push({ sku: sku, title: title, price: price });
-        inventory.setItems(inventory.store);
+        Db.exec("INSERT INTO items(sku, title, price) VALUES(?, ?, ?) "
+                + "ON CONFLICT(sku) DO UPDATE SET title = ?, price = ?",
+                [sku, title, price, title, price]);
+        inventory.publish();
         inventory.itemStocked(sku, title, price);   // announce to the edge
     }
 
-    // Seed the opening stock and announce it, so a fresh edge fills its catalog at once.
-    Component.onCompleted: {
+    // Everything on the shelves, for an edge that has come up. It pulls this rather
+    // than waiting for an announcement of stock that was put out before it started.
+    function list() {
+        return Db.query("SELECT sku, title, price FROM items ORDER BY sku");
+    }
+
+    function publish() {
+        inventory.setItems(inventory.list());
+    }
+
+    // The opening stock, written once. A shop that has been opened before keeps whatever
+    // it was left with, so restarting is not a way to undo a day's restocking.
+    function openShop() {
         const opening = [
             { sku: "sku-001", title: "Baked lasagna", price: 12 },
             { sku: "sku-002", title: "Sourdough loaf", price: 6 },
             { sku: "sku-003", title: "Garden salad", price: 8 }
         ];
-        for (let i = 0; i < opening.length; ++i) {
-            const item = opening[i];
-            inventory.store.push(item);
-            inventory.itemStocked(item.sku, item.title, item.price);
+        if (inventory.list().length === 0) {
+            for (let i = 0; i < opening.length; ++i) {
+                Db.exec("INSERT INTO items(sku, title, price) VALUES(?, ?, ?)",
+                        [opening[i].sku, opening[i].title, opening[i].price]);
+            }
         }
-        inventory.setItems(inventory.store);
+        inventory.publish();
     }
 }

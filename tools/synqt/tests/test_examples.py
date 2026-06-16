@@ -13,6 +13,7 @@ in tests/fix1-auction, tests/fix2-arena, and tests/fix3-stall.
 """
 
 import copy
+import re
 import unittest
 from pathlib import Path
 
@@ -144,8 +145,48 @@ class StallCheckTest(unittest.TestCase):
                         messages)
 
 
+class RelationalExampleStoresItsRowsTest(unittest.TestCase):
+    """A database entity in an example has to store what the tutorial says it stores.
+
+    Every one of these ships a `schema.sql`, and the tutorial beside it ends on stopping
+    the project and starting it again to watch the rows come back. An entity that keeps
+    its rows in a `property var` instead builds, checks out, and passes every other test
+    here, and the only thing it gets wrong is the promise the page makes: the gavel books
+    entity held its Hall of Fame in an array while its own schema declared a table nothing
+    ever read.
+    """
+
+    #: Every relational entity in the examples, as (project, entity directory).
+    LEDGERS = (("chat", "store"), ("gavel", "books"), ("arena", "records"),
+               ("stall", "stock"))
+
+    def _entity(self, project, entity):
+        directory = EXAMPLES / project / "db" / "relational" / entity
+        qml = directory / f"{entity[:1].upper()}{entity[1:]}.qml"
+        return qml.read_text(), (directory / "schema.sql").read_text()
+
+    def test_every_table_it_declares_is_one_it_reads_or_writes(self):
+        for project, entity in self.LEDGERS:
+            with self.subTest(project=project):
+                qml, schema = self._entity(project, entity)
+                tables = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", schema)
+                self.assertTrue(tables, f"{project}: schema.sql declares no table")
+                for table in tables:
+                    self.assertIn(table, qml,
+                                  f"{project}: nothing in the entity names the table "
+                                  f"'{table}' its schema creates")
+
+    def test_it_reaches_its_rows_through_db(self):
+        for project, entity in self.LEDGERS:
+            with self.subTest(project=project):
+                qml, _ = self._entity(project, entity)
+                self.assertRegex(qml, r"\bDb\.(query|exec)\(",
+                                 f"{project}: the entity never calls Db, so its rows live "
+                                 "only as long as the process")
+
+
 class ExampleClientRootTest(unittest.TestCase):
-    """Every example is an onboarding acceptance fixture: it must RUN, not merely build.
+    """Every example is an onboarding acceptance fixture. It must RUN, not merely build.
     Its Main.qml is the engine's root object, so a non-window root renders a blank page
     with nothing in the log. Some shipped that way once. This pins them.
     """

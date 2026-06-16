@@ -22,10 +22,19 @@ Edge {
     // `Stock` is how the edge reaches the stock entity, the same way the browser reaches the
     // edge with `Server`. A generated Source is a plain QObject, so the connection to its
     // signal is made imperatively.
-    Component.onCompleted: Stock.itemStocked.connect(catalog.stockItem)
+    Component.onCompleted: {
+        Stock.itemStocked.connect(catalog.stockItem);
+        // The shelves as the stock entity holds them. A returning slot resolves when the
+        // answer comes back, so an edge that starts after the shop was stocked shows it.
+        Stock.list().then(rows => {
+            // The rows carry the sku as well. `offersRows` keeps only the roles the
+            // contract declares, so it is dropped here rather than filtered by hand.
+            catalog.offers = rows;
+        });
+    }
 
     // A browser asks to add an item to its cart. In version 1 the cart is client-side, so
-    // this is where a real deployment would reserve stock; the slot exists to show the
+    // this is where a real deployment would reserve stock. The slot exists to show the
     // consumer-to-owner direction and is a courtesy no-op here.
     function addToCart(sku: string) {
         return;

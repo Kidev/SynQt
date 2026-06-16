@@ -30,10 +30,7 @@ entities:
 
   - name: edge
     type: web_edge
-    # Serving the browser over TLS in a release build. `synqt dev` ignores this and
-    # runs plaintext on localhost. `synqt build --release` and `synqt serve` require
-    # either this block or public.tls_terminated_upstream, so that nothing ships
-    # reachable over http:// with nobody named as the one who was meant to stop it.
+    # Browser TLS for a release build. `synqt dev` serves plaintext on localhost.
     tls:
       cert_file: certs/edge/fullchain.pem
       key_file: certs/edge/privkey.pem
@@ -62,6 +59,7 @@ connect_points:
     export: |
       model items(string[40] sku, string[80] title, int price)        // the durable stock
       slot restock(string[40] sku, string[80] title, int price)       // edge -> stock
+      slot var list()   // everything on the shelves, for an edge that just came up
       signal itemStocked(string[40] sku, string[80] title, int price) // stock -> edge
 
 # The route table (top level, docs/project-layout-and-config.md). A route with `view:` is

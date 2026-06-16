@@ -4,11 +4,11 @@
 // The books entity of the gavel example, as its own process, which is what it is in a real
 // deployment. `synqt build` produces one binary per entity.
 //
-// It has to be its own process here, because that is the shape of the whole naming rule. An entity is one name. The books entity's Source is rooted at
-// `Books`, and the edge reaches that entity as `Books` too. In an entity's own binary only
-// one of those exists, so the two never meet. Hosted in the same process as the edge, both
-// would register the QML name `Books`, one would win, and whichever lost would be a name
-// resolving to the wrong object with nothing said about it.
+// It has to be its own process, because of the naming rule: an entity is one name. The
+// books entity's Source is rooted at `Books`, and the edge reaches that entity as `Books`
+// too. In an entity's own binary only one of those exists. Hosted in the edge's process,
+// both would register the QML name `Books`, one would win, and the other would resolve to
+// the wrong object silently.
 //
 // It speaks one line of stdout per event so the test driving it can wait for what it needs:
 // `ready` once the point is listening, and `refused <entity>` whenever a connecting entity
@@ -20,12 +20,42 @@
 #include "books_sourcehelper.h"  // synqtRegisterBooksSources()
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QQmlEngine>
 #include <QTextStream>
+#include <QVariantMap>
 
 #include <cstdio>
 
 using namespace SynQt;
+
+namespace {
+
+/// The example's own `schema.sql`, as the forward-only steps the runtime applies, the way
+/// `synqt build` writes them into the topology. Line comments dropped, one step per
+/// statement.
+QStringList schemaOf(const QString &path)
+{
+    QFile file{path};
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+    QString code;
+    const QStringList lines{QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'))};
+    for (const QString &line : lines) {
+        code += line.section(QStringLiteral("--"), 0, 0) + QLatin1Char('\n');
+    }
+    QStringList steps;
+    const QStringList statements{code.split(QLatin1Char(';'))};
+    for (const QString &statement : statements) {
+        if (!statement.trimmed().isEmpty()) {
+            steps.append(statement.trimmed());
+        }
+    }
+    return steps;
+}
+
+} // namespace
 
 int main(int argc, char *argv[])
 {
@@ -57,6 +87,15 @@ int main(int argc, char *argv[])
     topology.entity = QStringLiteral("books");
     topology.credentials = credentials;
     topology.connectPoints = {point};
+    // A relational entity, which is what the example declares it to be: the runtime puts
+    // `Db` in the Source's scope and applies the schema before the point is listening.
+    // Without this the entity starts, the QML runs, and every `Db` line is a ReferenceError
+    // on a ledger that records nothing.
+    topology.type = QStringLiteral("relational");
+    topology.provider = QVariantMap{{QStringLiteral("name"), QStringLiteral("sqlite")},
+                                    {QStringLiteral("file"), QStringLiteral(":memory:")}};
+    topology.schema = schemaOf(QStringLiteral(FIX1_GAVEL_DIR
+                                              "/db/relational/books/schema.sql"));
 
     QQmlEngine engine;
     EntityRuntime runtime{topology, &engine};
