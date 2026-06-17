@@ -3,24 +3,24 @@
 
 # The round and the Hall of Fame
 
-You can already sign in, grow, and see others move smoothly, but the game never ends
-and nothing is remembered. This part adds a ten minute round that crowns the biggest
-blob, and a permanent Hall of Fame behind a database that survives restarts, reached by
-the edge and never by the browser.
+You can sign in, grow and watch others move, but the game never ends and remembers
+nothing. This part adds a ten minute round that crowns the biggest blob, and a permanent
+Hall of Fame in a database that survives restarts. The edge reaches the database; the
+browser never does.
 
 ## Step 1: A database for the permanent scores
 
-The live arena lives in the edge's memory, which is right for something that changes
-twenty times a second. All-time points are the opposite, rare to write, and they must
-survive a restart. That is a database's job, exactly as in
-[the Hall of Fame](tutorial-hall-of-fame.md). Add one:
+The live arena lives in the edge's memory, which suits something that changes twenty
+times a second. All-time points are the opposite: rarely written, and they must survive a
+restart. That is a database's job, as in [the Hall of Fame](tutorial-hall-of-fame.md).
+Add one:
 
 ```cli
 synqt add entity records --type relational
 ```
 
-Give it a connect point in `synqt.yaml`. This is the database's API, used only by the
-edge:
+Give it a connect point in `synqt.yaml`. This is the database's API, and only the edge
+uses it:
 
 ```yaml
 connect_points:
@@ -66,19 +66,18 @@ CREATE TABLE IF NOT EXISTS champions (
 );
 ```
 
-There is no check in there for who is calling, and there does not need to be. The consumer
-list has one name in it, so nothing but the edge can acquire this entity at all. Entity
-links use mutual TLS even between two processes on your laptop, and `synqt dev` issued
-throwaway development certificates for that automatically when it started, so the entity on
-the other end is the one its certificate says it is. `Caller.entity` is for the case this
-is not, an owner with two consumers where only one of them may write.
+The code does not check who is calling, and does not need to. The consumer list has one
+name, so only the edge can acquire this entity. Entity links use mutual TLS even between
+two processes on your laptop (`synqt dev` issued throwaway development certificates when
+it started), so the entity at the other end is the one its certificate names. Use
+`Caller.entity` when an owner has two consumers and only one may write.
 
 ## Step 2: Extend the arena
 
-The browser must never reach the database directly, so the edge will mirror the
-standings into the arena everyone already watches. Add the round clock, the champions
-model, and the round event to the edge's `export:` (it already carries `board`
-from [part two](tutorial-multiplayer-world.md#step-1-the-shared-arena-a-connect-point)):
+The browser must never reach the database directly, so the edge mirrors the standings
+into the arena everyone already watches. Add the round clock, the champions model and the
+round event to the edge's `export:` (it already carries `board` from
+[part two](tutorial-multiplayer-world.md#step-1-the-shared-arena-a-connect-point)):
 
 ```yaml
     export: |
@@ -94,17 +93,16 @@ from [part two](tutorial-multiplayer-world.md#step-1-the-shared-arena-a-connect-
       signal roundEnded(string[40] winner)        // the round closed, and the winner is named
 ```
 
-`roundEndsAt` is a single timestamp the whole arena shares, so a property is exactly
-right. The owner sets it once per round and every browser sees the new value pushed.
-`champions` is a model the edge fills from the database. `roundEnded` announces the
-crowning.
+`roundEndsAt` is one timestamp the whole arena shares, so it is a property: the owner sets
+it once per round and every browser receives the new value. `champions` is a model the
+edge fills from the database. `roundEnded` announces the winner.
 
 ## Step 3: The world runs the clock, the Source publishes it
 
-A round belongs to the arena rather than to one player's view of it, so it goes where
-the arena is, in `web/edge/World.qml`, the singleton from
-[part two](tutorial-multiplayer-world.md#step-3-the-edge-owns-the-arena-once). The
-champions list is the same, one list for everybody. Add to `World.qml`:
+A round belongs to the arena, not to one player's view of it, so it goes with the arena
+in `web/edge/World.qml`, the singleton from
+[part two](tutorial-multiplayer-world.md#step-3-the-edge-owns-the-arena-once). So does the
+champions list, which is one list for everybody. Add to `World.qml`:
 
 ```qml
     readonly property int roundMs: 10 * 60 * 1000     // shorten this to test quickly
@@ -156,7 +154,7 @@ Extend `Component.onCompleted` in the same file to start the first round:
         world.refreshChampions()
 ```
 
-Then `web/edge/Edge.qml`, one per player session, relays the event and publishes the two
+Then `web/edge/Edge.qml` (one per player session) relays the event and publishes the two
 new values:
 
 ```qml
@@ -168,22 +166,22 @@ new values:
         World.roundEnded.connect(winner => arena.roundEnded(winner))
 ```
 
-and, in the tick it already has, mirror the clock:
+and mirrors the clock in its existing tick:
 
 ```qml
             arena.roundEndsAt = World.roundEndsAt
 ```
 
-The edge consumes the records entity's point and owns its own. The browser consumes the
-edge's and nothing else. There are two boundaries between an internet visitor and the
-stored points. The edge authorizes the person, and the topology puts the records entity
-out of everyone else's reach.
+The edge consumes the records entity's point and owns its own. The browser consumes only
+the edge's. Two boundaries stand between a visitor and the stored points: the edge
+authorizes the person, and the topology keeps everyone else away from the records
+entity.
 
 ## Step 4: Show the clock and the Hall
 
-Two more overlays in `client/app/Main.qml`. A countdown needs a ticking clock, so add a
-half second timer that advances "now", and derive the remaining time from the
-pushed `roundEndsAt`. Add inside the root `Item`:
+Add two more overlays to `client/app/Main.qml`. A countdown needs a ticking clock: add a
+half second timer that advances "now", and compute the remaining time from `roundEndsAt`.
+Add inside the root `Item`:
 
 ```qml
 property real now: Date.now()
@@ -223,8 +221,7 @@ Column {
 }
 ```
 
-And announce the crowning with the banner you already have. Add inside the root
-`Item`:
+Announce the winner with the banner you already have. Add inside the root `Item`:
 
 ```qml
 Edge.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")
@@ -232,21 +229,21 @@ Edge.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the 
 
 ## Run it
 
-Save and look at the browser. Sign in with an approved account and play as before, but
-now a clock counts down at the top and a Hall of Fame sits bottom right. To see a round
-resolve without waiting ten minutes, drop `roundMs` in `web/edge/World.qml` to something like
-`20 * 1000`, save, and play a short round. When the clock hits zero the biggest blob is
-crowned, everyone resets small, and that name appears in the Hall of Fame with one
-point. Now stop `synqt dev` and start it again. The live arena is empty, but the Hall of
-Fame is still there, because the points live in the database rather than in the edge's memory.
-Put `roundMs` back to ten minutes when you are done.
+Save and look at the browser. Sign in with an approved account and play. A clock now
+counts down at the top, and a Hall of Fame sits at the bottom right. To see a round end
+without waiting ten minutes, set `roundMs` in `web/edge/World.qml` to something like
+`20 * 1000`, save, and play a short round. When the clock reaches zero, the biggest blob
+wins, everyone resets small, and the winner appears in the Hall of Fame with one point.
+Stop `synqt dev` and start it again: the arena is empty, but the Hall of Fame remains,
+because the points live in the database, not in the edge's memory. Set `roundMs` back to
+ten minutes when you are done.
 
 ## Try it, then think
 
 > [!QUESTION]
-> The Hall of Fame data physically lives in the database entity. It seems simpler to
-> let the browser read it straight from there. In `synqt.yaml`, add the client as a
-> consumer of the records entity's connect point:
+> The Hall of Fame lives in the database entity, so letting the browser read it there
+> looks simpler. In `synqt.yaml`, add the client as a consumer of the records entity's
+> connect point:
 >
 > ```
 > consumers: [edge, app]
@@ -257,15 +254,15 @@ Put `roundMs` back to ten minutes when you are done.
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-`synqt check` rejects it. A connect point the browser consumes must be owned by the web
-edge, and the database is not a web edge. The browser can physically reach only the
-edge, never an internal entity. That is why the edge mirrors the standings into its own
-point with `setChampions`. There are two boundaries here: the edge authorizes the person,
-and the records entity's one-name consumer list puts it out of everyone else's reach. Put
-the line back to `[edge]`. The full reasoning is in [security](security.md).
+`synqt check` rejects it. A web edge must own any connect point the browser consumes, and
+the database is not a web edge. The browser can reach only the edge, never an internal
+entity, which is why the edge mirrors the standings into its own point with the
+`championsRows` binding from step 3. Two boundaries apply: the edge authorizes the
+person, and the records entity's single consumer keeps everyone else out. Set the line
+back to `[edge]`. [Security](security.md) covers the full reasoning.
 
 </details>
 
-The game is now complete and persistent. One thing is still wasteful: the edge
-broadcasts the whole arena to every browser, even the blobs and pellets off your
-screen. The last part sends each player only their own slice.
+The game is now complete and keeps its scores. One thing is still wasteful: the edge
+sends the whole arena to every browser, including blobs and pellets off screen. The last
+part sends each player only their own slice.

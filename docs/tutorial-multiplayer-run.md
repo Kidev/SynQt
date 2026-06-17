@@ -3,22 +3,21 @@
 
 # Only what you can see
 
-The game from [part four](tutorial-multiplayer-rounds.md) is complete and persistent,
-but wasteful in one way. The edge sends every player the whole arena, even the blobs and
-pellets off their screen. Your camera shows only a window, maybe a thousand units of a
-four thousand unit map, so most of what arrives is never drawn. This last part sends
-each player only what they can see. It plays exactly the same. The change is in what
-crosses the wire.
+The game from [part four](tutorial-multiplayer-rounds.md) is complete and keeps its
+scores, but it wastes bandwidth: the edge sends every player the whole arena, including
+blobs and pellets off screen. Your camera shows a window of maybe a thousand units of a
+four thousand unit map, so most of what arrives is never drawn. This part sends each
+player only what they can see. The game plays the same; only what crosses the wire
+changes.
 
-This is interest management, and the split it needs is one you already have. Each
-player already has their own `Arena` Source over one shared `World`. What changes is that
-the Source stops publishing the whole world and starts publishing that player's slice.
-`World` grows two query functions to compute a slice, and `Arena` calls those instead of
-the global ones.
+This is interest management, and you already have the split it needs: each player has
+their own `Edge` Source over one shared `World`. The Source stops publishing the whole
+world and publishes that player's slice instead. `World` gains two query functions that
+compute a slice, and `Edge` calls them instead of the global ones.
 
 ## The shared world, with a round and a slice
 
-Here is `web/edge/World.qml` again, now with the round timer, the Hall of Fame, and the
+Here is `web/edge/World.qml` again, now with the round timer, the Hall of Fame and the
 two `nearby` queries. Replace the file with it:
 
 ```qml
@@ -166,16 +165,16 @@ Item {
 }
 ```
 
-The simulation and the liveness sweep are the ones you already wrote. What is added is
-the round timer, the Hall of Fame, and the two `nearby` queries that compute one player's
-view. The `pragma Shared` line is what makes `web/edge/World.qml` one instance for the
-whole edge, and every Source reaches it by name.
+The simulation and the liveness sweep are the ones you wrote. The new parts are the round
+timer, the Hall of Fame, and the two `nearby` queries that compute one player's view.
+`pragma Shared` makes `World.qml` one instance for the whole edge, and every Source
+reaches it by name.
 
 ## One private view per player
 
-Now replace `web/edge/Edge.qml`. It still forwards `steer` and `ping` into the shared
-`World`. What is new is that it publishes only this player's slice, plus the two lists
-that stay global (the leaderboard and the Hall of Fame).
+Now replace `web/edge/Edge.qml`. It still forwards `steer` and `ping` to the shared
+`World`, but now it publishes only this player's slice, plus the two lists that stay
+global (the leaderboard and the Hall of Fame).
 
 ```qml
 import SynQt
@@ -220,119 +219,112 @@ Edge {
 }
 ```
 
-The edge's connect point in `synqt.yaml` does not change at all, because the arrangement this
-needed was already there, because the `shared: false` you set in part two already gives
-each player a Source of their own.
+The edge's connect point in `synqt.yaml` does not change: the `shared: false` you set in
+part two already gives each player a Source of their own.
 
-The client does not change either. It already read `blobs` (now just the nearby ones),
-`board` (still global), `pellets` (nearby), `champions`, and `roundEndsAt`. That is the
-payoff of keeping the leaderboard in its own `board` model back in part two. Switching to
-per-player delivery touched only the edge.
+The client does not change either. It already reads `blobs` (now only nearby ones),
+`board` (still global), `pellets` (nearby), `champions` and `roundEndsAt`. Keeping the
+leaderboard in its own `board` model in part two pays off here: per player delivery
+changed only the edge.
 
 > [!NOTE]
-> The singleton simulates once, so there is exactly
-> one authoritative arena no matter how many players connect. Each per-session Source
-> is a cheap filter over it, computing one player's view. That is the shape of interest
-> management, one authority and many tailored views. For a real crowd you would
-> replace the linear "check every blob" scan with a spatial grid so each query touches
-> only nearby cells, but the structure, filter the authority per viewer, is already here.
+> The singleton simulates once, so there is one authoritative arena however many
+> players connect. Each session's Source is a cheap filter over it that computes one
+> player's view. That is interest management: one authority, many tailored views. For a
+> real crowd, replace the linear scan over every blob with a spatial grid so each query
+> touches only nearby cells. The structure (filter the authority per viewer) stays the
+> same.
 
 ## Run it
 
-Save and play. Nothing looks different, because interest management is invisible to the
-player. You steer, grow, and eat as before, the camera
-still glides with you, the clock still counts down, the Hall of Fame still fills. What
-changed is on the wire. Each browser now receives only the blobs and pellets inside its
-view rather than the whole map. With two players far apart, neither appears in the other's
-world at all until they drift close, then they slide into view. (The `roundMs` test knob
-is still in `web/edge/World.qml` if you want to watch a round resolve again.)
+Save and play. Nothing looks different: interest management is invisible to the player.
+You steer, grow and eat as before, the camera follows you, the clock counts down, and the
+Hall of Fame fills. The change is on the wire: each browser now receives only the blobs
+and pellets in its view. Two players far apart do not see each other at all until they
+come close; then they slide into view. (The `roundMs` setting in `web/edge/World.qml`
+still shortens a round if you want to watch one end.)
 
 ## Try it, then think
 
 > [!QUESTION]
-> The edge owns three kinds of trust: your name, your size, and your position. Open your
-> browser console, signed in as yourself, and try to break each. Aim for the far corner
-> in one shot:
+> The edge owns three things: your name, your size and your position. Signed in as
+> yourself, open the browser console and try to break each. Aim for the far corner in
+> one shot:
 >
 > ```
 > Server.steer(3999, 3999)
 > ```
 >
-> Then hunt for a way to place your blob somewhere, to make it huge, or to wear another
+> Then look for a way to place your blob somewhere, make it huge, or take another
 > player's name. Predict what you can and cannot do.
 
 <details class="solution" markdown>
 <summary>Solution</summary>
 
-`steer(3999, 3999)` does not teleport you. It aims you at the corner, and the edge walks
-you there at your size's speed, a tick's budget at a time. Your local prediction does the
-same, so the camera glides rather than jumping, and everyone else only ever sees you
-slide.
+`steer(3999, 3999)` does not teleport you. It aims you at the corner, and the edge moves
+you there at your size's speed, one tick at a time. Your prediction does the same, so
+the camera glides instead of jumping, and everyone else sees you slide.
 
-And there is no other move to make. The only movement input in the contract is an aim
-point, a goal. Your position, mass, and name are model fields, and models flow owner to
-consumer only, so the console cannot write them. The edge integrates every blob from
-state it alone holds, grants mass only for a pellet or a kill it verified itself, and
-stamps your name once from `Caller.identity.login`. There is no `setPosition`, no `grow`,
-no `rename`, because none of those are inputs.
+There is nothing else to try. The contract's only movement input is an aim point. Your
+position, mass and name are model fields, and models flow only from owner to consumer,
+so the console cannot write them. The edge moves every blob from state only it holds,
+grants mass only for a pellet or a kill it verified, and sets your name once from
+`Caller.identity.login`. There is no `setPosition`, `grow` or `rename`, because none of
+those are inputs.
 
-The interest management you added gives a fourth protection. `Server.blobs`
-now holds only the players near you, so a cheater cannot even read the whole map to plan,
-the way a "wallhack" would. You are sent what you can see, and nothing else.
+Interest management adds a fourth protection. `Server.blobs` now holds only the players
+near you, so a cheater cannot read the whole map to plan, as a "wallhack" would. You
+receive what you can see and nothing more.
 
-This is the auction's lesson carried all the way through. The edge never accepts a
-position from a client, and it shows each player only what they are entitled to see.
+This is the auction's lesson all the way through: the edge never accepts a position from
+a client, and shows each player only what they may see.
 
 </details>
 
 > [!IMPORTANT]
 > The guest list is enforced twice, and only the second time counts. The client hides
-> the arena behind a gate, which is a courtesy. The connect point's `scope: player` is
-> the real barrier: an unapproved account, even one poking at the console, never has
-> `arena` acquired for it, so `steer`, `ping`, and the roster are all out of reach.
+> the arena behind a gate, as a courtesy. The connect point's `scope: player` is the
+> real barrier: for an unapproved account, even one using the console, the edge never
+> acquires `arena`, so `steer`, `ping` and the roster are all out of reach.
 
 ## What you learned
 
-- One connect point can carry a whole live world: a model of the blobs in view, the
-  pellets in view, a global leaderboard, a round clock, the Hall of Fame, and the events,
-  all mirrored to the browser many times a second.
-- The edge is the genuine authority over movement. It takes intent (an aim point) and
-  integrates every blob's position itself at the speed that blob's mass allows, so there
-  is no position for a client to forge.
-- The client makes it feel right without weakening that authority: it predicts your
-  own blob with the edge's exact rule so it tracks your cursor and the camera follows,
-  and interpolates everyone else from a buffer of recent snapshots so motion is
-  smooth, reconciling against the edge whenever it pushes an update.
-- Interest management with one Source per caller means the edge simulates once in a
-  shared singleton and sends each player only their slice, so the payload stops growing
-  with the whole arena, and a client is shown only what it can see.
-- Durable data lives in a database the browser can never reach; the edge authorizes the
-  person and the database authorizes the edge (`Caller.entity`), and the edge mirrors what
-  the browser is allowed to see.
-- A scoped connect point (`scope: player`) is what actually admits or refuses a visitor;
-  the sign in gate on screen is only there to be friendly.
+- One connect point can carry a whole live world: the blobs and pellets in view, a
+  global leaderboard, a round clock, the Hall of Fame and the events, all mirrored to the
+  browser many times a second.
+- The edge owns movement. It takes intent (an aim point) and moves every blob itself at
+  the speed its mass allows, so a client has no position to forge.
+- The client makes it feel right without weakening that authority. It predicts your blob
+  with the edge's exact rule so it follows your cursor, interpolates everyone else from
+  recent snapshots so motion is smooth, and reconciles with the edge on every update.
+- With one Source per caller, the edge simulates once in a shared singleton and sends
+  each player only their slice. The payload stops growing with the arena, and a client
+  sees only what is near it.
+- Durable data lives in a database the browser can never reach. The edge authorizes the
+  person, the records entity's single consumer keeps everyone else out, and the edge
+  mirrors what the browser may see.
+- A scoped connect point (`scope: player`) admits or refuses a visitor. The sign-in gate
+  on screen is only a courtesy.
 
 ## Netcode gets hard, fast
 
-Because a 2D blob world is cheap to simulate, the edge here is genuinely
-server-authoritative, and the client already does client-side prediction, entity
-interpolation, and interest management. What remains are the harder, sharper versions
-of what you built:
+A 2D blob world is cheap to simulate, so here the server owns every position, and the
+client already does prediction, entity interpolation and interest management. What
+remains are stricter versions of what you built:
 
-- Input-replay reconciliation. Your prediction eases away small drift against the
-  edge's copy. The stricter method tags each input with a sequence number, and on every
-  authoritative update replays the inputs the server has not yet acknowledged, so a
-  correction is exact and never even eases. It matters most when corrections are large or
-  frequent.
-- Lag compensation. For anything you aim at and must hit, the server rewinds other
-  players to where the shooter saw them at the time they fired. A blob game does not need
-  it. Most shooters do, and it is a rabbit hole of its own.
-- Interest management at scale. The per-viewer scan here is linear. A large arena
-  keeps blobs and pellets in a spatial grid or quadtree so each player's query touches
-  only nearby cells, and sends deltas (the rows that changed) rather than a fresh slice
-  each tick.
+- **Input replay reconciliation.** Your prediction eases away small drift from the edge's
+  copy. The stricter method numbers each input, and on every authoritative update replays
+  the inputs the server has not acknowledged yet, so a correction is exact. It matters
+  most when corrections are large or frequent.
+- **Lag compensation.** For anything you aim at and must hit, the server rewinds the
+  other players to where the shooter saw them when they fired. A blob game does not need
+  it; most shooters do, and it is a large topic of its own.
+- **Interest management at scale.** The per viewer scan here is linear. A large arena
+  keeps blobs and pellets in a spatial grid or quadtree, so each query touches only
+  nearby cells, and sends only the rows that changed instead of a fresh slice every tick.
 
-These are well-trodden but subtle, so learn them from people who have shipped them:
+These techniques are well known but subtle. Learn them from people who have shipped
+them:
 
 - Gabriel Gambetta, *Fast-Paced Multiplayer* (client-side prediction, server
   reconciliation, entity interpolation, and lag compensation, with live demos):
@@ -340,22 +332,20 @@ These are well-trodden but subtle, so learn them from people who have shipped th
 - Glenn Fiedler (Gaffer On Games), *What Every Programmer Needs To Know About Game
   Networking*: <https://gafferongames.com/post/what_every_programmer_needs_to_know_about_game_networking/>
 
-The SynQt part is the one you already have. The owner's slot is the authority, and the
-transport that carries `steer`, `blobs`, and the round is the same connect point you
-would use for anything else.
+You already have the SynQt part: the owner's slot is the authority, and `steer`, `blobs`
+and the round travel over the same kind of connect point you use for anything else.
 
 ## Where to go next
 
-- Sharpen the movement. Swap the drift-easing reconciliation for input-replay
-  reconciliation as above, so a correction after a lag spike is exact rather than
-  smoothed. The owner as authority is already in place. This only sharpens how your own
-  blob recovers.
-- Scale the arena. Replace the linear interest scan with a spatial grid, and send only the
-  blob and pellet rows that changed since the last tick instead of a whole slice.
-- Grow the game with splitting and ejecting mass, viruses, or teams. Each is new rules in
-  the singleton's simulation rather than a new architecture.
-- Give the round a history. Record every round's winner and margin in the database rather
-  than only a running point total, and show a "recent rounds" list beside the Hall of Fame.
-- Read [the programming model](programming-model.md) to formalize the connect points,
-  scopes, `shared:` answers, and `Caller` checks you used, and [security](security.md) for
+- **Sharpen the movement.** Replace the drift easing with input replay reconciliation, so
+  a correction after a lag spike is exact instead of smoothed. The owner is already the
+  authority; this only changes how your own blob recovers.
+- **Scale the arena.** Replace the linear interest scan with a spatial grid, and send only
+  the rows that changed since the last tick instead of a whole slice.
+- **Grow the game** with splitting and ejecting mass, viruses or teams. Each is new rules
+  in the singleton's simulation, not a new architecture.
+- **Give the round a history.** Record each round's winner and margin in the database
+  instead of a running total, and show a "recent rounds" list beside the Hall of Fame.
+- **Read on.** [The programming model](programming-model.md) describes the connect points,
+  scopes, `shared:` and `Caller` checks you used, and [security](security.md) explains
   why the boundaries fall where they do.

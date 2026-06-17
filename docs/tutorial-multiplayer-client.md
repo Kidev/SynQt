@@ -3,30 +3,32 @@
 
 # See the others
 
-The edge [owns the arena](tutorial-multiplayer-world.md). The client shows a window
-onto it, centered on you, and does the two jobs that make a networked game feel good.
-The first is prediction. Your own blob is simulated locally with the edge's exact rule,
-so it tracks your cursor with no waiting, and the camera follows it. The second is
-interpolation. Everyone else is drawn a fraction of a second in the past, smoothly
-between the snapshots the edge sends, so twenty updates a second read as continuous
-motion. You keep the centered blob from
-[part one](tutorial-multiplayer.md#start-from-an-empty-arena). It becomes your
-predicted self.
+The edge [owns the arena](tutorial-multiplayer-world.md). The client shows a window onto
+it, centered on you, and does two jobs that make a networked game feel good:
+
+- **Prediction.** The client simulates your own blob with the edge's exact rule, so it
+  follows your cursor without waiting, and the camera follows it.
+- **Interpolation.** The client draws everyone else a fraction of a second in the past,
+  smoothly between the snapshots the edge sends, so twenty updates a second look like
+  continuous motion.
+
+The centered blob from [part one](tutorial-multiplayer.md#start-from-an-empty-arena)
+becomes your predicted self.
 
 ## Step 0: The helpers prediction and smoothing need
 
-Add these to the root `Item`. `speedFor` is the edge's own speed rule, copied so your
-local prediction moves exactly as the edge will. The snapshot store and `interp` are
-the heart of entity interpolation, a short history per remote blob, and a lookup that
-returns where a blob was at a chosen moment in the recent past.
+Add these to the root `ApplicationWindow`. `speedFor` is a copy of the edge's speed rule,
+so your prediction moves exactly as the edge will. The snapshot store and `interp` do the
+entity interpolation: a short history per remote blob, and a lookup that returns where a
+blob was at a given moment in the recent past.
 
 ```qml
 // Same rules as the edge, so prediction and drawing match the authority.
-function speedFor(mass) { return 260 / Math.pow(mass, 0.22) }
+function speedFor(mass) { return 260 / Math.pow(mass, 0.22); }
 function colorFor(id) {
-    let h = 0
-    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360
-    return Qt.hsla(h / 360, 0.6, 0.55, 1)
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+    return Qt.hsla(h / 360, 0.6, 0.55, 1);
 }
 
 // Where my cursor is aiming, in world coordinates. Starts under my blob.
@@ -38,45 +40,45 @@ property real aimY: myY
 property var snaps: ({})
 property real renderNow: 0
 function pushSnap(id, x, y) {
-    let a = root.snaps[id]; if (!a) a = root.snaps[id] = []
-    a.push({ t: Date.now(), x: x, y: y })
-    if (a.length > 16) a.shift()                     // keep about a second of history
+    let a = root.snaps[id]; if (!a) a = root.snaps[id] = [];
+    a.push({ t: Date.now(), x: x, y: y });
+    if (a.length > 16) a.shift();                     // keep about a second of history
 }
 function interp(id, t, fx, fy) {
-    const a = root.snaps[id]
-    if (!a || a.length < 2) return Qt.point(fx, fy)  // not enough history yet
+    const a = root.snaps[id];
+    if (!a || a.length < 2) return Qt.point(fx, fy);  // not enough history yet
     for (let i = a.length - 1; i > 0; i--) {
         if (a[i - 1].t <= t && t <= a[i].t) {        // the two samples bracketing t
-            const s0 = a[i - 1], s1 = a[i]
-            const u = (t - s0.t) / Math.max(1, s1.t - s0.t)
-            return Qt.point(s0.x + (s1.x - s0.x) * u, s0.y + (s1.y - s0.y) * u)
+            const s0 = a[i - 1], s1 = a[i];
+            const u = (t - s0.t) / Math.max(1, s1.t - s0.t);
+            return Qt.point(s0.x + (s1.x - s0.x) * u, s0.y + (s1.y - s0.y) * u);
         }
     }
-    return t < a[0].t ? Qt.point(a[0].x, a[0].y) : Qt.point(fx, fy)
+    return t < a[0].t ? Qt.point(a[0].x, a[0].y) : Qt.point(fx, fy);
 }
 ```
 
 ## Step 1: Predict your own motion, and steer
 
-A `FrameAnimation` runs every frame. It does two things. It advances the render clock for
-interpolation, and integrate your own blob toward your aim using the edge's speed
-rule. Because it moves `myX`/`myY`, and the camera is centered on `myX`/`myY`, your
-view follows you for free. Add inside the root `Item`:
+A `FrameAnimation` runs every frame. It advances the render clock for interpolation, and
+moves your own blob toward your aim with the edge's speed rule. It moves `myX` and `myY`,
+which the camera is centered on, so your view follows you. Add inside the root
+`ApplicationWindow`:
 
 ```qml
 FrameAnimation {
     running: Session.hasScope("player")
     onTriggered: {
-        root.renderNow = Date.now() - 100              // draw others 100 ms in the past
-        const dt = Math.min(0.05, frameTime)           // seconds since last frame
+        root.renderNow = Date.now() - 100;              // draw others 100 ms in the past
+        const dt = Math.min(0.05, frameTime);           // seconds since last frame
         // Predict my own blob with the edge's exact rule, so it tracks my cursor now
         // instead of a round trip from now.
-        const dx = root.aimX - root.myX, dy = root.aimY - root.myY
-        const dist = Math.hypot(dx, dy)
+        const dx = root.aimX - root.myX, dy = root.aimY - root.myY;
+        const dist = Math.hypot(dx, dy);
         if (dist > 0.5) {
-            const step = Math.min(root.speedFor(root.myMass) * dt, dist)
-            root.myX += dx / dist * step
-            root.myY += dy / dist * step
+            const step = Math.min(root.speedFor(root.myMass) * dt, dist);
+            root.myX += dx / dist * step;
+            root.myY += dy / dist * step;
         }
     }
 }
@@ -85,25 +87,25 @@ FrameAnimation {
 // Mass is purely the edge's, so adopt it. Snap on a big jump (you were eaten and
 // respawned), and gently correct small drift so normal play never stutters.
 function reconcile(ax, ay, amass) {
-    root.myMass = amass
-    const err = Math.hypot(ax - root.myX, ay - root.myY)
-    if (err > 250)     { root.myX = ax; root.myY = ay }
-    else if (err > 1)  { root.myX += (ax - root.myX) * 0.15
-                         root.myY += (ay - root.myY) * 0.15 }
+    root.myMass = amass;
+    const err = Math.hypot(ax - root.myX, ay - root.myY);
+    if (err > 250) { root.myX = ax; root.myY = ay; }
+    else if (err > 1) { root.myX += (ax - root.myX) * 0.15;
+                         root.myY += (ay - root.myY) * 0.15; }
 }
 ```
 
-Now turn the cursor into a world aim point and report it. With the camera, the aim is
-your position plus the cursor's offset from the view centre, unscaled back to world
-units. Add inside the `view` `Rectangle`:
+Now turn the cursor into an aim point in the world and report it. The aim is your
+position plus the cursor's offset from the view center, scaled back to world units. Add
+inside the `view` `Rectangle`:
 
 ```qml
 MouseArea {
     anchors.fill: parent
     hoverEnabled: true
-    onPositionChanged: {
-        root.aimX = root.myX + (mouse.x - view.width / 2) / view.zoom
-        root.aimY = root.myY + (mouse.y - view.height / 2) / view.zoom
+    onPositionChanged: mouse => {
+        root.aimX = root.myX + (mouse.x - view.width / 2) / view.zoom;
+        root.aimY = root.myY + (mouse.y - view.height / 2) / view.zoom;
     }
 }
 
@@ -115,49 +117,53 @@ Timer {
 }
 ```
 
-You send a goal, never a position. Your local prediction and the edge integrate the
-same goal with the same rule, so they stay together. The edge is still the only
-authority, and `reconcile` erases any drift.
+You send a goal, never a position. Your prediction and the edge apply the same rule to
+the same goal, so they stay together. The edge is still the only authority, and
+`reconcile` removes any drift.
 
 ## Step 2: Draw the other players, smoothly
 
-One `Repeater` over the `blobs` model does two jobs. For every row it captures
-snapshots (feeding interpolation) and, for your own row, feeds `reconcile`. For other
-rows it draws a circle at the interpolated position, placed through the camera. Your
-own blob is already drawn at the centre from part one, so the visible circle here is
-for others only. Add inside the `view` `Rectangle`:
+One `Repeater` over the `blobs` model does two jobs. For every row it records snapshots
+for interpolation, and for your own row it also feeds `reconcile`. For other rows it
+draws a circle at the interpolated position, through the camera. Part one already draws
+your blob at the center, so these circles are for other players only. Add inside the
+`view` `Rectangle`:
 
 ```qml
 Repeater {
     model: Server.blobs
     delegate: Item {
-        readonly property bool mine: Session.identity && model.id === Session.identity.sub
-        // Capture every authoritative update. For the player's own row it reconciles
-        // the prediction, and for others it feeds the interpolation buffer.
-        property real ax: model.x
-        property real ay: model.y
-        property real amass: model.mass
+        id: blob
+
+        // The whole row as one property. A delegate is an Item, and Item already declares
+        // x and y as FINAL, so a `required property real x` for the role cannot work.
+        required property var model
+
+        readonly property bool mine: Session.identity
+                                     && blob.model.id === Session.identity.sub
         // On any authoritative change, read the current role values (they are already
         // updated when the change fires). For the player's own row, reconcile the
         // prediction, and for others, append to the interpolation buffer.
-        onAxChanged: mine ? root.reconcile(model.x, model.y, model.mass)
-                          : root.pushSnap(model.id, model.x, model.y)
-        onAyChanged: mine ? root.reconcile(model.x, model.y, model.mass)
-                          : root.pushSnap(model.id, model.x, model.y)
-        onAmassChanged: if (mine) root.myMass = model.mass
+        property real ax: blob.model.x
+        property real ay: blob.model.y
+        onAxChanged: blob.mine ? root.reconcile(blob.model.x, blob.model.y, blob.model.mass)
+                               : root.pushSnap(blob.model.id, blob.model.x, blob.model.y)
+        onAyChanged: blob.mine ? root.reconcile(blob.model.x, blob.model.y, blob.model.mass)
+                               : root.pushSnap(blob.model.id, blob.model.x, blob.model.y)
 
         // The visible circle for OTHER players, at an interpolated, camera-mapped spot.
         Rectangle {
-            readonly property real r: root.radiusFor(model.mass) * view.zoom
-            readonly property point ip: root.interp(model.id, root.renderNow, model.x, model.y)
-            visible: model.online && !parent.mine
+            readonly property real r: root.radiusFor(blob.model.mass) * view.zoom
+            readonly property point ip: root.interp(blob.model.id, root.renderNow,
+                                                    blob.model.x, blob.model.y)
+            visible: blob.model.online && !blob.mine
             width: 2 * r; height: 2 * r; radius: r
             x: view.sx(ip.x) - r
             y: view.sy(ip.y) - r
-            color: root.colorFor(model.id)
+            color: root.colorFor(blob.model.id)
             Text {
                 anchors.centerIn: parent
-                text: model.name
+                text: blob.model.name
                 color: "white"; font.pixelSize: 12
                 style: Text.Outline; styleColor: "black"
                 visible: parent.r > 10          // hide the label on tiny blobs
@@ -172,29 +178,32 @@ Repeater {
 Repeater {
     model: Server.pellets
     delegate: Rectangle {
+        id: pellet
+
+        required property var model
+
         width: 8 * view.zoom; height: 8 * view.zoom; radius: width / 2
         color: "#8899bb"
-        x: view.sx(model.x) - width / 2
-        y: view.sy(model.y) - height / 2
+        x: view.sx(pellet.model.x) - width / 2
+        y: view.sy(pellet.model.y) - height / 2
     }
 }
 ```
 
 > [!NOTE]
-> Each remote blob is rendered at `renderNow`, a fixed 100 ms behind real time, always
-> between two snapshots you already have rather than guessing ahead toward the newest
-> one. Because snapshots arrive about every 50 ms, there are reliably two to
-> interpolate between, so motion stays smooth even when a packet is late. The buffer is
-> keyed by the blob's id, so it survives the model reordering as sizes change. The one
-> technique left, replaying your own unacknowledged inputs on top of each authoritative
-> update instead of easing the drift, is in the
-> [further reading](tutorial-multiplayer-run.md#netcode-gets-hard-fast).
+> The client draws each remote blob at `renderNow`, a fixed 100 ms behind real time,
+> between two snapshots it already has, instead of guessing ahead of the newest one.
+> Snapshots arrive about every 50 ms, so there are always two to interpolate between,
+> and motion stays smooth even when a packet is late. The buffer is keyed by blob id, so
+> it survives the model reordering as sizes change. One technique is left out: replaying
+> your unacknowledged inputs on top of each authoritative update, instead of easing the
+> drift. See the [further reading](tutorial-multiplayer-run.md#netcode-gets-hard-fast).
 
 ## Step 3: The live scoreboard
 
-The edge publishes a small `board` model, the biggest blobs by name and size, separate
-from `blobs` so it stays global even once the edge only sends you nearby players. Add
-inside the root `Item` as an overlay:
+The edge publishes a small `board` model with the biggest blobs by name and size. It is
+separate from `blobs`, so it stays global once the edge sends you only nearby players.
+Add it inside the root `ApplicationWindow` as an overlay:
 
 ```qml
 // Live leaderboard, the biggest blobs on the map right now.
@@ -208,7 +217,10 @@ Column {
     Repeater {
         model: Server.board
         delegate: Text {
-            text: (index + 1) + ". " + model.name + "  " + Math.round(model.mass)
+            required property int index
+            required property string name
+            required property real mass
+            text: (index + 1) + ". " + name + "  " + Math.round(mass)
             color: "white"; font.pixelSize: 13
             style: Text.Outline; styleColor: "black"
         }
@@ -218,12 +230,12 @@ Column {
 
 ## Step 4: Latency and the kill feed
 
-`ping` returns a value, so it is an asynchronous request. Send the current time, await
-the reply, and the round trip is the difference. React to the `eaten` signal with a
-banner through the contract's attached handler, `Edge.on<Signal>`, with no `Connections`
-block (see [handling a connect point's
+`ping` returns a value, so it is an asynchronous request. Send the current time, wait
+for the reply, and the difference is the round trip. Show a banner on the `eaten` signal
+through the contract's attached handler, `Edge.on<Signal>`, with no `Connections` block
+(see [handling a connect point's
 signals](programming-model.md#handling-a-connect-points-signals)). Add inside the root
-`Item`:
+`ApplicationWindow`:
 
 ```qml
 property int latencyMs: -1
@@ -232,8 +244,8 @@ Timer {
     interval: 2000; repeat: true
     running: Session.hasScope("player")
     onTriggered: {
-        const sent = Date.now()
-        Server.ping().then(() => { root.latencyMs = Date.now() - sent })
+        const sent = Date.now();
+        Server.ping().then(() => { root.latencyMs = Date.now() - sent; });
     }
 }
 
@@ -246,27 +258,27 @@ Text {
     color: "white"; font.pixelSize: 18; opacity: 0
     style: Text.Outline; styleColor: "black"
     Behavior on opacity { NumberAnimation { duration: 400 } }
-    function flash(msg) { text = msg; opacity = 1; hideTimer.restart() }
+    function flash(msg) { text = msg; opacity = 1; hideTimer.restart(); }
     Timer { id: hideTimer; interval: 2500; onTriggered: banner.opacity = 0 }
 }
 
 Edge.onEaten: (prey, predator) => {
-    const me = Session.identity ? Session.identity.login : null
-    if (prey === me)          banner.flash("You were eaten by " + predator + "!")
-    else if (predator === me) banner.flash("You ate " + prey)
-    else                      banner.flash(predator + " ate " + prey)
+    const me = Session.identity ? Session.identity.login : null;
+    if (prey === me) banner.flash("You were eaten by " + predator + "!");
+    else if (predator === me) banner.flash("You ate " + prey);
+    else banner.flash(predator + " ate " + prey);
 }
 ```
 
-When you are eaten, the edge has already respawned you small at a fresh spot. The next
-authoritative update jumps far enough that `reconcile` snaps your prediction there, and
-you reappear tiny and start growing again. No client code makes that happen. You are
-only reading the model the edge pushes.
+When you are eaten, the edge respawns you, small, at a new spot. The next update jumps
+far enough that `reconcile` snaps your prediction there, and you reappear tiny and grow
+again. The respawn is all edge code; the client only reads the model the edge pushes.
 
 ## Step 5: A tiny HUD and the guest list gate
 
-Finally, show connection state and latency, and stand a gate in front of everything
-for anyone who is not a player. Add these two overlays inside the root `Item`:
+Finally, show the connection state and latency, and put a gate in front of everything
+for anyone who is not a player. Add these two overlays inside the root
+`ApplicationWindow`:
 
 ```qml
 // Status readout.
@@ -319,6 +331,6 @@ Rectangle {
 }
 ```
 
-Save, and if you are on your own guest list you can sign in and drift around eating
-pellets, your view gliding with you and any other players sliding smoothly nearby. What
-the game still has no notion of is an ending, or a memory of who won.
+Save. If you are on your own guest list, you can sign in and move around eating
+pellets, with your view following you and other players moving smoothly nearby. The
+game still runs forever and forgets who won.
