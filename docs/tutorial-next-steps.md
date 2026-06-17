@@ -3,16 +3,15 @@
 
 # Where to go next
 
-You have built a real time, authenticated, persistent application across three
-entities. Five ways to grow it follow, each a concrete recipe for the project you
-already have. They are independent of each other, and they skip things you have
-done several times already (creating a file, wiring a `connect_point`, running
-`synqt dev`). Only the new pieces are shown.
+You have built a real time application with sign-in and storage, across three
+entities. Below are five independent recipes to grow it. They skip the steps you already
+know (creating a file, wiring a connect point, running `synqt dev`) and show only the new
+pieces.
 
 ## Resume the lot in progress after a restart
 
-A restart keeps the Hall of Fame but forgets the bid in progress. Persist the
-current lot too.
+A restart keeps the Hall of Fame but forgets the bid in progress. Store the current lot
+too.
 
 Add to the books entity's `export:` in `synqt.yaml`:
 
@@ -48,9 +47,9 @@ function loadCurrent() {
 }
 ```
 
-The lot lives in `web/edge/Edge.qml`, so that is where it is loaded and saved, once at
-startup for the whole entity rather than once per browser. Add an `auction.saveNow()` at the
-end of `placeBid` and of `closeLot`, plus:
+The lot lives in `web/edge/Edge.qml`, so load and save it there: once at startup for the
+whole entity, not once per browser. Call `auction.saveNow()` at the end of `placeBid` and
+`closeLot`, and add:
 
 ```qml
 Component.onCompleted: {
@@ -69,16 +68,16 @@ function saveNow() {
 }
 ```
 
-Now restart and the lot resumes exactly where it was.
+Restart, and the lot resumes where it was.
 
 ## Move to PostgreSQL with one config change
 
-The embedded engine is great to start. To put the data in a managed PostgreSQL
-instead, change only the database entity's config. No QML changes, because `Db.exec` and
-`Db.query` work the same, since the engine is masked behind the entity.
+The embedded engine is a good start. To keep the data in a managed PostgreSQL instead,
+change only the database entity's config. The QML stays the same: the engine is hidden
+behind the entity, so `Db.exec` and `Db.query` work as before.
 
-In `synqt.yaml`, on the `books` entity, add a `provider` section naming the
-engine and carrying its connection:
+In `synqt.yaml`, add a `provider` section to the `books` entity that names the engine and
+its connection:
 
 ```yaml
     provider:
@@ -87,43 +86,43 @@ engine and carrying its connection:
       port: 5432
       database: gavel
       user: gavel
-      password: env:DB_PASSWORD   # the value lives in database/.env, not here
+      password: env:DB_PASSWORD   # the value lives in the books entity's .env rather than here
       sslmode: verify-full        # the entity verifies the engine certificate
       ca_cert: certs/db-ca.pem
 ```
 
-Put the password in `db/relational/books/.env` as `DB_PASSWORD=...`, and run `synqt doctor`,
-which fetches the PostgreSQL driver for you. That is the whole change. (For a quick
-local trial against a PostgreSQL with no TLS, you may drop `sslmode` and `ca_cert`;
-SynQt allows that only in dev on localhost and refuses it in a release build.)
+Put the password in `db/relational/books/.env` as `DB_PASSWORD=...`, and run
+`synqt doctor`, which fetches the PostgreSQL driver. That is the whole change. (For a
+quick local trial against a PostgreSQL without TLS, drop `sslmode` and `ca_cert`. SynQt
+allows that only in dev on localhost, and refuses it in a release build.)
 
 ## Close each lot automatically on a timer (a jobs entity)
 
-Turn it into a speed auction where each lot closes itself after a minute. Add a jobs
-entity, which is built for scheduled work:
+Make it a speed auction where each lot closes after a minute. Add a jobs entity, which
+runs scheduled work:
 
 ```cli
 synqt add entity ticker --type jobs
 ```
 
-The ticker needs to call `closeLot`, so let it reach the auction. Add it as a
-consumer of the edge's connect point in `synqt.yaml`:
+The ticker calls `closeLot`, so it must reach the auction. In `synqt.yaml`, add it as a
+consumer of the edge's connect point:
 
 ```yaml
     consumers: [app, ticker]
 ```
 
-One part is not obvious. `closeLot` is exported as `<admin> slot closeLot(...)`, and a
-scope belongs to a user's session. The ticker is an entity and has none, so the gate would
-refuse it. A member with a mixed audience cannot be gated on a scope at all, so take the
-`<admin>` off it in `synqt.yaml`:
+One detail is not obvious. `closeLot` is exported as `<admin> slot closeLot(...)`, and a
+scope belongs to a user's session. The ticker is an entity with no session, so the gate
+would refuse it. A member that both users and entities call cannot be gated on a scope,
+so remove the `<admin>` in `synqt.yaml`:
 
 ```yaml
       slot closeLot(string[120] nextItem)
 ```
 
-and make the decision in the slot, where `Caller` can tell the two kinds of caller apart.
-Only send the rejection to a user, because `emit<Signal>` targets a browser session. In
+Then decide in the slot, where `Caller` tells the two kinds of caller apart. Send the
+rejection only to a user, because `emit<Signal>` targets a browser session. In
 `web/edge/Edge.qml`:
 
 ```qml
@@ -137,13 +136,13 @@ function closeLot(nextItem) {
 }
 ```
 
-That is the trade the two forms make. `<scope>` is shorter, is enforced before your code
-runs, and cannot be forgotten. It also only knows about people. The moment another entity
-has to reach the same member, the decision comes back into the slot.
+This is the trade between the two forms. `<scope>` is shorter, runs before your code and
+cannot be forgotten, but it only knows about people. As soon as another entity must reach
+the same member, the decision moves back into the slot.
 
-Then put the schedule in the ticker's logic file (the jobs type scaffolds one), calling
-the edge it now consumes. As always, another entity's connect point is reached under that
-entity's name, capitalized, and an entity has one point, so `Edge` is the whole address:
+Then put the schedule in the ticker's logic file (the jobs type scaffolds one). It calls
+the edge it now consumes, under the edge's capitalized name; an entity has one connect
+point, so `Edge` is the whole address:
 
 ```qml
 import SynQt
@@ -158,21 +157,21 @@ Item {
 }
 ```
 
-Each lot now closes on its own, records its winner, and the next one opens.
+Each lot now closes on its own and records its winner, and the next lot opens.
 
 ## Give each bidder a private maximum bid
 
-Let a signed in user set a private maximum that only they can see.
+Let a signed-in user set a private maximum that only they can see.
 
-Two members on the edge's existing point, gated so only signed in users have them:
+Add two members to the edge's point, gated so only signed-in users have them:
 
 ```yaml
       <user> prop int maxBid
       <user> slot setMax(int amount)
 ```
 
-What makes the value private is `shared: false` on the edge entity, which gives each
-bidder a Source of their own instead of a mirror of one:
+`shared: false` on the edge entity makes the value private: each bidder gets a Source of
+their own instead of a mirror of one shared Source:
 
 ```yaml
   - name: edge
@@ -180,9 +179,9 @@ bidder a Source of their own instead of a mirror of one:
     shared: false
 ```
 
-That one line changes where the lot has to live. `Edge.qml` is now minted per caller, so
-the auction itself would become one lot per bidder. Move the shared part into a
-`pragma Shared` file beside it, `web/edge/Lot.qml`:
+That line changes where the lot must live. `Edge.qml` is now created per caller, so the
+auction would become one lot per bidder. Move the shared part into a `pragma Shared` file
+beside it, `web/edge/Lot.qml`:
 
 ```qml
 pragma Shared
@@ -198,8 +197,7 @@ QtObject {
 }
 ```
 
-Then `web/edge/Edge.qml` binds the shared members to it and keeps the private one to
-itself:
+Then `web/edge/Edge.qml` binds the shared members to `Lot` and keeps the private one:
 
 ```qml
     itemName: Lot.itemName
@@ -213,22 +211,20 @@ itself:
     }
 ```
 
-`placeBid` and `closeLot` write to `Lot` rather than to `auction`, so one bidder's raise
-still reaches every session.
+`placeBid` and `closeLot` write to `Lot` instead of `auction`, so one bidder's raise still
+reaches every session.
 
 In the client, read and set the private value with `Server.maxBid` and
-`Server.setMax(...)`. Because the entity mints a Source per caller, there is no shared
-object through which one user could ever see another's maximum, and the bidder's own
-second tab opens on the maximum they already set. From here, making `placeBid`
-automatically raise a user up to their stored maximum is an obvious next step, now that
-the value has a safe, private home.
+`Server.setMax(...)`. The entity creates a Source per caller, so no shared object exists
+through which one user could see another's maximum, and the bidder's second tab opens on
+the maximum they set. A natural next step is to make `placeBid` raise a user up to their
+stored maximum automatically.
 
 ## Pin the rules you checked by hand
 
-Three times in this tutorial you opened the browser console to prove a rule held, the
-lower bid the edge refused, the `placeBid` that failed while signed out, the
-`closeLot` only the auctioneer may call. Those are the rules most worth keeping, and
-the console is the worst place to keep them, because nothing reruns it.
+Three times in this tutorial you used the browser console to prove a rule: the lower bid
+the edge refused, the `placeBid` that failed while signed out, and the `closeLot` only the
+auctioneer may call. Those rules matter most, and a console check never runs again.
 
 Write them in `tests/tst_Auction.qml` instead:
 
@@ -292,39 +288,36 @@ TestCase {
 synqt test
 ```
 
-No browser, no certificates, no database to start, and no C++. The `Caller` those
-slots read is the real one, minted the way the web edge mints it, so a test cannot
-pass by stubbing the check it is meant to be testing. The database's own rule, that
-only the edge may call `recordWinner`, is tested the same way in a second file, with
-`harness.callerIsEntity("rogue")` in place of `callerIsUser`.
+It needs no browser, no certificates, no database and no C++. The slots read the real
+`Caller`, created the way the web edge creates it, so a test cannot pass by stubbing the
+check it tests. Test the database's own rule (only the edge may call `recordWinner`) the
+same way in a second file, with `harness.callerIsEntity("rogue")` instead of
+`callerIsUser`.
 
-One subtlety applies to that last test. `closeLot` records the winner in the database before
-resetting, and the harness loads one Source on its own, so there is no `Books` to
-record into. It passes because the lot has no bid on it yet and `closeLot` skips the
-write. Close a lot that does have a bid and the test stops, saying `Books is not
-defined`.
+The last test has a catch. `closeLot` records the winner in the database before it
+resets, and the harness loads one Source alone, so there is no `Books` to record into.
+The test passes because the lot has no bid yet, so `closeLot` skips the write. Close a lot
+that has a bid and the test stops with `Books is not defined`.
 
-[Testing your app](testing.md) covers the rest of `EntityTest`, that limit and what to
-do about it, and pointing `schema` at your `schema.sql` so a slot backed by `Db` has
+[Testing your app](testing.md) covers the rest of `EntityTest`, this limit and how to work
+around it, and how to point `schema` at your `schema.sql` so a slot backed by `Db` has
 its tables.
 
 ## Recap
 
-You started with a single live value shared across browsers, and grew it, one idea
-at a time, into a three entity system:
+You started with one live value shared across browsers and grew it, one idea at a time,
+into a system of three entities:
 
-- Connect points let entities share live, typed objects. The owner is the single
-  authority. Consumers ask, and the owner decides.
-- Sign in gives you real identity, and authorization happens in the owner's slots,
+- **Connect points** let entities share live, typed objects. The owner is the single
+  authority: consumers ask, and the owner decides.
+- **Sign-in** gives you real identity. Authorization happens in the owner's slots,
   against `Caller`, never in the UI.
-- Entities (an edge, a database) each own their data, authenticate each other, and
-  are segmented so the browser can reach only the edge.
+- **Entities** (an edge, a database) each own their data, authenticate each other, and
+  are segmented so the browser reaches only the edge.
 
-From here, the reference documents go deeper on every piece you used. A good
-next read is [the programming model](programming-model.md), which formalizes
-everything you just did by hand. Before the app grows much further, [testing your
-app](testing.md) is how the rules you checked by hand keep being checked. When the
-question becomes how to put the thing on a server rather than what to build next,
-[Shipping it](tutorial-ship.md) walks this same auction onto real hosts, with a
-pipeline and certificates of its own, and [deploying a SynQt
-system](deploying.md) is the ordered checklist to keep open while you do it.
+The reference pages go deeper on each piece. Read
+[the programming model](programming-model.md) next: it describes everything you just
+did. Before the app grows, set up [testing](testing.md) so the rules you checked by hand
+stay checked. To put the app on a server, [Shipping it](tutorial-ship.md) moves this
+auction onto real hosts with its own pipeline and certificates, and
+[deploying a SynQt system](deploying.md) is the checklist to keep open while you do.
