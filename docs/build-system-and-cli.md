@@ -150,7 +150,7 @@ synqt test              # Build and run the project's own QML tests (see testing
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
 synqt version           # Print the CLI version and the pinned toolchain.
-synqt --version         #   ... just the CLI version, for a script that parses it.
+synqt --version         #   ... the same three lines; the flag every other tool answers to.
 
 synqt add entity <name> [--type <type>]          # Scaffold a new entity (a plain service by default).
 synqt add entity <name> --type <type> --provider <engine>
