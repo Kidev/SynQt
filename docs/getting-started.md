@@ -126,6 +126,14 @@ a time, and each idea is explained as you use it rather than up front.
 
 <div class="grid cards synqt-picks" markdown>
 
+-   :material-forum: __The simple chat__
+
+    One room, live in every window that has it open, with a moderator who can erase a
+    line and a database no browser can reach. The whole model in miniature, and the
+    shortest one to finish.
+
+    [:octicons-arrow-right-24: Start this tutorial](tutorial-chat.md)
+
 -   :material-gavel: __The auction__
 
     A live auction with real time bids, sign in through a real identity provider,
@@ -144,9 +152,9 @@ a time, and each idea is explained as you use it rather than up front.
 
 -   :material-storefront: __The light storefront__
 
-    A shop whose product grid ships in the bundle and whose campaign pages do not:
-    the edge delivers those on demand, so a merchandiser can rewrite one without
-    rebuilding a client. Two entities, a route table, and a trust boundary.
+    A shop whose product grid ships in the bundle and whose campaign pages do not.
+    The edge delivers those on demand, so a merchandiser can rewrite one without
+    rebuilding a client. Three entities, a route table, and a trust boundary.
 
     [:octicons-arrow-right-24: Start this tutorial](tutorial-remote-pages.md)
 
