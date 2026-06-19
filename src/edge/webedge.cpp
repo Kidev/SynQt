@@ -1965,6 +1965,36 @@ WebSocketTransport *WebEdge::carry(QWebSocket *socket, QObject *connection)
     return transport;
 }
 
+void WebEdge::hostConnectPoint(const WebEdgeConnectPoint &connectPoint,
+                               const QByteArray &sessionId, QObject *connection,
+                               QRemoteObjectHost *node, QHash<QString, QObject *> *hosted)
+{
+    QString error;
+    QObject *source{sourceForConnection(connectPoint, sessionId, connection, &error)};
+    if (!source) {
+        // Said out loud as well as on the signal. Every other rejection here is the
+        // policy working and belongs to the connection that earned it, but a Source that
+        // will not load is a defect in the entity, the same one on every connection, and
+        // the browser's only symptom is a connect point that never arrives. Left to the
+        // signal alone it went unreported through three operating systems of CI.
+        qWarning("SynQt: connect point %s is not served on this connection: %s",
+                 qUtf8Printable(connectPoint.name), qUtf8Printable(error));
+        emit upgradeRejected(error);
+        return;
+    }
+    // Remoted on this connection's own node. A per-caller Source is remoted on one node
+    // per tab, which QtRO allows. Each host gets its own view of the same object, and
+    // every replica tracks it.
+    if (!node->enableRemoting(source, connectPoint.name)) {
+        qWarning("SynQt: connect point %s loaded but could not be remoted",
+                 qUtf8Printable(connectPoint.name));
+        emit upgradeRejected(
+            QStringLiteral("enableRemoting failed for %1").arg(connectPoint.name));
+        return;
+    }
+    hosted->insert(connectPoint.name, source);
+}
+
 void WebEdge::hostConnection(QWebSocket *socket)
 {
     // Reject oversized frames before buffering (DoS guard).
@@ -2014,34 +2044,17 @@ void WebEdge::hostConnection(QWebSocket *socket)
     Caller *gate{Caller::forUser(QString{}, m_sessionManager, sessionId, nullptr, node)};
     gate->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
 
+    // What this connection hosts, by connect point name, so a scope change under it can
+    // tell what is already there from what has to be added or taken away. Shared with the
+    // rotation handler further down, and only with it.
+    const auto hosted{std::make_shared<QHash<QString, QObject *>>()};
     for (const WebEdgeConnectPoint &connectPoint : m_config.connectPoints) {
         // Scope gating: never host a scoped connect point for an under-scoped session, so
         // the browser can never even acquire a Replica it is not authorized for.
         if (!connectPoint.scope.isEmpty() && !gate->hasScope(connectPoint.scope)) {
             continue;
         }
-        QString error;
-        QObject *source{sourceForConnection(connectPoint, sessionId, connection, &error)};
-        if (!source) {
-            // Said out loud as well as on the signal. Every other rejection here is the
-            // policy working and belongs to the connection that earned it, but a Source that
-            // will not load is a defect in the entity, the same one on every connection, and
-            // the browser's only symptom is a connect point that never arrives. Left to the
-            // signal alone it went unreported through three operating systems of CI.
-            qWarning("SynQt: connect point %s is not served on this connection: %s",
-                     qUtf8Printable(connectPoint.name), qUtf8Printable(error));
-            emit upgradeRejected(error);
-            continue;
-        }
-        // Remoted on this connection's own node. A per-caller Source is remoted on one node
-        // per tab, which QtRO allows: each host gets its own view of the same object, and
-        // every replica tracks it.
-        if (!node->enableRemoting(source, connectPoint.name)) {
-            qWarning("SynQt: connect point %s loaded but could not be remoted",
-                     qUtf8Printable(connectPoint.name));
-            emit upgradeRejected(
-                QStringLiteral("enableRemoting failed for %1").arg(connectPoint.name));
-        }
+        hostConnectPoint(connectPoint, sessionId, connection, node, hosted.get());
     }
 
     // The framework's own SessionState connect point: who this connection's visitor is.
@@ -2096,15 +2109,47 @@ void WebEdge::hostConnection(QWebSocket *socket)
         m_sessionSockets.insert(sessionId, transport);
         // Received on `connection`, so it goes when the connection does.
         connect(m_sessionManager, &SessionManager::sessionRotated, connection,
-                [this, liveSession, transport](const QByteArray &from, const QByteArray &to) {
+                [this, liveSession, transport, connection, node, gate, hosted](
+                    const QByteArray &from, const QByteArray &to) {
             if (*liveSession != from) {
                 return;
             }
             followRotation(from, to, transport);
             *liveSession = to;
+            // A rotation is a scope change, and the scope is what decided which points this
+            // connection hosts. So the decision is made again, for the scope the session
+            // holds now. A point the visitor has become entitled to is hosted on this
+            // same node, and QtRO tells the browser it is there, so the Replica the client
+            // acquired at connect time comes up without a reconnect. One the session no
+            // longer meets the scope of is withdrawn, and everything it was replicating
+            // stops with it. Before this, only the first half was even attempted, and it was
+            // attempted nowhere. The docs said a raised scope acquired its points and it
+            // took a reload, while a lowered one went on receiving every push on a point it
+            // had lost the right to, with only a new call refused.
+            //
+            // The gate reads the session live and has already moved to the new id: Caller
+            // subscribes to this same signal in forUser(), which ran before this connect,
+            // and Qt delivers in connection order.
+            for (const WebEdgeConnectPoint &connectPoint :
+                 std::as_const(m_config.connectPoints)) {
+                if (connectPoint.scope.isEmpty()) {
+                    continue;
+                }
+                const bool entitled{gate->hasScope(connectPoint.scope)};
+                QObject *current{hosted->value(connectPoint.name)};
+                if (entitled && !current) {
+                    hostConnectPoint(connectPoint, to, connection, node, hosted.get());
+                } else if (!entitled && current) {
+                    hosted->remove(connectPoint.name);
+                    // The Source itself is left where it is. A per-session one belongs to
+                    // the session and is reclaimed with it (releaseSessionSources); if the
+                    // scope is raised again it is what the visitor continues from.
+                    node->disableRemoting(current);
+                }
+            }
         });
     }
-    // Watched on the device rather than the socket: the device is on this thread whatever
+    // Watched on the device rather than the socket. The device is on this thread whatever
     // the socket is doing, and it relays the socket's disconnect either way.
     connect(transport, &WebSocketTransport::disconnected, this,
             [this, transport, connection, ip, liveSession]() {

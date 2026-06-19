@@ -839,8 +839,10 @@ The framework owns each accessor's lifecycle:
 - A scope-gated connect point is acquired only when the session meets its
   `scope`. Below that scope the Replica is never handed over, so
   its slots cannot be called at all; the gate is enforced at acquisition, not by
-  hiding buttons. On a scope upgrade (`Caller.setScope` after login) the newly
-  permitted connect points are acquired; on logout they are released.
+  hiding buttons. On a scope change under a live connection (`Caller.setScope` in a
+  slot) the newly permitted connect points are acquired without a reconnect, and the
+  ones the session no longer meets the scope of are withdrawn; on logout they are all
+  released.
 - Attached signal handlers (`<Owner>.on<Signal>`) fire only while the connect
   point is live. Before acquisition, or during `reconnecting`, they simply do not
   fire, and they resume on reconnect.

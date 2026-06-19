@@ -93,9 +93,16 @@
     {
       "id": "read-access-outlives-the-credential",
       "what": "A visitor signs out, and the tab that was open keeps receiving everything the owner pushes to the connect points that session had acquired.",
-      "defended_by": "Ending a session closes the connections it authorized. Which points a connection hosts is decided once, at the upgrade, so revoking the credential has to take the socket with it.",
+      "defended_by": "Ending a session closes the connections it authorized. Which points a connection hosts is decided at the upgrade from the scope the session holds, so revoking the credential has to take the socket with it.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "revokingASessionClosesTheConnectionsItAuthorized"
+    },
+    {
+      "id": "a-demotion-leaves-the-point-streaming",
+      "what": "A slot lowers a visitor's scope with Caller.setScope (an admin removing somebody's role, say). The connection stays up, and the connect points the edge hosted for the higher scope stay hosted on it: every property and model on them keeps replicating to a browser that has just lost the right to see them, and only a new call is refused.",
+      "defended_by": "A rotation is a scope change, so the edge decides again on the live connection which scope-gated points the session now meets: one it no longer meets is withdrawn from the connection's node (and QtRO tells the browser), and one it has just become entitled to is hosted, which is also what makes a raised scope reach the browser without a reload.",
+      "file": "tests/m7-caller/tst_m7.cpp",
+      "test": "aScopeChangeUnderALiveConnectionMovesWhatItHosts"
     },
     {
       "id": "read-access-outlives-the-credential-on-a-threaded-edge",

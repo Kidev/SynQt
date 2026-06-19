@@ -117,6 +117,12 @@ private:
 #endif
     void onNewWebSocketConnection();
     void hostConnection(QWebSocket *socket);
+    /// Host one connect point on a connection's node, and record it in `hosted`. Called
+    /// when the connection is accepted, and again when a scope change under it makes the
+    /// session eligible for a point it was not hosting.
+    void hostConnectPoint(const WebEdgeConnectPoint &connectPoint, const QByteArray &sessionId,
+                          QObject *connection, QRemoteObjectHost *node,
+                          QHash<QString, QObject *> *hosted);
     void trackPendingUpgrade(QAbstractSocket *socket);
     void stampResponse(const QHttpServerRequest &request, QHttpServerResponse &response);
 

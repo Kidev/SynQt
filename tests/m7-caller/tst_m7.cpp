@@ -464,6 +464,53 @@ private slots:
                      QStringLiteral("carol"));
     }
 
+    // What a connection hosts follows the session's scope, in both directions, while the
+    // connection is up. The edge decides which scope-gated connect points to host when it
+    // accepts the upgrade, from the scope the session holds then; `Caller.setScope` in a
+    // slot moves that scope under the live connection without any reconnect. Raised, the
+    // visitor is entitled to a point the connection was not hosting, and the runtime API
+    // says it is acquired. Lowered, the connection went on hosting a point the session no
+    // longer meets the scope of. Every property and model on it kept replicating to a
+    // browser that had been demoted, and only a new call was refused, which is read
+    // access outliving the credential.
+    void aScopeChangeUnderALiveConnectionMovesWhatItHosts()
+    {
+        const QByteArray anonToken{m_edge->sessionManager()->createSession()};
+        QQmlEngine clientEngine;
+        SynClient visitor{clientConfig(m_edgePort, cookieFor(anonToken)), &clientEngine};
+        visitor.start();
+        QTRY_COMPARE_WITH_TIMEOUT(visitor.session()->state(), QStringLiteral("connected"),
+                                  8000);
+        QRemoteObjectDynamicReplica *todo{
+            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&visitor))};
+        QVERIFY(todo != nullptr);
+        QTest::qWait(1000);
+        QVERIFY2(!todo->isReplicaValid(), "an anonymous visitor must not hold todo");
+
+        // Raised under the live connection. The point comes into reach without a reconnect.
+        const QByteArray asUser{
+            m_edge->sessionManager()->setScope(anonToken, QStringLiteral("user"),
+                                               identityFor(QStringLiteral("dana")))};
+        QVERIFY(!asUser.isEmpty());
+        QTRY_VERIFY2_WITH_TIMEOUT(todo->isReplicaValid(), "raising the scope under a live "
+                                  "connection did not host the point it now qualifies for",
+                                  5000);
+        QCOMPARE(visitor.session()->state(), QStringLiteral("connected"));
+
+        // Lowered: the point is withdrawn, and with it everything it was replicating.
+        const QByteArray demoted{
+            m_edge->sessionManager()->setScope(asUser, QStringLiteral("anonymous"))};
+        QVERIFY(!demoted.isEmpty());
+        QTRY_VERIFY2_WITH_TIMEOUT(!todo->isReplicaValid(), "lowering the scope under a live "
+                                  "connection left a point hosted that the session no longer "
+                                  "meets the scope of", 5000);
+
+        // And raised once more. The same Replica comes back, on the same connection.
+        QVERIFY(!m_edge->sessionManager()->setScope(demoted, QStringLiteral("user")).isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(todo->isReplicaValid(), 5000);
+        QCOMPARE(visitor.session()->state(), QStringLiteral("connected"));
+    }
+
     // Clause 7: an entity not on the consumer allowlist is refused at the mesh handshake
     // (deny by default), even with a CA-signed certificate.
     void unlistedEntityRefusedAtHandshake()
