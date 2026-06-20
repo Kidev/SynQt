@@ -389,6 +389,16 @@ read them.
     hand-over can take away, and `tests/m5-webedge` opens more links than the ceiling from
     one address, one at a time, to hold it to that.
 
+- Session ceiling. `security.max_sessions` (100000) bounds the one table a stranger can
+  grow with nothing but page loads: every request that arrives without a live cookie is
+  handed a session, and until the ceiling only the TTL ever took one away, which was
+  twelve hours of memory per request for anyone who could reach the edge, forwarded to
+  every replica of a replicated one. At the ceiling the edge lets go of the oldest
+  session that nobody would miss, anonymous, at the default scope and with no browser
+  connected on it, so under a flood it is the flood's own sessions that go and a visitor
+  arriving in the middle of it is still given one. A signed-in session is never evicted,
+  however idle. When nothing can be let go of, a page load is served without a cookie,
+  and the sign-in, callback and device routes answer that no session can be issued.
 - Message size cap. `security.max_message_bytes` (1 MiB) is set on each accepted
   browser socket as both the message and the frame limit, so an oversized frame is
   rejected as it arrives rather than after it is buffered.

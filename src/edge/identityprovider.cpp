@@ -772,9 +772,27 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
         return redirectTo(m_config.appRoute, {buildStateCookie(QByteArray{}, true)});
     }
     const QByteArray sessionId{m_sessions->createSession(scope, exchange.identity)};
+    if (sessionId.isEmpty()) {
+        // The session table is at its ceiling with nothing to let go of. The login itself
+        // succeeded and there is no session to hand it to. The tokens the exchange left
+        // under the state key go with it, exactly as for a login the hook refused.
+        qWarning("SynQt: refusing a login because no session can be issued right now");
+        if (m_backend) {
+            m_backend->releaseTokens(exchange.tokenKey);
+        } else {
+            releaseRemoteTokens(exchange.tokenKey.toLatin1());
+        }
+        if (context.isDesktop()) {
+            return loopbackRedirect(context, QString{},
+                                    QStringLiteral("temporarily_unavailable"));
+        }
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   QByteArrayLiteral("no session can be issued right now"),
+                                   QHttpServerResponse::StatusCode::ServiceUnavailable};
+    }
 
     // Move the tokens under the stable session id so refresh can find them, and keep them
-    // where they already are: on the edge (in-process) or the auth entity (provider_entity).
+    // where they already are. On the edge (in-process) or the auth entity (provider_entity).
     if (isRemote()) {
         bindRemoteSession(exchange.tokenKey, sessionId);
     } else {
@@ -943,6 +961,14 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
         return tooManyRequests(window.startedMs + kWindowMs - now);
     }
 
+    // Asked before the credential is spent. Redeeming rotates it, and a rotation whose
+    // answer is never handed back is a credential the client cannot present next time.
+    // The refusal is the rate limit's, and for the same reason. It says nothing about the
+    // credential and tells a legitimate client to wait rather than to forget what it holds.
+    if (!m_sessions->hasRoom()) {
+        return tooManyRequests(kWindowMs);
+    }
+
     const QUrlQuery body{QString::fromUtf8(request.body())};
     const QString family{body.queryItemValue(QStringLiteral("device_id"), QUrl::FullyDecoded)};
     QByteArray secret{
@@ -972,6 +998,11 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
         return notFound();
     }
     const QByteArray sessionId{m_sessions->createSession(scope, redemption.identity)};
+    if (sessionId.isEmpty()) {
+        // hasRoom() said yes a moment ago and nothing runs in between, so this is not
+        // reached. It is refused the same way rather than answering with an empty session.
+        return tooManyRequests(kWindowMs);
+    }
     bindFamily(sessionId, redemption.next.family);
     return sessionAnswer(sessionId, redemption.next.family, redemption.next.secret,
                          redemption.next.expiresMs);

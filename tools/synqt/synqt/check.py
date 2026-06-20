@@ -822,7 +822,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
 
     messages += lint_member_scopes(config)
     messages += lint_fronts(config)
-    messages += _browser_policy_messages(config, scope_order)
+    messages += _browser_policy_messages(config, scope_order, release)
     messages += _public_origin_messages(config, release)
     messages += _cdn_delivery_messages(config)
     messages += _loading_messages(config)
@@ -1864,7 +1864,8 @@ def _cdn_delivery_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
-def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str]) -> List[str]:
+def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str],
+                             release: bool) -> List[str]:
     """The `security:` block and the two enumerated choices next to it.
 
     Every value here is carried into the generated edge, so a key this framework cannot
@@ -1924,6 +1925,21 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str]) -> 
             messages.append(
                 f"error: security.{key} is {value}; a limit of zero or less would refuse "
                 "every connection rather than disable the limit")
+
+    # The session ceiling is the one where zero is a word. It disables the ceiling, which
+    # a lab may want and a deployment facing the internet may not.
+    sessions = security.get("max_sessions")
+    if sessions is not None:
+        if isinstance(sessions, bool) or not isinstance(sessions, int):
+            messages.append(
+                f"error: security.max_sessions must be a whole number, not {sessions!r}")
+        elif sessions < 0:
+            messages.append(
+                f"error: security.max_sessions is {sessions}; use 0 to disable the ceiling")
+        elif sessions == 0 and release:
+            messages.append(
+                "warn: security.max_sessions is 0, so the session table has no ceiling: "
+                "anyone who can load the page can grow it for as long as the TTL lasts")
 
     # The one limit where zero is a word rather than a number, because Qt's rate limiting is
     # off until something turns it on.

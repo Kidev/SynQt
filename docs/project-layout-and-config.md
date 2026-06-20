@@ -711,9 +711,14 @@ security:
   max_connections_per_ip: 20
   max_connections_global: 1000
   # Reject oversized frames (DoS guard). Also sets how much one connection may hold
-  # unread: the edge caps each browser socket's read buffer at four times this, and
+  # unread. The edge caps each browser socket's read buffer at four times this, and
   # closes a connection that goes past it.
   max_message_bytes: 1048576
+  # How many sessions the edge holds at once. A page load with no live cookie mints
+  # one, so this bounds the one table a stranger can grow. At the ceiling the oldest
+  # anonymous session nobody is connected on is let go of before anyone is refused.
+  # Zero removes the ceiling.
+  max_sessions: 100000
 
   # The three below are Qt's own limits on the HTTP request, which the edge sets
   # rather than leaving at the values Qt picked for a general-purpose server.
@@ -1577,27 +1582,28 @@ fast. Non negotiable checks:
   Each reaches the runtime as a `QHostAddress`, which resolves nothing, so a name
   binds nothing and dials nothing.
 - An identity provider missing a required `client_secret` is rejected before the
-  edge starts, not at first login. A literal one is rejected too: it must be an
+  edge starts rather than at first login. A literal one is rejected too. It must be an
   `env:` reference, so the value stays out of `synqt.yaml` and out of the binary.
 - `scopes.default` must be one of `scopes.order`, or every new session would begin
   holding a scope that satisfies no check at all.
 - A `security` limit (`handshake_timeout_ms`, the two connection caps,
   `max_message_bytes`) that is not a whole number is rejected, and so is one that is
-  zero or less: the caps are compared with `>=`, so a cap of zero reads like "no
-  limit" and refuses the first connection.
+  zero or less, because the caps are compared with `>=`, so a cap of zero reads like "no
+  limit" and refuses the first connection. `security.max_sessions` is the exception.
+  Zero there removes the ceiling, and a release build says what that leaves unbounded.
 - `security.session_transport` and `identity.flow` are rejected unless they name
   something this version implements (`cookie` and `authorization_code`). A setting
   the edge cannot honor is refused rather than dropped, because an edge that quietly
   runs a different one is indistinguishable from an edge that runs the one asked for.
 - A provider whose `name` is not available for the entity's type is
   rejected, naming the providers that are. A `custom:<Name>` is checked for shape
-  only, since what an entity registers is known when it starts, not when it is
-  checked; if that name selects nothing the entity refuses to start and names the
+  only, since what an entity registers is known when it starts rather than when it is
+  checked. If that name selects nothing the entity refuses to start and names the
   providers registered for the family. A non default provider whose engine
   client or Qt SQL driver plugin is missing is reported by `synqt doctor` and
   rejected before start.
 - A provider connection to an external engine that is plaintext or unverified
-  (no TLS, or verification disabled) is rejected in a release build; it is allowed
+  (no TLS, or verification disabled) is rejected in a release build. It is allowed
   only in dev on localhost.
 - Any provider secret (a `password` or `uri` carrying credentials) that is not an
   `env:` reference, or that is referenced by a client target, is rejected.

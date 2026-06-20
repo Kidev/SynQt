@@ -327,6 +327,7 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
                        ("max_connections_per_ip", "maxConnectionsPerIp"),
                        ("max_connections_global", "maxConnectionsGlobal"),
                        ("max_message_bytes", "maxMessageBytes"),
+                       ("max_sessions", "maxSessions"),
                        ("keep_alive_timeout_s", "keepAliveTimeoutSeconds"),
                        ("max_requests_per_second", "maxRequestsPerSecond"),
                        ("max_body_bytes", "maxBodyBytes")):

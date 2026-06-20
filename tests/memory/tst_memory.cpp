@@ -1,24 +1,21 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Memory acceptance. What a workload leaves behind.
+// Memory acceptance: what a workload leaves behind.
 //
-// Every other suite asks whether one operation is correct. This one asks what a hundred
-// thousand of them cost. A service entity runs for months without being restarted, so an
-// object retained per browser connection, per request, or per reconnect is a defect even
-// when every one of those operations is correct, and it is a defect nothing else here can
-// see: the operation passes, the process exits, and the memory it kept goes back to the
-// operating system with it.
+// Every other suite asks whether one operation is correct; this one asks what a hundred
+// thousand of them cost. A service entity runs for months without a restart, so an object
+// retained per browser connection, per request, or per reconnect is a defect even when
+// every operation is correct, and nothing else here can see it: the operation passes, the
+// process exits, and the memory goes back to the operating system.
 //
-// It is also the half a leak checker cannot cover. LeakSanitizer reports memory that is
-// unreachable at exit, and every leak this framework has had was perfectly
-// reachable. A promise parented to a facade that lives as long as the connection, a node
-// replaced but not retired on reconnect, a verifier map nothing ever removed from. Those
-// are leaks by the only definition that matters to a long-running edge (it grows until it
-// dies) and are invisible by that other definition. So this suite measures the thing
-// itself: run the same cycle many times over one long-lived object, twice, and require the
-// second run to keep no more than the first. What that comparison is worth is checked
-// first, by theBudgetCanTellALeakFromABusyProcess().
+// It is also the half a leak checker cannot cover. LeakSanitizer reports memory unreachable
+// at exit, while the leaks a long-running edge dies of are reachable: a promise parented to
+// a facade that lives as long as the connection, a node replaced but not retired on
+// reconnect, a map nothing removes from. So this suite measures growth: run the same cycle
+// many times over one long-lived object, twice, and require the second run to keep no more
+// than the first. theBudgetCanTellALeakFromABusyProcess() checks first what that comparison
+// is worth.
 //
 // run-leakcheck.sh is the other half, and runs the rest of the tree under LeakSanitizer.
 
@@ -97,11 +94,10 @@ qint64 heapInUse()
 
 /// Run everything already scheduled, including the deletions a disconnect defers.
 ///
-/// Without this the measurement would be taken while the last cycle's objects are still
-/// queued for deletion, and would read as a leak the size of one cycle. deleteLater() is
-/// how this framework retires almost everything it owns, so draining that queue is part of
-/// asking the question, not a way of being kind to the answer. What is still held after the
-/// event loop has caught up is what is held.
+/// Otherwise the measurement is taken while the last cycle's objects are still queued for
+/// deletion, and reads as a leak the size of one cycle. deleteLater() is how this framework
+/// retires almost everything it owns, so draining that queue is part of the question. What
+/// is still held after the event loop has caught up is what is held.
 void settle(int milliseconds = 150)
 {
     QTest::qWait(milliseconds);
@@ -140,21 +136,16 @@ struct Growth
 /// Run the same cycle over two consecutive windows of measuredCycles each and report what
 /// the second window kept that the first did not.
 ///
-/// The slope, not the reading. An earlier version of this took the heap once before the
-/// measured cycles and once after, and compared the difference against zero, which is not
-/// the question. A process is not a straight line. The first pass through any path
-/// allocates what every later pass reuses (Qt's type caches, the allocator's arenas, a TLS
-/// session cache), and glibc hands pages back on its own schedule, so the absolute reading
-/// carries a fixed cost and a drift that have nothing to do with what the workload holds.
-/// Measured here on the browser cycle, that drift was about -200 KB: the heap ended the
-/// window smaller than it started it. So the old form failed a build that retained nothing
-/// per connection, because a one-time 230 KB crossed zero, and would have passed a real
-/// leak of ~100 bytes a connection, because at 30 cycles it hides inside the drift.
+/// Measures the slope. A process is not a straight line: the first pass through any
+/// path allocates what later passes reuse (Qt's type caches, the allocator's arenas, a TLS
+/// session cache), and glibc hands pages back on its own schedule, so an absolute reading
+/// carries a fixed cost and a drift (about -200 KB on the browser cycle) unrelated to what
+/// the workload holds. Compared against zero, it fails a build that retains nothing and
+/// hides a leak of ~100 bytes a connection inside the drift.
 ///
-/// Two windows of the same length answer the question the suite is asking. A
-/// fixed cost is paid in the first and not the second, so it subtracts out. A leak is paid
-/// in both, and every cycle of it survives the subtraction. What it costs is a second run
-/// of each workload, and that is the price of an answer that means something.
+/// Two windows of the same length answer the actual question. A fixed cost is paid in the
+/// first and not the second, so it subtracts out; a leak is paid in both, and every cycle
+/// of it survives the subtraction. The price is a second run of each workload.
 Growth measure(int warmupCycles, int measuredCycles, const std::function<bool()> &cycle)
 {
     Growth growth;
@@ -185,42 +176,36 @@ Growth measure(int warmupCycles, int measuredCycles, const std::function<bool()>
     return growth;
 }
 
-/// The part of the budget that grows with the work. What one more cycle may leave behind.
+/// The part of the budget that grows with the work: what one more cycle may leave behind.
 ///
-/// Not zero. The allocator is free to move a block, a hash may rehash,
-/// and Qt caches things this suite does not control, so asking for an exact zero would buy a
-/// flaky suite and nothing else. It is set well under the cost of retaining anything real:
-/// the smallest thing any of these cycles could leak is a QObject, and an empty QObject
-/// with its private data is already about 100 bytes before the connection lists, timers,
-/// nodes and sockets that hang off the ones here. This is only half the budget, though,
-/// and on the depths used here it is the smaller half. See AllowedFixedBytes for what the
-/// suite can resolve.
+/// Not zero. The allocator may move a block, a hash may rehash, and Qt caches things this
+/// suite does not control, so an exact zero would only make the suite flaky. It is set well
+/// under the cost of retaining anything real: the smallest thing these cycles could leak is
+/// a QObject, about 100 bytes with its private data before any connection lists, timers,
+/// nodes or sockets. This is only half the budget, and at these depths the smaller half;
+/// see AllowedFixedBytes for what the suite can resolve.
 constexpr qint64 AllowedBytesPerCycle{64};
 
-/// Room for the allocator's own shape, which is a sawtooth and not a line.
+/// Room for the allocator's own shape, which is a sawtooth.
 ///
-/// Chased down rather than guessed at, because a slack constant nobody can explain is how a
-/// real leak gets waved through. Taking the browser cycle one rung at a time (nothing, a
-/// TLS connect and close, an accepted WebSocket upgrade, the transport on top of it, QtRO
-/// on top of that), the first two rungs read exactly zero and the third reads all of it. It
-/// is not anything the edge holds. Every one of its per-connection maps (pending timers,
-/// pending sockets, verified sessions, per-session Sources, per-IP counts) is empty at the
-/// end of every window, and forcing a QML garbage collection each cycle changes nothing.
+/// Taking the browser cycle one rung at a time (nothing, a TLS connect and close, an
+/// accepted WebSocket upgrade, the transport on top, QtRO on top of that), the first two
+/// rungs read exactly zero and the third reads all of it. None of it is held by the edge:
+/// every per-connection map (pending timers, pending sockets, verified sessions,
+/// per-session Sources, per-IP counts) is empty at the end of every window, and forcing a
+/// QML garbage collection each cycle changes nothing.
 ///
-/// It is glibc. Four thousand accepted upgrades sampled every two hundred: the heap climbs
-/// about 44 bytes a cycle, drops 223 KB in one move, climbs again, drops another 100 KB,
-/// climbs again. It oscillates inside a 260 KB band and ends 171 KB BELOW where it started,
-/// so there is nothing retained per connection to find. A window landing on a rising limb
-/// reads a few kilobytes. One spanning a drop reads -229 KB. This constant is that rising
-/// limb with room to spare, which is why a per-cycle budget cannot do this job alone.
+/// It is glibc. Over four thousand accepted upgrades the heap climbs about 44 bytes a
+/// cycle, drops 223 KB at once, climbs, drops another 100 KB, and so on, oscillating in a
+/// 260 KB band and ending below where it started. A window on a rising limb reads a few
+/// kilobytes; one spanning a drop reads about -229 KB. This constant is that rising limb
+/// with room to spare, which is why a per-cycle budget cannot do the job alone.
 ///
-/// It also sets the real sensitivity, so that is measured too rather than claimed: leaking
-/// a known amount into the browser cycle, 200 bytes a connection is caught and 128 is not.
-/// That is about one QObject with its private data, the smallest thing any of these cycles
-/// could retain, and every leak this framework has had retained more than that.
-/// What the sawtooth does cost is the other direction. A window that happens to span a drop
-/// would swallow a leak that size. Rare, and it errs towards a green run rather than a
-/// false alarm, so it is a known limit of the method and not a reason to distrust a red.
+/// It also sets the real sensitivity: leaking a known amount into the browser cycle, 200
+/// bytes a connection is caught and 128 is not, about one QObject with its private data. A
+/// window that happens to span a drop would swallow a leak that size. That errs toward a
+/// green run rather than a false alarm, so it is a known limit of the method, and a red
+/// still means a leak.
 constexpr qint64 AllowedFixedBytes{16384};
 
 /// The most this workload may keep. The floor, plus what each cycle is allowed.
@@ -238,29 +223,23 @@ bool withinBudget(const Growth &growth, qint64 allowedPerCycle)
 
 /// Measure, and do not believe an over-budget reading until a deeper window repeats it.
 ///
-/// A reading over budget is a hypothesis. Two things can produce one: the workload keeps
-/// something every cycle, or the process happened to be somewhere awkward when the window
-/// closed. They are told apart by asking again with a longer window, because only one of
-/// them survives the question.
+/// A reading over budget is a hypothesis. Either the workload keeps something every cycle,
+/// or the process was somewhere awkward when the window closed. A longer window tells them
+/// apart, because only one survives it.
 ///
-/// A cost that is paid once does not repeat, so the second measurement does not see it at
-/// all. A leak is paid every cycle, so it is still there, and the deeper window judges it
-/// harder rather than more gently. The fixed allowance is spread over twice as many
-/// cycles, so the rate this will tolerate falls from AllowedFixedBytes/n + allowedPerCycle
-/// to AllowedFixedBytes/2n + allowedPerCycle. Confirming an accusation and tightening it
-/// are the same act here, which is the only reason this is worth its runtime.
+/// A cost paid once does not repeat, so the second measurement does not see it. A leak is
+/// paid every cycle, so it is still there, and the deeper window judges it harder: the
+/// fixed allowance is spread over twice as many cycles, so the tolerated rate falls from
+/// AllowedFixedBytes/n + allowedPerCycle to AllowedFixedBytes/2n + allowedPerCycle.
+/// Confirming an accusation and tightening it are the same act.
 ///
-/// It costs nothing on a green run. A reading inside the budget is returned without a
-/// second measurement, which is every run where nothing is wrong.
+/// It costs nothing on a green run: a reading inside the budget is returned without a
+/// second measurement.
 ///
-/// This exists because the edge cycle failed once on a CI runner at 1238 bytes a cycle and
-/// passed the immediate re-run of the same binary, on a build where 600 consecutive edges
-/// climb about 35 bytes each and not one of fifty-seven 30-cycle windows comes near the
-/// budget. AllowedFixedBytes was chased down on the browser cycle, and the edge cycle is a
-/// heavier thing entirely (a QML engine, an HTTP server, a TLS server and a client
-/// handshake per pass), so carrying that constant across to it was the step nobody had
-/// checked. Widening the constant until CI went green would have bought silence. Asking
-/// twice buys an answer.
+/// The edge cycle is much heavier than the browser cycle AllowedFixedBytes was derived on
+/// (a QML engine, an HTTP server, a TLS server and a client handshake per pass), so a
+/// single window can land over budget on a busy runner without any per-cycle growth. Asking
+/// twice answers that without widening the constant.
 Growth measureConfirmed(int warmupCycles, int measuredCycles, qint64 allowedPerCycle,
                         const std::function<bool()> &cycle)
 {
@@ -274,22 +253,20 @@ Growth measureConfirmed(int warmupCycles, int measuredCycles, qint64 allowedPerC
 /// The same question for a mesh reconnect, where the answer is coarser.
 ///
 /// A reconnect replaces a whole QtRO node, its transport and its Replica, and QtRO keeps
-/// per-object bookkeeping of its own that a consumer cannot reach or free: a bare
-/// QRemoteObjectHost plus node taken up and down once, with no SynQt in the picture,
-/// retains about twenty kilobytes a cycle on this Qt. What this test is for is the thing
-/// SynQt owns, which is retiring the old node rather than replacing the pointer to it, and
-/// that failure costs a node. This bound is two orders of magnitude under one and two
-/// orders over what a reconnect measures.
+/// per-object bookkeeping a consumer cannot reach or free: a bare QRemoteObjectHost and
+/// node taken up and down, with no SynQt involved, retains about twenty kilobytes a cycle.
+/// What SynQt owns is retiring the old node rather than replacing the pointer to it, and
+/// that failure costs a node. This bound is two orders of magnitude under one node and two
+/// over what a reconnect costs.
 constexpr qint64 AllowedBytesPerRetiredLink{2048};
 
-/// What one client's whole visit may leave behind, measured over the same shape from the
-/// other end. A `SynClient` that connects to an edge and is then destroyed.
+/// What one client's whole visit may leave behind, from the other end: a `SynClient` that
+/// connects to an edge and is then destroyed.
 ///
-/// The same reasoning and the same order of magnitude as the link budget above, because a
-/// client connecting builds the same three things a consumer link does (a node, a
-/// transport and the replicas on it) and destroying it has to retire all of them. It is set
-/// here rather than shared, because the failure this is written for costs about four
-/// kilobytes a visit and a bound that cannot see four kilobytes would not be a bound.
+/// The same reasoning and order of magnitude as the link budget above, because a connecting
+/// client builds what a consumer link does (a node, a transport and the replicas on it) and
+/// destroying it has to retire all of them. Set separately, because an unretired replica
+/// costs about four kilobytes a visit and the bound has to see that.
 constexpr qint64 AllowedBytesPerClientVisit{2048};
 
 QSslConfiguration insecureClientConfig()
@@ -328,9 +305,8 @@ ConnectPointConfig localProbe(const QString &socketName)
     connectPoint.consumers = {QStringLiteral("b")};
     connectPoint.serverFile = QStringLiteral(MEMORY_SRCDIR "/owner/Probe.qml");
     connectPoint.shared = false;
-    // The local socket, so this test needs no certificate authority of its own. What is
-    // being measured is what the runtime retires when a link is replaced, which is the
-    // same work on either transport.
+    // The local socket, so this test needs no certificate authority of its own. What the
+    // runtime retires when a link is replaced is the same work on either transport.
     connectPoint.endpoint.mode = MeshTransportMode::LocalSocket;
     connectPoint.endpoint.socketName = socketName;
     return connectPoint;
@@ -378,13 +354,10 @@ private slots:
     }
 
     // The instrument, checked before anything is measured with it. A budget is only worth
-    // reading if it can come back negative, and the version of this suite that shipped
-    // before this one could not. It compared the heap against zero, and the ~200 KB glibc
-    // hands back during a run swallowed anything smaller than itself. It failed a build
-    // that retained nothing and would have passed one that retained an object per
-    // connection. So this leaks a known amount on purpose and requires the check to say so,
-    // then runs the same cycle without the leak and requires it to pass. Everything below
-    // is only evidence if this holds.
+    // reading if it can come back negative: compared against zero, the ~200 KB glibc hands
+    // back during a run swallows anything smaller. So this leaks a known amount on purpose
+    // and requires the check to say so, then runs the same cycle without the leak and
+    // requires it to pass. Everything below is evidence only if this holds.
     void theBudgetCanTellALeakFromABusyProcess()
     {
         QList<QByteArray> held;
@@ -413,10 +386,9 @@ private slots:
                                              budgetFor(leaking, AllowedBytesPerCycle))));
     }
 
-    // What measureConfirmed() is worth, checked the same way the budget itself is: by
-    // feeding it both answers and requiring it to tell them apart. Without this, the second
-    // measurement is an unexamined way of making a red run green, which is the one thing a
-    // gate must never be.
+    // What measureConfirmed() is worth, checked the way the budget is: feed it both answers
+    // and require it to tell them apart. Otherwise the second measurement is an unexamined
+    // way of turning a red run green.
     void theConfirmationDropsAOneTimeCostAndKeepsALeak()
     {
         QList<QByteArray> held;
@@ -462,17 +434,14 @@ private slots:
     }
 
     // The edge itself, taken up and down. Everything else here keeps one edge and cycles
-    // what happens to it. Nothing asked what an edge costs to build and retire, and a whole
-    // suite that never asks a question is how a leak lives.
+    // what happens to it; this asks what an edge costs to build and retire.
     //
-    // The client is thrown away with each cycle, which is what this measures rather than a
-    // detail of the setup. A QNetworkAccessManager caches a connection and its TLS session
-    // per host:port and lets go only on an inactivity timer, so a long-lived one pointed at
-    // a fresh port every cycle holds about 131 KB per edge that has nothing to do with the
-    // edge. That is exactly what tests/m5-webedge does, which is why m5 is the largest
-    // number in run-leakcheck.sh's soak table by a factor of five and why it is not a leak.
-    // Measured on this cycle: 131 KB each with a shared client, and nothing with a fresh
-    // one. What is left over is the edge, and the edge keeps nothing.
+    // The client is thrown away with each cycle, which is part of what this measures. A
+    // QNetworkAccessManager caches a connection and its TLS session per host:port and
+    // releases them only on an inactivity timer, so a long-lived one pointed at a fresh
+    // port every cycle holds about 131 KB per edge that has nothing to do with the edge.
+    // tests/m5-webedge uses a shared client and so shows that cost; with a fresh client it
+    // is zero, and what is left over is the edge, which keeps nothing.
     void anEdgeThatServedARequestLetsGoOfAllOfIt()
     {
         const auto oneEdge{[]() {
@@ -500,19 +469,16 @@ private slots:
                                             budgetFor(growth, AllowedBytesPerCycle))));
     }
 
-    // The two above, together, which is the combination neither of them covers, and the
-    // gap they left was real. One edge taking many browsers is flat, and an edge built and
-    // retired around a plain page load is flat, so an edge retired while a browser is still
-    // holding it read as covered by the pair and was not. QHttpServer takes the accepted
-    // socket out of the QSslServer's object tree to upgrade it and the QWebSocket it hands
-    // back is not its parent, so on the single-threaded path nothing owned it: 79 KB and
-    // 180 allocations per live browser, every time. A threaded edge never had it, because
-    // SocketChannel adopts the raw socket in order to carry it to another thread and owning
-    // it was the side effect that mattered.
+    // The two above together, the combination neither covers: an edge retired while a
+    // browser is still holding it. QHttpServer takes the accepted socket out of the
+    // QSslServer's object tree to upgrade it, and the QWebSocket it hands back is not its
+    // parent, so on the single-threaded path the edge has to own that socket or it leaks
+    // with every live browser (about 79 KB and 180 allocations each). A threaded edge owns
+    // it through SocketChannel, which adopts the raw socket to carry it to another thread.
     //
-    // Found from the other side first. LeakSanitizer reported it as a graph with no root
-    // under QSslServer::incomingConnection, exactly (N-1) times for N repetitions of any
-    // m5 slot that completes an upgrade, and not once for the threaded ones.
+    // LeakSanitizer sees the same leak as a graph with no root under
+    // QSslServer::incomingConnection, (N-1) times for N repetitions of any m5 slot that
+    // completes an upgrade.
     void anEdgeThatCarriedABrowserLetsGoOfTheSocketItArrivedOn()
     {
         const auto oneEdgeWithOneBrowser{[]() {
@@ -632,13 +598,12 @@ private slots:
     // arrives with, hashes nothing (the ETag is computed once at start), and answers from
     // the bundle cache, so it should cost nothing that outlives the reply.
     //
-    // Measured against a bare QHttpServer doing the same three things, rather than against
-    // a number. Serving a file through an after-request handler that appends headers
-    // retains about sixty bytes a request in Qt 6.11.1 with no SynQt code anywhere near
-    // it, which is the whole of what this loop would otherwise be measuring: a fixed bound
-    // would have to be loose enough to cover it, and would then be too loose to catch
-    // anything the edge itself might keep. Comparing instead asks the question that is
-    // the edge's to answer, and keeps asking it when the number underneath changes.
+    // Compared against a bare QHttpServer doing the same three things rather than against a
+    // number. Serving a file through an after-request handler that appends headers retains
+    // about sixty bytes a request in Qt itself, with no SynQt code involved; a fixed bound
+    // loose enough to cover that would be too loose to catch anything the edge keeps. The
+    // comparison asks the edge's own question, and keeps asking it when Qt's number
+    // changes.
     void theEdgeCostsNoMorePerPageLoadThanTheServerItIsBuiltOn()
     {
         QHttpServer baseline;
@@ -710,15 +675,16 @@ private slots:
                                      plain.describe("the same file from a bare QHttpServer"))));
     }
 
-    // Sessions are the edge's one unbounded structure: anyone who can reach it can ask for
-    // one. Creating, elevating and revoking has to leave the table exactly as it found it,
+    // Sessions are the structure anyone who can reach the edge can ask for. The ceiling
+    // (SessionManager::setMaximumSessions) is what bounds a flood. This is the other half:
+    // creating, elevating and revoking has to leave the table exactly as it found it,
     // rotation records included, or the table is a slow leak with a public entry point.
     void theSessionStoreLetsGoOfWhatItRevokes()
     {
-        // No time to live, so that what is measured is the lifecycle and not the expiry
-        // queue. With one, the store keeps a reclaim hint per session created inside the
-        // window (it is what makes the purge amortized O(1)), and its size is
-        // bounded by the creation rate rather than by anything this cycle does.
+        // No time to live, so the lifecycle is measured and not the expiry queue. With one,
+        // the store keeps a reclaim hint per session created inside the window (it is what
+        // makes the purge amortized O(1)), bounded by the creation rate rather than by
+        // anything this cycle does.
         SessionManager sessions{QStringLiteral("anonymous"), 0};
         const auto oneSession{[&sessions]() {
             const QByteArray id{sessions.createSession()};
@@ -746,30 +712,27 @@ private slots:
 
     // Signing out costs the edge nothing that closing the tab does not.
     //
-    // The two halves of ending a session meet here. The store lets go of the record, and
+    // The two halves of ending a session meet here: the store lets go of the record, and
     // the edge closes the connections that record authorized. The second half keeps a map
-    // of live sockets per session, and a map an edge writes to once per connection is
-    // exactly the shape of thing that grows for a month and is noticed by nobody.
+    // of live sockets per session, and a map an edge writes once per connection is exactly
+    // what grows unnoticed for a month.
     //
-    // Measured as a difference rather than against a fixed bound.
-    // A visitor who is new each time reads as a cost this run does not get back, and it is
-    // not a leak. Bisected on its own edge, every container the edge keys by session is
-    // empty afterwards (pending sessions, per-session Sources, per-session sockets, the
-    // per-IP counts), the sessions themselves are exactly the ones nobody signed out of,
-    // and what is left over is a fixed cost being amortised, falling from about 960 bytes
-    // a visit over 30 visits to about 530 over 150. A fixed bound here would be a test that
-    // fails for the allocator's reasons rather than for the edge's. What this asks is the
-    // question the sign-out path owns. Given the same visitor arriving and connecting, does
-    // ending the session at the edge leave more behind than the visitor going away?
-    // It must not, and if the map or the Sources or the Callers it carries were ever left
-    // in place, it would.
+    // Measured as a difference rather than against a fixed bound. A new visitor each time
+    // reads as a cost this run does not get back, and it is not a leak: every container the
+    // edge keys by session is empty afterwards (pending sessions, per-session Sources,
+    // per-session sockets, per-IP counts), the remaining sessions are exactly the ones
+    // nobody signed out of, and the rest is a fixed cost being amortised (about 960 bytes a
+    // visit over 30 visits, 530 over 150). The question here is the sign-out path's own:
+    // given the same visitor arriving and connecting, does ending the session at the edge
+    // leave more behind than the visitor going away? It must not, and it would if the map,
+    // the Sources or the Callers were left in place.
     void signingOutLeavesNoMoreBehindThanClosingTheTab()
     {
         QQmlEngine engine;
         // No time to live, for the reason theSessionStoreLetsGoOfWhatItRevokes gives: with
-        // one, the store keeps a reclaim hint per session created inside the window, on
-        // purpose, and its size is bounded by the creation rate rather than by anything
-        // this cycle does. What is measured here is what ending a session releases.
+        // one, the store keeps a reclaim hint per session created inside the window,
+        // bounded by the creation rate rather than by this cycle. What is measured here is
+        // what ending a session releases.
         WebEdgeConfig config{edgeConfig()};
         config.sessionTtlMinutes = 0;
         WebEdge edge{config, &engine};
@@ -816,11 +779,9 @@ private slots:
             if (!replica->waitForSource(5000)) {
                 return false;
             }
-            // The edge ends it, and the socket goes with it. Waited for rather than
-            // slept past. The close travels back over the wire, and a fixed pause is a
-            // flake on a loaded runner.
-            // Waited for rather than slept past. The close travels back over the wire,
-            // and a fixed pause is a flake on a loaded runner.
+            // The edge ends it, and the socket goes with it. Waited for rather than slept
+            // past: the close travels back over the wire, and a fixed pause is a flake on a
+            // loaded runner.
             QSignalSpy closed{&socket, &QWebSocket::disconnected};
             if (endAtTheEdge) {
                 edge.sessionManager()->revoke(token);
@@ -855,24 +816,19 @@ private slots:
                                 .arg(signingOut.perCycle()).arg(leaving.perCycle())));
     }
 
-    // A mesh link is kept up, which means a consumer builds a new node, transport and
-    // Replica every time an owner restarts. Restarting a service is an ordinary operation,
-    // so the old ones have to go. This is the same reconnect m4 proves correct, asked the
-    // question m4 does not ask, which is what it costs to do it a hundred times.
     // An edge in provider_entity mode, told answers nobody is waiting for.
     //
     // The three delegated-result tables are written by whatever the auth entity says and
-    // were read only by a route handler that was still waiting on the matching request id.
-    // Two ordinary things therefore left a row behind for the life of the process: an answer
-    // that arrived after its twenty-second deadline, which a slow auth entity produces on
-    // every call, and an answer naming a request id this edge never issued, which an auth
-    // entity that has been compromised can produce as fast as it can write them. The
-    // callback and login routes are open, so making the auth entity slow is enough to reach
-    // the first.
+    // read only by a route handler still waiting on the matching request id. Two ordinary
+    // things could leave a row behind for the life of the process: an answer arriving after
+    // its twenty-second deadline, which a slow auth entity produces on every call, and an
+    // answer naming a request id this edge never issued, which a compromised auth entity
+    // can produce as fast as it can write. The callback and login routes are open, so
+    // making the auth entity slow is enough to reach the first.
     //
-    // The cycle is one such answer. Nothing is waiting for it, so after the fix nothing is
-    // kept. Before it, each cycle retained a row of three strings and its hash node, which
-    // is far above what this suite can resolve.
+    // The cycle is one such answer. Nothing is waiting for it, so nothing may be kept; a
+    // retained row of three strings and its hash node is far above what this suite
+    // resolves.
     void anEdgeKeepsNoAnswerNobodyIsWaitingFor()
     {
         SessionManager sessions{QStringLiteral("anonymous"), 60};
@@ -912,19 +868,17 @@ private slots:
     // process a person leaves open all day.
     //
     // `SynClient::connectToEdge` runs once per `start()` and once per reconnect, and each
-    // pass builds a node, a transport and the framework's own SessionState replica on it.
-    // The node and the transport are retired by `teardown()`. The replica has to be given
-    // to the node to be retired with it, because `QRemoteObjectNode::acquire<T>()` hands
-    // back an object with no parent (`new ObjectType(this, name)`, and
-    // `QRemoteObjectReplica`'s constructor is `QObject(nullptr)`). The node knows the
-    // replica's *implementation* through a weak pointer and does not own the replica.
-    // Without that one line a client on a flaky network keeps one replica per reconnect
-    // for as long as the tab stays open, which is exactly the shape a browser client is
-    // worst placed to survive.
+    // pass builds a node, a transport and the framework's SessionState replica on it.
+    // `teardown()` retires the node and the transport. The replica must be given to the
+    // node to be retired with it, because `QRemoteObjectNode::acquire<T>()` returns an
+    // object with no parent (`new ObjectType(this, name)`, and `QRemoteObjectReplica`'s
+    // constructor is `QObject(nullptr)`); the node knows the replica's *implementation*
+    // only through a weak pointer. Otherwise a client on a flaky network keeps one replica
+    // per reconnect for as long as the tab stays open.
     //
     // The cycle is a whole client rather than a reconnect because it is cheaper and says
-    // more. One visit exercises the same path, and a client that has been destroyed may
-    // hold nothing at all.
+    // more: one visit exercises the same path, and a destroyed client may hold nothing at
+    // all.
     void aClientThatComesAndGoesLetsGoOfEverythingItAcquired()
     {
         QQmlEngine engine;
@@ -952,12 +906,11 @@ private slots:
         }};
 
         // Every visit builds a Session, a Router and a Privacy accessor on the one engine
-        // this test shares across them, and each of those puts a closure or two in that
-        // engine's JavaScript heap (`Session.hasScope` is a function-valued property). The
-        // engine reclaims those on its own schedule, which is not once per cycle, so they
-        // are collected here rather than left to read as a leak of the client's: measured,
-        // they are about 2.7 KB a visit and go to zero under a collection, while the
-        // replica this test was written for does not move under one at all.
+        // this test shares, and each puts a closure or two in that engine's JavaScript heap
+        // (`Session.hasScope` is a function-valued property). The engine reclaims those on
+        // its own schedule, not once per cycle, so they are collected here rather than read
+        // as a client leak: about 2.7 KB a visit that goes to zero under a collection,
+        // while an unretired replica does not move under one at all.
         const auto visitAndSettle{[&oneVisit, &engine]() {
             const bool connected{oneVisit()};
             QTest::qWait(20);
@@ -972,6 +925,10 @@ private slots:
                                             budgetFor(growth, AllowedBytesPerClientVisit))));
     }
 
+    // A mesh link is kept up, so a consumer builds a new node, transport and Replica every
+    // time an owner restarts. Restarting a service is ordinary, so the old ones have to go.
+    // This is the reconnect m4 proves correct, asked what it costs to do it a hundred
+    // times.
     void theMeshLinkLetsGoOfEveryRetiredNode()
     {
         QTemporaryDir sockets;

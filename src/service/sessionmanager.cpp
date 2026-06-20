@@ -74,9 +74,89 @@ QString SessionManager::keyFor(const QByteArray &id)
     return QString::fromLatin1(digest.toHex().left(32));
 }
 
+void SessionManager::setMaximumSessions(int maximum)
+{
+    m_maximumSessions = qMax(0, maximum);
+}
+
+int SessionManager::maximumSessions() const
+{
+    return m_maximumSessions;
+}
+
+void SessionManager::setInUseCheck(std::function<bool(const QByteArray &)> inUse)
+{
+    m_inUse = std::move(inUse);
+}
+
+bool SessionManager::isEvictable(const SessionRecord &record) const
+{
+    if (!record.identity.isEmpty() || record.scope != m_defaultScope) {
+        return false;
+    }
+    return !m_inUse || !m_inUse(record.id);
+}
+
+bool SessionManager::hasRoom() const
+{
+    if (m_maximumSessions <= 0 || m_sessions.size() < m_maximumSessions) {
+        return true;
+    }
+    int looked{0};
+    for (const auto &[createdMs, id] : m_expiryQueue) {
+        if (++looked > EvictionSearchDepth) {
+            break;
+        }
+        const auto it{m_sessions.constFind(id)};
+        if (it != m_sessions.constEnd() && it->createdMs == createdMs && isEvictable(*it)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SessionManager::evictOne()
+{
+    // Oldest first, which is the front of the expiry queue. The queue is hints: an entry
+    // whose id was rotated or overwritten no longer matches the record and is skipped, as
+    // purgeExpired skips it.
+    int looked{0};
+    for (auto hint{m_expiryQueue.begin()}; hint != m_expiryQueue.end(); ++hint) {
+        if (++looked > EvictionSearchDepth) {
+            return false;
+        }
+        const auto it{m_sessions.find(hint->second)};
+        if (it == m_sessions.end() || it->createdMs != hint->first || !isEvictable(*it)) {
+            continue;
+        }
+        const QByteArray id{it->id};
+        dropRotationTo(it.value());
+        m_sessions.erase(it);
+        m_expiryQueue.erase(hint);
+        // Told the way a revocation is told, so everything keyed on it lets go, on this
+        // process and on every replica sharing the table.
+        emit sessionRemoved(QString::fromLatin1(id));
+        if (m_remote) {
+            QMetaObject::invokeMethod(m_remote, "removeSession",
+                                      Q_ARG(QString, QString::fromLatin1(id)));
+        }
+        trace(Category::Authorization, Severity::Warning, QStringLiteral("session evicted"),
+              {{QStringLiteral("session"), keyFor(id)},
+               {QStringLiteral("held"), static_cast<qint64>(m_sessions.size())}});
+        return true;
+    }
+    return false;
+}
+
 QByteArray SessionManager::createSession(const QString &scope, const QVariantMap &identity)
 {
     purgeExpired();
+    if (m_maximumSessions > 0 && m_sessions.size() >= m_maximumSessions && !evictOne()) {
+        trace(Category::Authorization, Severity::Warning,
+              QStringLiteral("session refused: the table is full"),
+              {{QStringLiteral("held"), static_cast<qint64>(m_sessions.size())}});
+        return QByteArray{};
+    }
     SessionRecord record{};
     record.id = newToken();
     record.scope = scope.isEmpty() ? m_defaultScope : scope;

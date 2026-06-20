@@ -17,11 +17,9 @@ namespace SynQt {
 
 /// How the browser presents its session credential at the wss upgrade.
 ///
-/// One value, and not a placeholder for more. The alternative would be a token in
-/// `Sec-WebSocket-Protocol`, which needs the server to echo the subprotocol it selected;
-/// Qt 6.12 gives this upgrade path no way to select one, and Chromium refuses a handshake
-/// whose response echoes nothing. `tests/m5-webedge` pins that and fails when it changes;
-/// `security.session_transport` is refused at `synqt check` until then.
+/// Cookie only: a token in `Sec-WebSocket-Protocol` needs the server to echo the selected
+/// subprotocol, which the Qt 6.12 upgrade path cannot do. `tests/m5-webedge` fails when that
+/// changes.
 enum class SessionTransport { Cookie };
 
 /// One client-facing connect point owned by the web edge (consumed by the client). The
@@ -33,23 +31,17 @@ struct WebEdgeConnectPoint
     QString serverFile;  ///< the owner-side QML implementing the Source
     QString scope;       ///< minimum session scope. Empty == reachable by any session
 
-    /// Whether the edge is shared, copied onto each point it owns (ConnectPointConfig::
-    /// shared in topology.h carries the full explanation). Shared is one Source for
-    /// everybody, mirrored to each session. Not shared is one Source per session, so what
-    /// it holds is that person's and their second tab continues it.
+    /// Whether the edge is shared, copied onto each point it owns (see ConnectPointConfig::shared
+    /// in topology.h). Shared is one Source mirrored to each session; not shared is one Source per
+    /// session.
     bool shared{true};
 
     /// Which entity serves each scope, on a point the edge owns and does not implement.
     ///
-    /// This is a front. The edge keeps what only it can keep, the session and the sign-in,
-    /// and hands each caller to the entity serving people of their scope. The Source the
-    /// browser acquires relays to that entity and holds nothing itself. Empty on an
-    /// ordinary point, which the edge answers from its own QML.
-    ///
-    /// What follows from that. An entity behind a front is reached by callers of one scope
-    /// and no other, so it authorizes on `Caller` and never asks about scope. Nothing
-    /// enforces that at run time because nothing has to. No link to it is opened for anyone
-    /// else.
+    /// This is a front: the edge keeps the session and the sign-in and hands each caller to the
+    /// entity serving their scope, and the Source the browser acquires only relays. An entity
+    /// behind a front is reached by callers of one scope only, so it authorizes on `Caller`.
+    /// Empty on an ordinary point.
     QMap<QString, QString> behind;
 };
 
@@ -60,9 +52,8 @@ struct WebEdgePage
     QString file;   ///< relative to WebEdgeConfig::pagesDir
     QString scope;  ///< minimum session scope. Empty == any session may fetch it
     /// The page seed hook: a QML file deriving from SynQt::PageSeed that adds
-    /// `function seedFor(route, parameters, caller)`, called after the scope check to
-    /// build the data this page paints with on its first frame. Empty (the common case)
-    /// means the route has no seed, and then nothing is built and nothing is sent.
+    /// `function seedFor(route, parameters, caller)`, called after the scope check to build the
+    /// data the page paints on its first frame. Empty means no seed.
     QString seed;
     /// "accelerated" when this page needs the RHI scene graph, empty or "software"
     /// otherwise. Decided by the build and carried to the client in the route table. The
@@ -75,38 +66,26 @@ struct WebEdgePage
 /// safe ones from [Security](https://synqt.org/security/).
 struct WebEdgeConfig
 {
-    /// Delivery: what this edge serves each scope, as scope name to bundle directory.
+    /// Delivery: scope name to bundle directory.
     ///
-    /// A caller is served the bundle their session's scope maps to and no file of any
-    /// other, which is what makes a privileged bundle absent from an unauthorized disk
-    /// rather than merely un-navigable (a route guard is navigation, and says so). One
-    /// entry keyed by `defaultScope` is the single-bundle case, and is what a project
-    /// writing no `bundles:` emits, so there is no dormant second code path in here.
+    /// A caller is served only the bundle their session's scope maps to. One entry keyed by
+    /// `defaultScope` is the single-bundle case, which a project without `bundles:` emits.
     QMap<QString, QString> bundles;
 
-    /// A password gate this edge serves itself, for an entity that authenticates its own
-    /// people rather than delegating to an identity provider.
+    /// A password gate this edge serves itself, for an entity that authenticates its own people.
     ///
-    /// The monitor is the one user of it, and the reason it exists rather than being
-    /// another OAuth provider. An operator is not a user of the application, and a
-    /// project's own login provider is often the thing an operator is signing in to
-    /// investigate. So the monitor holds its own credentials and elevates a session to
-    /// `signInScope` when one matches.
-    ///
-    /// An empty `signInPath` means no such route, which is every ordinary web edge.
+    /// The monitor uses it: an operator is not a user of the application, and may be signing in
+    /// to investigate the project's own login provider. A matching credential elevates the
+    /// session to `signInScope`. An empty `signInPath` means no such route.
     QString signInPath;
     QString signInScope;
-    /// Returns whether this name and password belong to a configured operator. Never told anything else,
-    /// and never asked to say why not. One message for every failure, or a caller learns
-    /// which names exist by watching which ones fail differently.
+    /// Returns whether this name and password belong to a configured operator. Never told
+    /// anything else, and never asked to say why not: one message for every failure, or a
+    /// caller learns which names exist by watching which ones fail differently.
     std::function<bool(const QString &name, const QString &password)> signIn;
 
-    /// The single-bundle spelling. One directory served to everyone.
-    ///
-    /// A shorthand, not a second source of truth. `WebEdge`'s constructor folds it into
-    /// `bundles` under `defaultScope` when `bundles` is empty and nothing reads it again,
-    /// so there is one place the two are reconciled and no way for them to drift. Most
-    /// projects serve one bundle and should keep writing this.
+    /// The single-bundle spelling: one directory served to everyone. `WebEdge`'s constructor
+    /// folds it into `bundles` under `defaultScope` when `bundles` is empty.
     QString bundleDir;
     QString clientRoute{QStringLiteral("/")};
     QString syncRoute{QStringLiteral("/sync")};
@@ -117,29 +96,18 @@ struct WebEdgeConfig
     QString certFile;
     QString keyFile;
 
-    /// The origin browsers reach this edge at (`public.origin`), or empty to derive it
-    /// from the bind above.
+    /// The origin browsers reach this edge at (`public.origin`), or empty to derive it from the
+    /// bind above.
     ///
-    /// These are two different questions and only one of them has `host` for an answer.
-    /// `host` is what to bind, and its default says every interface. The origin is what a
-    /// browser typed, and it is what the OAuth `redirect_uri` is built from, what `self`
-    /// expands to in `allowedOrigins`, and what the CSP names as the sync endpoint. An
-    /// edge that answers on every interface has no address to read those off, and a
-    /// deployment behind a proxy binds something private and is reached at something
-    /// public, so neither case can be inferred. A project that has a public name says it
-    /// here. Derived, a wildcard bind resolves to `localhost`, which is the one host a
-    /// browser on the same machine can be at.
+    /// `host` is what to bind; the origin is what a browser typed. The OAuth `redirect_uri`, the
+    /// `self` in `allowedOrigins` and the CSP's sync endpoint are built from the origin. A
+    /// wildcard bind derives `localhost`.
     QString origin;
 
-    /// Whether this edge delivers the client bundle, or only the sync endpoint and the
-    /// login routes while a CDN delivers the bundle from another origin
-    /// (`public.serve_client: false`, which only makes sense with
-    /// `project.origin_model: split_origin`).
-    ///
-    /// It is not only a matter of which routes exist. A browser loading the app from a CDN
-    /// never touches this origin before the upgrade, so it would arrive with no session and
-    /// be refused. `clientRoute` therefore stays registered as a credential endpoint that
-    /// mints the session and answers the cross-origin fetch that asks for it.
+    /// Whether this edge delivers the client bundle, or only the sync endpoint and the login
+    /// routes while a CDN delivers the bundle (`public.serve_client: false`, with
+    /// `project.origin_model: split_origin`). Without the bundle, `clientRoute` stays as the
+    /// credential endpoint that mints the session for the cross-origin fetch.
     bool serveClient{true};
 
     /// Origin and session model.
@@ -149,21 +117,13 @@ struct WebEdgeConfig
     QString cookieName{QStringLiteral("synqt_session")};
     bool identityRequired{false};
 
-    /// Serve the development scope picker at `/synqt/dev/identity`, in place of whatever
-    /// sign-in the project has.
-    ///
-    /// Set only by `synqt dev --identity-picker`. Nothing built and nothing served passes
-    /// it, and `synqt serve` has no flag for it. It is the runtime layer of three: the
-    /// picker's sources are named in `src/edge/CMakeLists.txt` only under
-    /// `SYNQT_DEV_TOOLS`, so a release SynQtEdge does not contain the class this would
-    /// register, and the routes below are not registered when this is false. See
-    /// docs/security.md and tests/dev-exclusion.
+    /// Serve the development scope picker at `/synqt/dev/identity`, in place of the project's
+    /// sign-in. Set only by `synqt dev --identity-picker`. The picker's sources exist only under
+    /// `SYNQT_DEV_TOOLS` (docs/security.md, tests/dev-exclusion).
     bool identityPicker{false};
 
-    /// One named person the picker offers, from the project's `.dev-identities`. The file
-    /// is read by `synqt dev`, which owns the YAML parser and knows the project's declared
-    /// scopes. What arrives here has already been checked against them, one
-    /// `--dev-identity <scope>=<email>` per surviving entry.
+    /// One named person the picker offers, from the project's `.dev-identities`, already checked
+    /// by `synqt dev` against the declared scopes.
     struct DevIdentity
     {
         QString scope;   ///< what the file asked for, and what the picker lists
@@ -196,17 +156,9 @@ struct WebEdgeConfig
 
     /// How many IO threads accepted browser sockets are spread across (`threads:`).
     ///
-    /// One, the default, is the whole edge on one thread and is what every project starts
-    /// as. More than one moves each accepted socket onto a thread of its own and leaves
-    /// everything else exactly where it was. One QtRO host per connection, the per-session
-    /// Sources, the QML engine and the entity singleton all stay on the main thread. That
-    /// is the difference from `replicas:`, which is a front and needs every point the edge
-    /// owns to name what is behind it. Threads change no part of the programming model,
-    /// because nothing a developer wrote moves.
-    ///
-    /// What it buys is the send side of a fan-out, which is where most of the per-consumer
-    /// cost of a browser link is. Framing and writing one message per socket. What it does
-    /// not buy is a faster owner, since the Source still runs once, on the main thread.
+    /// More than one moves each accepted socket onto an IO thread; the QtRO hosts, the Sources,
+    /// the QML engine and the entity singleton stay on the main thread, so the programming model
+    /// does not change. It speeds up the send side of a fan-out; the owner runs no faster.
     int socketThreads{1};
 
     /// Resource limits (framework enforced on the upgrade path).
@@ -214,59 +166,40 @@ struct WebEdgeConfig
     int maxConnectionsPerIp{20};
     int maxConnectionsGlobal{1000};
     qint64 maxMessageBytes{1048576};
+    /// How many sessions the edge holds at once (`security.max_sessions`). At the ceiling the
+    /// oldest anonymous session with no live connection is released before anyone is refused.
+    /// See SessionManager::setMaximumSessions. Zero disables it.
+    int maxSessions{100000};
 
-    /// Limits on the HTTP request itself, which QHttpServer enforces before a route runs.
+    /// Limits on the HTTP request itself, enforced by QHttpServer before a route runs. The URL
+    /// and header ceilings stay at Qt's values.
     ///
-    /// These are Qt's own knobs rather than the framework's, and they are set here because
-    /// Qt's defaults are chosen for a general-purpose server and this is not one. What is
-    /// left at Qt's value is what an edge has no reason to move. The URL and header ceilings
-    /// (64 KiB total, 48 KiB for one field, 128 fields), which no browser approaches and no
-    /// project has asked to change.
-    ///
-    /// How long a connection may sit idle before QHttpServer closes it. This is what ends a
-    /// peer that sends part of a request and stops, since the handshake window above lets go
-    /// at the first byte. See docs/security.md.
+    /// How long a connection may sit idle before QHttpServer closes it: this ends a peer that
+    /// sends part of a request and stops (docs/security.md).
     int keepAliveTimeoutSeconds{15};
 
     /// How many sockets one connection ceiling is worth.
     ///
-    /// `maxConnectionsPerIp` and `maxConnectionsGlobal` count browser links, which are
-    /// counted when a link is hosted. A peer that opens a socket and never finishes a
-    /// request is never hosted and so was never counted by them. A ceiling on the sockets
-    /// themselves is what bounds that peer, and the edge derives it from the ceilings a
-    /// project already set rather than asking for two more numbers nobody has a way to
-    /// pick. It is counted by the edge (WebEdge::trackPendingUpgrade) and not through
-    /// Qt 6.12's QHttpServerConfiguration, whose ceilings never count a WebSocket link
-    /// back down. The note on WebEdge::m_socketsPerIp says why.
-    ///
-    /// Eight, because the two ceilings count different things and the socket one has to be
-    /// the looser. A visitor fetches the bundle over as many as six parallel HTTP
-    /// connections before it opens the one sync link, so a ceiling set equal to the link
-    /// ceiling would refuse real browsers long before it refused an attacker. Eight leaves
-    /// room for that plus the link plus one.
+    /// `maxConnectionsPerIp` and `maxConnectionsGlobal` count hosted links, so a peer that opens
+    /// a socket and never finishes a request is bounded by a socket ceiling derived from them.
+    /// WebEdge::trackPendingUpgrade counts it, since Qt's own ceilings never count a WebSocket
+    /// link back down. Eight: a browser fetches the bundle over up to six connections before it
+    /// opens the sync link.
     static constexpr int SocketsPerLink{8};
 
-    /// Requests per second per peer address, or zero to leave Qt's rate limiting off, which
-    /// is the default. Qt counts the address it is connected to and knows
-    /// nothing of `X-Forwarded-For`, so behind a balancer every visitor shares one bucket
-    /// and a limit meant for one client throttles the whole site. `synqt check` refuses the
-    /// combination rather than letting a deployment find out in production.
+    /// Requests per second per peer address, or zero (the default) for none. Qt counts the
+    /// connected address and ignores `X-Forwarded-For`, so `synqt check` refuses this behind a
+    /// trusted proxy.
     quint32 maxRequestsPerSecond{0};
 
-    /// The largest request body the edge will accept, answered with 413 past it. Qt's own
-    /// default is 32 MiB, which is right for a server that receives uploads and wrong for
-    /// one whose own routes carry a token or a password field. An edge that declares
-    /// `network.inbound` is the first case and the generator writes Qt's value for it;
-    /// everything else gets this.
+    /// The largest request body the edge accepts, answered with 413 past it. An edge that
+    /// declares `network.inbound` gets Qt's value from the generator; everything else gets this.
     qint64 maxBodyBytes{65536};
 
     /// Peers whose `X-Forwarded-For` this edge believes, as addresses or CIDR ranges.
     ///
-    /// Empty (the default) means the connecting peer IS the client, which is true of an
-    /// edge facing the internet directly and false of every connection at once as soon as
-    /// a balancer sits in front. Nothing is trusted implicitly. A header arriving from a
-    /// peer that is not on this list is ignored outright, because otherwise the per-IP
-    /// caps become a bucket each client picks for itself. See SynQt::ClientAddress.
+    /// Empty means the connecting peer is the client. A header from a peer not on this list is
+    /// ignored. See SynQt::ClientAddress.
     QStringList trustedProxies;
 
     QList<WebEdgeConnectPoint> connectPoints;
@@ -276,13 +209,11 @@ struct WebEdgeConfig
     QString pagesDir;
     QList<WebEdgePage> pages;
 
-    /// Development-only page watching. When true the edge watches its page files and pushes
-    /// pageChanged on a change (hot reload). Defaults false (fail closed) and is set only by
-    /// the `synqt dev` launch path. A built or served edge never watches, regardless of
-    /// whether TLS terminates here or at a reverse proxy.
+    /// Development-only page watching: push pageChanged when a page file changes. Set only by
+    /// `synqt dev`; a built or served edge never watches.
     bool devWatch{false};
 
-    /// Login and identity (M8). Disabled by default. `synqt add auth` enables it.
+    /// Login and identity. Disabled by default. `synqt add auth` enables it.
     IdentityConfig identity;
 
     bool usesTls() const { return !certFile.isEmpty() && !keyFile.isEmpty(); }

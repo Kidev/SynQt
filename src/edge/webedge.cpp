@@ -158,6 +158,13 @@ WebEdge::WebEdge(WebEdgeConfig config, QQmlEngine *engine, QObject *parent)
         m_config.bundles.insert(m_config.defaultScope, m_config.bundleDir);
     }
 
+    // The ceiling on the session table, and what eviction may not take: a session a
+    // browser is connected on. The socket table is the edge's own answer to that.
+    m_sessionManager->setMaximumSessions(m_config.maxSessions);
+    m_sessionManager->setInUseCheck([this](const QByteArray &sessionId) {
+        return m_sessionSockets.contains(sessionId);
+    });
+
     // Every upgrade the edge decides on, recorded once. Connected to the signals rather
     // than written at each `emit`, so a refusal added later is traced by existing here
     // and not by someone remembering to add a line beside it.
@@ -651,8 +658,17 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
     if (elevated.isEmpty()) {
         // No live session to raise: they arrived without one, which a browser that fetched
         // the page would not have done, but a script might. Give them one at the scope they
-        // just proved they hold.
+        // proved they hold.
         elevated = m_sessionManager->createSession(m_config.signInScope);
+    }
+    if (elevated.isEmpty()) {
+        // The table is full of sessions that cannot be let go of. The password was right,
+        // and the answer is still no cookie: an empty one would sign nobody in and say
+        // nothing about why.
+        emit signInRefused(name);
+        return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                                   QByteArrayLiteral("no session can be issued right now"),
+                                   QHttpServerResponder::StatusCode::ServiceUnavailable};
     }
     QHttpServerResponse response{QByteArrayLiteral("text/plain"), QByteArrayLiteral("ok")};
     QHttpHeaders headers{response.headers()};
@@ -699,7 +715,8 @@ QHttpServerResponse WebEdge::handlePick(const QHttpServerRequest &request)
 
 QByteArray WebEdge::issueSessionCookie()
 {
-    return cookieFor(m_sessionManager->createSession());
+    const QByteArray minted{m_sessionManager->createSession()};
+    return minted.isEmpty() ? QByteArray{} : cookieFor(minted);
 }
 
 QByteArray WebEdge::sessionCookieFor(const QHttpServerRequest &request)
@@ -719,7 +736,11 @@ QByteArray WebEdge::sessionCookieFor(const QHttpServerRequest &request)
     if (const QByteArray rotated{m_sessionManager->rotationOf(presented)}; !rotated.isEmpty()) {
         return cookieFor(rotated, nonce);
     }
-    return cookieFor(m_sessionManager->createSession(), nonce);
+    // Empty when the table is at its ceiling with nothing to let go of. The page is still
+    // delivered. The upgrade it leads to is refused for having no session, which the client
+    // shows as a connection it keeps trying, and that is the truth of it.
+    const QByteArray minted{m_sessionManager->createSession()};
+    return minted.isEmpty() ? QByteArray{} : cookieFor(minted, nonce);
 }
 
 QByteArray WebEdge::cookieFor(const QByteArray &token, const QByteArray &nonce)

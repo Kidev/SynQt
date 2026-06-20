@@ -79,6 +79,16 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn("config.maxRequestsPerSecond = 30;", source)
         self.assertIn("config.maxBodyBytes = 4096;", source)
 
+    def test_the_session_ceiling_reaches_the_edge(self):
+        # The one table a stranger can grow. A page load with no live cookie mints a
+        # session. A project that sizes the ceiling must find it in the binary, and zero
+        # (no ceiling) is carried as written rather than read as a mistake.
+        self.assertIn("config.maxSessions = 2500;",
+                      render(base_config(security={"max_sessions": 2500})))
+        self.assertIn("config.maxSessions = 0;",
+                      render(base_config(security={"max_sessions": 0})))
+        self.assertNotIn("config.maxSessions", render(base_config()))
+
     def test_the_body_ceiling_follows_what_the_entity_accepts(self):
         # Derived rather than defaulted, because its right answer is whatever this entity
         # receives. The API's own ceiling is checked after QHttpServer has read the body,

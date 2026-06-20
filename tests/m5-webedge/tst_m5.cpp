@@ -1499,6 +1499,36 @@ private slots:
         QVERIFY2(refused > 0, "twelve requests in a second went through a limit of four");
     }
 
+    // The session table is the one thing a stranger can grow with nothing but page loads:
+    // every request that arrives without a live cookie is handed a fresh session, and
+    // until this only the TTL ever took one away. Twelve hours at one request per record
+    // was the memory an anonymous flood could make the edge hold, and on a replicated
+    // edge every record went to every replica. Past the ceiling the edge lets go of the
+    // oldest anonymous session nobody is connected on, so the flood evicts its own and a
+    // visitor arriving in the middle of it is still given a session.
+    void aFloodOfPageLoadsCannotGrowTheSessionTablePastItsCeiling()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxSessions = 6;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QByteArray last;
+        for (int load{0}; load < 20; ++load) {
+            QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+            QVERIFY(reply != nullptr);
+            QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+            last = sessionCookie(reply);
+            QVERIFY2(!last.isEmpty(), "a page load past the ceiling must still be given "
+                                      "a session, by evicting an idle anonymous one");
+            reply->deleteLater();
+        }
+        QCOMPARE(edge.sessionManager()->snapshot().size(), 6);
+        // The newest survived, which is the one a real visitor is about to upgrade with.
+        QVERIFY(edge.sessionManager()->isLive(last.mid(last.indexOf('=') + 1)));
+    }
+
     void oversizedFrameRejected()
     {
         QQmlEngine engine;

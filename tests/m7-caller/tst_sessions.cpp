@@ -360,6 +360,64 @@ private slots:
         QCOMPARE(removals.count(), 1);
     }
 
+    // The table has a ceiling, and at the ceiling it lets go of the sessions nobody would
+    // miss before it refuses anybody. Anyone who can reach an edge can mint a session (a
+    // page load with no live cookie is enough), and until this the only thing that ever
+    // took one away was the TTL: a stranger could grow the table for twelve hours at one
+    // request per record, and on a replicated edge every record went to every replica.
+    void theTableHasACeilingAndEvictsTheAnonymousIdleFirst()
+    {
+        SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
+        sessions.setMaximumSessions(4);
+        QCOMPARE(sessions.maximumSessions(), 4);
+        QSignalSpy removals{&sessions, &SessionManager::sessionRemoved};
+
+        // Two anonymous visitors, one of them still connected, and a signed-in one who is
+        // idle. Then the ceiling, then a mint over it.
+        const QByteArray oldestIdle{sessions.createSession()};
+        const QByteArray connected{sessions.createSession()};
+        const QByteArray signedIn{sessions.createSession(
+            QStringLiteral("user"), QVariantMap{{QStringLiteral("sub"), QStringLiteral("ada")}})};
+        const QByteArray fourth{sessions.createSession()};
+        sessions.setInUseCheck([connected](const QByteArray &id) { return id == connected; });
+        QVERIFY(sessions.hasRoom());  // full, but the oldest idle anonymous one can go
+
+        const QByteArray fifth{sessions.createSession()};
+        QVERIFY2(!fifth.isEmpty(), "at the ceiling a mint must evict rather than refuse");
+        QVERIFY2(!sessions.isLive(oldestIdle), "the oldest idle anonymous session goes first");
+        QVERIFY(sessions.isLive(connected));  // never one with a live connection
+        QVERIFY(sessions.isLive(signedIn));   // never one somebody signed in to
+        QVERIFY(sessions.isLive(fourth));
+        QVERIFY(sessions.isLive(fifth));
+        QCOMPARE(removals.count(), 1);         // told the way a revocation is told
+        QCOMPARE(removals.first().at(0).toByteArray(), oldestIdle);
+
+        // Nothing left to give. The connected one is in use, the signed-in one is kept,
+        // and the two youngest anonymous ones are the only candidates.
+        sessions.setInUseCheck([connected, fourth, fifth](const QByteArray &id) {
+            return id == connected || id == fourth || id == fifth;
+        });
+        QVERIFY(!sessions.hasRoom());
+        QVERIFY2(sessions.createSession().isEmpty(),
+                 "with nothing evictable a mint over the ceiling must refuse, not grow");
+        QCOMPARE(sessions.snapshot().size(), 4);
+
+        // A raised scope with no identity is a visitor who proved something (the password
+        // gate elevates without an identity), and is kept too.
+        sessions.setInUseCheck([connected](const QByteArray &id) { return id == connected; });
+        const QByteArray elevated{sessions.setScope(fourth, QStringLiteral("user"))};
+        QVERIFY(!elevated.isEmpty());
+        QVERIFY(!sessions.createSession().isEmpty());  // fifth went, the last anonymous idle
+        QVERIFY(sessions.isLive(elevated));
+        QVERIFY(sessions.isLive(connected));
+        QVERIFY(!sessions.isLive(fifth));
+
+        // Zero is no ceiling.
+        sessions.setMaximumSessions(0);
+        QVERIFY(!sessions.createSession().isEmpty());
+        QCOMPARE(sessions.snapshot().size(), 5);
+    }
+
     void snapshotCarriesLiveRowsOnly()
     {
         SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};

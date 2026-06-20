@@ -301,6 +301,13 @@
       "test": "aFloodOfRequestsFromOneAddressIsRefused"
     },
     {
+      "id": "page-loads-fill-the-session-table",
+      "what": "A request to the client route with no live cookie is handed a fresh session, and only the TTL took it away. A stranger who can reach the edge grows the session table at one record per request for as long as the TTL lasts (twelve hours by default), and on a replicated edge every record is forwarded to the auth entity and every other replica's cache.",
+      "defended_by": "The session table has a ceiling (security.max_sessions). At the ceiling the manager lets go of the oldest anonymous session at the default scope that no browser is connected on, so a flood evicts its own sessions and a visitor arriving during it is still given one; a signed-in session is never evicted, and when nothing can be let go of the mint is refused rather than grown.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "aFloodOfPageLoadsCannotGrowTheSessionTablePastItsCeiling"
+    },
+    {
       "id": "half-open-handshake",
       "what": "A peer connects and never finishes the upgrade, holding a socket for free.",
       "defended_by": "A timer per accepted socket closes one that has sent nothing by security.handshake_timeout_ms.",

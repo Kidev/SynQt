@@ -1,13 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The validation rules that keep an unsafe topology out of a build.
-
-These are the "non negotiable" checks listed under Validation in
-docs/project-layout-and-config.md. Each one exists because the thing it catches is
-invisible until it is deployed. A plaintext release edge serves fine on a developer's
-machine, a literal database password reads like configuration, and a connect point gated
-on a scope nobody can hold looks exactly like one that is protected.
+"""The validation rules that keep an unsafe topology out of a build: the "non negotiable"
+checks under Validation in docs/project-layout-and-config.md.
 """
 
 import tempfile
@@ -36,8 +31,7 @@ def base_config(**overrides):
 
 
 def with_edge_tls(config):
-    """Give the web edge a TLS block, so a release-mode test asserts on its own rule and
-    not on the (separate, also tested) rule that a release edge must terminate TLS."""
+    """Give the web edge a TLS block, so a release-mode test hits only its own rule."""
     for entity in config["entities"]:
         if entity.get("type") == "web_edge":
             entity["tls"] = {"cert_file": "certs/web/fullchain.pem",
@@ -67,8 +61,7 @@ class MeshPolicyTest(unittest.TestCase):
         self.assertIn("require_mtls_cross_host", found[0])
 
     def test_a_local_socket_may_not_claim_a_remote_host(self):
-        # transport. Local is a file on one machine. Naming a remote host next to it does
-        # not make the link cross-host. It makes the config a lie about where the owner is.
+        # A local socket with a remote host is refused.
         config = base_config()
         config["connect_points"][1].update({"transport": "local", "host": "10.0.0.10"})
         found = errors(config)
@@ -82,12 +75,7 @@ class MeshPolicyTest(unittest.TestCase):
 
 
 class MeshBlockIsHonoredTest(unittest.TestCase):
-    """The owner entity's `mesh:` block is documented as where host/port/transport live.
-
-    Before this it was read by nothing. A database declared on 10.0.0.10:9444 was wired to
-    127.0.0.1 on an allocated port, and the cross-host rules had no cross-host link to
-    fire on because no configuration could produce one.
-    """
+    """The owner entity `mesh:` block sets host, port and transport, as documented."""
 
     def test_entity_mesh_host_and_port_reach_the_resolved_endpoint(self):
         config = base_config()
@@ -108,8 +96,7 @@ class MeshBlockIsHonoredTest(unittest.TestCase):
         self.assertEqual(endpoints["database"]["port"], 9500)
 
     def test_a_wildcard_bind_address_counts_as_cross_host(self):
-        # 0.0.0.0 reads like "local" and means the opposite. Every interface the machine
-        # has. It is the most exposed a link can be, so it is not on the loopback list.
+        # 0.0.0.0 is every interface, not loopback.
         self.assertTrue(topologywriter.is_cross_host(
             {"transport": "mtls", "host": "0.0.0.0", "port": 9440}))
         self.assertFalse(topologywriter.is_cross_host(
@@ -117,8 +104,7 @@ class MeshBlockIsHonoredTest(unittest.TestCase):
         self.assertFalse(topologywriter.is_cross_host({"transport": "local", "socket": "s"}))
 
     def test_transport_local_declared_on_the_entity_is_still_flagged(self):
-        # The local-link warning read the connect point only, so an entity-wide
-        # `mesh: {transport: local}` produced a local link that `synqt check` called clean.
+        # An entity-wide `mesh: {transport: local}` is reported like a point's.
         config = base_config()
         config["entities"][2]["mesh"] = {"transport": "local"}
         self.assertTrue(any("colocation-trusted" in m for m in warnings(config)))
@@ -138,9 +124,7 @@ class EdgeTlsTest(unittest.TestCase):
         self.assertEqual(errors(config, release=True), [])
 
     def test_a_reverse_proxy_in_front_is_the_other_right_answer(self):
-        # docs/security.md recommends a proxy fronting both the bundle and the sync path
-        # under one hostname. Then the edge listens on plaintext loopback by design, and
-        # the config has to say so rather than the check assuming either way.
+        # A proxy may terminate TLS for the edge (docs/security.md); the config must say so.
         config = base_config()
         config["entities"][1]["public"] = {"tls_terminated_upstream": True}
         self.assertEqual(errors(config, release=True), [])
@@ -175,11 +159,8 @@ class ScopeTest(unittest.TestCase):
         self.assertEqual(errors(config), [])
 
     def test_sign_in_without_declared_scopes_is_refused(self):
-        # Which is what lets the test above keep meaning what it says. An empty
-        # `scopes.order` reads as "this project has no scope rules" in every caller, so a
-        # project that signs people in and forgot to declare its vocabulary gets no scope
-        # validation at all and no complaint about it either. The edge that serves the
-        # login is the one named, because it is the entity that mints the sessions.
+        # A project that signs people in must declare `scopes.order`. The edge serving the
+        # login is named.
         config = base_config(identity={"providers": [
             {"name": "github", "client_id": "abc", "client_secret": "env:GITHUB_SECRET"}]})
         found = errors(config)
@@ -194,9 +175,7 @@ class ScopeTest(unittest.TestCase):
         self.assertEqual(errors(config), [])
 
     def test_sign_in_without_a_mapping_hook_is_refused(self):
-        # The hook is what turns an identity into one of those scopes. Declaring the
-        # vocabulary and naming nothing that picks from it leaves the edge with nothing to
-        # ask, so it refuses every login. A runtime failure for a build-time mistake.
+        # It must also name the mapping hook, or the edge refuses every login.
         config = base_config(scopes={"order": ["anonymous", "user"]},
                              identity={"providers": [
                                  {"name": "github", "client_id": "abc",
@@ -205,8 +184,7 @@ class ScopeTest(unittest.TestCase):
         self.assertTrue(any("identity.mapping.hook" in m and "web" in m for m in found), found)
 
     def test_an_edge_that_opts_out_of_the_login_does_not_demand_scopes(self):
-        # `identity: false` on an edge is the documented way to say this one serves no
-        # login. A project where every edge says that has no sign-in to hold a scope.
+        # `identity: false` on every edge means no sign-in, and no scopes needed.
         config = base_config(identity={"providers": [
             {"name": "github", "client_id": "abc", "client_secret": "env:GITHUB_SECRET"}]})
         for entity in config["entities"]:
@@ -258,10 +236,7 @@ class DesktopClientTest(unittest.TestCase):
         self.assertEqual(errors(config, release=True), [])
 
     def test_a_desktop_only_client_needs_no_web_edge_in_this_project(self):
-        """A native client is not served by an edge. It dials the one `edge_url` names,
-        which may well be deployed from somewhere else entirely. Requiring a web edge here
-        would refuse a project the framework supports, and the edge_url rule above is
-        already what holds a desktop client to naming an edge at all."""
+        """A desktop-only client needs no web edge in the project; it dials `edge_url`."""
         config = {
             "project": {"name": "app"},
             "entities": [{"name": "client", "type": "client", "path": "client",
@@ -283,10 +258,7 @@ class DesktopClientTest(unittest.TestCase):
 
 class IdentityTest(unittest.TestCase):
     def identity(self, **provider):
-        # With `scopes.order`, because a project that serves a login has to declare one
-        # (ScopeTest.test_sign_in_without_declared_scopes_is_refused). Without it every
-        # case here that asserts a clean config would be asserting on that rule instead of
-        # on the provider rule it is about.
+        # `scopes.order` is set, so a clean config is clean because of the provider rule.
         entry = {"name": "github", "client_id": "abc", "client_secret": "env:GITHUB_SECRET"}
         entry.update(provider)
         return base_config(scopes={"order": ["anonymous", "user"]},
@@ -323,10 +295,8 @@ class IdentityTest(unittest.TestCase):
         self.assertEqual(errors(config), [])
 
     def test_use_id_token_without_an_issuer_is_rejected(self):
-        # The verifier compares the token's iss against `issuer` and skips the comparison
-        # when nothing names one, which is not a thing anybody chooses. The edge refuses
-        # such a login outright, so saying it here is saying it while the config is being
-        # written rather than at the first sign-in.
+        # Without `issuer` the verifier skips the iss comparison and the edge refuses the
+        # login.
         found = errors(self.identity(use_id_token=True,
                                      jwks_url="https://provider.example/jwks"))
         self.assertTrue(any("names no issuer" in m for m in found), found)
@@ -343,8 +313,7 @@ class IdentityTest(unittest.TestCase):
         self.assertEqual(errors(config), [])
 
     def test_a_loopback_provider_is_the_dev_stub_and_passes(self):
-        # `synqt dev` issues a stub provider on localhost. Nothing off this machine can
-        # reach it, so requiring https there would only make the dev path unrunnable.
+        # The dev stub on localhost needs no https.
         config = self.identity(authorize_url="http://127.0.0.1:8123/authorize",
                                token_url="http://localhost:8123/token")
         self.assertEqual(errors(config), [])
@@ -396,9 +365,8 @@ class MeshCertificateTest(unittest.TestCase):
         self.assertTrue(any("no certificate" in m for m in failures), failures)
 
     def test_a_release_build_does_not_demand_a_certificate(self):
-        # The CA private key is never on the machine that builds, so a release
-        # build that required an issued certificate would require the one thing CI must
-        # never hold. Certificates are checked at the point of starting, not building.
+        # A release build does not require issued certificates: the CA key is not on the
+        # build machine. They are required when starting.
         config = with_edge_tls(base_config())
         (self.root / "synqt" / "mesh" / "ca.crt").write_text("ca")
         self.assertEqual(errors(config, project_dir=self.root, release=True), [])
@@ -413,26 +381,21 @@ class MeshCertificateTest(unittest.TestCase):
                                 starting=True), [])
 
     def test_a_dev_certificate_satisfies_the_warning_but_not_a_deployment(self):
-        # `synqt dev` issues throwaway certificates into synqt/mesh/dev/ and then starts
-        # the entities. Reporting those as missing would make every dev run open with a
-        # warning about certificates dev had created.
+        # Dev certificates in synqt/mesh/dev/ count under `synqt dev`.
         config = with_edge_tls(base_config())
         dev_dir = self.root / "synqt" / "mesh" / "dev"
         dev_dir.mkdir()
         (self.root / "synqt" / "mesh" / "ca.crt").write_text("ca")
         for name in ("web", "database"):
             (dev_dir / f"{name}.crt").write_text("dev cert")
-        # Scoped to the certificate warning rather than to the whole list: this case is
-        # about what `synqt dev` has already issued, and an assertion that the project warns
-        # about nothing at all fails the next time any unrelated rule learns to say something.
+        # Asserted on the certificate warning only.
         found = warnings(config, project_dir=self.root)
         self.assertEqual([m for m in found if "certificate" in m], [], found)
         failures = errors(config, project_dir=self.root, starting=True)
         self.assertTrue(any("no certificate" in m for m in failures), failures)
 
     def test_the_client_is_never_asked_for_a_mesh_certificate(self):
-        # The client holds no mesh certificate by design. It reaches the edge over wss and
-        # never joins the mesh.
+        # The client holds no mesh certificate.
         config = base_config()
         mesh_dir = self.root / "synqt" / "mesh"
         (mesh_dir / "ca.crt").write_text("ca")
@@ -446,12 +409,8 @@ class MeshCertificateTest(unittest.TestCase):
 
 
 class BrowserPolicyTest(unittest.TestCase):
-    """The `security:` block and the two enumerated choices beside it.
-
-    Everything here is carried into the generated edge, so a value this framework cannot
-    honor has to be reported rather than dropped. An edge that quietly runs a different
-    session transport, or a different OAuth flow, than the one its project asked for is
-    the failure mode that made wiring this block worth doing.
+    """The `security:` block and its two enumerations. A value the framework cannot honour is
+    reported, never dropped.
     """
 
     def test_a_declared_policy_is_clean(self):
@@ -472,14 +431,13 @@ class BrowserPolicyTest(unittest.TestCase):
         self.assertTrue(any("allowed_origins" in m for m in failures), failures)
 
     def test_a_quoted_limit_is_refused(self):
-        # YAML makes this easy to write and the generator would emit C++ that does not
-        # compile, reporting the typo as an error inside generated code.
+        # A quoted or fractional limit is refused; it would generate C++ that does not
+        # compile.
         failures = errors(base_config(security={"handshake_timeout_ms": "3000"}))
         self.assertTrue(any("handshake_timeout_ms" in m for m in failures), failures)
 
     def test_a_limit_of_zero_is_refused(self):
-        # Zero reads like "no limit" and means "refuse everything": the caps are compared
-        # with >=, so a cap of 0 rejects the first connection.
+        # Zero refuses every connection (caps compare with >=), so it is refused.
         failures = errors(base_config(security={"max_connections_global": 0}))
         self.assertTrue(any("max_connections_global" in m for m in failures), failures)
 
@@ -488,8 +446,7 @@ class BrowserPolicyTest(unittest.TestCase):
         self.assertTrue(any("ttl_minutes" in m for m in failures), failures)
 
     def test_a_starting_scope_outside_the_vocabulary_is_refused(self):
-        # Every new session would begin holding a scope that satisfies no check at all,
-        # so the app is unusable before login and nothing says why.
+        # A starting scope outside the vocabulary is refused.
         failures = errors(base_config(scopes={"order": ["anonymous", "user"],
                                               "default": "guest"}))
         self.assertTrue(any("scopes.default" in m for m in failures), failures)
@@ -500,13 +457,7 @@ class BrowserPolicyTest(unittest.TestCase):
 
 
 class LayoutCollisionTest(unittest.TestCase):
-    """An entity's own file and the Source it hosts its connect point with never collide.
-
-    The entity's own QML is `<Name>.qml` in its folder and the Source is
-    `<Name>Contract.qml` beside it, so the suffix is what keeps the two apart however the
-    entity is named. What is refused instead is a second connect point on one owner, since
-    an entity has one.
-    """
+    """An entity file and a second connect point never collide: one point per owner."""
 
     def test_a_second_point_on_one_owner_is_refused(self):
         config = base_config()
@@ -516,8 +467,7 @@ class LayoutCollisionTest(unittest.TestCase):
                             for m in failures), failures)
 
     def test_the_source_and_the_entitys_own_file_are_one_file(self):
-        """An entity is one file, named after the entity. What it exports and what it is are
-        the same `<Entity>.qml`, so an author never types a name the framework derived."""
+        """The entity file and its Source are one `<Entity>.qml`."""
         config = base_config()
         for point in appmodel.connect_points(config):
             owner = next(entity for entity in appmodel.entities(config)
@@ -529,12 +479,7 @@ class LayoutCollisionTest(unittest.TestCase):
 
 
 class SharedEntityTest(unittest.TestCase):
-    """`shared:` says how many of an entity there are: one for everybody, or one per caller.
-
-    It is the entity's answer and not a link's, because an entity is one thing everybody
-    reaches or one thing per caller, and it cannot be both at once for two of its own
-    surfaces.
-    """
+    """`shared:` says whether there is one of an entity for everybody or one per caller."""
 
     def _entity(self, config, name):
         return next(entity for entity in config["entities"] if entity["name"] == name)
@@ -569,8 +514,7 @@ class SharedEntityTest(unittest.TestCase):
         self.assertTrue(any("shared 'sometimes'" in m for m in messages), messages)
 
     def test_instance_on_a_point_is_refused_and_says_where_it_moved(self):
-        """The key lives on the entity, it does nothing here, and a line that does nothing
-        reads exactly like a line that works."""
+        """`instance:` on a point is refused and the message says where it moved."""
         config = base_config()
         config["connect_points"][0]["instance"] = "link"
         ok, messages = check.validate(config)
@@ -580,9 +524,7 @@ class SharedEntityTest(unittest.TestCase):
 
 class OrphanEntityTest(unittest.TestCase):
     def test_an_entity_nothing_reaches_is_a_warning_not_an_error(self):
-        # The state every entity is in between `synqt add entity` and the connect point
-        # that wires it. Refusing it would mean the scaffolder wrote a project that no
-        # longer checks.
+        # An unwired entity is a warning: `synqt add entity` produces that state.
         config = base_config()
         config["entities"].append({"name": "rollups", "type": "jobs"})
         ok, messages = check.validate(config)
@@ -596,13 +538,8 @@ class OrphanEntityTest(unittest.TestCase):
 
 
 class CallerOutsideASourceTest(unittest.TestCase):
-    """`Caller` exists on a Source's context and nowhere else.
-
-    This is the rule that would have caught the whole family. A `Caller.hasScope(...)` in
-    an entity singleton is a ReferenceError at run time and an authorization check to
-    every human who reads it, which is the worst combination a security rule can have: it
-    passes review and does nothing. The runtime cannot make the name resolve there (there
-    is no caller), so the check has to be that the name is not written there.
+    """`Caller` exists only on a Source context. Elsewhere `Caller.hasScope(...)` is a
+    ReferenceError that reads like an authorization check, so writing it there is refused.
     """
 
     def _project(self, files):
@@ -660,13 +597,8 @@ class CallerOutsideASourceTest(unittest.TestCase):
 
 
 class NetworkBlockTest(unittest.TestCase):
-    """`network:` is what an entity may reach and who may reach it, and it is closed until
-    somebody writes it.
-
-    Every refusal here is one of two shapes. A surface that reads as configured and is not,
-    or one that is open wider than whoever wrote it meant. The API key rule is the one that
-    matters most, because leaving a line out is exactly how an internal API ends up
-    answering the internet.
+    """`network:` is closed until written. Refused: a surface that reads as configured and is
+    not, and one open wider than intended, above all an inbound API with no key.
     """
 
     def _config(self, network):
@@ -710,8 +642,7 @@ class NetworkBlockTest(unittest.TestCase):
         self.assertEqual(appmodel.outbound_allowlist(entity),
                          ["https://plain.example/", "https://api.example.com/"])
         endpoints = appmodel.outbound_endpoints(entity)
-        # A bare prefix is the same record with nothing else on it, so one reader serves
-        # both spellings.
+        # A bare prefix is the same record, read by one reader.
         self.assertEqual(endpoints[0], {"url": "https://plain.example/"})
         self.assertEqual(endpoints[1]["name"], "ltd2")
         self.assertEqual(endpoints[1]["headers"]["x-api-key"], "env:LTD2_KEY")
@@ -776,8 +707,7 @@ class NetworkBlockTest(unittest.TestCase):
         self.assertEqual(quiet, [])
 
     def test_an_inbound_entity_is_not_reported_as_unreachable(self):
-        # It owns no connect point, and it is still reachable. Its callers are outside the
-        # mesh, so no consumer list names them.
+        # It owns no point and is still reachable from outside the mesh.
         warnings = self._messages({"inbound": {"port": 8443, "api_keys": "env:K",
                                                "tls_terminated_upstream": True}}, "warn")
         self.assertFalse(any("owns no connect point" in m for m in warnings), warnings)
@@ -810,9 +740,8 @@ class TestHttpLimits(unittest.TestCase):
         return [m for m in messages if m.startswith(level)]
 
     def test_a_rate_limit_is_refused_behind_a_balancer(self):
-        # Qt counts the address it is connected to, which is the balancer's, so every
-        # visitor shares one budget. The limit then refuses the site instead of the flood,
-        # and it does it under load, which is when nobody is reading configuration files.
+        # Behind a balancer Qt rate-limits the balancer's address, so every visitor shares
+        # one budget. Refused.
         errors = self._messages({"max_requests_per_second": 50}, proxies=["10.0.0.1"])
         self.assertTrue(any("max_requests_per_second" in m and "balancer" in m
                             for m in errors), errors)
@@ -822,20 +751,33 @@ class TestHttpLimits(unittest.TestCase):
         self.assertEqual([m for m in errors if "max_requests_per_second" in m], [])
 
     def test_a_balancer_alone_says_nothing_about_rate_limiting(self):
-        # The refusal is about the pair, so naming a proxy while leaving Qt's rate
-        # limiting off (which is the default) has to stay quiet.
+        # A proxy with Qt rate limiting off (the default) is fine.
         errors = self._messages({}, proxies=["10.0.0.1"])
         self.assertEqual([m for m in errors if "max_requests_per_second" in m], [])
 
     def test_zero_turns_the_rate_limit_off_rather_than_refusing_everyone(self):
-        # The other limits read zero as "refuse the first connection" and reject it. This
-        # one is Qt's switch, so zero is the word for off and has to be accepted.
+        # Zero is Qt's off switch for rate limiting, and accepted.
         errors = self._messages({"max_requests_per_second": 0}, proxies=["10.0.0.1"])
         self.assertEqual([m for m in errors if "max_requests_per_second" in m], [])
 
     def test_a_negative_rate_limit_is_refused(self):
         errors = self._messages({"max_requests_per_second": -1})
         self.assertTrue(any("max_requests_per_second" in m for m in errors), errors)
+
+    def test_the_session_ceiling_reads_zero_as_off_and_says_what_that_costs(self):
+        # Zero disables the session ceiling and is accepted; a release build gets a note.
+        self.assertEqual([m for m in self._messages({"max_sessions": 0}) if "max_sessions" in m],
+                         [])
+        warnings = [m for m in check.validate(base_config(security={"max_sessions": 0}),
+                                              release=True)[1]
+                    if m.startswith("warn") and "max_sessions" in m]
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertEqual([m for m in self._messages({"max_sessions": 5000})
+                          if "max_sessions" in m], [])
+        for value in ("100", 1.5, -1, True):
+            with self.subTest(value=value):
+                errors = self._messages({"max_sessions": value})
+                self.assertTrue(any("max_sessions" in m for m in errors), errors)
 
     def test_the_new_ceilings_are_whole_positive_numbers(self):
         for key, value in (("keep_alive_timeout_s", "15"),

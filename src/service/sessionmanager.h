@@ -13,6 +13,7 @@
 #include <QVariantMap>
 
 #include <deque>
+#include <functional>
 #include <utility>
 
 QT_BEGIN_NAMESPACE
@@ -63,10 +64,43 @@ public:
     static QString keyFor(const QByteArray &id);
 
     /// Create a fresh session. An empty scope means the configured default (anonymous).
+    ///
+    /// Empty when the table is full and nothing in it can be let go of. See
+    /// setMaximumSessions. Every caller has to read that. A cookie set to an empty id is
+    /// a visitor who cannot connect and is told nothing about why.
     QByteArray createSession(const QString &scope = QString(),
                              const QVariantMap &identity = QVariantMap());
 
-    /// Look up a live (unexpired) session by its credential; nullptr if unknown/expired.
+    /// How many sessions this manager will hold, and what it does at the ceiling.
+    ///
+    /// Anyone who can reach an edge can ask it for a session. A page load with no live
+    /// cookie mints one, and nothing but the TTL ever took it away. That made the session
+    /// table the one thing a stranger could grow for as long as the TTL lasts, at the cost
+    /// of one request each, and on a replicated edge every one of them was forwarded to
+    /// the auth entity and to every other replica's cache besides. This is the bound.
+    ///
+    /// At the ceiling a new session is made by letting go of the oldest one that nobody
+    /// would miss: anonymous, at the default scope, and with no live connection (see
+    /// setInUseCheck). Under a flood those are the flood's own sessions, which is what makes
+    /// the edge keep serving real visitors through it rather than refusing everybody until
+    /// the flood's sessions expire. A signed-in session is never evicted, however idle: it
+    /// holds an identity somebody proved. When nothing can be let go of, createSession()
+    /// returns empty and the caller refuses. Zero disables the ceiling.
+    void setMaximumSessions(int maximum);
+    int maximumSessions() const;
+
+    /// Tell the manager which sessions are attached to something, so eviction never takes
+    /// a session out from under a live connection. The edge answers from its socket table;
+    /// with no check installed, every session counts as unattached.
+    void setInUseCheck(std::function<bool(const QByteArray &)> inUse);
+
+    /// Whether createSession() would succeed right now: the table is under its ceiling,
+    /// or holds something eviction may take. For a route that spends something before it
+    /// mints (the device credential route rotates the credential first), so it can refuse
+    /// before spending rather than after.
+    bool hasRoom() const;
+
+    /// Look up a live (unexpired) session by its credential. Nullptr if unknown/expired.
     const SessionRecord *lookup(const QByteArray &id) const;
     bool isLive(const QByteArray &id) const;
 
@@ -159,10 +193,26 @@ private:
     /// on to. It authorizes nothing on its own either way (see rotationOf).
     static constexpr qint64 RotationGraceMs{10 * 60 * 1000};
 
+    /// The default ceiling. A hundred thousand records is a few tens of megabytes, far
+    /// above the concurrent visitors of a single edge and far below what would take one
+    /// down.
+    static constexpr int DefaultMaximumSessions{100000};
+    /// How far into the table eviction looks for something to let go of. The oldest
+    /// entries are at the front, and under a flood they are the flood's. A table whose
+    /// oldest thousands are all signed-in visitors has nothing cheap to give, and walking
+    /// the whole of it on every refused mint would be the flood's next lever.
+    static constexpr int EvictionSearchDepth{4096};
+
     QByteArray newToken() const;
     void trackExpiry(const SessionRecord &record);
+    /// Whether this record is one eviction may take: anonymous, at the default scope, and
+    /// attached to nothing.
+    bool isEvictable(const SessionRecord &record) const;
+    /// Let go of the oldest evictable session. False when none was found within
+    /// EvictionSearchDepth of the front.
+    bool evictOne();
     /// Drop the hand-off that pointed at this record, now that the record is going. A
-    /// rotation names a session; once that session is revoked or expired the entry can
+    /// rotation names a session. Once that session is revoked or expired the entry can
     /// never do anything again, so keeping it for the rest of its grace period is holding
     /// memory on behalf of nobody.
     void dropRotationTo(const SessionRecord &record);
@@ -199,6 +249,8 @@ private:
     QHash<QByteArray, Rotation> m_rotations;
     QString m_defaultScope;
     qint64 m_ttlMs;
+    int m_maximumSessions{DefaultMaximumSessions};
+    std::function<bool(const QByteArray &)> m_inUse;
     QPointer<QObject> m_remote; ///< the SessionStore Replica when this is an edge cache
 };
 

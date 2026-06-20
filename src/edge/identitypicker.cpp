@@ -15,11 +15,18 @@ namespace SynQt {
 
 namespace {
 
-/// The picker's own page. Plain HTML with no script and no styling framework, because it
-/// is served by a development edge whose CSP is the project's own: a page that needed an
-/// inline script would be a page that only works when the project has relaxed its policy,
-/// which is the opposite of what a development tool should demand. One form per scope, so
-/// the choice is an ordinary POST and needs nothing but the browser.
+/// The session table is full with nothing to drop: the same answer as every other minting
+/// route, so the picker never hands out an empty cookie.
+QHttpServerResponse tableFull()
+{
+    return QHttpServerResponse{QByteArrayLiteral("text/plain"),
+                               QByteArrayLiteral("no session can be issued right now"),
+                               QHttpServerResponder::StatusCode::ServiceUnavailable};
+}
+
+/// The picker page: plain HTML without script or a styling framework, since the development
+/// edge serves it under the project's own CSP, and a development tool must not require a
+/// relaxed policy. One form per scope, so a choice is an ordinary POST.
 QByteArray pageFor(const QStringList &scopeOrder,
                    const QList<QPair<QString, QString>> &named,
                    const QStringList &problems)
@@ -38,10 +45,9 @@ QByteArray pageFor(const QStringList &scopeOrder,
         html += "<form method=\"post\" action=\"" + IdentityPicker::route().toUtf8() + "\">\n"
                 "<input type=\"hidden\" name=\"scope\" value=\""
                 + QString::number(index).toUtf8() + "\">\n"
-                // The per-tab box is read by the form it sits in, so whichever scope button
-                // is pressed carries the checkbox beside it. One box per form rather than
-                // one for the page, because a single box outside every form is a box no
-                // form submits.
+                // The per-tab checkbox sits inside each form, so the pressed button submits
+                // the checkbox beside it; a single checkbox outside the forms would never
+                // be submitted.
                 "<label><input type=\"checkbox\" name=\"this_tab_only\" value=\"1\" "
                 "id=\"this-tab-only-" + scope.toHtmlEscaped().toUtf8()
                 + "\"> this tab only</label>\n"
@@ -50,8 +56,8 @@ QByteArray pageFor(const QStringList &scopeOrder,
                 "</form>\n";
     }
 
-    // The named people from `.dev-identities`, if there are any. Second, because picking a
-    // scope is the mode that always works and this one exists only when a file says so.
+    // The people from `.dev-identities`, if any. Listed second: picking a scope always
+    // works, and this appears only when the file exists.
     if (!named.isEmpty()) {
         html += "<h2>Named identities</h2>\n"
                 "<p>From <code>.dev-identities</code>. Each is a real address in a "
@@ -74,8 +80,8 @@ QByteArray pageFor(const QStringList &scopeOrder,
         }
     }
 
-    // And what was in the file and could not be used. On the page rather than only in the
-    // terminal. A name that is missing is noticed here, by somebody looking for it.
+    // Entries from the file that could not be used, shown on the page where a missing name
+    // is noticed.
     if (!problems.isEmpty()) {
         html += "<h2>Ignored entries</h2>\n<ul>\n";
         for (const QString &problem : problems) {
@@ -88,13 +94,12 @@ QByteArray pageFor(const QStringList &scopeOrder,
     return html;
 }
 
-/// A name for one tab's cookie. Random rather than counted, so two developers on one edge
-/// do not collide, and letters and digits only because it lands in a cookie name (WebEdge
-/// validates the same alphabet on the way back in, and refuses anything else).
+/// A name for one tab's cookie: random, so two developers on one edge do not collide, and
+/// letters and digits only, since it goes into a cookie name (WebEdge validates the same
+/// alphabet).
 ///
-/// Not a credential. It says which cookie to read, and the cookie still holds the session
-/// id. Generated with QRandomGenerator::system() anyway, because a value that is trivially
-/// predictable invites the next reader to start treating it as one.
+/// Not a credential: it selects the cookie, which holds the session id. Still generated
+/// with QRandomGenerator::system(), so it is never predictable.
 QByteArray freshNonce()
 {
     QByteArray nonce;
@@ -137,10 +142,8 @@ QString IdentityPicker::route()
 
 QHttpServerResponse IdentityPicker::page() const
 {
-    // The hook is consulted here, while the page is drawn, rather than only when a name is
-    // pressed. Seeing what the project's own mapping makes of somebody is the reason to
-    // name them, and a disagreement between the file and the hook is worth reading before
-    // choosing, not after.
+    // The hook is consulted while the page is drawn, so any disagreement between the file
+    // and the hook is visible before choosing.
     QList<QPair<QString, QString>> named;
     named.reserve(m_named.size());
     for (const WebEdgeConfig::DevIdentity &identity : m_named) {
@@ -153,10 +156,9 @@ QHttpServerResponse IdentityPicker::page() const
 QVariantMap IdentityPicker::identityForNamed(const QString &email) const
 {
     QVariantMap identity;
-    // Stable across restarts, unlike the scope mode's timestamped `sub`: a project that
-    // stores anything against a person must see the same person on the next run, which is
-    // most of what naming one is for. Still unable to collide with a real provider's id,
-    // for the same reason and by the same prefix.
+    // Stable across restarts, unlike the scope mode's timestamped `sub`, so a project that
+    // stores data per person sees the same person next run. The prefix still keeps it from
+    // colliding with a real provider id.
     identity.insert(QStringLiteral("sub"), QStringLiteral("synqt-dev:%1").arg(email));
     identity.insert(QStringLiteral("login"), email.section(QLatin1Char('@'), 0, 0));
     identity.insert(QStringLiteral("name"), email);
@@ -168,8 +170,8 @@ IdentityPicker::Resolution IdentityPicker::resolve(
     const WebEdgeConfig::DevIdentity &identity) const
 {
     if (!m_mapper) {
-        // No identity provider on this edge, so there is no hook to ask. Say that, rather
-        // than showing the file's scope alone and letting it read as a hook that agreed.
+        // No identity provider on this edge, so no hook to ask; the page says so instead of
+        // implying the hook agreed.
         return {identity.scope, QStringLiteral("%1 (from the file; this project has no "
                                                "mapping hook to ask)").arg(identity.scope)};
     }
@@ -177,14 +179,12 @@ IdentityPicker::Resolution IdentityPicker::resolve(
     QString error;
     const QString mapped{m_mapper(identityForNamed(identity.email), &error)};
     if (mapped.isEmpty()) {
-        // The hook refused this person, which is what a real login would do with them. The
-        // picker refuses too: a development sign-in that granted what the project's own
-        // rule denies would be showing a state the application cannot reach.
+        // The hook refused this person, as a real login would. The picker refuses too, so
+        // it never shows a state the application cannot reach.
         return {QString{}, QStringLiteral("refused by the mapping hook: %1").arg(error)};
     }
     if (mapped != identity.scope) {
-        // The disagreement is what matters, so both are shown and the hook's answer
-        // is the one the session gets.
+        // They disagree: both are shown, and the session gets the hook's answer.
         return {mapped, QStringLiteral("%1 (the file says %2)").arg(mapped, identity.scope)};
     }
     return {mapped, mapped};
@@ -199,9 +199,9 @@ QVariantMap IdentityPicker::identityFor(const QString &scope) const
                         .arg(QDateTime::currentMSecsSinceEpoch()));
     identity.insert(QStringLiteral("login"), scope);
     identity.insert(QStringLiteral("name"), QStringLiteral("Development %1").arg(scope));
-    // Null, not absent and not invented. `identity.email` is nullable for a real provider
-    // too, and a hook that keys authorization on it has to behave the same here as it does
-    // when GitHub declines to give one (docs/authentication.md).
+    // Null, not absent or invented: `identity.email` is nullable for real providers too, so
+    // a hook keyed on it behaves as it would when GitHub withholds it
+    // (docs/authentication.md).
     identity.insert(QStringLiteral("email"), QVariant{});
     return identity;
 }
@@ -209,8 +209,8 @@ QVariantMap IdentityPicker::identityFor(const QString &scope) const
 QHttpServerResponse IdentityPicker::chooseNamed(const QString &picked,
                                                 const QUrlQuery &form, Choice *choice)
 {
-    // An index into the list this page drew, bounds-checked exactly as a posted scope is:
-    // the list came from a file, so a larger number posted by hand must not reach past it.
+    // An index into the list this page drew, bounds-checked like a posted scope: the list
+    // came from a file.
     bool isNumber{false};
     const int index{picked.toInt(&isNumber)};
     if (!isNumber || index < 0 || index >= static_cast<int>(m_named.size())) {
@@ -223,15 +223,13 @@ QHttpServerResponse IdentityPicker::chooseNamed(const QString &picked,
     const WebEdgeConfig::DevIdentity &identity{m_named.at(index)};
     const Resolution resolution{resolve(identity)};
     if (resolution.scope.isEmpty()) {
-        // The project's own hook refused this person. Refusing here too is the only right
-        // answer, because signing them in anyway would show a state a real login cannot produce.
+        // The project's hook refused this person, so the picker refuses too.
         return QHttpServerResponse{QByteArrayLiteral("text/plain"),
                                    resolution.remark.toUtf8(),
                                    QHttpServerResponder::StatusCode::Forbidden};
     }
-    // Belt and braces on top of the hook's own bounds check, because a mapper that is not
-    // the identity provider's could be set here one day and this is the only place that
-    // would notice.
+    // Bounds-checked here as well, in case a mapper other than the identity provider's is
+    // ever used.
     if (!m_scopeOrder.contains(resolution.scope)) {
         return QHttpServerResponse{QByteArrayLiteral("text/plain"),
                                    QByteArrayLiteral("not one of this project's scopes"),
@@ -240,6 +238,9 @@ QHttpServerResponse IdentityPicker::chooseNamed(const QString &picked,
 
     const QByteArray minted{m_sessions->createSession(resolution.scope,
                                                       identityForNamed(identity.email))};
+    if (minted.isEmpty()) {
+        return tableFull();
+    }
     if (choice) {
         choice->sessionId = minted;
         if (!form.queryItemValue(QStringLiteral("this_tab_only")).isEmpty()) {
@@ -261,11 +262,9 @@ QHttpServerResponse IdentityPicker::choose(const QHttpServerRequest &request,
     }
     const QString picked{form.queryItemValue(QStringLiteral("scope"), QUrl::FullyDecoded)};
 
-    // An index into the declared vocabulary, exactly as a mapping hook's answer is, and
-    // bounds-checked the same way. The picker skips the hook (picking a scope directly is
-    // the whole point of this mode), so this is the only thing standing between the form
-    // and the session. A scope the project never declared must not be reachable by editing
-    // the page and posting a larger number.
+    // An index into the declared vocabulary, bounds-checked like a mapping hook's answer.
+    // The picker skips the hook, so this check alone stops a posted number from reaching an
+    // undeclared scope.
     bool isNumber{false};
     const int index{picked.toInt(&isNumber)};
     if (!isNumber || index < 0 || index >= static_cast<int>(m_scopeOrder.size())) {
@@ -276,6 +275,9 @@ QHttpServerResponse IdentityPicker::choose(const QHttpServerRequest &request,
 
     const QString scope{m_scopeOrder.at(index)};
     const QByteArray minted{m_sessions->createSession(scope, identityFor(scope))};
+    if (minted.isEmpty()) {
+        return tableFull();
+    }
     if (choice) {
         choice->sessionId = minted;
         if (!form.queryItemValue(QStringLiteral("this_tab_only")).isEmpty()) {
