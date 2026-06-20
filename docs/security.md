@@ -836,23 +836,27 @@ Browser link:
 
 Mesh links:
 
-- Every cross host link is mutual TLS against the project CA;
+- Every cross host link is mutual TLS against the project CA, and
   `require_mtls_cross_host` is on.
 - Same host links keep the default loopback mutual TLS unless a local socket link
-  was deliberately chosen; no connect point that authorizes by `Caller.entity`
+  was chosen on purpose, and no connect point that authorizes by `Caller.entity`
   rides an opt in local link unless every same user process on that host is
   trusted.
-- The mesh CA private key is not on any running entity and not committed; entity
+- The mesh CA private key is not on any running entity and not committed, and entity
   keys have restrictive permissions.
-- Certs are within their validity window; rotation is scheduled before expiry.
+- Certs are within their validity window, and rotation is scheduled before expiry.
 - The only entities bound where the internet can reach them are the web edges and
-  any entity that deliberately declares [`network.inbound`](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it);
-  every other entity binds private or local only. An `inbound` surface sits behind its
-  API key, its origin list and its rate limit, and `synqt check` refuses one that names
-  no keys unless it also says `public: true`. That rate limit counts one address per
-  caller, so a surface with a proxy in front of it names the proxy in
-  `network.inbound.trusted_proxies`; without it every caller arrives from the proxy and
-  shares a single budget.
+  any entity that declares [`network.inbound`](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it).
+  Every other entity binds private or local only. An `inbound` surface sits behind its
+  API key, its origin list, its rate limit and its socket ceilings, and `synqt check`
+  refuses one that names no keys unless it also says `public: true`. That rate limit
+  counts one address per caller, so a surface with a proxy in front of it names the
+  proxy in `network.inbound.trusted_proxies`. Without it every caller arrives from the
+  proxy and shares a single budget. The socket ceilings (`max_connections`,
+  `max_connections_per_ip`) are counted at accept, so a caller that opens connections
+  and never sends the request the other checks would see is bounded too. The
+  per-address one is switched off behind a named proxy, where every socket is the
+  proxy's.
 
 Authorization and data:
 

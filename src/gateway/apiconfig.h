@@ -46,13 +46,15 @@ struct ApiConfig
     /// Resource limits, enforced before a handler sees anything.
     qint64 maxBodyBytes{1048576};
     int ratePerMinutePerIp{600};
+    /// How many sockets may be open at once, in total and from one address, counted at accept,
+    /// which bounds callers that open a socket and send nothing. Qt's own ceilings count
+    /// correctly here because an API socket is never upgraded. The per-address ceiling is off
+    /// when `trustedProxies` is set; the total still holds. Zero disables either.
+    int maxConnectionsGlobal{4096};
+    int maxConnectionsPerIp{64};
 
-    /// Peers whose `X-Forwarded-For` this surface believes, as addresses or CIDR ranges.
-    /// Empty (the default) means the peer that connected is the caller, which is true of a
-    /// surface reached directly and false of every request at once as soon as a proxy sits
-    /// in front. There the rate limit above would count one address for everybody. Nothing
-    /// is trusted implicitly, because a header any client can write would otherwise be a
-    /// budget any client can pick. The browser side of an edge configures this separately
+    /// Peers whose `X-Forwarded-For` this surface believes, as addresses or CIDR ranges. Empty
+    /// means the connecting peer is the caller. The browser side of an edge has its own list
     /// (`public.trusted_proxies`). See SynQt::ClientAddress.
     QStringList trustedProxies;
 

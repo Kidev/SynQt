@@ -1,17 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The declared browser-facing policy has to reach the generated edge.
+"""The declared browser-facing policy reaches the generated edge.
 
-A knob that is documented, validated, and then dropped on the way to the binary is worse
-than one that does not exist. The project believes it set something. These tests pin the
-whole path: the `security:` block, the origin model, the starting scope, the public bind
-and TLS, the `identity:` block and, most sharply, a connect point's `scope`, which is the
-barrier deciding whether that connect point is acquired for a session at all.
-
-The other half is what must NOT reach it. A client secret is only ever the name of an
-environment variable here, never a literal in generated source, and a setting this version
-cannot honor is refused rather than silently replaced with the one it can.
+The `security:` block, the origin model, the starting scope, the public bind and TLS, the
+`identity:` block and each connect point `scope` must all reach the binary. A client secret
+reaches it only as a variable name, and a setting the framework cannot honour is refused.
 """
 
 import unittest
@@ -67,9 +61,7 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn("config.maxMessageBytes = 65536;", source)
 
     def test_the_http_limits_reach_the_edge(self):
-        # These are Qt's own knobs rather than the framework's, and Qt picks its defaults
-        # for a general-purpose server. A project that tightens them and finds them
-        # dropped on the way to the binary is worse off than one that never had them.
+        # Qt's own limits, tightened by the project, must reach the binary.
         source = render(base_config(security={
             "keep_alive_timeout_s": 5,
             "max_requests_per_second": 30,
@@ -80,9 +72,7 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn("config.maxBodyBytes = 4096;", source)
 
     def test_the_session_ceiling_reaches_the_edge(self):
-        # The one table a stranger can grow. A page load with no live cookie mints a
-        # session. A project that sizes the ceiling must find it in the binary, and zero
-        # (no ceiling) is carried as written rather than read as a mistake.
+        # The session ceiling, zero included, reaches the binary as written.
         self.assertIn("config.maxSessions = 2500;",
                       render(base_config(security={"max_sessions": 2500})))
         self.assertIn("config.maxSessions = 0;",
@@ -90,10 +80,8 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertNotIn("config.maxSessions", render(base_config()))
 
     def test_the_body_ceiling_follows_what_the_entity_accepts(self):
-        # Derived rather than defaulted, because its right answer is whatever this entity
-        # receives. The API's own ceiling is checked after QHttpServer has read the body,
-        # so an edge left at Qt's 32 MiB would buffer thirty-two megabytes from a stranger
-        # in order to refuse it at one.
+        # The body ceiling is derived from the inbound API's own ceiling, which is checked
+        # only after QHttpServer has read the body.
         config = base_config()
         edge_of(config)["network"] = {"inbound": {"routes": [{"path": "/v1/ping"}]}}
         self.assertIn(f"config.maxBodyBytes = {maingen.API_DEFAULT_BODY_BYTES};",
@@ -105,15 +93,11 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn("config.maxBodyBytes = 2048;", render(config))
 
     def test_an_edge_that_receives_nothing_keeps_the_small_ceiling(self):
-        # No inbound block, so the only bodies are the edge's own sign-in and claim
-        # routes. The struct default covers those and nothing more, and saying so here
-        # would be a second copy of it.
+        # No inbound block: the struct default applies.
         self.assertNotIn("config.maxBodyBytes", render(base_config()))
 
     def test_an_undeclared_key_is_left_to_the_struct(self):
-        # The defaults live once, in src/edge/webedgeconfig.h. Emitting them here too
-        # would be a second copy to keep in step, and the generated main would stop
-        # reading as the set of decisions its synqt.yaml made.
+        # Defaults stay in src/edge/webedgeconfig.h and are not emitted.
         source = render(base_config())
         for field in ("config.csp", "config.allowedOrigins", "config.handshakeTimeoutMs",
                       "config.maxConnectionsPerIp", "config.maxConnectionsGlobal",
@@ -123,8 +107,7 @@ class TestSecurityBlock(unittest.TestCase):
             self.assertNotIn(field, source)
 
     def test_origin_model_reaches_the_edge(self):
-        # It is what decides the session cookie's SameSite attribute, so a split-origin
-        # deployment whose model never arrived could not log anybody in at all.
+        # The origin model sets the cookie SameSite.
         source = render(base_config(project={"name": "app", "origin_model": "split_origin"}))
         self.assertIn('config.originModel = QStringLiteral("split_origin");', source)
 
@@ -134,8 +117,7 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn('config.defaultScope = QStringLiteral("visitor");', source)
 
     def test_a_quoted_limit_is_refused(self):
-        # It would otherwise be emitted as C++ that does not compile, reporting a typo in
-        # synqt.yaml as a compiler error inside generated code.
+        # A non-integer limit is refused at generation.
         with self.assertRaises(appmodel.AppGenError) as caught:
             render(base_config(security={"max_message_bytes": "1048576"}))
         self.assertIn("security.max_message_bytes", str(caught.exception))
@@ -146,24 +128,18 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn("security.allowed_origins", str(caught.exception))
 
     def test_an_unimplemented_session_transport_is_refused(self):
-        # A subprotocol token needs the edge to echo the subprotocol it selected, and this
-        # upgrade path gives Qt no way to select one, so Chromium refuses the handshake
-        # (measured. See tests/m5-webedge). Generating it anyway would produce an edge that
-        # authenticates by cookie under a configuration saying it does not. Refusing names
-        # the gap. Dropping it hides one.
+        # `session_transport: subprotocol` is refused: this upgrade path cannot select a
+        # subprotocol (see tests/m5-webedge).
         with self.assertRaises(appmodel.AppGenError) as caught:
             render(base_config(security={"session_transport": "subprotocol"}))
         self.assertIn("session_transport", str(caught.exception))
-        # The message has to say why, or the next reader tries to "implement it", and
-        # it has to say it of the Qt pinned. Written against the pin rather than
-        # against a literal. A message still naming the Qt before last is a reason nobody
-        # can check, and the last pin move left exactly that behind.
+        # The message names the pinned Qt, read from the pin.
         pinned = ".".join(toolchain.QT_VERSION.split(".")[:2])
         self.assertIn(f"Qt {pinned}", str(caught.exception))
 
 
 class TestConnectPointScope(unittest.TestCase):
-    """A connect point's declared scope is the acquisition barrier, not documentation."""
+    """A connect point's declared scope is enforced as the acquisition barrier."""
 
     def test_a_scoped_connect_point_carries_its_scope(self):
         config = base_config(scopes={"order": ["anonymous", "player"]})
@@ -197,9 +173,7 @@ class TestIdentity(unittest.TestCase):
         self.assertIn('QStringLiteral("/web/identity/map.qml");', source)
 
     def test_a_known_provider_gets_its_endpoints(self):
-        # The tutorials write the short form (a name, a client id, a secret). Without the
-        # template underneath it, the edge would carry a github provider with no
-        # authorize URL and fail at the first login instead of at generation.
+        # The short form gets the template's endpoints.
         source = render(self.config_with_login())
         self.assertIn('provider0.authorizeUrl = '
                       'QUrl{QStringLiteral("https://github.com/login/oauth/authorize")};',
@@ -224,8 +198,7 @@ class TestIdentity(unittest.TestCase):
         self.assertNotIn("env:GITHUB_CLIENT_SECRET", source)
 
     def test_a_literal_secret_is_refused(self):
-        # Emitting it would bake a credential into generated source, and from there into a
-        # binary that gets copied, cached and shipped.
+        # A literal secret is refused.
         with self.assertRaises(appmodel.AppGenError) as caught:
             render(self.config_with_login(providers=[{
                 "name": "github", "client_id": "public-id",
@@ -233,9 +206,7 @@ class TestIdentity(unittest.TestCase):
         self.assertIn("literal client_secret", str(caught.exception))
 
     def test_a_provider_with_no_secret_at_all_is_refused(self):
-        # Not spelled "github": a templated name would have the template's standard
-        # env:GITHUB_CLIENT_SECRET filled in underneath, which is the right answer there
-        # and would hide what this asserts.
+        # Not "github", whose template would supply the env reference.
         with self.assertRaises(appmodel.AppGenError) as caught:
             render(self.config_with_login(providers=[{"name": "acme",
                                                       "client_id": "public-id"}]))
@@ -249,15 +220,12 @@ class TestIdentity(unittest.TestCase):
                       source)
 
     def test_the_dev_stub_gate_follows_the_dev_flag(self):
-        # `synqt dev` is the only launcher that passes --dev, which is what keeps a stub
-        # identity provider out of anything that ships.
+        # Only `synqt dev` passes --dev.
         self.assertIn("config.identity.allowDevStub = parser.isSet(devOption);",
                       render(self.config_with_login()))
 
     def test_the_desktop_login_is_off_unless_the_project_builds_a_desktop_client(self):
-        # A loopback redirect is only ever answered by a native app. A project that builds
-        # none has nothing that could receive one, so issuing one would be a redirect to a
-        # port only something hostile would be listening on.
+        # No desktop client, no loopback redirect.
         self.assertNotIn("allowDesktopLogin", render(self.config_with_login()))
 
         config = self.config_with_login()
@@ -271,8 +239,7 @@ class TestIdentity(unittest.TestCase):
             required=True, session={"cookie_name": "app_session", "ttl_minutes": 60}))
         self.assertIn('config.cookieName = QStringLiteral("app_session");', source)
         self.assertIn("config.sessionTtlMinutes = 60;", source)
-        # One field, not two: WebEdgeConfig::identityRequired is what the upgrade check
-        # reads, so IdentityConfig carries no second copy for the generator to fill.
+        # One field: WebEdgeConfig::identityRequired.
         self.assertIn("config.identityRequired = true;", source)
         self.assertNotIn("config.identity.required", source)
 
@@ -293,20 +260,14 @@ class TestIdentity(unittest.TestCase):
 
     def test_no_identity_block_emits_nothing(self):
         source = render(base_config())
-        # `config.identity.`, with the dot, because that is the IdentityConfig struct and
-        # this test is about that struct not being configured. A bare "config.identity"
-        # prefix-matches any field whose name merely starts with it, which is how this
-        # assertion started failing on `config.identityPicker`: a separate field, on
-        # WebEdgeConfig rather than on IdentityConfig, emitted for every edge because every
-        # edge parses --identity-picker and only a development build has anything behind it.
+        # `config.identity.` with the dot, so `config.identityPicker` (a WebEdgeConfig field
+        # every edge parses) does not match.
         self.assertNotIn("config.identity.", source)
         self.assertNotIn('#include "identityconfig.h"', source)
 
     def test_the_picker_gate_is_emitted_whether_or_not_there_is_a_login(self):
-        # It replaces every sign-in a project has, and a project with no OAuth login still
-        # has scopes to pick from, so it is not conditional on `identity:`. What makes it
-        # safe is that nothing built passes the flag and a release SynQtEdge does not
-        # contain the picker at all (tests/dev-exclusion).
+        # The picker flag is parsed by every edge; only a development build contains the
+        # picker (tests/dev-exclusion).
         for source in (render(base_config()), render(self.config_with_login())):
             self.assertIn("config.identityPicker = parser.isSet(devOption)", source)
 
@@ -332,14 +293,12 @@ class TestPublicBindAndTls(unittest.TestCase):
         self.assertIn('config.syncRoute = QStringLiteral("/ws");', source)
 
     def test_the_configured_port_becomes_the_option_default(self):
-        # It stays an option, because `synqt dev` moves it. What the topology says is the
-        # default that applies when nobody passes one.
+        # Still an option (`synqt dev` moves it); the topology gives its default.
         self.assertIn('QStringLiteral("port"),\n        QStringLiteral("9000")',
                       render(self.with_public(port=9000)))
 
     def test_the_configured_certificate_becomes_the_option_default(self):
-        # This is what makes `synqt serve`, which passes no arguments at all, serve the
-        # browser over the TLS the project configured rather than plaintext.
+        # So `synqt serve` serves the configured TLS with no arguments.
         config = base_config()
         edge_of(config)["tls"] = {"cert_file": "certs/web/fullchain.pem",
                                   "key_file": "certs/web/privkey.pem"}
@@ -348,10 +307,8 @@ class TestPublicBindAndTls(unittest.TestCase):
         self.assertIn('QStringLiteral("certs/web/privkey.pem")', source)
 
     def test_where_a_browser_reaches_the_edge_is_carried_separately_from_the_bind(self):
-        # Two different questions, and only one of them has the bind for an answer. This
-        # one is the OAuth redirect_uri, what `self` expands to at the upgrade's origin
-        # check, and the sync endpoint in the CSP, so an edge that inferred it from a
-        # wildcard bind would refuse every visitor there can be.
+        # `public.origin` is emitted, not derived from the bind: it becomes the
+        # redirect_uri, `self` and the CSP sync endpoint.
         source = render(self.with_public(host="0.0.0.0",
                                          origin="https://arena.example.com/"))
         self.assertIn('config.host = QStringLiteral("0.0.0.0");', source)
@@ -360,14 +317,11 @@ class TestPublicBindAndTls(unittest.TestCase):
                       source)
 
     def test_an_edge_that_names_no_origin_emits_none(self):
-        # The edge derives it then (src/edge/webedge.cpp), and a wildcard bind derives to
-        # localhost. Emitting a guess here would put it in generated source, where the
-        # deployment that has a real answer could not tell it from one.
+        # Absent, the edge derives it (src/edge/webedge.cpp); nothing is guessed here.
         self.assertNotIn("config.origin =", render(base_config()))
 
     def test_dev_overrides_the_public_tls_with_plaintext_loopback(self):
-        # The configured certificate is valid on the deployed host and nowhere else, and
-        # the public origin names that host, so both go.
+        # The certificate and the public origin belong to the deployed host.
         source = render(base_config())
         self.assertIn("    if (parser.isSet(devOption)) {\n"
                       '        config.host = QStringLiteral("127.0.0.1");\n'
@@ -387,15 +341,12 @@ class TestEnvFile(unittest.TestCase):
         self.assertIn('loadEnvFile(QStringLiteral(".env"));', service)
 
     def test_the_entity_directory_is_the_default_env_file(self):
-        # "The client secret lives only in web/edge/.env" is what the tutorials tell a
-        # developer to do, so it has to work without also declaring an `env:` key. The
-        # directory is the entity's, `<type>/<name>/`, which is where its QML is. This
-        # asked for `<name>/` for a while after entities moved and loaded nothing.
+        # The entity env file is `<type>/<name>/.env`, where its QML is.
         self.assertIn('loadEnvFile(QStringLiteral("web/web/.env"));', render(base_config()))
 
     def test_an_entity_env_file_is_loaded_first(self):
-        # Order is precedence. loadEnvFile never overwrites, so the entity's own file wins
-        # over the project's, and the real environment wins over both.
+        # loadEnvFile never overwrites: the real environment, then the entity file, then the
+        # project's.
         config = base_config()
         edge_of(config)["env"] = {"file": "secrets/edge.env"}
         source = render(config)
@@ -405,19 +356,15 @@ class TestEnvFile(unittest.TestCase):
         self.assertNotIn('loadEnvFile(QStringLiteral("web/web/.env"));', source)
 
     def test_the_client_never_loads_one(self):
-        # Secrets belong to the service side of the connect-point boundary. The browser is
-        # on the other side of it.
+        # No secrets on the client side.
         source = maingen.render_client_main(base_config(), "App")
         self.assertNotIn("loadEnvFile", source)
         self.assertNotIn("envfile.h", source)
 
 
 class TestTrustedProxies(unittest.TestCase):
-    """`public.trusted_proxies` is what tells the edge its peer is a balancer.
-
-    Every per-IP limit is only as good as its notion of "IP", and a balancer in front
-    makes that notion wrong for every connection at once. The key is how a deployment
-    says which peer is not a visitor. Without it the edge believes what it can see.
+    """`public.trusted_proxies` tells the edge which peer is a balancer, for every per-IP
+    limit.
     """
 
     def test_declared_proxies_are_emitted(self):
@@ -428,8 +375,7 @@ class TestTrustedProxies(unittest.TestCase):
                       'QStringLiteral("10.0.0.0/24")};', source)
 
     def test_absent_proxies_emit_nothing(self):
-        # The default is the peer address, which is the struct's default. A line here
-        # would be a second copy of it and a way for the two to disagree.
+        # The default (the peer address) is not emitted.
         self.assertNotIn("trustedProxies", render(base_config()))
 
     def test_a_non_list_is_refused(self):
@@ -446,12 +392,7 @@ class TestTrustedProxies(unittest.TestCase):
 
 
 class TestInboundTrustedProxies(unittest.TestCase):
-    """The same question for an entity's API surface, which is a second listener.
-
-    `network.inbound.rate_per_minute` rations per address, so which address it counts is
-    the whole of whether it rations anybody. A surface behind a proxy that names none
-    counts one address for every caller at once.
-    """
+    """The same for the API listener, whose `rate_per_minute` is per address."""
 
     def api_entity(self, **inbound):
         settings = {"port": 8443, "api_keys": "env:KEYS"}
@@ -472,14 +413,20 @@ class TestInboundTrustedProxies(unittest.TestCase):
     def test_absent_proxies_emit_nothing(self):
         self.assertNotIn("trustedProxies", self.render_api(self.api_entity()))
 
+    def test_the_socket_ceilings_reach_the_surface(self):
+        # The idle-socket bound, zero carried as written.
+        source = self.render_api(self.api_entity(max_connections=512,
+                                                 max_connections_per_ip=0))
+        self.assertIn("apiConfig.maxConnectionsGlobal = 512;", source)
+        self.assertIn("apiConfig.maxConnectionsPerIp = 0;", source)
+        self.assertNotIn("maxConnections", self.render_api(self.api_entity()))
+
     def test_a_non_list_is_refused(self):
         with self.assertRaises(appmodel.AppGenError):
             self.render_api(self.api_entity(trusted_proxies="10.0.0.1"))
 
     def test_neither_surface_reads_the_other_one_s_list(self):
-        # Two listeners on two ports, and a deployment can put a balancer in front of one
-        # while the other stays on an internal network. Inheriting would be the framework
-        # deciding to believe a header nobody said to believe.
+        # Not inherited from `public.trusted_proxies`: separate listeners.
         entity = self.api_entity()
         entity["public"] = {"trusted_proxies": ["10.0.0.1"]}
         self.assertEqual(appmodel.inbound_trusted_proxies(entity), [])

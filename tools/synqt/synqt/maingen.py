@@ -3,17 +3,13 @@
 
 """Render one ``main.cpp`` per entity from the declared topology.
 
-Three shapes, one per kind of entity. The client (browser WASM and native desktop from
-one QML), the web edge (it serves the bundle and hosts the browser-facing connect
-points), and a plain service (it resolves its slice of the mesh topology and brings up
-what it owns). Each generated main is thin by design. It constructs the runtime config,
-registers the generated contract types, exposes the accessors and runs the event loop.
-That is the same shape as the hand-written counter example, produced mechanically so the
-code and the topology never drift.
+Three shapes: the client (browser WASM and native desktop from one QML), the web edge
+(serves the bundle and hosts the browser-facing connect points), and a service (brings up
+its slice of the mesh). Each main builds the runtime config, registers the generated
+contract types, exposes the accessors and runs the event loop.
 
-Every value interpolated into a ``QStringLiteral`` comes from ``synqt.yaml``, so it goes
-through :func:`cxx_string_literal` first. What the topology says is read through
-:mod:`synqt.appmodel`.
+Every value interpolated into a ``QStringLiteral`` goes through :func:`cxx_string_literal`.
+The topology is read through :mod:`synqt.appmodel`.
 """
 
 from __future__ import annotations
@@ -23,10 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import appmodel, clientbuild, clientcache, graphics
 
-#: What `ApiConfig::maxBodyBytes` starts at (src/gateway/apiconfig.h), which is the ceiling
-#: an entity with `network.inbound` accepts when its block does not name one. Kept here so
-#: the edge's own HTTP ceiling can be derived from it rather than guessed at. The two
-#: disagreeing means the server buffers what the API is going to refuse.
+#: The default of `ApiConfig::maxBodyBytes` (src/gateway/apiconfig.h). The edge HTTP ceiling
+#: is derived from it, so the server never buffers more than the API accepts.
 API_DEFAULT_BODY_BYTES = 1048576
 
 _HEADER_CPP = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
@@ -36,13 +30,8 @@ _HEADER_CPP = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
 def cxx_string_literal(value: str) -> str:
     """Escape a value for safe interpolation inside a C++ ``"..."`` literal.
 
-    Every generated ``QStringLiteral("...")`` takes its contents from ``synqt.yaml`` (a
-    route path, a file name, a scope, a seed path, a connect-point name). A backslash or a
-    double quote in one of those would otherwise end the literal early or splice into the
-    emitted source. The control characters a literal cannot carry raw would break the build
-    outright. Escape them so the emitted code is always one well-formed string. For every
-    value that validation already accepts this is a no-op, so valid projects generate
-    byte-for-byte what they did before.
+    Handles backslashes, double quotes and control characters. A no-op for every value
+    validation already accepts.
     """
     replacements = {
         "\\": "\\\\",
@@ -63,12 +52,9 @@ def string_list_literal(values: List[str]) -> str:
 def _singleton_registrations(entity_dir: str, singletons: List[str]) -> str:
     """C++ registering each entity singleton QML by path, in the "SynQt" module.
 
-    Registering is only half of it. A QML singleton is created on first use, and nothing
-    uses the entity's own file until a caller arrives and a Source is built, so an entity
-    whose file subscribes to a mesh signal or starts a simulation in `Component.onCompleted`
-    would sit inert until the first browser connected, and would have missed everything
-    that happened before that. It is the entity. It is alive while the entity is. So each
-    one is asked for once here, immediately after registration, which is what creates it.
+    A QML singleton is created on first use, so each one is also instantiated at start-up
+    (see :func:`_singleton_instantiations`). Otherwise a singleton that subscribes to a mesh
+    signal or starts a simulation would wait for the first caller.
     """
     if not singletons:
         return ""
@@ -83,11 +69,8 @@ def _singleton_registrations(entity_dir: str, singletons: List[str]) -> str:
 
 
 def _singleton_instantiations(singletons: List[str]) -> str:
-    """C++ bringing each entity singleton to life, once the engine exists.
-
-    Separate from the registration above because it has to run after the QQmlEngine is
-    constructed, and the registration has to run before it. See the note there for why
-    creating them at all is not optional.
+    """C++ creating each entity singleton, after the QQmlEngine exists (registration runs
+    before it).
     """
     if not singletons:
         return ""
@@ -100,12 +83,8 @@ def _singleton_instantiations(singletons: List[str]) -> str:
 
 
 def _configured_value(value: str) -> str:
-    """A C++ expression for one configured string.
-
-    A value written ``env:VAR`` becomes a read of this entity's environment when the
-    process starts, so a credential never becomes a literal in generated source, nor in
-    the binary that source compiles to, nor in any artifact either gets copied into.
-    Anything else is the literal it says it is.
+    """A C++ expression for one configured string. ``env:VAR`` becomes a read of the entity
+    environment at start-up, so a credential is never a literal in source or binary.
     """
     if value.startswith("env:"):
         return f'qEnvironmentVariable("{cxx_string_literal(value[len("env:"):])}")'
@@ -113,18 +92,16 @@ def _configured_value(value: str) -> str:
 
 
 def _int_literal(key: str, value: Any) -> str:
-    """A configured number, as C++. Refuses anything that is not one, because the
-    alternative is emitting a `main.cpp` that does not compile and reporting it as a
-    compiler error about generated code rather than as the typo it is."""
+    """A configured number, as C++. Anything else is refused, rather than generating C++ that
+    does not compile.
+    """
     if isinstance(value, bool) or not isinstance(value, int):
         raise appmodel.AppGenError(f"{key} must be a whole number, not {value!r}")
     return str(value)
 
 
 def _bool_literal(key: str, value: Any) -> str:
-    """A configured flag, as C++. Refuses a non-boolean for the reason
-    `scopes.hierarchical` is refused. The string "false" is truthy in Python, so a quoted
-    flag would silently mean its opposite."""
+    """A configured flag, as C++. A non-boolean is refused: the string "false" is truthy."""
     if not isinstance(value, bool):
         raise appmodel.AppGenError(f"{key} must be true or false, not {value!r}")
     return "true" if value else "false"
@@ -138,12 +115,10 @@ def _option_default(value: Any) -> str:
 
 
 def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[str]:
-    """The `ApiConfig` assignments one entity's `network.inbound` block asks for.
+    """The `ApiConfig` assignments one entity `network.inbound` block asks for.
 
-    Only what the topology declared gets a line, so the defaults stay in `apiconfig.h`
-    rather than being restated here in a second place that can drift from them. The API
-    keys are the exception worth naming: they come through `env:` like every other secret,
-    so what lands in the generated source is the variable's name and never its value.
+    Only declared keys get a line; the defaults stay in `apiconfig.h`. API keys come through
+    `env:`, so the source holds the variable name, never the value.
     """
     lines = ["    ApiConfig apiConfig;"]
     if "port" in inbound:
@@ -162,9 +137,8 @@ def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[s
 
     keys = inbound.get("api_keys")
     if isinstance(keys, str) and keys.strip():
-        # One environment variable holding a comma-separated list, so rotating a key is a
-        # deployment change and never a rebuild. Split at startup, empties dropped, because
-        # a stray comma would otherwise admit an empty key.
+        # One variable, comma-separated, so rotating a key needs no rebuild. Empty entries
+        # are dropped so a stray comma admits no empty key.
         lines += ["    for (const QString &apiKey : %s.split(QLatin1Char(','),"
                   % _configured_value(keys.strip()),
                   "                                          Qt::SkipEmptyParts)) {",
@@ -192,10 +166,14 @@ def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[s
         lines.append("    apiConfig.ratePerMinutePerIp = %s;"
                      % _int_literal("network.inbound.rate_per_minute",
                                     inbound["rate_per_minute"]))
+    for key, field in (("max_connections", "maxConnectionsGlobal"),
+                       ("max_connections_per_ip", "maxConnectionsPerIp")):
+        if key in inbound:
+            lines.append("    apiConfig.%s = %s;"
+                         % (field, _int_literal("network.inbound." + key, inbound[key])))
 
-    # Which address the rate limit above counts against. Absent, it is the peer that
-    # connected; present, that peer is a proxy and the caller is behind it. The edge's
-    # browser side has its own list and neither is read for the other (appmodel).
+    # Which address the rate limit counts. Absent: the connected peer. Present: the peer is
+    # a proxy. Separate from the browser-side list (appmodel).
     proxies = appmodel.inbound_trusted_proxies(entity)
     if proxies:
         lines.append("    apiConfig.trustedProxies = {%s};" % string_list_literal(proxies))
@@ -208,25 +186,16 @@ def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[s
 
 
 def _env_file_section(entity: Dict[str, Any]) -> str:
-    """The env-file load that answers this entity's ``env:`` references.
+    """The env-file loads that answer this entity ``env:`` references.
 
-    Two files, most specific first, because two conventions are both real: the entity's
-    own file (``web/edge/.env``, which the tutorials tell a developer to create) keeps
-    one entity's secrets away from another's, and the project ``.env`` is what `synqt new`
-    gitignores and what `synqt add auth` documents through ``.env.example``. Loading both
-    in that order costs nothing and means both instructions work as written.
-
-    Order is precedence, because `loadEnvFile` never overwrites: whatever the real
-    environment set wins over both files, and the entity's file wins over the project's.
-    Paths are relative to the working directory, which is the project root, where
-    `synqt dev` and `synqt serve` run an entity, and where every other relative default in
-    these mains already points (``build/client``, ``build/<entity>/topology.json``). A
-    deployment with a real secret store has neither file and needs neither.
+    The entity file (``web/edge/.env``) is loaded first, then the project ``.env``.
+    `loadEnvFile` never overwrites, so the real environment wins, then the entity file, then
+    the project file. Paths are relative to the project root, where `synqt dev` and `synqt
+    serve` run an entity.
     """
     lines = ["",
-             "    // Secrets for this entity's `env:` references, most specific first;",
-             "    // neither file ever overwrites a variable the environment already set.",
-             "    // A deployment with a real secret store has neither file and needs neither."]
+             "    // Secrets for this entity's `env:` references, most specific first. Neither",
+             "    // file overwrites a variable the environment already set, and both are optional."]
     path = appmodel.env_file(entity)
     if path:
         lines.append(f'    loadEnvFile(QStringLiteral("{cxx_string_literal(path)}"));')
@@ -237,12 +206,7 @@ def _env_file_section(entity: Dict[str, Any]) -> str:
 def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
     """The browser-facing policy the project declared, as `WebEdgeConfig` assignments.
 
-    One line per DECLARED key and nothing at all for the rest. The defaults live once, in
-    the struct (src/edge/webedgeconfig.h). Repeating them here would be a second copy
-    to keep in step and a silent way for a generated edge to disagree with the type it
-    fills. So a generated main reads as exactly the set of decisions its
-    synqt.yaml made, and a project that declares no `security:` block generates what it
-    generated before this existed.
+    One line per declared key. The defaults live in the struct (src/edge/webedgeconfig.h).
     """
     lines: List[str] = []
     public = appmodel.public_settings(edge)
@@ -253,34 +217,32 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
         lines.append(f'    config.{field} = '
                      f'QStringLiteral("{cxx_string_literal(str(value))}");')
 
-    # Delivery and bind. The port stays a command-line option (`synqt dev` moves it), so
-    # the configured value becomes that option's default rather than an assignment here.
+    # The port stays a command-line option (`synqt dev` moves it), so the configured value
+    # is its default.
     if "client_route" in public:
         string_line("clientRoute", public["client_route"])
     if "sync_route" in public:
         string_line("syncRoute", public["sync_route"])
     if "host" in public:
         string_line("host", public["host"])
-    # Where a browser reaches this edge, which is not where it binds. Everything the edge
-    # says about itself is built from this. The OAuth redirect_uri, what `self` means in
-    # allowed_origins, and the sync endpoint in the CSP. Absent, the edge derives it, and
-    # a wildcard bind derives to localhost (src/edge/webedge.cpp).
+    # Where a browser reaches this edge, which is not where it binds. The OAuth
+    # redirect_uri, `self` in allowed_origins and the CSP sync endpoint are built from it.
+    # Absent, the edge derives it; a wildcard bind derives to localhost
+    # (src/edge/webedge.cpp).
     if "origin" in public:
         string_line("origin", str(public["origin"]).rstrip("/"))
     if "serve_client" in public:
         lines.append("    config.serveClient = %s;"
                      % _bool_literal("public.serve_client", public["serve_client"]))
 
-    # Where the client address comes from. Absent, it is the peer address. Present, the
-    # peer is a balancer and the visitor is behind it (src/service/clientaddress.h). It is
-    # the key every per-IP limit on the edge depends on being right.
+    # Where the client address comes from. Absent: the peer. Present: the peer is a balancer
+    # (src/service/clientaddress.h). Every per-IP limit depends on it.
     proxies = appmodel.trusted_proxies(edge)
     if proxies:
         lines.append("    config.trustedProxies = {%s};" % string_list_literal(proxies))
 
-    # Origin and session. `origin_model` is what decides whether the session cookie can
-    # survive a cross-origin upgrade at all (SameSite=Lax against None; Secure), so a
-    # split-origin deployment that never reached the edge could not log anyone in.
+    # `origin_model` sets the session cookie SameSite (Lax, or None; Secure for split
+    # origin).
     model = appmodel.origin_model(config)
     if model:
         string_line("originModel", model)
@@ -292,8 +254,7 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
         lines.append("    config.allowedOrigins = {%s};"
                      % string_list_literal([str(origin) for origin in origins]))
     if appmodel.session_transport(config):
-        # Only "cookie" gets past appmodel. Emitted anyway, so the generated edge states
-        # the decision the project made rather than leaving it to be inferred.
+        # Only "cookie" gets past appmodel. Emitted so the generated edge states it.
         lines.append("    config.sessionTransport = SessionTransport::Cookie;")
     if "cookie_name" in session:
         string_line("cookieName", session["cookie_name"])
@@ -302,8 +263,8 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
         lines.append("    config.identityRequired = %s;"
                      % _bool_literal("identity.required", identity["required"]))
 
-    # Scope vocabulary. order and hierarchical are always emitted (both mains carry them);
-    # the starting scope only when the project names one.
+    # Scope vocabulary. order and hierarchical are always emitted; the starting scope only
+    # when named.
     default = appmodel.default_scope(config)
     if default:
         string_line("defaultScope", default)
@@ -311,14 +272,12 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
         lines.append("    config.sessionTtlMinutes = %s;"
                      % _int_literal("identity.session.ttl_minutes", session["ttl_minutes"]))
 
-    # Browser hardening. The edge computes the final header from this value (it appends
-    # the sync endpoint's wss:// origin and, under cross-origin isolation, worker-src),
-    # so what is set here is the policy, not the header.
+    # The CSP policy. The edge computes the header from it, adding the sync wss:// origin
+    # and, under cross-origin isolation, worker-src.
     if "csp" in security:
         string_line("csp", str(security["csp"]).strip())
 
-    # How many threads accepted browser sockets are spread across. On the entity and not
-    # in `security:` because it is a property of this process, the way `replicas:` is.
+    # IO threads for browser sockets. An entity key, like `replicas:`.
     if "threads" in edge:
         lines.append(f"    config.socketThreads = {appmodel.threads(edge)};")
 
@@ -335,14 +294,9 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
             lines.append(f"    config.{field} = "
                          f"{_int_literal('security.' + key, security[key])};")
 
-    # The body ceiling is derived rather than defaulted, because its right answer is
-    # whatever this entity accepts. An edge with no `network.inbound` has only its
-    # own routes, which carry a token and a password field, and keeps the framework's small
-    # default. One that does declare inbound gets the ceiling that block already names,
-    # which matters more than it looks. The API's own `max_body_bytes` is checked after
-    # QHttpServer has read the body, so leaving Qt at its 32 MiB would have the edge buffer
-    # thirty-two megabytes from a stranger in order to refuse it at one. Written only when
-    # the project did not say, so an explicit `security.max_body_bytes` always wins.
+    # The body ceiling. An edge without `network.inbound` keeps the framework default. With
+    # it, the ceiling is that block's `max_body_bytes`, since the API checks the size after
+    # QHttpServer has read the body. An explicit `security.max_body_bytes` wins.
     if "max_body_bytes" not in security and appmodel.serves_inbound(edge):
         inbound = appmodel.inbound_settings(edge)
         ceiling = (_int_literal("network.inbound.max_body_bytes", inbound["max_body_bytes"])
@@ -351,9 +305,8 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
     return lines
 
 
-# Every provider field the topology can set, paired with the IdentityProviderConfig member
-# it fills and how it is spelled in C++. Kept as one table so a field that exists in the
-# struct and not here is visible as an absence rather than hidden in a wall of ifs.
+# Every provider field the topology can set, with the IdentityProviderConfig member it fills
+# and its C++ spelling.
 _PROVIDER_STRINGS = (("client_id", "clientId"),
                      ("issuer", "issuer"),
                      ("audience", "audience"),
@@ -373,20 +326,16 @@ def _identity_provider_block(provider: Dict[str, Any], index: int, *,
                              with_secret: bool = True) -> str:
     """One configured OAuth2/OIDC provider, as C++.
 
-    `target` is the `IdentityConfig` being filled, because two entities can hold one: the
-    edge's (`config.identity`) and, when identity is promoted, the auth entity's own.
-
-    `with_secret` is the difference between them, and it is what promoting identity buys. Only the entity that runs the token exchange is given the secret and the
-    endpoints. An edge in `provider_entity` mode gets provider NAMES and nothing else,
-    because names are all it needs to decide which provider to ask the auth entity for.
+    `target` is the `IdentityConfig` being filled: the edge's, or the auth entity's when
+    identity is promoted. `with_secret` gives the endpoints and the secret only to the
+    entity that runs the token exchange; a promoted edge gets provider names only.
     """
     var = f"provider{index}"
     name = str(provider.get("name", ""))
     lines = [f"        IdentityProviderConfig {var};",
              f'        {var}.name = QStringLiteral("{cxx_string_literal(name)}");']
     if not with_secret:
-        # Nothing else, no client id, no endpoints, no secret. What this edge
-        # holds about a provider is a name it can pass over the mesh.
+        # A promoted edge holds only the provider name.
         lines.append(f"        {target}.providers.append({var});")
         return "    {\n" + "\n".join(lines) + "\n    }"
     for key, field in _PROVIDER_URLS:
@@ -403,16 +352,14 @@ def _identity_provider_block(provider: Dict[str, Any], index: int, *,
                              provider["use_id_token"])
         lines.append(f"        {var}.useIdToken = {flag};")
     if provider.get("dev_stub"):
-        # The development sign-in, and the runtime refuses it unless the process was
-        # started with --dev. It is written here rather than left implicit so the refusal
-        # is a property of the entry and not of which port it happens to name.
+        # The development sign-in. The runtime refuses this entry unless the process was
+        # started with --dev.
         lines.append(f"        {var}.devStub = true;")
     scopes = provider.get("scopes")
     if isinstance(scopes, list) and scopes:
         lines.append("        %s.scopes = {%s};"
                      % (var, string_list_literal([str(scope) for scope in scopes])))
-    # The secret, last and alone. It is the one field that is never a literal, and
-    # appmodel refuses the entry outright if the topology tried to make it one.
+    # The secret, last. Always an env reference; appmodel refuses a literal.
     variable = appmodel.client_secret_variable(provider)
     lines.append(f'        {var}.clientSecret = '
                  f'qEnvironmentVariable("{cxx_string_literal(variable)}");')
@@ -423,28 +370,20 @@ def _identity_provider_block(provider: Dict[str, Any], index: int, *,
 def _dev_stub_lines(config: Dict[str, Any]) -> List[str]:
     """The development sign-in, started in this process and only under `--dev`.
 
-    In the edge rather than in `synqt dev`, because the browser has to reach it and the
-    edge is what the browser already has open, and in the edge rather than in the auth
-    entity when identity is promoted, because `StubIdentityServer` is an HTTP server and
-    putting one inside a plain service would change that entity's Qt licence position for
-    a development convenience (see docs/licensing.md). The auth entity dials it over
-    loopback like any other provider.
-
-    Three gates, and they are independent. The server starts only with `--dev`, which
-    `synqt serve` and every deployment never pass. `StubIdentityServer` refuses to be
-    constructed without an acknowledgement that can only be written on purpose. And the
-    runtime refuses the `devStub` provider entry itself unless the same flag is set, so
-    an edge that somehow held the server would still not sign anybody in.
+    It runs in the edge because the browser already reaches the edge, and not in a promoted
+    auth entity because `StubIdentityServer` is an HTTP server and would change that entity
+    licence position (docs/licensing.md). Three independent gates: the server starts only
+    with `--dev`, `StubIdentityServer` requires an explicit acknowledgement, and the runtime
+    refuses the `devStub` provider entry without the flag.
     """
     if not appmodel.has_dev_stub(config):
         return []
     port = appmodel.dev_stub_port(config)
     users = appmodel.dev_stub_users(config)
     lines = [
-        "    // The development sign-in (`identity.dev_stub`), in this process and under",
-        "    // --dev alone. Everything about the login except the provider is the shipped",
-        "    // flow: the state, the PKCE challenge, the code exchange, the ID token and its",
-        "    // signature check, the mapping hook, the session and its cookie.",
+        "    // The development sign-in (`identity.dev_stub`), in this process and only under",
+        "    // --dev. The rest of the login is the shipped flow: state, PKCE, code exchange, ID",
+        "    // token and signature check, mapping hook, session and cookie.",
         "    if (parser.isSet(devOption)) {",
         "        StubIdentityServer *devIdentity{",
         "            new StubIdentityServer{StubIdentityServer::DevOnly{}, &app}};",
@@ -455,8 +394,7 @@ def _dev_stub_lines(config: Dict[str, Any]) -> List[str]:
         '        devIdentity->setIssuer(QStringLiteral("http://127.0.0.1:%d"));' % port,
     ]
     for index, user in enumerate(users):
-        # One insert per line rather than one long brace list, so a long name or address
-        # cannot push generated code past the column limit the rest of it keeps to.
+        # One insert per line, so a long value stays within the column limit.
         variable = f"devUser{index}"
         lines.append(f"        QVariantMap {variable};")
         for field in appmodel.DEV_STUB_USER_FIELDS:
@@ -482,20 +420,14 @@ def _dev_stub_lines(config: Dict[str, Any]) -> List[str]:
 
 def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
     """The `identity:` block, as `IdentityConfig` assignments, or nothing when the project
-    configures no login.
-
-    Without this the edge registers no login route at all (webedge.cpp gates them on
-    `identity.enabled`), so `synqt add auth` would write a configuration that scaffolds a
-    mapping hook, a provider and a secret, and produces an app with no way to sign in.
+    configures no login. The edge registers the login routes only when `identity.enabled`.
     """
     if not appmodel.identity_enabled(config, edge):
         return []
     identity = appmodel.identity_settings(config)
-    # `identity.required` is not repeated here. It is emitted once, as
-    # WebEdgeConfig::identityRequired, which is the field the upgrade check reads.
+    # `identity.required` is emitted once, as WebEdgeConfig::identityRequired.
     lines = ["    config.identity.enabled = true;"]
-    # Promoted identity. This edge delegates the secret-bearing half over the mesh, so it
-    # is given the auth entity's name and its provider list shrinks to names.
+    # Promoted identity: the edge gets the auth entity name and provider names only.
     provider_entity = appmodel.provider_entity(config)
     if provider_entity:
         lines.append('    config.identity.providerEntity = QStringLiteral("%s");'
@@ -508,21 +440,18 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
                          f'QStringLiteral("{cxx_string_literal(route.strip())}");')
     hook = appmodel.identity_mapping_hook(config)
     if hook:
-        # Project-root relative, like a connect point's server QML, so it resolves against
-        # the same --qml-dir and a hook moves with the project rather than with the cwd.
+        # Project-root relative, resolved against --qml-dir like a connect point server QML.
         lines.append(f'    config.identity.mappingHook = qmlDir + '
                      f'QStringLiteral("/{cxx_string_literal(hook)}");')
-    # The dev-stub gate. `synqt dev` is the only launcher that passes --dev, so a stub
-    # provider cannot run in anything that ships, which is what the gate is for.
+    # The dev-stub gate. Only `synqt dev` passes --dev.
     lines.append("    config.identity.allowDevStub = parser.isSet(devOption);")
-    # The desktop sign-in, on only for a project that builds a desktop client.
-    # Derived from `targets:`, not asked: see appmodel.has_desktop_client.
+    # The desktop sign-in, on for a project with a desktop client
+    # (appmodel.has_desktop_client).
     if appmodel.has_desktop_client(config):
         lines.append("    config.identity.allowDesktopLogin = true;")
     lines += _identity_device_lines(config)
-    # Refresh timing goes to whichever entity holds the tokens, and only there. A promoted
-    # edge holds none, so setting it here would be a knob on the one entity that cannot act
-    # on it.
+    # Refresh timing goes only to the entity that holds the tokens; a promoted edge holds
+    # none.
     if not provider_entity:
         lines += _identity_refresh_lines(config, "config.identity")
     lines += [_identity_provider_block(provider, index, with_secret=not provider_entity)
@@ -531,11 +460,8 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
 
 
 def _identity_device_lines(config: Dict[str, Any]) -> List[str]:
-    """The `identity.device` block, or nothing when desktop sessions are not persisted.
-
-    Emitted on the edge only. The auth entity gets none of it even when identity is
-    promoted: what a redemption needs is the family table and the scope-mapping hook, and
-    the hook is each edge's own policy, so the edge is where the route lives either way.
+    """The `identity.device` block, or nothing when desktop sessions are not persisted. Edge
+    only: redemption needs the family table and the edge mapping hook.
     """
     if appmodel.desktop_session(config) != "device":
         return []
@@ -549,9 +475,7 @@ def _identity_device_lines(config: Dict[str, Any]) -> List[str]:
         if key in device:
             lines.append(f"    config.identity.device.{field} = "
                          f"{_int_literal('identity.device.' + key, device[key])};")
-    # The store is an ordinary provider block, spelled the way every entity spells one, and
-    # read through the same env resolution. A password in synqt.yaml is a password in a git
-    # repository, here as anywhere else.
+    # The store is an ordinary provider block, resolved through `env:` like any other.
     for key, field in (("name", "name"), ("host", "host"), ("database", "database"),
                        ("user", "user"), ("sslmode", "sslMode"), ("ca_cert", "caCert")):
         value = appmodel.device_store(config).get(key)
@@ -560,10 +484,8 @@ def _identity_device_lines(config: Dict[str, Any]) -> List[str]:
                          f"{_configured_value(value.strip())};")
     store_file = appmodel.device_store(config).get("file")
     if isinstance(store_file, str) and store_file.strip():
-        # Resolved against the project the way the mapping hook and the pages directory are.
-        # A relative path here would otherwise land wherever the edge happened to be started
-        # from, which is a different database per launcher and a fresh one under a service
-        # manager. Everybody signed out, with no error anywhere.
+        # Resolved against the project root like the mapping hook; a relative path would
+        # depend on the working directory.
         path = store_file.strip()
         absolute = path.startswith("env:") or path.startswith("/") or path[1:3] == ":\\"
         lines.append("    config.identity.device.store.file = %s%s;"
@@ -581,11 +503,7 @@ def _identity_device_lines(config: Dict[str, Any]) -> List[str]:
 
 
 def _identity_refresh_lines(config: Dict[str, Any], target: str) -> List[str]:
-    """The server-side access-token refresh sweep, when the project times it itself.
-
-    Emitted for whichever entity holds the tokens (the edge, or the auth entity when
-    identity is promoted), because that is the one that can renew them.
-    """
+    """The server-side access-token refresh sweep, for whichever entity holds the tokens."""
     refresh = appmodel.identity_refresh(config)
     return [f"    {target}.{field} = "
             f"{_int_literal('identity.refresh.' + key, refresh[key])};"
@@ -595,13 +513,10 @@ def _identity_refresh_lines(config: Dict[str, Any], target: str) -> List[str]:
 
 
 def _auth_entity_lines(config: Dict[str, Any]) -> List[str]:
-    """The auth entity's own identity configuration, as C++.
+    """The auth entity identity configuration, as C++.
 
-    The mirror image of the edge's. This is the entity that holds the client secret, the
-    provider endpoints, the token exchange and the stored tokens, and it holds nothing
-    browser-facing at all. No routes, because it serves no HTTP; no mapping hook, because
-    the scope mapping is each edge's own policy and runs there against the identity this
-    entity returns.
+    It holds the client secret, the endpoints, the token exchange and the stored tokens. No
+    routes and no mapping hook: those stay on the edge.
     """
     lines = ["    IdentityConfig identity;",
              "    identity.enabled = true;",
@@ -613,13 +528,11 @@ def _auth_entity_lines(config: Dict[str, Any]) -> List[str]:
 
 
 def _auth_adoption_lines(mesh_consumed: List[Dict[str, Any]]) -> List[str]:
-    """The edge's half of promoted identity. Adopt the auth entity's two Replicas.
+    """The edge half of promoted identity: adopt the auth entity two Replicas.
 
-    Everything else an entity consumes is reached from QML through the `<Owner>.<point>`
-    accessor. These two are reached from C++ instead, because the things that read them are
-    the login routes and the upgrade verifier. The IdentityProvider delegates the
-    secret-bearing OAuth steps over `identity`, and the SessionManager becomes a read cache
-    over the authoritative store behind `sessions`.
+    Adopted in C++, because the login routes and the upgrade verifier read them. The
+    IdentityProvider delegates the OAuth steps over `identity`, and the SessionManager
+    becomes a read cache over `sessions`.
     """
     adopted = {"identity": "edge.identityProvider()->attachRemote(replica);",
                "sessions": "edge.sessionManager()->attachRemote(replica);"}
@@ -638,13 +551,12 @@ def _auth_adoption_lines(mesh_consumed: List[Dict[str, Any]]) -> List[str]:
     return [
         "",
         "    // Promoted identity (identity.provider_entity): adopt each Replica once it is",
-        "    // initialized, because a dynamic Replica has no signals before that and an",
-        "    // earlier connect would match nothing. Connecting after runtime.start() misses",
-        "    // nothing either: a mesh link cannot come up before app.exec() runs.",
+        "    // initialized, since a dynamic Replica has no signals before that. Connecting after",
+        "    // runtime.start() misses nothing, because no mesh link comes up before app.exec().",
         "    //",
         "    // `runtime` is declared before `edge`, so `edge` is destroyed first. That order is",
-        "    // required, not incidental: a dynamic Replica frees its runtime-built metaobject",
-        "    // when it dies, and these two adopters connect to it by name.",
+        "    // required: a dynamic Replica frees its metaobject when it dies, and these adopters",
+        "    // connect to it by name.",
         "    QObject::connect(&runtime, &EntityRuntime::consumedReplicaReady, &edge,",
         "        [&edge](const QString &owner, const QString &point, QObject *replica) {",
         f'            if (owner != QStringLiteral("{owner}")) {{',
@@ -655,13 +567,9 @@ def _auth_adoption_lines(mesh_consumed: List[Dict[str, Any]]) -> List[str]:
 
 
 def _front_adoption_lines(client_facing: List[Dict[str, Any]]) -> List[str]:
-    """The edge's half of a front. Hold on to the entity serving each scope.
+    """The edge half of a front: hold the Replica of the entity serving each scope.
 
-    A front owns a browser-facing point it does not implement, and what answers for each
-    scope is an entity it consumes over the mesh. The Replica is handed to the edge as it
-    initializes, and a browser arriving before then does not have that point hosted:
-    the alternative is a Source relaying to nothing, which would answer every caller with a
-    default and look like the entity behind it had nothing to say.
+    The front hosts the point for a scope only once its Replica is initialized.
     """
     entities: List[str] = []
     for cp in client_facing:
@@ -674,9 +582,8 @@ def _front_adoption_lines(client_facing: List[Dict[str, Any]]) -> List[str]:
                        for entity in entities)
     return [
         "",
-        "    // Fronts (`behind:`): the entities this edge hands its callers to. Taken as each",
-        "    // one initializes, for the same reason the adopters above wait: a dynamic Replica",
-        "    // has no members before that, and the relay reaches them all by name.",
+        "    // Fronts (`behind:`): the entities this edge hands its callers to, taken as each",
+        "    // one initializes. The relay reaches their members by name.",
         f"    const QSet<QString> synqtFronted{{{wanted}}};",
         "    QObject::connect(&runtime, &EntityRuntime::consumedReplicaReady, &edge,",
         "        [&edge, synqtFronted](const QString &owner, const QString &point,",
@@ -697,19 +604,15 @@ def _component_url(view: str, uri: str) -> str:
 
 def _route_literal(route: Dict[str, Any], uri: str) -> str:
     path = route.get("path", "/")
-    # The file the route names, spelled the one way the module compiles it in: no
-    # default, because a route with no view would otherwise point at Main.qml, which is
-    # the window (appmodel.route_view refuses it instead).
+    # The view as the module compiles it in. No default: appmodel.route_view refuses a route
+    # with no view.
     view = appmodel.route_view(route)
     scope = route.get("scope", "") or ""
     url = _component_url(view, uri)
-    # Empty scope stays QString{} (not QStringLiteral("")) so this literal, and every
-    # other field byte for byte, is unchanged for a route that does not use scope gating;
-    # only the trailing componentUrl field is new here.
+    # Empty scope stays QString{}.
     scope_literal = (f'QStringLiteral("{cxx_string_literal(scope)}")'
                      if scope else "QString{}")
-    # Only an accelerated route carries the field, so a project that needs nothing from the
-    # scene graph emits the literal it emitted before this existed.
+    # Only an accelerated route carries the field.
     requirement = route.get(graphics.RESOLVED_KEY, graphics.ANY)
     graphics_literal = (", GraphicsRequirement::Accelerated"
                         if requirement == graphics.ACCELERATED else "")
@@ -727,20 +630,15 @@ def render_client_main(config: Dict[str, Any], uri: str,
     contracts = appmodel.contracts_of(consumed)
     by_name = {str(entity.get("name") or ""): entity for entity in appmodel.entities(config)}
     scopes = appmodel.scope_vocab(config)
-    # No declared routes means no route table. A manufactured "/" -> Main.qml route would
-    # point the router at the window itself, so a Loader bound to Router.pageComponent
-    # inside Main.qml would load the window again. With an empty table pageComponent stays
-    # null and an app that does not use the router behaves exactly as before.
+    # No declared routes means no route table, and Router.pageComponent stays null.
     routes = appmodel.routes_for(config, client or None)
 
-    # The path the edge accepts the upgrade on. It was hard-coded as "/sync" here while
-    # `public.sync_route` reached the edge, so an edge that moved it stopped being
-    # reachable by its own client.
+    # The path the edge accepts the upgrade on.
     sync_route_literal = cxx_string_literal(appmodel.sync_route(config))
 
-    # Every accessor bound with setContextProperty needs its complete type here:
-    # synclient.h only forward-declares them, and an incomplete type misses the QObject*
-    # overload and falls through to the deleted QVariant(T*) one.
+    # Every accessor bound with setContextProperty needs its complete type here: synclient.h
+    # only forward-declares them, and an incomplete type binds to the deleted QVariant(T*)
+    # overload.
     includes = ['#include "clientlogging.h"', '#include "clientupdate.h"',
                 '#include "moduleimports.h"', '#include "privacy.h"',
                 '#include "router.h"', '#include "serveraccessor.h"',
@@ -752,14 +650,12 @@ def render_client_main(config: Dict[str, Any], uri: str,
         includes.append(f'#include "{contract.lower()}_consumer.h"  '
                         f'// synqtRegister{contract}Consumers()')
 
-    # Register the typed Replica factory and the consumer surface (the facade factory plus
+    # Register the typed Replica factory and the consumer surface (the facade factory and
     # the `<Contract>.on<Signal>` attached type) for every consumed connect point.
     registrations = "\n".join(
         f"    synqtRegister{contract}Replicas();\n    synqtRegister{contract}Consumers();"
         for contract in contracts)
-    # Where diagnostic output goes (build.client_logging). An explicit value is honored on
-    # both build types. Unset defaults to Console in a debug build and Silent in a release
-    # build, so QML console.log works in dev and is stripped from the shipped client.
+    # build.client_logging. Unset: Console in debug, Silent in release.
     logging_value = (config.get("build") or {}).get("client_logging")
     if logging_value:
         logging_install = ('    ClientLogging::install(ClientLogging::modeFromName('
@@ -775,9 +671,8 @@ def render_client_main(config: Dict[str, Any], uri: str,
         '{QStringLiteral("%s"), QStringLiteral("%s")}'
         % (cxx_string_literal(appmodel.point_name(cp)),
            cxx_string_literal(appmodel.contract_of(cp))) for cp in consumed)
-    # Every owner this client reaches, in QML scope under its own name, the same way a
-    # service reaches one. `Server` is the alias for the edge, which is the name a browser
-    # client normally writes. It reaches exactly one edge and can reach nothing else.
+    # Every owner this client reaches, under its own name. `Server` is the alias for the
+    # edge.
     accessor_lines: List[str] = []
     for cp in consumed:
         point = appmodel.point_name(cp)
@@ -788,10 +683,8 @@ def render_client_main(config: Dict[str, Any], uri: str,
             f'    engine.rootContext()->setContextProperty(\n'
             f'        QStringLiteral("{cxx_string_literal(accessor)}"),\n'
             f'        client->server()->point(QStringLiteral("{cxx_string_literal(point)}")));')
-    # `Server` is the alias for the entity that served this page, which is a web edge for
-    # an application client and the monitor for its console: both are browser-facing
-    # servers, and a console written against `Server` is written against the same accessor
-    # every other client uses.
+    # `Server` is the entity that served the page: the web edge, or the monitor for its
+    # console.
     edge_point = next((appmodel.point_name(cp) for cp in consumed
                        if appmodel.serves_browser(by_name.get(str(cp.get("owner") or ""),
                                                               {}))), "")
@@ -806,31 +699,23 @@ def render_client_main(config: Dict[str, Any], uri: str,
     router = config.get("router") or {}
     router_base = router.get("base") or "/"
     router_fallback = appmodel.normalize_route_path(router.get("fallback") or "/")
-    # The import palette a delivered page is held to (checked at build time by
-    # check.lint_remote_pages, enforced at run time by the client's QmlPalette). Emitted
-    # only when there is a remote route to enforce it on, so a project that sets
-    # router.palette but declares no remote route keeps this line out of its generated
-    # main entirely. Render_edge_main's pages block is gated on the same condition.
+    # The import palette of delivered pages (check.lint_remote_pages at build time,
+    # QmlPalette at run time). Emitted only when there is a remote route, as is the edge
+    # pages block.
     palette = router.get("palette") or []
     palette_line = (f'\n    config.remotePalette = {{{string_list_literal(palette)}}};'
                     if palette and any(appmodel.is_remote_route(r) for r in routes) else "")
 
-    # The app's own notice, when it named one (client.graphics_notice). Emitted only then,
-    # so a project using the built-in one generates nothing here.
+    # The app notice (client.graphics_notice), only when named.
     notice = ((config.get("client") or {}).get("graphics_notice") or "")
     notice = notice.strip() if isinstance(notice, str) else ""
     notice_line = (f'\n    config.graphicsNoticeUrl = '
                    f'QStringLiteral("{_component_url(notice, uri)}");' if notice else "")
 
-    # The two edge routes `Session.login()` and `Session.logout()` go to, emitted only for a
-    # project that configures identity. Left out, both are empty and the client says so
-    # rather than sending a visitor to a route the edge does not serve. They come from the
-    # same `identity:` block the edge is generated from (render_edge_main), so the client
-    # cannot be pointed at a route the edge answers under another name.
-    # The `privacy:` block, always emitted: retention has a default a project inherits by
-    # saying nothing, and the three QML components read the rest through the Privacy
-    # accessor. Every value here is information a visitor is entitled to under Articles 13
-    # and 14, so none of it is a secret this target should not hold.
+    # The edge routes `Session.login()` and `Session.logout()` use, only when the project
+    # configures identity; both come from the `identity:` block the edge is generated from.
+    # The `privacy:` block is always emitted: retention has a default, and the QML
+    # components read it through the Privacy accessor. None of it is secret.
     privacy = appmodel.privacy_settings(config)
     privacy_lines = ""
     for key, field in (("policy", "privacyPolicyUrl"), ("legal_notice", "legalNoticeUrl"),
@@ -858,18 +743,17 @@ def render_client_main(config: Dict[str, Any], uri: str,
             route = route.strip() if isinstance(route, str) and route.strip() else fallback
             auth_lines += (f'\n    config.{field} = '
                            f'QStringLiteral("{cxx_string_literal(route)}");')
-        # Staying signed in between launches. Emitted for both targets and read by neither
-        # in the browser. A WASM build has no OS store to keep anything in, and the browser
-        # already keeps the session cookie itself. What it gates on the desktop is whether
-        # this client touches a keyring at all.
+        # Staying signed in between launches. A WASM build ignores it; on the desktop it
+        # decides whether the client uses a keyring.
         if appmodel.desktop_session(config) == "device":
             auth_lines += "\n    config.deviceSession = true;"
 
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from
-// the same QML. The framework exposes Server/Session/Router/App to QML and opens the wss
-// link. The two targets differ only in where the edge URL comes from and who terminates
-// TLS. Generated from synqt.yaml by `synqt build`. Edit the topology, not this file.
+// the same QML. The framework exposes Server, Session, Router and App to QML and opens
+// the wss link. The two targets differ only in where the edge URL comes from and who
+// terminates TLS. Generated from synqt.yaml by `synqt build`. Edit the topology, not
+// this file.
 
 {chr(10).join(includes)}
 #include "graphics.h"
@@ -894,12 +778,8 @@ using namespace SynQt;
 
 namespace {{
 
-/// The session nonce this tab was given, from `?s=` on the page URL, or empty.
-///
-/// Not development-only. A session read out of a named cookie is ordinary session
-/// handling and every build does it. Only the way a development picker hands one out is
-/// gated. Passed along rather than validated here, because the edge validates it again on
-/// arrival and two answers to "is this nonce well formed" is one answer too many.
+/// The session nonce this tab was given, from `?s=` on the page URL, or empty. Not
+/// development-only: every build reads it. The edge validates it on arrival.
 QString tabNonce()
 {{
 #ifdef Q_OS_WASM
@@ -911,8 +791,8 @@ QString tabNonce()
     const QUrlQuery query{{search.startsWith(QLatin1Char('?')) ? search.mid(1) : search}};
     return query.queryItemValue(QStringLiteral("s"), QUrl::FullyDecoded);
 #else
-    // A native desktop client has no page URL and no browser cookie jar to share, so it
-    // has nothing to disambiguate. Its session is its own already.
+    // A native desktop client has no page URL and no shared cookie jar, so its session
+    // is already its own.
     return QString{{}};
 #endif
 }}
@@ -921,13 +801,12 @@ QUrl syncUrl()
 {{
 #ifdef Q_OS_WASM
     // Read through Embind, never emscripten_run_script, which uses eval() and would
-    // violate the edge's strict Content-Security-Policy.
+    // violate the edge CSP.
     const emscripten::val window{{emscripten::val::global("window")}};
 
-    // The page may not have come from the edge. Under `origin_model: split_origin` a CDN
-    // delivers the bundle, so the served shell states the edge origin and the app has to
-    // read it from there. Window.location would name the CDN, which hosts no sync
-    // endpoint. Same-origin delivery sets nothing and falls through below.
+    // Under `origin_model: split_origin` a CDN delivers the bundle, and the served
+    // shell states the edge origin. window.location would name the CDN. Same-origin
+    // delivery sets nothing and falls through.
     const emscripten::val declared{{window["__synqtEdgeOrigin"]}};
     if (!declared.isUndefined() && !declared.isNull()) {{
         const QString origin{{QString::fromStdString(declared.as<std::string>())}};
@@ -952,10 +831,9 @@ QUrl syncUrl()
 QUrl resolveEdgeUrl()
 {{
     QUrl url{{syncUrl()}};
-    // The tab's nonce rides the sync URL as well as the page URL, because the upgrade is a
-    // separate request and the browser sends every cookie for the host on it. Without this
-    // the edge would read the shared cookie on the socket while the page reads this tab's,
-    // and a per-tab session would work for everything but the one link it exists for.
+    // The tab nonce also goes on the sync URL: the upgrade is a separate request that
+    // carries every cookie for the host, so without it the socket would read the shared
+    // session.
     const QString nonce{{tabNonce()}};
     if (!nonce.isEmpty()) {{
         QUrlQuery query{{url.query()}};
@@ -969,19 +847,18 @@ QUrl resolveEdgeUrl()
 
 int main(int argc, char *argv[])
 {{
-    // Route diagnostics before anything can log (QML console.log does not reach the browser
-    // console in a release WASM build unless a handler is installed).
+    // Route diagnostics before anything logs. A release WASM build shows QML
+    // console.log only through an installed handler.
 {logging_install}
 
-    // Before the application, because the scene graph is chosen at the first window: a
-    // browser with no WebGL gets the raster adaptation instead of a qFatal.
+    // Before the application, because the scene graph is chosen at the first window. A
+    // browser without WebGL gets the raster adaptation instead of a qFatal.
     SynQt::GraphicsProbe::selectBackend();
 
     QGuiApplication app{{argc, argv}};
 
     // `import SynQt` brings QtQuick with it, so Main.qml and every view need one import
-    // line rather than two. Before the engine, because it is the type system it registers
-    // into, not the engine.
+    // line. Registered before the engine is created.
     SynQt::registerModuleImports();
 
 {registrations if registrations else "    // No consumed connect points yet."}
@@ -995,18 +872,15 @@ int main(int argc, char *argv[])
     config.routerBase = QStringLiteral("{cxx_string_literal(router_base)}");
     config.routes = {{{route_list}}};{palette_line}{notice_line}{auth_lines}{privacy_lines}
 
-    // The engine comes first. The Router builds each route's page component
-    // with it.
+    // The engine comes first. The Router builds each page component with it.
     QQmlApplicationEngine engine;
 
-    // Declared after the engine so it is destroyed before it: QQmlComponent
-    // holds a raw QQmlEngine pointer and releases a type-loader reference in
-    // its destructor, so a page component that outlives the engine is a
-    // use-after-free at shutdown.
+    // Declared after the engine so it is destroyed first: QQmlComponent holds a raw
+    // QQmlEngine pointer and uses it in its destructor.
     const std::unique_ptr<SynClient> client{{std::make_unique<SynClient>(config, &engine)}};
 
-    // Watches for Qt declining to draw content this scene graph cannot, whatever route
-    // it came from, and reports it to QML as Graphics.hasUnsupportedContent.
+    // Reports content this scene graph cannot draw to QML as
+    // Graphics.hasUnsupportedContent.
     SynQt::Graphics graphics;
     graphics.installWatcher();
 
@@ -1015,17 +889,17 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("Session"), client->session());
     engine.rootContext()->setContextProperty(QStringLiteral("Router"), client->router());
     engine.rootContext()->setContextProperty(QStringLiteral("Graphics"), &graphics);
-    // What the app has to tell a visitor about their data, and what this visitor said back.
-    // A context property like Session, and built with the engine because its hasConsent
-    // check is a closure that has to live in one.
+    // Privacy information and the visitor's consent. A context property like Session,
+    // built with the engine because its hasConsent check is a closure that lives in
+    // one.
     SynQt::Privacy privacy{{config, &engine}};
     engine.rootContext()->setContextProperty(QStringLiteral("Privacy"), &privacy);
-    // LegalFooter, CookieConsent and DataErasureRequest, registered rather than made
-    // context properties. They are types an app instantiates.
+    // LegalFooter, CookieConsent and DataErasureRequest are registered types an app
+    // instantiates.
     SynQt::registerPrivacyTypes();
-    // `App` is a registered QML type, not a context property. That is what makes the
-    // App.onUpdateReady attached-handler syntax resolve, and a type shadows a context
-    // property of the same name inside JS expressions.
+    // `App` is a registered QML type, not a context property, so App.onUpdateReady
+    // resolves. A type also shadows a context property of the same name in JS
+    // expressions.
     SynQt::registerClientUpdate();
     engine.loadFromModule("{uri}", "Main");
     if (engine.rootObjects().isEmpty()) {{
@@ -1035,23 +909,18 @@ int main(int argc, char *argv[])
     // Now that there is a window to put it over.
     graphics.attachTo(engine.rootObjects().constFirst(), &engine, config.graphicsNoticeUrl);
 
-    // Resolve the path the app was opened on (a deep link, or a refresh) now
-    // that the root object exists to receive the first pageChanged, and before
-    // the link opens so the first frame is the requested page rather than a
-    // flash of the fallback. The scope arrives later; Router re-resolves then.
+    // Resolve the path the app was opened on (a deep link or a refresh) now that the
+    // root object exists, and before the link opens, so the first frame is the
+    // requested page. Router re-resolves when the scope arrives.
     client->router()->start();
 
     client->start();
     const int status{{app.exec()}};
 
-    // Tear the QML tree down here, while both the accessors and the engine are still
-    // alive. `Server`, `Session` and `Router` are context properties, so a root object
-    // that outlives them re-evaluates every binding naming one against a null object:
-    // harmless, but it prints a TypeError on every clean exit (`Cannot read property
-    // 'pageComponent' of null` from the Loader every client has). Deleting the roots
-    // first makes the order roots, accessors, engine, the one order in which nothing
-    // outlives what it points at. Each root removes itself from the engine's list as it
-    // goes, so the engine's own cleanup finds nothing left to do.
+    // Delete the QML roots while the accessors and the engine are still alive.
+    // `Server`, `Session` and `Router` are context properties, so bindings in a root
+    // that outlived them would print TypeErrors on exit. The order is roots, accessors,
+    // engine.
     const QList<QObject *> roots{{engine.rootObjects()}};
     qDeleteAll(roots);
     return status;
@@ -1063,29 +932,21 @@ int main(int argc, char *argv[])
 def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
                      singletons: Optional[List[str]] = None,
                      dev_tools: bool = False) -> str:
-    """The edge's `main.cpp`.
+    """The edge `main.cpp`.
 
-    `dev_tools` is the build profile, not the project's configuration, and the two are
-    different questions. `identity.dev_stub` in synqt.yaml is a request for a development
-    sign-in. `dev_tools` is whether this build is one that may have it. Only `synqt dev`
-    passes it, so a release main does not name the type at all and the release SynQtEdge it
-    links does not contain it (src/edge/CMakeLists.txt, tests/dev-exclusion).
-
-    It defaults to False because that is the safe direction to be wrong in: a caller that
-    has not been taught about profiles generates a main with no development code in it.
+    `dev_tools` is the build profile: whether this build may carry development code. Only
+    `synqt dev` passes it, so a release main never names the type and the release SynQtEdge
+    does not contain it (src/edge/CMakeLists.txt, tests/dev-exclusion). Defaults to False.
     """
     name = edge.get("name", "web")
     client_facing = appmodel.client_facing(config, name)
     contracts = appmodel.contracts_of(client_facing)
-    # The edge is also a mesh consumer. It reaches services (e.g. a database) through the
-    # same connect-point boundary a service uses. It composes an EntityRuntime for that
-    # mesh side (WebEdge keeps the browser-facing side) and injects each acquired accessor
-    # into its owner Sources' QML context, so a Source can delegate over the mesh
-    # (Database.ledger.record(...)). No mesh-consumed connect point means no runtime.
+    # The edge is also a mesh consumer. It composes an EntityRuntime for the mesh side and
+    # injects each acquired accessor into its Sources' QML context
+    # (Database.ledger.record(...)). No mesh-consumed point means no runtime.
     mesh_consumed = appmodel.mesh_consumed(config, name)
-    # The generated consumer surface exists only for an app contract. A framework connect
-    # point (the auth entity's identity and sessions) declares no `export:` of its own and is
-    # adopted by C++ below instead of by QML, so it registers nothing here.
+    # Only an app contract has a generated consumer surface. Framework points are adopted in
+    # C++ below.
     mesh_contracts = appmodel.contracts_of(appmodel.app_points(mesh_consumed))
     mesh_owners: List[str] = []
     for cp in mesh_consumed:
@@ -1096,20 +957,16 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     hierarchical_literal = "true" if appmodel.scopes_hierarchical(config) else "false"
     singleton_section = _singleton_registrations(appmodel.entity_dir(edge),
                                                  singletons or [])
-    # After the mesh accessors are on the root context and before the edge starts: the
-    # entity's own file may reach a connect point it consumes (the auction's Hall of Fame
-    # subscribes to `Books.ledger` this way), and it must be running before the first
-    # browser arrives.
+    # After the mesh accessors are set and before the edge starts, so the entity file can
+    # reach a consumed point before the first browser arrives.
     singleton_instances = _singleton_instantiations(singletons or [])
-    # Cross-origin isolation is forced on by a multi-threaded client (it cannot get
-    # SharedArrayBuffer otherwise) and can also be set on its own. The edge then serves
-    # COOP/COEP and adds worker-src 'self' blob: to the CSP (pitfall 13).
+    # Cross-origin isolation: forced by a multi-threaded client, or set on its own. The edge
+    # then serves COOP/COEP and adds worker-src 'self' blob: (pitfall 13).
     coi_literal = "true" if clientbuild.cross_origin_isolation(config) else "false"
     sw_literal = "true" if clientcache.uses_service_worker(config) else "false"
 
-    # The declared browser-facing policy and the login configuration. Read (and refused)
-    # before anything is rendered, so an unsupported session transport or flow is a
-    # generation error naming the key, not an edge that silently does something else.
+    # Read (and refused) before rendering, so an unsupported transport or flow is a
+    # generation error.
     appmodel.identity_flow(config)
     policy_lines = _edge_policy_lines(config, edge)
     identity_lines = _identity_lines(config, edge)
@@ -1120,8 +977,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
                         "in the binary this compiles to.\n"
                         + "\n".join(identity_lines)) if identity_lines else ""
 
-    # Two conditions, and both have to hold. The project asked for a development
-    # sign-in, and this build is one that may carry it.
+    # The project asked for a development sign-in, and this build may carry it.
     dev_stub_lines = _dev_stub_lines(config) if (identity_lines and dev_tools) else []
     dev_stub_section = ("\n" + "\n".join(dev_stub_lines) + "\n") if dev_stub_lines else ""
 
@@ -1134,8 +990,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         includes.append('#include "stubidentityserver.h"')
     if mesh_consumed:
         includes += ['#include "entityruntime.h"', '#include "topology.h"']
-    # WebEdge only forward-declares these two, and the auth adoption below calls through
-    # both pointers, so a promoted edge needs their definitions.
+    # WebEdge only forward-declares these two, and the auth adoption calls through both.
     if _auth_adoption_lines(mesh_consumed):
         includes += ['#include "identityprovider.h"', '#include "sessionmanager.h"']
     for contract in contracts:
@@ -1149,8 +1004,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
                            for contract in mesh_contracts]
     registrations = "\n".join(registration_lines)
 
-    # The mesh pieces are empty strings when the edge consumes nothing over the mesh, so
-    # a plain edge main is byte-for-byte what it was before this composition existed.
+    # Empty when the edge consumes nothing over the mesh.
     if mesh_consumed:
         mesh_includes_extra = ("\n#include <QFile>\n#include <QJsonDocument>"
                                "\n#include <QJsonObject>\n#include <QSet>")
@@ -1200,24 +1054,18 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         cp_name = appmodel.point_name(cp)
         contract = appmodel.contract_of(cp)
         shared = "true" if appmodel.is_shared(edge) else "false"
-        # `point` + the owner, because the point's own name is the owner's, and `edge` is
-        # already the WebEdge this is being configured for.
+        # `point` + the owner, since `edge` is the WebEdge being configured.
         bare = re.sub(r"[^0-9A-Za-z]", "", cp_name)
         var = f"point{bare[:1].upper()}{bare[1:]}" if bare else "connectPoint"
         server_file = appmodel.authored_source_path(edge, cp)
-        # The declared scope is the barrier that decides whether this connect point is
-        # acquired for a session at all (webedge.cpp checks it before creating the
-        # Source), so it has to be carried here or the gate the topology declares does
-        # not exist in the binary. Emitted only when the point declares one, so an
-        # ungated point generates what it always did.
+        # The declared scope gates acquisition (webedge.cpp checks it before creating the
+        # Source). Emitted only when declared.
         scope = cp.get("scope")
         scope = scope.strip() if isinstance(scope, str) else ""
         scope_line = (f'{var}.scope = QStringLiteral("{cxx_string_literal(scope)}");\n        '
                       if scope else "")
-        # A front owns this point and implements none of it. The calls belong to whichever
-        # entity behind it serves the caller's scope, and the Source the browser acquires
-        # relays to that one. There is no server file, because there is nothing here to
-        # write in it.
+        # A front implements nothing; its Source relays to the entity behind it for the
+        # caller's scope. No server file.
         behind_lines = "".join(
             f'{var}.behind.insert(QStringLiteral("{cxx_string_literal(scope_name)}"),\n'
             f'                           QStringLiteral("{cxx_string_literal(entity)}"));\n        '
@@ -1236,12 +1084,9 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     cp_section = ("\n".join(cp_blocks) if cp_blocks
                   else "    // No client-facing connect points yet.")
 
-    # Edge-delivered pages (routes with `remote:` rather than a compiled-in `view:`).
-    # Pages reach the edge through this generated C++, exactly parallel to how
-    # connectPoints are emitted above. topologywriter.write() never sees them, because a
-    # Pages connect point is not a mesh link. Emitted only when the project has at least
-    # one remote route, so an edge that does not use the feature stays byte-for-byte what
-    # it was before this existed.
+    # Edge-delivered pages (routes with `remote:`), emitted like connectPoints above.
+    # topologywriter.write() never sees them: pages are not a mesh link. Only when the
+    # project has a remote route.
     remote_routes = [route for route in appmodel.all_routes(config)
                      if appmodel.is_remote_route(route)]
     if remote_routes:
@@ -1251,21 +1096,17 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
             route_path = route.get("path", "")
             page_file = route.get("remote", "")
             scope = route.get("scope", "") or ""
-            # The page seed hook, when the route declares one. It is project-root
-            # relative (like `identity.mapping`), because it is edge code rather than a
-            # delivered page, so it resolves against qmlDir exactly the way a connect
-            # point's serverFile does. A route with no seed emits nothing, so a project
-            # not using the feature generates what it did before it existed.
-            # Only a string is a path. `check.lint_remote_pages` reports a mistyped
-            # `seed:` properly, but nothing makes `synqt build` run the check, so a
-            # non-string emits nothing here rather than a path that cannot exist.
+            # The page seed hook, when declared. Project-root relative like
+            # `identity.mapping`, and resolved against qmlDir like serverFile. Only a string
+            # is a path; anything else emits nothing, since `synqt build` does not run the
+            # check.
             seed = route.get("seed")
             seed = seed.strip() if isinstance(seed, str) else ""
             seed_line = (
                 f'\n        {page}.seed = qmlDir + '
                 f'QStringLiteral("/{cxx_string_literal(seed)}");' if seed else "")
-            # Same resolved value the client's route table carries, and emitted on the
-            # same terms. Only when the page needs the accelerated pipeline.
+            # The same value the client route table carries, only when the page needs the
+            # accelerated pipeline.
             requirement = route.get(graphics.RESOLVED_KEY, graphics.ANY)
             graphics_line = (
                 f'\n        {page}.graphics = QStringLiteral("{graphics.ACCELERATED}");'
@@ -1286,11 +1127,9 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         pages_section = ""
     pages_block = f"\n\n{pages_section}" if pages_section else ""
 
-    # The port and the public certificate stay command-line options (`synqt dev` moves the
-    # port, a deployment may point at a renewed certificate without a rebuild), so what
-    # the topology declares becomes each option's DEFAULT rather than an assignment that
-    # would override the flag. This is also what makes `synqt serve`, which passes no
-    # arguments at all, serve the browser over the TLS the project configured.
+    # The port and the public certificate stay command-line options, so the topology values
+    # become their defaults. `synqt serve` passes no arguments and still gets the configured
+    # TLS.
     public = appmodel.public_settings(edge)
     tls = appmodel.tls_settings(edge)
     port_default = (_int_literal("public.port", public["port"])
@@ -1299,9 +1138,10 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     key_default = _option_default(tls.get("key_file"))
 
     body = f"""{_HEADER_CPP}
-// The {name} entity (web edge): it serves the client bundle and hosts the browser-facing connect
-// points. Plaintext on localhost for `synqt dev`. Pass --cert/--key for TLS. Generated
-// from synqt.yaml by `synqt build`. Edit the topology, not this file.
+// The {name} entity (web edge): it serves the client bundle and hosts the
+// browser-facing connect points. Plaintext on localhost for `synqt dev`; pass --cert
+// and --key for TLS. Generated from synqt.yaml by `synqt build`. Edit the topology, not
+// this file.
 
 {chr(10).join(includes)}
 
@@ -1316,11 +1156,9 @@ using namespace SynQt;
 
 int main(int argc, char *argv[])
 {{
-    // Qt chooses its event dispatcher when the application is constructed, so this comes
-    // first. GLib's keeps every watched descriptor in one poll list and walks it whenever a
-    // socket toggles its write notifier, which a fan-out does once per connection per
-    // publish. The polling dispatcher does not, and the difference grows with the number of
-    // subscribers. Nothing headless wants GLib. See preferPollingEventDispatcher().
+    // Qt picks its event dispatcher when the application is constructed, so this comes
+    // first. GLib's dispatcher cost grows with the square of the subscribers on a fan-out,
+    // and the polling one's does not. See preferPollingEventDispatcher().
     SynQt::preferPollingEventDispatcher();
 
     QGuiApplication app{{argc, argv}};
@@ -1345,16 +1183,14 @@ int main(int argc, char *argv[])
         QStringLiteral("TLS private key (PEM)."), QStringLiteral("file"){key_default}}};
     const QCommandLineOption devOption{{QStringLiteral("dev"),
         QStringLiteral("Development mode: watch edge-delivered pages and hot reload.")}};
-    // Only `synqt dev --identity-picker` passes this. The routes it turns on exist only in
-    // an edge compiled with SYNQT_DEV_TOOLS, which `synqt build` never configures, so in a
-    // shipped edge the option parses and there is nothing behind it to switch on.
+    // Only `synqt dev --identity-picker` passes this. The routes it enables exist only
+    // in an edge built with SYNQT_DEV_TOOLS, which `synqt build` never configures.
     const QCommandLineOption pickerOption{{QStringLiteral("identity-picker"),
         QStringLiteral("Development sign-in: serve a scope picker in place of every "
                        "sign-in this project has.")}};
-    // The named people from `.dev-identities`, one <scope>=<email> each, and one sentence
-    // for every entry `synqt dev` could not use. Both are read on that side, which owns the
-    // YAML parser and knows the declared scopes. Nothing about the file's format is known
-    // here. Passed only alongside --identity-picker, and ignored without it.
+    // The people from `.dev-identities`, one <scope>=<email> each, and one sentence per
+    // entry `synqt dev` could not use. `synqt dev` reads and checks the file. Used only
+    // with --identity-picker.
     const QCommandLineOption identityOption{{QStringLiteral("dev-identity"),
         QStringLiteral("Development identity to offer, as <scope>=<email>. Repeatable."),
         QStringLiteral("scope=email")}};
@@ -1365,8 +1201,8 @@ int main(int argc, char *argv[])
         devOption, pickerOption, identityOption, identityProblemOption}});{topology_option}
     parser.process(app);
 {env_section}
-    // `import SynQt` brings QtQuick with it, so this edge's files need one import line
-    // rather than two. Before the engine, because it is the type system it registers into.
+    // `import SynQt` brings QtQuick with it, so this edge's files need one import line.
+    // Registered before the engine is created.
     SynQt::registerModuleImports();
 
 {registrations if registrations else "    // No client-facing connect points yet."}
@@ -1377,10 +1213,9 @@ int main(int argc, char *argv[])
 
     QQmlEngine engine;
 {mesh_runtime_block}    WebEdgeConfig config;
-    // Bundles, as <scope>=<dir>. A bare value is the single-bundle shorthand, which is
-    // what a project with no `bundles:` block passes and what every project passed before
-    // the key existed; WebEdge's constructor folds it in under the default scope, so this
-    // loop needs no ordering relationship with the scope vocabulary below it.
+    // Bundles, as <scope>=<dir>. A bare value is the single-bundle shorthand; WebEdge
+    // files it under the default scope, so the order relative to the scope vocabulary
+    // does not matter.
     for (const QString &bundle : parser.values(bundleOption)) {{
         const qsizetype separator{{bundle.indexOf(QLatin1Char('='))}};
         if (separator < 0) {{
@@ -1393,8 +1228,8 @@ int main(int argc, char *argv[])
     config.certFile = parser.value(certOption);
     config.keyFile = parser.value(keyOption);
     config.devWatch = parser.isSet(devOption);
-    // Both, because the picker rides the development gate rather than replacing it: --dev
-    // is what makes any synthesized identity possible at all.
+    // Both: the picker works inside the development gate, and --dev enables any
+    // synthesized identity.
     config.identityPicker = parser.isSet(devOption) && parser.isSet(pickerOption);
     if (config.identityPicker) {{
         for (const QString &entry : parser.values(identityOption)) {{
@@ -1411,18 +1246,15 @@ int main(int argc, char *argv[])
     config.crossOriginIsolation = {coi_literal};
     config.serviceWorker = {sw_literal};{policy_section}{identity_section}
 
-    // `synqt dev` runs the browser link as plain ws on loopback whatever the project's
-    // public TLS says: the configured certificate belongs to the deployed host, where it
-    // is valid, and not to a developer machine. The mesh side keeps its mutual TLS in
-    // development, from the throwaway CA `synqt dev` issues.
+    // `synqt dev` runs the browser link as plain ws on loopback, since the configured
+    // certificate belongs to the deployed host. The mesh keeps mutual TLS, with the
+    // throwaway CA `synqt dev` issues.
     if (parser.isSet(devOption)) {{
         config.host = QStringLiteral("127.0.0.1");
         config.certFile.clear();
         config.keyFile.clear();
-        // The declared public origin goes with them. It names the deployed host over
-        // https, and a development run is neither, so leaving it standing would build the
-        // OAuth redirect_uri and the upgrade's origin check against an address this
-        // process is not the one answering at.
+        // The public origin goes too: it names the deployed host over https, and the
+        // OAuth redirect_uri and origin check must match this process.
         config.origin.clear();
     }}
 {dev_stub_section}
@@ -1448,16 +1280,12 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
     consumed_contracts = appmodel.contracts_of(appmodel.mesh_consumed(config, name))
     singletons = singletons or []
 
-    # A service resolves its provider credentials the same way the edge resolves a client
-    # secret: the topology carries the name (`password: env:DB_PASSWORD`) and the value
-    # comes from this entity's own environment, so its env file has to be loaded before
-    # EntityRuntime reads the topology.
+    # The topology carries credential names (`password: env:DB_PASSWORD`), so the env file
+    # is loaded before EntityRuntime reads it.
     env_section = _env_file_section(entity)
 
-    # The auth entity (`identity.provider_entity`) is a service like any other, plus the two
-    # engines its Sources bridge to. The OAuth engine that holds the client secret and the
-    # tokens, and the authoritative session store. Both are C++ objects the topology cannot
-    # describe, so they are constructed here and handed to the Sources as context.
+    # The auth entity (`identity.provider_entity`): a service plus the OAuth engine and the
+    # authoritative session store, built here and handed to its Sources as context.
     is_auth = bool(name) and appmodel.provider_entity(config) == name
 
     inbound = appmodel.inbound_settings(entity)
@@ -1466,8 +1294,7 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
                 '#include "moduleimports.h"', '#include "pollingdispatcher.h"',
                 '#include "topology.h"']
     if inbound:
-        # api.h too, because `apiServer.api()` returns an `Api *` and handing it to
-        # setContextObject needs the upcast to QObject, which needs the definition.
+        # api.h, because setContextObject needs `Api` as a complete type to upcast.
         includes += ['#include "api.h"', '#include "apiconfig.h"',
                      '#include "apiserver.h"']
     if is_auth:
@@ -1479,17 +1306,15 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
     for contract in consumed_contracts:
         includes.append(f'#include "{contract.lower()}_consumer.h"  '
                         f'// synqtRegister{contract}Consumers()')
-    # Register the owned Sources and, for every mesh connect point this entity consumes, the
-    # consumer surface (so `<Owner>.<name>` exposes the facade, returning-slot promises and
-    # `<Contract>.on<Signal>` attached handlers over the mesh).
+    # Register the owned Sources and the consumer surface of every consumed mesh point
+    # (facade, returning-slot promises, `<Contract>.on<Signal>` handlers).
     registration_lines = [f"    synqtRegister{contract}Sources();" for contract in contracts]
     registration_lines += [f"    synqtRegister{contract}Consumers();"
                            for contract in consumed_contracts]
     registrations = "\n".join(registration_lines)
 
-    # A service that declares pragma-Singleton QML gets a --qml-dir (default cwd) and
-    # registers each singleton by path, the same way the edge does. Omitted entirely when
-    # the service has none, so a plain service main stays minimal.
+    # A service with pragma Shared QML gets --qml-dir (default cwd) and registers each
+    # singleton by path. Omitted otherwise.
     if singletons:
         qml_dir_option = (
             '\n    const QCommandLineOption qmlDirOption{QStringLiteral("qml-dir"),\n'
@@ -1507,15 +1332,13 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
         qml_dir_resolve = ""
         qml_dir_includes = ""
 
-    # After `runtime.start()`, which is what puts this entity's helper (Db/Cache/...) and
-    # its consumed accessors on the root context the singleton is created in.
+    # After `runtime.start()`, which puts the helper (Db, Cache...) and the consumed
+    # accessors on the root context.
     singleton_instances = _singleton_instantiations(singletons)
 
-    # The auth entity's two engines, and the accessors its Sources reach them by. Built
-    # before `runtime.start()` because a shared Source is created inside it and a Source
-    # cannot be given context afterwards. The session store's vocabulary comes from the same
-    # `scopes:` and `identity.session:` blocks the edge reads, so both agree on what an
-    # unauthenticated caller is and how long a session lives.
+    # The auth entity engines. Built before `runtime.start()`, which creates the shared
+    # Source. The session store reads the same `scopes:` and `identity.session:` blocks as
+    # the edge.
     if is_auth:
         session = appmodel.identity_session(config)
         ttl = (_int_literal("identity.session.ttl_minutes", session["ttl_minutes"])
@@ -1528,8 +1351,8 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
             "    parser.addOption(devOption);")
         auth_block = (
             "\n    // Login (`identity:` with provider_entity pointing here). This entity is\n"
-            "    // the only one holding a client secret; every secret is read from its own\n"
-            "    // environment at startup and none is a literal here or in the binary.\n"
+            "    // the only one holding a client secret. Every secret is read from its\n"
+            "    // environment at startup, never compiled in.\n"
             + "\n".join(_auth_entity_lines(config))
             + "\n    IdentityService identityEngine{identity};\n"
             f'    SessionManager sessions{{QStringLiteral("{cxx_string_literal(default)}"), '
@@ -1544,10 +1367,8 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
         auth_block = ""
         auth_inject = ""
 
-    # The inbound HTTP surface (`network.inbound`). The server is built before
-    # `runtime.start()` so `Api` is on the root context when the entity's own singleton is
-    # created and declares its routes, and it starts listening after, so no caller can
-    # arrive at a surface whose routes do not exist yet.
+    # The inbound HTTP surface (`network.inbound`). Built before `runtime.start()` so `Api`
+    # exists when the singleton declares routes; listening starts after.
     if inbound:
         api_block = ("\n    // The public HTTP surface `network.inbound` opens. Everything a\n"
                      "    // caller can influence is checked in ApiServer before a route runs.\n"
@@ -1568,10 +1389,10 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
         api_start = ""
 
     body = f"""{_HEADER_CPP}
-// The {name} service entity: it resolves its slice of the topology (a JSON produced by
-// `synqt build` from synqt.yaml), brings up the connect points it owns, and opens only
-// the consumer links the topology allows (deny by default). Generated. Edit the
-// topology, not this file.
+// The {name} service entity: it reads its slice of the topology (JSON written by `synqt
+// build` from synqt.yaml), brings up the connect points it owns, and opens only the
+// consumer links the topology allows (deny by default). Generated. Edit the topology,
+// not this file.
 
 {chr(10).join(includes)}
 
@@ -1587,11 +1408,9 @@ using namespace SynQt;
 
 int main(int argc, char *argv[])
 {{
-    // Qt chooses its event dispatcher when the application is constructed, so this comes
-    // first. GLib's keeps every watched descriptor in one poll list and walks it whenever a
-    // socket toggles its write notifier, which a fan-out does once per connection per
-    // publish. The polling dispatcher does not, and the difference grows with the number of
-    // subscribers. Nothing headless wants GLib. See preferPollingEventDispatcher().
+    // Qt picks its event dispatcher when the application is constructed, so this comes
+    // first. GLib's dispatcher cost grows with the square of the subscribers on a fan-out,
+    // and the polling one's does not. See preferPollingEventDispatcher().
     SynQt::preferPollingEventDispatcher();
 
     QCoreApplication app{{argc, argv}};
@@ -1604,8 +1423,8 @@ int main(int argc, char *argv[])
     parser.addOption(topologyOption);{qml_dir_option}{auth_option}
     parser.process(app);
 {env_section}
-    // `import SynQt` brings QtQuick with it, so this entity's file needs one import line
-    // rather than two. Before the engine, because it is the type system it registers into.
+    // `import SynQt` brings QtQuick with it, so this entity's file needs one import
+    // line. Registered before the engine is created.
     SynQt::registerModuleImports();
 
 {registrations if registrations else "    // This entity owns no connect points yet."}
@@ -1632,20 +1451,14 @@ int main(int argc, char *argv[])
 
 
 def render_tests_main(config: Dict[str, Any]) -> str:
-    """The Qt Quick Test runner for an application's own `tests/tst_*.qml`.
+    """The Qt Quick Test runner for the application `tests/tst_*.qml`.
 
-    Everything the application writes is QML; this exists only to make two imports
-    resolve. `import SynQt` needs each contract's generated `<Contract>Source` type
-    registered, because that is what the Source under test derives from, and
-    `import SynQt.Test` needs the harness. Both registrations are global and run before
-    the engine loads a thing, which is what `applicationAvailable()` is for.
-
-    It carries no test logic and must not grow any. A runner that did something would be a
-    place for an application's test to pass for a reason the application cannot see.
+    It registers each contract `<Contract>Source` type for `import SynQt` and the harness
+    for `import SynQt.Test`, in `applicationAvailable()`. It carries no test logic.
     """
     contracts = appmodel.all_contracts(config)
-    # One register function per .syn file, not per contract: the generator emits
-    # `synqtRegister<Stem>Sources()` for the file, and several contracts can share one.
+    # One register function per .syn file (`synqtRegister<Stem>Sources()`), not per
+    # contract.
     stems = sorted({contract for contract in contracts})
     declarations = "\n".join(f"void synqtRegister{stem}Sources();" for stem in stems)
     registrations = "\n".join(f"        synqtRegister{stem}Sources();" for stem in stems)
@@ -1673,8 +1486,8 @@ public slots:
     {{
 {registrations}
         SynQt::registerTestTypes();
-        // A test loads the entity's own file, so `import SynQt` has to mean the same
-        // thing here as it does in the running entity.
+        // A test loads the entity's own file, so `import SynQt` must mean what it means
+        // in the entity.
         SynQt::registerModuleImports();
     }}
 }};
@@ -1686,13 +1499,11 @@ QUICK_TEST_MAIN_WITH_SETUP(synqt_app_tests, SynQtTestSetup)
 
 
 def _monitor_bundle_defaults(config: Dict[str, Any], entity: Dict[str, Any]) -> str:
-    """Where each scope's files land for this project, as `<scope>=<dir>` literals.
+    """Where each scope's files land, as `<scope>=<dir>` literals.
 
-    The same resolution `synqt dev` uses (run._bundle_arguments): a value holding a `/` is
-    a folder inside the monitor's own directory, a bare name is a client entity and
-    resolves to wherever the build assembled that client. Baked as the option's defaults
-    rather than as the map itself, so a deployment that puts its files elsewhere passes
-    --bundle instead of fighting a compiled-in path.
+    Resolved as `synqt dev` does (run._bundle_arguments): a value with `/` is a folder in
+    the monitor directory, a bare name is a built client. Baked as option defaults, so a
+    deployment can pass --bundle.
     """
     clients = {str(one.get("name") or ""): one for one in appmodel.entities(config)
                if appmodel.is_client(one)}
@@ -1704,8 +1515,7 @@ def _monitor_bundle_defaults(config: Dict[str, Any], entity: Dict[str, Any]) -> 
         else:
             client = clients.get(value)
             if client is None:
-                # Refused by `synqt check`. Skipped rather than baking a path no build
-                # ever writes.
+                # Refused by `synqt check`; skipped here.
                 continue
             directory = appmodel.bundle_output_dir(config, client)
         literals.append(f'QStringLiteral("{cxx_string_literal(scope)}='
@@ -1714,12 +1524,10 @@ def _monitor_bundle_defaults(config: Dict[str, Any], entity: Dict[str, Any]) -> 
 
 
 def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
-    """The cold tier, from the monitor entity's `export:` block.
+    """The cold tier, from the monitor `export:` block.
 
-    Off unless it is written, because the store is the answer for a deployment that wants
-    no second thing to operate, and turning on a network client nobody asked for is not a
-    default a monitoring tool gets to choose. Returns the construction and the includes it
-    needs, so a monitor with no `export:` block compiles without a network client at all.
+    Off unless written. Returns the construction and its includes, so a monitor without an
+    `export:` block links no network client.
     """
     settings = entity.get("export") if isinstance(entity.get("export"), dict) else {}
     otlp = settings.get("otlp") if isinstance(settings.get("otlp"), dict) else {}
@@ -1733,15 +1541,14 @@ def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
         includes.append('#include "otlpexporter.h"')
         qt_includes.append("#include <QUrl>")
         lines.append(f"""
-    // The cold tier. The same events, on their way to whatever this deployment already
-    // runs. The collector never sees anything the store did not already keep, and a
-    // collector that is down cannot cost the monitor a batch (src/monitor/otlpexporter.h).
+    // The cold tier: the same events, sent to a collector. The collector only sees what
+    // the store kept, and a collector that is down costs the monitor no batch
+    // (src/monitor/otlpexporter.h).
     OtlpSettings otlpSettings;
     otlpSettings.endpoint = QUrl{{QStringLiteral("{cxx_string_literal(endpoint)}")}};
     otlpSettings.maxInFlight = {int(otlp.get("max_in_flight", 8))};
     otlpSettings.timeoutMs = {int(otlp.get("timeout_ms", 5000))};
-    // The API key, if there is one, from this entity's environment and never from
-    // synqt.yaml, which is a file in a repository.
+    // The API key, if any, comes from this entity's environment, never from synqt.yaml.
     otlpSettings.headers = OtlpExporter::headersFromEnvironment();
     OtlpExporter otlpExporter{{otlpSettings}};
     service.addExporter(&otlpExporter);""")
@@ -1750,8 +1557,8 @@ def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
     if path:
         includes.append('#include "jsonlexporter.h"')
         lines.append(f"""
-    // One JSON object per line, for a collection that is already file-based. Capped and
-    // rotated, because a monitor that fills the disk it is watching has become the outage.
+    // One JSON object per line, for a file-based collector. Capped and rotated, so the
+    // monitor cannot fill its disk.
     JsonlExporter jsonlExporter{{QStringLiteral("{cxx_string_literal(path)}"),
                                 {int(jsonl.get("max_bytes", 64 * 1024 * 1024))}LL,
                                 {int(jsonl.get("keep", 5))}}};
@@ -1766,17 +1573,11 @@ def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
 
 def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
                         singletons: Optional[List[str]] = None) -> str:
-    """The monitor entity's main. Both halves of what a monitor is.
+    """The monitor main: a mesh owner and a browser-facing server.
 
-    It is the one entity that is a mesh owner and a browser-facing server at once. The mesh
-    half is an ordinary `EntityRuntime` hosting the `ingest` point every service reports
-    through, mutual TLS and deny-by-default like any other link. The browser half is a
-    `WebEdge` serving the operator console on its own port, gated by `bundles:` so an
-    anonymous visitor is handed a sign-in page and never the console.
-
-    Both halves reach the same `MonitorService`, which is what makes them one entity rather
-    than two that happen to share a directory. The batches that arrive over the mesh are the
-    rows the console reads.
+    The mesh half is an `EntityRuntime` hosting the `ingest` point every service reports to.
+    The browser half is a `WebEdge` serving the operator console on its own port, gated by
+    `bundles:`. Both share one `MonitorService`.
     """
     name = str(entity.get("name") or "monitor")
     folder = appmodel.entity_dir(entity)
@@ -1789,10 +1590,8 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     export_block, export_includes, export_qt_includes = _monitor_exporters(entity)
     bundle_defaults = _monitor_bundle_defaults(config, entity)
 
-    # A monitor's browser half is a listener like an edge's, and its sign-in gate is
-    # rationed per client address, so the same key has to reach it. Absent it, a monitor
-    # behind a proxy counts every operator as one address and ten wrong passwords from
-    # anywhere lock the console for a minute.
+    # The console sign-in is rate-limited per client address, so the monitor needs the
+    # trusted proxies too.
     proxies = appmodel.trusted_proxies(entity)
     monitor_proxies = ("    config.trustedProxies = {%s};\n" % string_list_literal(proxies)
                        if proxies else "")
@@ -1807,8 +1606,7 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
         consolePoint.serverFile = qmlDir
             + QStringLiteral("/{folder}/{appmodel.MONITOR_CONSOLE_CONTRACT}.qml");
         consolePoint.scope = QStringLiteral("{appmodel.MONITOR_SCOPE}");
-        // One Source per operator. The filter belongs to whoever is looking, and two
-        // operators looking at different things is the normal case.
+        // One Source per operator: each has their own filter.
         consolePoint.shared = false;
         config.connectPoints.append(consolePoint);
     }}"""
@@ -1820,10 +1618,9 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
 // The {name} monitor entity: it keeps every entity's record and serves the operator
 // console. Generated. Edit the topology, not this file.
 //
-// Two halves, one service behind them. The mesh half hosts the `ingest` point every other
-// entity reports through. The browser half serves the console on its own port, behind the
-// delivery gate in `bundles:` and the operator password gate below. Both reach the same
-// MonitorService, which is what makes this one entity rather than two.
+// The mesh half hosts the `ingest` point every other entity reports through. The
+// browser half serves the console on its own port, behind the `bundles:` delivery gate
+// and the operator password gate. Both use the same MonitorService.
 
 #include "entityruntime.h"
 #include "envfile.h"
@@ -1854,11 +1651,9 @@ using namespace SynQt;
 
 int main(int argc, char *argv[])
 {{
-    // Qt chooses its event dispatcher when the application is constructed, so this comes
-    // first. GLib's keeps every watched descriptor in one poll list and walks it whenever a
-    // socket toggles its write notifier, which a fan-out does once per connection per
-    // publish. The polling dispatcher does not, and the difference grows with the number of
-    // subscribers. Nothing headless wants GLib. See preferPollingEventDispatcher().
+    // Qt picks its event dispatcher when the application is constructed, so this comes
+    // first. GLib's dispatcher cost grows with the square of the subscribers on a fan-out,
+    // and the polling one's does not. See preferPollingEventDispatcher().
     SynQt::preferPollingEventDispatcher();
 
     QGuiApplication app{{argc, argv}};
@@ -1881,25 +1676,22 @@ int main(int argc, char *argv[])
         QStringLiteral("TLS certificate for the console."), QStringLiteral("file")}};
     const QCommandLineOption keyOption{{QStringLiteral("key"),
         QStringLiteral("TLS private key for the console."), QStringLiteral("file")}};
-    // Where each scope's files are, as <scope>=<dir>, exactly as a web edge takes
-    // them. Paths and not names: `bundles:` in synqt.yaml says which client or which folder
-    // a scope is served, and only the build knows where that landed (see
-    // run._bundle_arguments). A main that baked the names would be a console nothing could
-    // ever deliver.
+    // Where each scope's files are, as <scope>=<dir>, as a web edge takes them. Only
+    // the build knows where each bundle landed (see run._bundle_arguments), so these
+    // are paths, not names.
     const QCommandLineOption bundleOption{{QStringLiteral("bundle"),
         QStringLiteral("Files served to one scope, as <scope>=<dir>."),
         QStringLiteral("scope=dir")}};
-    // Defaulted to where this project's build puts them, project-root relative,
-    // exactly as --topology and --store are. That is what makes `synqt serve` work
-    // with no arguments. `synqt dev` passes absolute ones over the top.
+    // Defaults to the build output paths, project-root relative like --topology and
+    // --store, so `synqt serve` needs no arguments. `synqt dev` passes absolute paths.
     QCommandLineOption bundleWithDefaults{{bundleOption}};
     bundleWithDefaults.setDefaultValues({{{bundle_defaults}}});
     parser.addOptions({{topologyOption, qmlDirOption, storeOption, portOption, certOption,
                        keyOption, bundleWithDefaults}});
     parser.process(app);
 
-    // The operator credentials, from this entity's own environment. Never from synqt.yaml,
-    // which is a file in a repository.
+    // The operator credentials come from this entity's environment, never from
+    // synqt.yaml.
     loadEnvFile(QStringLiteral("{folder}/.env"));
     loadEnvFile(QStringLiteral(".env"));
 
@@ -1914,7 +1706,7 @@ int main(int argc, char *argv[])
 
     const QString qmlDir{{QDir{{parser.value(qmlDirOption)}}.absolutePath()}};
 
-    // Each of these makes `import SynQt` bring QtQuick with it, so nothing else has to.
+    // Each of these makes `import SynQt` bring QtQuick with it.
     synqtRegisterIngestSources();
     synqtRegisterConsoleSources();
 
@@ -1922,8 +1714,7 @@ int main(int argc, char *argv[])
 
     EventStore store{{parser.value(storeOption)}};
     if (!store.open()) {{
-        // Fatal, and said at startup rather than at the first event. A monitor that cannot
-        // keep a history has nothing to do.
+        // Fatal at startup: a monitor that cannot keep a history has nothing to do.
         qCritical().noquote() << "{name} cannot open its history:" << store.errorString();
         return 1;
     }}
@@ -1935,8 +1726,8 @@ int main(int argc, char *argv[])
                              << operatorError;
     }}
     if (operators.isEmpty()) {{
-        // Said out loud, because the console is then closed to everybody and that is easy
-        // to mistake for a broken deployment. Failing closed is intended. Failing silently is not.
+        // Logged, because the console is then closed to everybody, which looks like a
+        // broken deployment. It fails closed.
         qWarning().noquote() << "{name}: no operators configured, so the console refuses "
                                 "everybody. Run 'synqt monitor operator add <name>'.";
     }}
@@ -1947,8 +1738,8 @@ int main(int argc, char *argv[])
     MonitorService service{{&store, &operators, retention}};
 {export_block}
 
-    // The mesh half. The `ingest` point every other entity reports through, hosted with
-    // mutual TLS and the same deny-by-default consumer list as any other link.
+    // The mesh half: the `ingest` point every other entity reports through, with mutual
+    // TLS and a deny-by-default consumer list.
     EntityRuntime runtime{{topology, &engine}};
     runtime.setContextObject(QStringLiteral("Monitor"), &service);
     if (!runtime.start()) {{
@@ -1956,10 +1747,9 @@ int main(int argc, char *argv[])
         return 1;
     }}
 
-    // The browser half: the console, on its own port, behind two gates. `bundles:` decides
-    // what a caller may download at all, so an anonymous visitor is handed the sign-in page
-    // and the console bundle is not addressable to them. The password gate is what raises
-    // their session to `{appmodel.MONITOR_SCOPE}`.
+    // The browser half: the console on its own port, behind two gates. `bundles:` gives
+    // an anonymous visitor the sign-in page, never the console bundle. The password
+    // gate raises the session to `{appmodel.MONITOR_SCOPE}`.
     WebEdgeConfig config;
     config.host = QStringLiteral("{cxx_string_literal(host)}");
     config.port = parser.value(portOption).toUShort();
@@ -1976,9 +1766,9 @@ int main(int argc, char *argv[])
     for (const QString &bundle : parser.values(bundleWithDefaults)) {{
         const qsizetype separator{{bundle.indexOf(QLatin1Char('='))}};
         if (separator < 0) {{
-            // A bare directory is the one-bundle shorthand. Not what a scaffolded monitor
-            // passes, which always names both scopes, but a monitor serving only a console
-            // to everyone on a machine nobody else can reach is a shape somebody will run.
+            // A bare directory is the one-bundle shorthand. A scaffolded monitor names
+            // both scopes, but a console served to everyone on a private machine is
+            // valid.
             config.bundleDir = bundle;
             continue;
         }}
@@ -1986,15 +1776,11 @@ int main(int argc, char *argv[])
     }}
 {console_block}
 
-    // The monitor records itself, into its own store.
+    // The monitor records its own events into its own store, since it has no monitor to
+    // report to (failed sign-ins, refused reporters, console attaches).
     //
-    // Nothing else is watching this process. It owns `ingest`, so it has no monitor of its
-    // own to report to, and without this its own events (an operator failing to sign in
-    // five hundred times, a reporting entity being refused, its console attaching) would
-    // be recorded into nothing. Those are the events an operator most wants to find.
-    //
-    // Queued, never direct. The sink runs on the tracer's writer thread, and the store's
-    // QSqlDatabase belongs to the thread that opened it.
+    // Queued, never direct: the sink runs on the tracer's writer thread, and the
+    // store's QSqlDatabase belongs to the thread that opened it.
     Tracer::instance()->setEnabled(true);
     Tracer::instance()->setSink([&service](const QList<TraceEvent> &batch) {{
         QVariantList rows;
@@ -2006,15 +1792,14 @@ int main(int argc, char *argv[])
                                   Q_ARG(QVariantList, rows),
                                   Q_ARG(QString, QStringLiteral("{name}")));
     }});
-    // Cleared while `service` is still alive. The tracer is a function-local static, so it
-    // outlives main's own locals and its destructor can deliver one last batch.
+    // Cleared while `service` is alive. The tracer is a function-local static that
+    // outlives main's locals and may deliver one last batch in its destructor.
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, []() {{
         Tracer::instance()->setSink(Tracer::Sink{{}});
     }});
 
     WebEdge edge{{config, &engine}};
-    // The console's own gate, recorded like everything else the monitor sees. A refused
-    // sign-in is the event an operator most wants to find later.
+    // Console sign-ins are recorded too.
     QObject::connect(&edge, &WebEdge::signInRefused, &edge, [](const QString &who) {{
         trace(Category::Authorization, Severity::Warning,
               QStringLiteral("operator sign-in refused"),

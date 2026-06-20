@@ -37,8 +37,8 @@ namespace SynQt {
 
 namespace {
 
-/// A response with the JSON body an API caller expects for a refusal, so a machine caller
-/// parses one shape whatever went wrong.
+/// A refusal with the JSON body an API caller expects, so a machine caller parses one
+/// shape.
 QHttpServerResponse errorResponse(int status, const QString &message)
 {
     const QJsonObject payload{{QStringLiteral("error"), message}};
@@ -62,8 +62,8 @@ QVariantMap headersOf(const QHttpServerRequest &request, const QByteArray &drop)
     return headers;
 }
 
-/// The body as QML should see it: a parsed object for JSON, the text otherwise, and an
-/// invalid QVariant when there is none.
+/// The body as QML sees it: a parsed object for JSON, text otherwise, an invalid QVariant
+/// when there is none.
 QVariant bodyOf(const QHttpServerRequest &request)
 {
     const QByteArray raw{request.body()};
@@ -82,9 +82,8 @@ QVariant bodyOf(const QHttpServerRequest &request)
     return QString::fromUtf8(raw);
 }
 
-/// How long a connection may sit idle between requests before the transport closes it.
-/// A machine caller either has something to say or has gone away. This is what ends the
-/// half-open connections that neither a size limit nor a rate limit can see.
+/// How long a connection may sit idle between requests before the transport closes it. This
+/// ends half-open connections that size and rate limits cannot see.
 constexpr int kKeepAliveTimeoutSeconds{30};
 
 /// The deadline used when the topology names none. See handle().
@@ -152,23 +151,28 @@ bool ApiServer::start()
 
     m_server = new QHttpServer{this};
 
-    // Qt's own ceilings on the request, set before a route can see one. The body check in
-    // refuse() below is a check on a body Qt has already read into memory, so on its own it
-    // bounds what a handler is handed and not what the process allocates: Qt's default is
-    // 32 MiB, which an unauthenticated caller can spend per connection whatever
-    // `network.inbound.max_body_bytes` says. Declaring it here is what makes the number in
-    // the topology the number the transport enforces. The idle timeout is the other half:
-    // it is what closes a peer that opens a connection, sends half a request and stops,
-    // which no size limit covers. The same reasoning, and the same two calls, as the web
-    // edge (webedge.cpp).
+    // Qt's own request ceilings, set before any route runs. The body check in refuse()
+    // below applies after Qt has read the body, so on its own it bounds what a handler
+    // gets, not what the process allocates (Qt's default is 32 MiB per connection). Setting
+    // it here makes `network.inbound.max_body_bytes` the limit the transport enforces. The
+    // idle timeout closes a peer that sends half a request and stops. The web edge does the
+    // same (webedge.cpp).
     QHttpServerConfiguration httpConfiguration;
     httpConfiguration.setMaximumBodySize(m_config.maxBodyBytes);
     httpConfiguration.setKeepAliveTimeout(std::chrono::seconds{kKeepAliveTimeoutSeconds});
+    // The socket ceilings, at accept, bound a caller that opens connections and never sends
+    // a request. Per address only when the address is the caller's: behind a proxy every
+    // socket is the proxy's.
+    httpConfiguration.setMaximumConnections(
+        static_cast<quint32>(qMax(0, m_config.maxConnectionsGlobal)));
+    httpConfiguration.setMaximumConnectionsPerHost(
+        m_config.trustedProxies.isEmpty()
+            ? static_cast<quint32>(qMax(0, m_config.maxConnectionsPerIp))
+            : quint32{0});
     m_server->setConfiguration(httpConfiguration);
 
-    // One catch-all route rather than one route per declared path: the routing table lives
-    // in `Api`, where QML declared it, and having QHttpServer hold a second copy of it
-    // would mean two tables to keep in step and a 404 that could disagree with itself.
+    // One catch-all route: the routing table lives in `Api`, where QML declared it, so
+    // there is one table and one 404.
     m_server->route(QStringLiteral("/<arg>"), [this](const QUrl &, const QHttpServerRequest &request) {
         return handle(request);
     });
@@ -177,8 +181,8 @@ bool ApiServer::start()
     });
 
     if (!m_config.certFile.isEmpty() && !m_config.keyFile.isEmpty()) {
-        // As on the web edge. A surface told to terminate TLS and unable to refuses to
-        // start, rather than listening on a port whose handshake can never complete.
+        // As on the web edge: a surface that must terminate TLS and cannot refuses to
+        // start.
         const QSslCertificate certificate{loadCertificate(m_config.certFile)};
         const QSslKey key{loadPrivateKey(m_config.keyFile)};
         if (certificate.isNull() || key.isNull()) {
@@ -196,8 +200,8 @@ bool ApiServer::start()
         QSslConfiguration configuration{QSslConfiguration::defaultConfiguration()};
         configuration.setLocalCertificate(certificate);
         configuration.setPrivateKey(key);
-        // A machine caller presents no client certificate. Only the server is
-        // authenticated here, and the caller authenticates with its API key.
+        // A machine caller presents no client certificate; it authenticates with its API
+        // key.
         configuration.setPeerVerifyMode(QSslSocket::VerifyNone);
         sslServer->setSslConfiguration(configuration);
         m_tcpServer = sslServer;
@@ -220,11 +224,9 @@ bool ApiServer::start()
 
 QString ApiServer::callerAddress(const QHttpServerRequest &request) const
 {
-    // `value()` joins every `X-Forwarded-For` line the request carries, in the order they
-    // arrived, which is what RFC 9110 says they mean. Reading only the first would hand a
-    // caller the answer on a proxy that appends a line of its own instead of extending the
-    // one it was given. The client's own line would be the one read, and the resolver would
-    // walk a chain the client wrote from end to end.
+    // `value()` joins every `X-Forwarded-For` line in arrival order, as RFC 9110 defines.
+    // Reading only the first line would read the client's own line when a proxy appends a
+    // separate line.
     return m_clientAddress.resolve(request.remoteAddress(),
                                    request.value(QByteArrayLiteral("X-Forwarded-For")));
 }
@@ -238,9 +240,8 @@ QString ApiServer::originOf(const QHttpServerRequest &request) const
 std::optional<QHttpServerResponse> ApiServer::preflightAnswer(const QHttpServerRequest &request,
                                                               const QString &origin) const
 {
-    // What makes an OPTIONS a preflight rather than a request. An Origin and the method the
-    // browser is asking about. An OPTIONS without them is an ordinary request and goes on to
-    // the routes, where a handler may have been declared for it.
+    // An OPTIONS is a preflight only with an Origin and the method being asked about.
+    // Otherwise it is an ordinary request for the routes.
     const QByteArray askedMethod{
         request.headers().value(QByteArrayLiteral("Access-Control-Request-Method")).toByteArray()};
     if (request.method() != QHttpServerRequest::Method::Options || origin.isEmpty()
@@ -248,9 +249,8 @@ std::optional<QHttpServerResponse> ApiServer::preflightAnswer(const QHttpServerR
         return std::nullopt;
     }
     if (!m_config.allowedOrigins.contains(origin)) {
-        // The same refusal a real request from this origin gets, with no CORS header on it,
-        // which is what tells the browser not to send the real one. A key that leaked into
-        // a page here still buys nothing.
+        // The same refusal a real request from this origin gets, with no CORS header, so
+        // the browser does not send the real one.
         return errorResponse(403, QStringLiteral("origin %1 is not allowed to call this API")
                                       .arg(origin));
     }
@@ -259,9 +259,8 @@ std::optional<QHttpServerResponse> ApiServer::preflightAnswer(const QHttpServerR
     headers.append(QByteArrayLiteral("Access-Control-Allow-Origin"), origin.toUtf8());
     headers.append(QByteArrayLiteral("Access-Control-Allow-Methods"),
                    QByteArrayLiteral("GET, POST, PUT, DELETE, PATCH, HEAD"));
-    // The headers the browser asked about, echoed. The key header is what every browser
-    // caller has to ask for, and echoing the list rather than allowing everything keeps
-    // the answer to what the page sends.
+    // Echo the headers the browser asked about (it always asks for the key header), instead
+    // of allowing everything.
     const QByteArray askedHeaders{
         request.headers().value(QByteArrayLiteral("Access-Control-Request-Headers")).toByteArray()};
     headers.append(QByteArrayLiteral("Access-Control-Allow-Headers"),
@@ -274,9 +273,9 @@ std::optional<QHttpServerResponse> ApiServer::preflightAnswer(const QHttpServerR
 
 void ApiServer::allowOrigin(QHttpServerResponse &response, const QString &origin)
 {
-    // The origin asking, never `*`, and `Vary` so a cache in between does not hand one
-    // origin's answer to another. No `Allow-Credentials`: a caller authenticates with the
-    // key header, and a cookie is not something this surface reads.
+    // The requesting origin, never `*`, with `Vary` so a cache does not reuse it for
+    // another origin. No `Allow-Credentials`: callers authenticate with the key header, not
+    // cookies.
     QHttpHeaders headers{response.headers()};
     headers.append(QByteArrayLiteral("Access-Control-Allow-Origin"), origin.toUtf8());
     headers.append(QHttpHeaders::WellKnownHeader::Vary, QByteArrayLiteral("Origin"));
@@ -295,14 +294,11 @@ bool ApiServer::withinRate(const QString &caller)
     }
     const bool within{++m_rateWindow[caller] <= m_config.ratePerMinutePerIp};
     if (m_rateWindow.size() > kMaxRateEntries) {
-        // A table keyed by whatever address dialled in is a table a caller can grow, one
-        // entry per address, for as long as the window lasts. What it must not become is a
-        // way to clear the count. This window is shared by every caller, so emptying it on
-        // overflow would let one that can present many addresses reset its own budget on
-        // demand, and the rate limit would be gone rather than generous. Everything in this
-        // table belongs to the current minute by construction (the whole of it is dropped
-        // when the minute turns, above), so there is nothing stale to prune and the only
-        // right answer to an overflowing table is to refuse while it lasts.
+        // Keyed by caller address, so a caller could grow the table one address at a time.
+        // Emptying it on overflow would let a caller with many addresses reset its budget,
+        // so an overflowing table refuses instead. Everything in it belongs to the current
+        // minute (the table is dropped when the minute turns), so there is nothing stale to
+        // prune.
         return false;
     }
     return within;
@@ -310,17 +306,15 @@ bool ApiServer::withinRate(const QString &caller)
 
 QString ApiServer::refuse(const QHttpServerRequest &request, int *status) const
 {
-    // The API key. A surface written `public: true` skips it and says so in the topology;
-    // everything else needs the header, compared in constant time so the comparison itself
-    // does not leak how much of a guess was right.
+    // The API key. A `public: true` surface skips it; everything else requires the header,
+    // compared in constant time.
     if (!m_config.anonymous) {
         const QByteArray presented{
             request.headers().value(m_config.keyHeader).toByteArray()};
         bool accepted{false};
         for (const QByteArray &key : m_config.apiKeys) {
-            // Every candidate is compared, and each comparison reads every byte: no early
-            // return on the first mismatch and no `break` on the first match, so how long
-            // this takes does not say how much of a guess was right.
+            // Every candidate is compared in full, with no early return or break, so the
+            // timing reveals nothing about a guess.
             accepted = constantTimeEquals(presented, key) || accepted;
         }
         if (!accepted) {
@@ -329,9 +323,9 @@ QString ApiServer::refuse(const QHttpServerRequest &request, int *status) const
         }
     }
 
-    // The origin, for browser callers. A request with no Origin is not a browser and is
-    // governed by the key above. One that carries an Origin this surface never named is
-    // refused, so a key that leaked into a page still buys nothing.
+    // The origin, for browser callers. A request without Origin is not a browser and is
+    // governed by the key. An Origin this surface does not name is refused, so a key leaked
+    // into a page is useless.
     const QString origin{originOf(request)};
     if (!origin.isEmpty() && !m_config.allowedOrigins.contains(origin)) {
         *status = 403;
@@ -363,25 +357,22 @@ QFuture<QHttpServerResponse> settled(QHttpServerResponse &&response)
 
 QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request)
 {
-    // The address this request is counted against, which is the peer's until the topology
-    // names a proxy in front of this surface. Resolved once, and the only client address
-    // that goes any further. The rate limit keys on it and the handler is handed it.
+    // The address this request is counted against: the peer, until the topology names a
+    // proxy. Resolved once; the rate limit and the handler both use it.
     const QString caller{callerAddress(request)};
     if (!withinRate(caller)) {
         emit requestRefused(QStringLiteral("rate limit for %1").arg(caller));
         return settled(errorResponse(429, QStringLiteral("too many requests")));
     }
 
-    // A browser's preflight, before the key is looked for. A preflight never carries one,
-    // and a surface that refused it could not be reached from a page at all, whatever
-    // `allowed_origins` said. It is rate limited like every other request, above.
+    // A preflight, before the key check: it never carries a key, and refusing it would make
+    // the surface unreachable from any page. It is rate-limited like other requests.
     const QString origin{originOf(request)};
     if (std::optional<QHttpServerResponse> preflight{preflightAnswer(request, origin)}) {
         return settled(std::move(*preflight));
     }
-    // Whether the answer, whatever it turns out to be, is one a page at this origin may
-    // read. Decided here rather than at each answer, and only for an origin the surface
-    // names. The refusal below is what an origin it does not name gets, with nothing on it.
+    // Whether a page at this origin may read the answer, decided once and only for a named
+    // origin.
     const bool corsAllowed{!origin.isEmpty() && m_config.allowedOrigins.contains(origin)};
 
     int status{400};
@@ -395,9 +386,8 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
         return settled(std::move(refused));
     }
 
-    // QHttpServerRequest hands the path and the query already separated, so the query is
-    // read from the parsed one rather than re-split out of the URL: two parsers of one
-    // string is how a route and its parameters end up disagreeing.
+    // QHttpServerRequest already separates path and query, so the parsed query is used
+    // rather than splitting the URL again.
     QVariantMap query;
     const QUrlQuery parsed{request.query()};
     for (const auto &pair : parsed.queryItems(QUrl::FullyDecoded)) {
@@ -405,16 +395,15 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
     }
     const QString path{request.url().path()};
 
-    // Parented to this server, and retired once the response is written. It outlives this
-    // function because a handler that reaches a connect point answers on a later turn,
-    // and the QHttpServerResponder it answers through is held by the lambda below.
+    // Parented to this server and retired once the response is written. It outlives this
+    // function because a handler that reaches a connect point answers later, through the
+    // QHttpServerResponder held by the lambda below.
     ApiRequest *apiRequest{new ApiRequest{methodOf(request), path, QVariantMap{}, query,
                                           headersOf(request, m_config.keyHeader),
                                           bodyOf(request), caller, this}};
 
-    // Shared, because three things may settle it and only the first one counts: the
-    // handler answering, the deadline below, and a route that never matched. The promise
-    // outlives this function whenever the handler does.
+    // Shared, because the handler, the deadline below and an unmatched route may each
+    // settle it, and only the first counts.
     auto promise{std::make_shared<QPromise<QHttpServerResponse>>()};
     QFuture<QHttpServerResponse> future{promise->future()};
     promise->start();
@@ -449,16 +438,13 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
         return future;  // answered synchronously, which is the ordinary case
     }
 
-    // The handler is answering later. Hold the connection open for it, with a deadline, so
-    // a handler that never answers costs one 504 rather than a socket held forever. The
-    // timer is a child of the request, so answering first destroys it.
+    // The handler answers later. Keep the connection open with a deadline, so a handler
+    // that never answers costs one 504, not a held socket. The timer is a child of the
+    // request, so answering first destroys it.
     //
-    // A deadline is not optional here, whatever the topology says. `reply_timeout_ms: 0`
-    // reads as "let a handler take as long as it likes", but what it bought was a
-    // request object and an unfinished promise per call that nothing ever retired, and a
-    // connection held for the life of the process. A handler that forgets to answer once is
-    // a leak, and one that forgets on every call is a caller's way to exhaust the entity.
-    // So zero means the default rather than none, and it is said out loud the first time.
+    // The deadline is mandatory: `reply_timeout_ms: 0` would leave a request object, a
+    // promise and a connection per call for the life of the process. Zero means the
+    // default, and that is logged once.
     int deadlineMs{m_config.replyTimeoutMs};
     if (deadlineMs <= 0) {
         if (!m_warnedAboutDeadline) {

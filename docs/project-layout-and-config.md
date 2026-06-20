@@ -463,6 +463,8 @@ entities:
         allowed_origins: []              # browser callers; default none
         max_body_bytes: 1048576          # default
         rate_per_minute: 600             # per caller address; default
+        max_connections: 4096            # sockets open at once; default, 0 disables
+        max_connections_per_ip: 64       # from one address; default, off behind a proxy
         # trusted_proxies: [10.0.0.1, 10.0.0.0/24]
         #   The peers whose `X-Forwarded-For` this surface believes. Empty (the default)
         #   means the peer that connected is the caller, which is true of a port reached
@@ -516,11 +518,19 @@ past it is refused while it is still arriving, so an oversized request is never 
 into memory. The connection also has an idle timeout, which is what ends a caller that
 opens a socket, sends half a request and stops.
 
+`max_connections` and `max_connections_per_ip` are counted at accept, before a request
+exists, because neither the rate limit nor the body ceiling sees a caller that opens a
+socket and sends nothing, or a byte every few seconds to stay under the idle timeout.
+The socket over the ceiling is answered `429` and closed, and releasing one readmits
+the next. The per-address ceiling is switched off when `trusted_proxies` names a proxy,
+since every socket is then the proxy's and a ceiling on it would refuse the whole API
+at the sixty-fifth caller. The total still holds. Zero disables either.
+
 A handler may answer on a later turn, which is what any handler reaching a connect point
 or an upstream does. The connection is held open for it until `reply_timeout_ms`, after
 which the request is failed with 504 and the refusal is reported, so a handler that
 never answers costs one status code rather than a socket. `0` is not a way to wait
-forever: a handler that never answers would hold its request and its connection for the
+forever. A handler that never answers would hold its request and its connection for the
 life of the process, so zero falls back to the default and says so once.
 
 Validation of the block:

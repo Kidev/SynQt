@@ -28,10 +28,12 @@
 #include <QQmlEngine>
 #include <QSignalSpy>
 #include <QStringList>
+#include <QTcpSocket>
 #include <QTest>
 #include <QUrl>
 
 #include <memory>
+#include <vector>
 
 using namespace SynQt;
 
@@ -363,6 +365,62 @@ private slots:
         // And the surface is still serving afterwards, so the refusal ends one request
         // rather than the connection's usefulness.
         QCOMPARE(send(QStringLiteral("GET"), QStringLiteral("/lots")).status, 200);
+    }
+
+    /// A caller that opens sockets and sends nothing is seen by neither the rate limit
+    /// nor the body ceiling, since both see a request, and until this how many such
+    /// sockets one address could hold was whatever the operating system allowed. Counted
+    /// at accept, through Qt's own ceilings, which count correctly here because an API
+    /// socket is never upgraded (the edge counts its own for that reason).
+    void aPeerThatOpensSocketsAndSendsNothingIsRefusedAtTheCeiling()
+    {
+        QQmlEngine engine;
+        ApiConfig config;
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.anonymous = true;
+        config.maxConnectionsPerIp = 3;
+        ApiServer server{config, &engine};
+        engine.rootContext()->setContextProperty(QStringLiteral("Api"), server.api());
+        QJSValue handler{engine.evaluate(QStringLiteral("(function(r){ return {ok: true}; })"))};
+        server.api()->get(QStringLiteral("/ping"), handler);
+        QVERIFY2(server.start(), qPrintable(server.errorString()));
+
+        // Three idle sockets from this address, which is the whole of its allowance.
+        std::vector<std::unique_ptr<QTcpSocket>> held;
+        for (int opened{0}; opened < 3; ++opened) {
+            auto socket{std::make_unique<QTcpSocket>()};
+            socket->connectToHost(QHostAddress::LocalHost, server.serverPort());
+            QVERIFY(socket->waitForConnected(3000));
+            held.push_back(std::move(socket));
+        }
+        QTest::qWait(100);  // accepted, and counted
+
+        // The one over the ceiling is told so and hung up on, before it has sent a byte.
+        QTcpSocket extra;
+        extra.connectToHost(QHostAddress::LocalHost, server.serverPort());
+        QVERIFY(extra.waitForConnected(3000));
+        QSignalSpy hungUp{&extra, &QTcpSocket::disconnected};
+        QTRY_VERIFY_WITH_TIMEOUT(hungUp.count() >= 1 || extra.bytesAvailable() > 0, 5000);
+        const QByteArray answer{extra.readAll()};
+        QVERIFY2(answer.contains("429"), qPrintable(QStringLiteral("the socket over the "
+                                                    "ceiling was answered %1")
+                                                    .arg(QString::fromUtf8(answer))));
+
+        // The three within it are still there, and releasing one readmits the next.
+        for (const auto &socket : held) {
+            QCOMPARE(socket->state(), QAbstractSocket::ConnectedState);
+        }
+        held.front()->abort();
+        held.erase(held.begin());
+        QTest::qWait(100);
+        QTcpSocket readmitted;
+        readmitted.connectToHost(QHostAddress::LocalHost, server.serverPort());
+        QVERIFY(readmitted.waitForConnected(3000));
+        readmitted.write("GET /ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        // Spun rather than waited on, since the server answers from this same event loop.
+        QTRY_VERIFY_WITH_TIMEOUT(readmitted.bytesAvailable() > 0, 5000);
+        QVERIFY(readmitted.readAll().startsWith("HTTP/1.1 200"));
     }
 
     void theRateLimitAnswers429WithoutReachingAHandler()

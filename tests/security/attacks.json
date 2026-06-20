@@ -679,6 +679,13 @@
       "test": "aBodyPastTheLimitIsRefusedByTheTransportAndNotByTheHandler"
     },
     {
+      "id": "an-api-surface-holds-as-many-idle-sockets-as-a-caller-opens",
+      "what": "An entity serving network.inbound checked the rate limit, the key, the origin and the body size, all of which see a request. A caller that opens sockets and never sends one, or dribbles a byte every few seconds to stay under the idle timeout, was seen by none of them, and how many such sockets one address could hold was whatever the operating system allowed. The edge had a socket ceiling for exactly this; the API surface had none.",
+      "defended_by": "network.inbound.max_connections and max_connections_per_ip are set on the QHttpServer at accept (Qt 6.12's own ceilings, which count correctly here because an API socket is never upgraded). The socket over the ceiling is answered 429 and closed before it has sent a byte, and releasing one readmits the next. Behind a named proxy the per-address ceiling is off, since every socket is the proxy's.",
+      "file": "tests/api-inbound/tst_apiinbound.cpp",
+      "test": "aPeerThatOpensSocketsAndSendsNothingIsRefusedAtTheCeiling"
+    },
+    {
       "id": "provider-tokens-outlive-the-session",
       "what": "A session is revoked -- which is what a detected device-credential reuse does to every session that credential opened -- and the edge goes on holding that visitor's provider access and refresh tokens, live, for as long as the process runs.",
       "defended_by": "Both of the ways a session ends without anybody pressing anything are wired to the release: expiry and revocation. The rotation that a scope change reports as a removal is read and handed to followRotation instead, so an elevation does not look like an ending.",
