@@ -154,6 +154,13 @@
       "test": "foreignCertificateRejected"
     },
     {
+      "id": "an-owner-impersonated-with-a-certificate-the-ca-did-issue",
+      "what": "Something holding a certificate the project CA issued (a compromised low-privilege entity, or the edge's browser-facing certificate, which the same CA signs for localhost and 127.0.0.1) listens where the database should be. The CA vouches for it, so a consumer that verified only the chain, or the address it dialled, would complete the handshake and hand the impostor every call and every session meant for the database.",
+      "defended_by": "A consumer verifies the owner's certificate against the entity name the topology says owns the point (the peer verify name of the handshake), never against the address, so a certificate that names anything else fails the handshake before a byte of QtRO crosses. Proven with a CA-signed certificate that does match the address.",
+      "file": "tests/m3-mesh/tst_m3.cpp",
+      "test": "anOwnerPresentingAnotherEntitysCertificateIsRefused"
+    },
+    {
       "id": "entity-not-on-the-consumer-list",
       "what": "An entity holding a valid project certificate acquires a connect point it was never listed as a consumer of.",
       "defended_by": "Deny by default: the owner refuses a connection from an entity the point does not name, certificate or no certificate.",

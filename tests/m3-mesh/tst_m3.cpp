@@ -294,6 +294,52 @@ private slots:
                  "the socket a mesh owner accepted is still waiting on Nagle");
     }
 
+    // The other direction of the same handshake. The CA vouches that a peer is some
+    // holder of a certificate it issued. The consumer still has to check which one, or
+    // anything holding one could answer on the database's address and be taken for the
+    // database. The certificate here is the one the same CA issues for the edge's
+    // browser-facing side, which names the address (SAN IP:127.0.0.1) and no entity: a
+    // consumer that verified the address it dialled rather than the entity it expects
+    // would accept it. The name the topology says owns the point is what the subject is
+    // held to, and this proves that the name is what is checked and not the address.
+    void anOwnerPresentingAnotherEntitysCertificateIsRefused()
+    {
+        const QSslCertificate ca{loadCert(QStringLiteral("ca"))};
+
+        // Listening where `alpha` should be, with a certificate for where it listens.
+        MeshServer impostor;
+        QVERIFY2(impostor.listenMutualTls(QHostAddress::LocalHost, 0, ca,
+                                          loadCert(QStringLiteral("impostor")),
+                                          loadKey(QStringLiteral("impostor"))),
+                 qPrintable(impostor.errorString()));
+        QSignalSpy accepted{&impostor, &MeshServer::peerConnected};
+
+        MeshClient consumer;
+        QSignalSpy connectedSpy{&consumer, &MeshClient::connected};
+        QSignalSpy errorSpy{&consumer, &MeshClient::errorOccurred};
+        QVERIFY(consumer.connectMutualTls(QHostAddress::LocalHost, impostor.serverPort(),
+                                          QStringLiteral("alpha"), ca,
+                                          loadCert(QStringLiteral("alpha")),
+                                          loadKey(QStringLiteral("alpha"))));
+        QTRY_VERIFY_WITH_TIMEOUT(errorSpy.count() >= 1, 5000);
+        consumer.stop();  // no retry loop behind the assertions below
+        QTest::qWait(300);
+        QCOMPARE(connectedSpy.count(), 0);
+        const QStringList reasons{[&errorSpy]() {
+            QStringList all;
+            for (const QList<QVariant> &emitted : errorSpy) {
+                all.append(emitted.at(0).toString());
+            }
+            return all;
+        }()};
+        QVERIFY2(reasons.join(QLatin1String(" | ")).contains(QLatin1String("name"),
+                                                             Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("refused for another reason: %1")
+                                .arg(reasons.join(QLatin1String(" | ")))));
+        // And nothing was hosted to it: the impostor never got a peer to talk to.
+        QCOMPARE(accepted.count(), 0);
+    }
+
     // Clause 2: a consumer presenting no certificate is rejected at the handshake.
     void missingCertificateRejected()
     {
