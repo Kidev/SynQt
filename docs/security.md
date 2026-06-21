@@ -875,24 +875,26 @@ Authorization and data:
 - Every `network.outbound` entry names the narrowest place that works, host and path
   and all, because the headers on that entry travel with every call under it. The
   runtime compares scheme, host, port and path segments rather than the text of the
-  URL, so a prefix cannot be escaped by spelling; a prefix that is wider than it needs
+  URL, so a prefix cannot be escaped by spelling. A prefix that is wider than it needs
   to be is still a wider place for those headers to reach. Every redirect is compared
   the same way, against the entry the call was made through rather than against the
   whole list, so an allowlisted host cannot send those headers elsewhere by answering
-  `302`, and cannot send them to another allowlisted host either: the redirected request
-  is a copy of the first one, headers included, and one endpoint's key was never meant
-  for the next.
+  `302`, and cannot send them to another allowlisted host either, because the redirected
+  request is a copy of the first one, headers included, and one endpoint's key was never
+  meant for the next.
 - Signing out is a server side end to a session, and it takes the browser's live
   connections with it. Nothing on the client is trusted to stop reading. It is reached
-  by a navigation, so the edge refuses one that another site started: the browser says
+  by a navigation, so the edge refuses one that another site started. The browser says
   which it was in `Sec-Fetch-Site`, and a caller that is not a browser sends none.
 - The console's password gate has a per address budget. The check behind it is a slow
   key derivation on purpose, which makes an unauthenticated request both a guess and a
-  way to occupy the edge; the budget is spent before the password is read, so the
+  way to occupy the edge. The budget is spent before the password is read, so the
   refusal says nothing about it and carries `Retry-After`. It is also a POST that ends
   in a session, so it refuses a form another site submitted on the same terms as the
-  sign-out route: the browser says where the request came from in `Sec-Fetch-Site`, and
-  a cross-site one is refused before the credentials are read.
+  sign-out route. The browser says where the request came from in `Sec-Fetch-Site`, and
+  a cross-site one is refused before the credentials are read. A browser too old to say
+  so still names itself in `Origin`, which every browser puts on a POST, and one the
+  edge did not list is refused on that alone.
 
 System wide:
 

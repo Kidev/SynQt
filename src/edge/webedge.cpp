@@ -592,8 +592,14 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
     // route's (IdentityProvider::handleLogout), applied to the other route that changes who
     // a session is.
     const QByteArray site{request.value("Sec-Fetch-Site")};
+    // And the origin, for a browser that names none of the above: `Sec-Fetch-Site` reached
+    // Safari years after the other engines, and a browser that lacks it still puts an
+    // `Origin` on every POST. One this edge did not name is a page elsewhere, whatever it
+    // says or does not say about the site. A caller that is not a browser sends neither.
+    const QString origin{QString::fromUtf8(request.value("Origin"))};
     if (site == "cross-site"
-        || (site == "same-site" && m_config.originModel != QLatin1String("split_origin"))) {
+        || (site == "same-site" && m_config.originModel != QLatin1String("split_origin"))
+        || (!origin.isEmpty() && !m_allowedOrigins.contains(origin))) {
         emit signInRefused(QString{});
         return QHttpServerResponse{QByteArrayLiteral("text/plain"),
                                    QByteArrayLiteral("sign in from the application"),

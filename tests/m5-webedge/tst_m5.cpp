@@ -1685,7 +1685,7 @@ private slots:
         WebEdge edge{config, &engine};
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
 
-        const auto post{[&](const QByteArray &site) {
+        const auto post{[&](const QByteArray &site, const QByteArray &origin = {}) {
             QNetworkRequest request{QUrl{edge.httpOrigin() + QStringLiteral("/monitor/signin")}};
             request.setSslConfiguration(insecureClientConfig());
             useOnlyTheCookiesNamedHere(request);
@@ -1694,20 +1694,35 @@ private slots:
             if (!site.isEmpty()) {
                 request.setRawHeader("Sec-Fetch-Site", site);
             }
+            if (!origin.isEmpty()) {
+                request.setRawHeader("Origin", origin);
+            }
             QNetworkReply *reply{m_nam.post(request, QByteArrayLiteral("name=alice&password=pw"))};
             QSignalSpy finished{reply, &QNetworkReply::finished};
             finished.wait(5000);
             return reply;
         }};
 
-        // Valid credentials, submitted from elsewhere: refused, and no session is set.
+        // Valid credentials, submitted from elsewhere. Refused, and no session is set.
         QNetworkReply *crossSite{post("cross-site")};
         QCOMPARE(statusOf(crossSite), 403);
         QVERIFY(sessionCookie(crossSite).isEmpty());
         crossSite->deleteLater();
 
+        // A browser that does not say where a request came from (Sec-Fetch-Site arrived in
+        // Safari years after the others) still says who is asking. Every browser puts an
+        // Origin on a POST. One this edge never named is the same cross-site form, and is
+        // refused on that alone.
+        QNetworkReply *foreignOrigin{post(QByteArray{}, "https://evil.example")};
+        QCOMPARE(statusOf(foreignOrigin), 403);
+        QVERIFY(sessionCookie(foreignOrigin).isEmpty());
+        foreignOrigin->deleteLater();
+        QNetworkReply *ownOrigin{post(QByteArray{}, edge.httpOrigin().toUtf8())};
+        QCOMPARE(statusOf(ownOrigin), 200);
+        ownOrigin->deleteLater();
+
         // The same credentials from the application's own page, and from a caller that
-        // is not a browser at all: both are the gate working, so that the refusal above is
+        // is not a browser at all. Both are the gate working, so that the refusal above is
         // not the gate refusing everybody.
         for (const QByteArray &site : {QByteArrayLiteral("same-origin"), QByteArray{}}) {
             QNetworkReply *own{post(site)};
