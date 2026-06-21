@@ -4,6 +4,7 @@
 #include "consumerbase.h"
 
 #include "connectpointresolver.h"
+#include "promise.h"
 
 #include <QtRemoteObjects/QRemoteObjectDynamicReplica>
 #include <QtRemoteObjects/QRemoteObjectReplica>
@@ -26,12 +27,10 @@ void ConsumerBase::setPoint(const QString &point)
         return;
     }
     m_point = point;
-    // Published as soon as it is named, not once a Replica arrives. Every app loads its QML
-    // before the first socket is open, so `<Owner>.on<Signal>` resolves against a facade that
-    // has no Replica yet. Waiting made the attached type unresolvable at load and failed the
-    // whole page ("Could not create attached properties object"), which is the one order in
-    // which a client starts. The facade is the same object either way, so a handler
-    // wired now is the handler that fires when the link comes up.
+    // Published as soon as it is named, not when a Replica arrives. Apps load their QML
+    // before the first socket opens, so `<Owner>.on<Signal>` must resolve against a facade
+    // with no Replica yet; otherwise the page fails ("Could not create attached properties
+    // object"). The facade is the same object either way.
     ConnectPointResolver::instance()->publish(contractName(), m_point, this);
 }
 
@@ -45,6 +44,17 @@ void ConsumerBase::setReplica(QObject *replica)
     if (m_replica == replica) {
         return;
     }
+    // Every answer the old Replica still owed will never come: a call is answered on the
+    // connection it was sent on, and a Replica is replaced only when that connection is
+    // gone. Reject them, so the failure handlers run and the promises (children of this
+    // facade, where the generated forwarders parent them) are freed.
+    const QList<QObject *> held{children()};
+    for (QObject *child : held) {
+        if (Promise *promise{qobject_cast<Promise *>(child)}) {
+            promise->abandon(QStringLiteral("the '%1' connect point's link dropped before "
+                                            "the answer arrived").arg(m_point));
+        }
+    }
     clearConnections();
     m_replica = replica;
     m_dynamic = (qobject_cast<QRemoteObjectDynamicReplica *>(replica) != nullptr);
@@ -55,8 +65,8 @@ void ConsumerBase::setReplica(QObject *replica)
     }
     ConnectPointResolver::instance()->publish(contractName(), m_point, this);
     emit readyChanged();
-    // Reconnect fast path. A re-acquired Replica may already be live, in which case no
-    // further initialized() will fire, so surface its state now.
+    // Reconnect fast path: a re-acquired Replica may already be live and will not emit
+    // initialized() again.
     QRemoteObjectReplica *asReplica{qobject_cast<QRemoteObjectReplica *>(m_replica)};
     if (asReplica != nullptr && asReplica->isInitialized()) {
         emitAllChanged();
@@ -77,11 +87,9 @@ bool ConsumerBase::isReady() const
 void ConsumerBase::handleInitialized()
 {
     if (m_dynamic) {
-        // A dynamic Replica has no API at all until it is initialized: no properties, no
-        // signals, nothing for a relay to connect to. So the relays wired when the Replica
-        // was bound found nothing and quietly did nothing, and a facade over the mesh
-        // relayed no signal it was ever asked to. They are wired again here, where the API
-        // exists, and the connection this slot came in on is re-made with them.
+        // A dynamic Replica has no API until it is initialized, so relays wired at bind
+        // time found nothing to connect to. They are wired again here, and the connection
+        // this slot came in on is remade with them.
         clearConnections();
         addConnection(connect(m_replica, SIGNAL(initialized()), this,
                               SLOT(handleInitialized())));

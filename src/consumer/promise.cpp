@@ -112,6 +112,11 @@ void Promise::settleFulfilled(const QVariant &value)
     flush();
 }
 
+void Promise::abandon(const QString &reason)
+{
+    settleRejected(reason);
+}
+
 void Promise::settleRejected(const QString &reason)
 {
     if (m_state != State::Pending) {

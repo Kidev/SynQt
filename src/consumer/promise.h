@@ -53,6 +53,14 @@ public:
     Q_INVOKABLE SynQt::Promise *then(const QJSValue &onFulfilled);
     Q_INVOKABLE SynQt::Promise *catchError(const QJSValue &onRejected);
 
+    /// Settle a promise whose answer is now known never to arrive, with `reason`.
+    ///
+    /// A remote call is answered on the connection it was sent on, so when that connection
+    /// is gone the reply has nowhere to land, and nothing else would ever settle this. The
+    /// facade calls it for every promise it still holds when its Replica is replaced,
+    /// which is what a reconnect does. A promise already settled is left alone.
+    void abandon(const QString &reason);
+
 private:
     enum class State { Pending, Fulfilled, Rejected };
 

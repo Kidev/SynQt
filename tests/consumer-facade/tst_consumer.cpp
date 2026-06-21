@@ -187,6 +187,31 @@ private slots:
         }
         QTRY_COMPARE(root->property("computed").toInt(), 38);  // the last one, 19 * 2
         QTRY_COMPARE_WITH_TIMEOUT(promisesHeld(), 0, 5000);
+
+        // 7) A call in flight when the link drops. The reply never comes, so nothing settles
+        //    the promise. It stayed pending, parented to a facade that lives as long as the
+        //    client, one per call cut off by a reconnect, and the handler written for the
+        //    failure never ran. A reconnect hands the facade a fresh Replica, and that is
+        //    the moment every answer the old one owed is known never to arrive.
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "requestComputeOrFail", Q_ARG(int, 50)));
+        QCOMPARE(promisesHeld(), 1);
+        clientSocket.abort();  // the packet is written. The answer has nowhere to land
+        QWebSocket secondSocket;
+        WebSocketTransport secondTransport{&secondSocket};
+        secondTransport.setUrl(QUrl{QStringLiteral("ws://localhost:%1").arg(port)});
+        QVERIFY(secondTransport.open(QIODevice::ReadWrite));
+        QRemoteObjectNode secondNode;
+        secondNode.addClientSideConnection(&secondTransport);
+        accessor.bindNode(&secondNode);
+        QTRY_COMPARE_WITH_TIMEOUT(promisesHeld(), 0, 5000);
+        QVERIFY2(!root->property("lastFailure").toString().isEmpty(),
+                 "a call the link dropped under was never told it failed");
+        QCOMPARE(root->property("computed").toInt(), 38);  // and never answered
+
+        // And the fresh link answers as before.
+        QTRY_VERIFY_WITH_TIMEOUT(facade->isReady(), 8000);
+        QVERIFY(QMetaObject::invokeMethod(root.data(), "requestCompute", Q_ARG(int, 30)));
+        QTRY_COMPARE(root->property("computed").toInt(), 60);
     }
 };
 
