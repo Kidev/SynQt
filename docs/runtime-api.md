@@ -418,13 +418,13 @@ ambient global.
 | `Caller.isUser` | always | bool | true when the call came from a browser client. Only possible on a web edge connect point. |
 | `Caller.isEntity` | always | bool | true when the call came from another entity over a mesh link. |
 | `Caller.hasSession` | always | bool | whether there is a person behind this call: the browser's own session when `isUser`, or the session the calling entity is acting for (see [down the chain](#the-session-down-the-chain)). |
-| `Caller.session` | `hasSession` | object | the session: `key`, `scope`, `identity`, and on the edge that authenticated it, `id`. |
+| `Caller.session` | `hasSession` | object | the session: `key`, `scope`, `identity`. The same three fields on the edge that authenticated it and down the chain. |
 | `Caller.identity` | `hasSession` | object \| null | the caller's normalized identity (same fields as [`Session.identity`](#client-session)), or `null` if anonymous. |
 | `Caller.scope` | `hasSession` | string | the one scope name the caller's session holds. |
 | `Caller.hasScope(name)` | `hasSession` | bool | whether the caller holds `name` (hierarchical where configured). |
 | `Caller.setScope(scope)` | `isUser` | action | set the session's scope. Used by the identity flow after login; rotates the session id on privilege change. The live connection carries on with the new id, and the browser is handed it on its next page load, so a refresh keeps the raised scope rather than starting over. |
 | `Caller.emit<Signal>(...)` | `isUser` | action | emit a contract signal back to **this one caller** (see [targeting](#emitting-a-signal-to-one-caller-versus-all)). |
-| `Caller.id` | `isUser` | string | the session id (also `Client.id`). |
+| `Caller.id` | `isUser` | string | the session key (also `Client.id`): a name derived from the credential, the same as `Caller.session.key`, and never the credential itself. It changes when `setScope` rotates the session. Use it to mark what a session owns; it buys nobody a session. |
 | `Caller.entity` | `isEntity` | string | the calling entity's authenticated name, taken from the certificate its mutual-TLS link verified. Authorizing on this alone is correct and complete on every mesh topology except one: see `isEntityVerified`. |
 | `Caller.isEntityVerified` | `isEntity` | bool | whether the name was proven by a certificate. True on every mutual-TLS link, which is every link unless the project wrote `transport: local`. False on a local socket link, where the framework supplies the name from the connect point's own consumer list and the operating system confirms only the peer's *user*. Only a topology that has a local link ever needs to read this. |
 
@@ -516,7 +516,7 @@ caller is a browser user, so edge code reads directly:
 Client.hasScope("user")     // == Caller.hasScope("user")
 Client.identity.email       // == Caller.identity.email
 Client.emitRejected(reason) // == Caller.emitRejected(reason)
-Client.id                   // the session id
+Client.id                   // the session key
 ```
 
 `Client` is only defined when `Caller.isUser`. The general mechanism is always

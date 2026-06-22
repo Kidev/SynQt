@@ -546,6 +546,13 @@
       "test": "theSessionLifecycleIsRecordedByItsHandleAndNotItsCredential"
     },
     {
+      "id": "the-credential-is-readable-off-the-caller",
+      "what": "`Client.id` is the documented key an owner marks ownership with, and it was the session cookie itself. An owner that wrote it into a row, logged it, or declared `ownerId` as a model role shipped every visitor's credential to every browser, and any tab that read it held everybody's session.",
+      "defended_by": "A user Caller names its session by the key (half of the credential's SHA-256, the same `Caller.session.key` a downstream entity is handed) and nothing on the Caller answers with the credential: `Caller.id` is the key and `Caller.session` carries `key`, `scope` and `identity` only, on the edge exactly as down the chain.",
+      "file": "tests/m7-caller/tst_sessions.cpp",
+      "test": "aUserCallerNeverHandsOutItsCredential"
+    },
+    {
       "id": "monitor-event-flood",
       "what": "A caller drives an entity into recording faster than the monitor can take events, to exhaust its memory or block its event loop through the pipeline it cannot turn off.",
       "defended_by": "The ring is bounded and drops the oldest rather than growing or blocking, counting every drop so the gap stays visible, and each event's message and attributes are truncated at the pipeline rather than at the call site, so an oversized header cannot become an oversized record.",

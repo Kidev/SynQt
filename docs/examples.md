@@ -352,9 +352,9 @@ ApplicationWindow {
   client that calls `Server.add` while anonymous still hits an edge that
   refuses, with `rejected("Sign in to add items.")`.
 - Ownership is enforced with an edge side value the client cannot spoof, never with
-  anything the client sends. Here that value is `Client.id`, the session identifier;
+  anything the client sends. Here that value is `Client.id`, the session key.
   `Client` is the edge alias for the `Caller` accessor, so this is the same mechanism
-  the mesh example (Example 4) writes as `Caller`. A session id is enough for this in
+  the mesh example (Example 4) writes as `Caller`. A session key is enough for this in
   memory list, where the data lives only as long as the edge process. Durable rows
   key ownership on `Caller.identity.sub` instead (see Example 4), so ownership
   survives a new session and a restart.
@@ -568,32 +568,32 @@ Edge {
 
 ### The client, `client/app/Main.qml`
 
-Identical in spirit to Example 2: it reads `Server.items`, calls
+Identical in spirit to Example 2. It reads `Server.items`, calls
 `Server.add(...)` and `Server.remove(index)`, and shows the reason a refusal
 carries through `Edge.onRejected`. The client does
-not know a database exists; it only ever talks to the edge.
+not know a database exists. It only ever talks to the edge.
 
 ### What this example demonstrates
 
-- Three entities, two boundaries. The edge authorizes the user (`Caller` in every slot);
-  the topology puts the database out of the browser's reach by listing one consumer.
-- The full user authorization matrix lives on the edge: anonymous cannot add, a
+- Three entities, two boundaries. The edge authorizes the user (`Caller` in every slot),
+  and the topology puts the database out of the browser's reach by listing one consumer.
+- The full user authorization matrix lives on the edge. Anonymous cannot add, a
   user removes only rows whose `ownerSub` matches their own `Caller.identity.sub`,
-  a moderator removes any. No client supplied value participates in the ownership
-  decision; the edge compares its own cached `ownerSub` against the verified
+  and a moderator removes any. No client supplied value participates in the ownership
+  decision. The edge compares its own cached `ownerSub` against the verified
   identity.
 - The browser cannot reach the store. Its point lists only `edge` as a consumer, and
   the browser cannot physically reach a non edge entity anyway.
 - Data minimization across two hops. `ownerSub` is on the internal contract for the
   edge's ownership logic and is dropped before anything reaches the browser, because
   it is not one of the edge's `items` roles. It carries `Caller.identity.sub`, the stable
-  identity subject, rather than the session id (`Client.id`) that Example 2 used:
-  the accessor is the same one Example 2 reaches through the `Client` alias, but a
+  identity subject, rather than the session key (`Client.id`) that Example 2 used.
+  The accessor is the same one Example 2 reaches through the `Client` alias, but a
   durable row must stay owned across new sessions and restarts, so it keys on the
   identity rather than the session.
 - Durability without a third party database server. Items live in the persistence
   entity's embedded store and survive restarts. No separate database product is run,
-  configured, or secured; it is a SynQt entity in the same toolchain and security
+  configured, or secured. It is a SynQt entity in the same toolchain and security
   model.
 - The same connect point mechanism carries both links. `Server` (browser to
   edge over wss) and `Store` (edge to database over the mesh) are the same

@@ -515,10 +515,35 @@ private slots:
         QVERIFY(!sessions.isLive(anonymous));
         QCOMPARE(caller->identity().toMap().value(QStringLiteral("sub")).toString(),
                  QStringLiteral("u1"));
-        // The rotated credential is the one the Caller now presents, so the edge writes
-        // back the cookie that matches the session that exists.
+        // The Caller now names the rotated session, by its key. The credential is what
+        // the browser is handed on its next page load, and not something QML holds.
         const QVariantMap row{sessions.snapshot().first().toMap()};
-        QCOMPARE(caller->id(), row.value(QStringLiteral("token")).toString());
+        QCOMPARE(caller->id(),
+                 SessionManager::keyFor(row.value(QStringLiteral("token")).toByteArray()));
+    }
+
+    // Nothing an owner's QML can read off a user Caller is the credential. `Client.id` is
+    // the documented ownership key, and an owner writes it into rows, into logs, and
+    // sometimes into a declared model role that reaches every browser. The cookie behind
+    // it must not be what travels. The key names the session without being it.
+    void aUserCallerNeverHandsOutItsCredential()
+    {
+        SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
+        const QByteArray credential{sessions.createSession(
+            QStringLiteral("user"), QVariantMap{{QStringLiteral("sub"), QStringLiteral("u1")}})};
+        QObject owner;
+        Caller *caller{Caller::forUser(QString{}, &sessions, credential, nullptr, &owner)};
+
+        QCOMPARE(caller->id(), SessionManager::keyFor(credential));
+        QVERIFY(caller->id() != QString::fromLatin1(credential));
+        const QVariantMap session{caller->session().toMap()};
+        QCOMPARE(session.value(QStringLiteral("key")).toString(),
+                 SessionManager::keyFor(credential));
+        QVERIFY(!session.contains(QStringLiteral("id")));
+        for (const QVariant &value : session) {
+            QVERIFY2(value.toString() != QString::fromLatin1(credential),
+                     "the credential is readable off Caller.session");
+        }
     }
 
     // A revoked or expired session leaves the Caller with nothing to read, and nothing to

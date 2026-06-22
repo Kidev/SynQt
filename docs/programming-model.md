@@ -507,7 +507,7 @@ The rules, the limits and what exactly travels are in
 `Client` remains available on web edge connect points as a convenience alias for
 `Caller` when the caller is a browser user, so existing edge code reads
 directly (`Client.hasScope`, `Client.identity`, `Client.emit<Signal>`, and
-`Client.id` for the session id). The general mechanism is `Caller`.
+`Client.id` for the session key). The general mechanism is `Caller`.
 
 Outside a call that originated from a consumer (an owner-side timer, or the entity's own
 singleton) there is no caller, and `Caller` is not in scope there at all. `synqt check`

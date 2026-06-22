@@ -124,7 +124,12 @@ bool Caller::hasSession() const
 QString Caller::id() const
 {
     if (m_isUser) {
-        return QString::fromLatin1(m_sessionId);
+        // The session's name, never its credential. The id in m_sessionId is the cookie:
+        // anything holding a copy of it is that visitor, and QML is where an owner writes
+        // `ownerId: Client.id` into a row, logs it, or declares it a model role and ships
+        // it to every browser. The key names the same session everywhere in the system
+        // (SessionManager::keyFor) and buys nobody a session.
+        return SessionManager::keyFor(m_sessionId);
     }
     return m_entity;
 }
@@ -138,8 +143,9 @@ QVariant Caller::session() const
         // holding and is never sent one.
         return m_forwarded.isEmpty() ? QVariant{} : QVariant{m_forwarded};
     }
+    // The same three keys a forwarded session carries, and not the credential: a session
+    // reached on the edge and one reached down the chain read the same way.
     QVariantMap map;
-    map.insert(QStringLiteral("id"), QString::fromLatin1(rec->id));
     map.insert(QStringLiteral("key"), SessionManager::keyFor(rec->id));
     map.insert(QStringLiteral("scope"), rec->scope);
     map.insert(QStringLiteral("identity"),
