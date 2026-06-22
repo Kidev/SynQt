@@ -3,11 +3,11 @@
 
 # Project layout and configuration
 
-This page covers the on disk layout of a SynQt project and the complete
-`synqt.yaml` schema. A project is a set of entities, so the config describes the
-topology (which entities exist, what they own, what they consume, how they bind)
-in addition to per entity settings and the security policy. Defaults are chosen so
-a fresh project runs with almost no configuration, and every default is stated.
+This page covers the layout of a SynQt project on disk and the complete `synqt.yaml`
+schema. A project is a set of entities, so the configuration describes the topology
+(which entities exist, what they own, what they consume, how they bind), plus per entity
+settings and the security policy. A fresh project runs with almost no configuration, and
+this page states every default.
 
 ## Directory layout
 
@@ -65,83 +65,73 @@ my-app/
 
 Principles:
 
-- Each entity is a folder of its own, inside the folder entities of its type share:
-  `client/<name>/`, `web/<name>/`, `db/relational/<name>/`, and so on. Everything
-  the entity is made of is in there and nowhere else, so a `.qml` file dropped
-  beside it is importable from it with no wiring, and two databases never write
-  over each other. The layout is fixed rather than configurable, so there is one rule
-  and nothing can point half the build at one directory and half at another.
-- A connect point's contract is its `export:` block in `synqt.yaml` rather than a file
-  in the entity's folder. The build writes the generated form under `generated/`. It is on the
-  wire for every consumer the connect point names, so changing it is a breaking change
-  even though only the owner's entry mentions it.
-- The root `CMakeLists.txt` is the one CMake file the project owns. It is written
-  once, never rewritten, and all it does is include `generated/synqt.cmake`, so a
-  target you add below the include survives every build. It sits at the root rather
-  than inside `generated/` because the QML compiler names each compiled file after
-  its path relative to the directory that declared the QML module. Declared one
-  level down, a view in `client/app/` compiles to a path with `..` in it, which is
-  a directory name Windows cannot create.
-- A service entity is never part of the WebAssembly build, and the client is never
-  part of any service build. A connect point's `server` file is compiled into its
-  owner entity only. No server file can leak into the client because it is never
-  added to the client target.
-- Secrets live in a per entity `.env` read only by that entity's process. The
-  build refuses to let any client target reference a secret (see security).
-- Nothing generated is written into an entity's folder. The CMake, the presets, and
-  each entity's `main.cpp` are written to `generated/`, which mirrors the entity
-  folders so two entities of the same type keep their own. An entity folder therefore
-  holds only what its author wrote, and "do not edit generated files" is a rule about
-  one path rather than a list of filenames to remember.
-- `generated/`, `synqt/` (toolchain cache, the mesh CA and certs) and `build/` are
-  derived and git ignored. The mesh private key in `synqt/mesh/` must never be
-  committed.
+- **One folder per entity,** inside the folder its type shares: `client/<name>/`,
+  `web/<name>/`, `db/relational/<name>/`, and so on. Everything the entity is made of is
+  there and nowhere else, so a `.qml` file dropped beside it is importable with no wiring,
+  and two databases never overwrite each other. The layout is fixed, not configurable, so
+  nothing can point half the build at one directory and half at another.
+- **The contract lives in `synqt.yaml`.** A connect point's contract is its `export:` block,
+  not a file in the entity's folder. The build writes the generated form under
+  `generated/`. Every consumer the connect point names sees it on the wire, so changing it
+  breaks them, even though only the owner's entry mentions it.
+- **One CMake file belongs to the project.** The root `CMakeLists.txt` is written once and
+  never rewritten. It only includes `generated/synqt.cmake`, so a target you add below the
+  include survives every build. It sits at the root, not in `generated/`, because the QML
+  compiler names each compiled file after its path relative to the directory that declared
+  the QML module. Declared one level down, a view in `client/app/` compiles to a path
+  containing `..`, a directory name Windows cannot create.
+- **Services and the client never share a build.** A service entity is never part of the
+  WebAssembly build, and the client is never part of a service build. A connect point's
+  `server` file compiles into its owner only, and never joins the client target, so it
+  cannot leak into the client.
+- **Secrets stay with their entity.** Each entity has its own `.env`, read only by its
+  process. The build refuses any client target that references a secret (see
+  [security](security.md)).
+- **Generated files stay out of entity folders.** The CMake, the presets and each entity's
+  `main.cpp` go to `generated/`, which mirrors the entity folders so two entities of the
+  same type keep their own. An entity folder holds only what its author wrote, and "do not
+  edit generated files" means one path, not a list of filenames.
+- **Derived folders are git ignored:** `generated/`, `synqt/` (toolchain cache, mesh CA and
+  certificates) and `build/`. Never commit the mesh private key in `synqt/mesh/`.
 
 ## The `synqt.yaml` schema
 
-SynQt uses YAML for its configuration. The config is where a project's topology of
-entities, connect points, and security policy is declared, and it is the input the
-validation at the end of this document checks. The schema is nested and repetitive.
-A project has many entities, each with several sub sections (`public`, `mesh`,
-`tls`, `env`, `settings`, `provider`), and each connect point and route is a small
-record of its own. YAML expresses that nesting directly, with block lists
-(`- name: ...`) for the repeated parts and indented maps for the grouped settings.
+SynQt's configuration is YAML. It declares the project's entities, connect points and
+security policy, and the [validation](#validation) at the end of this page checks it. The
+schema is nested and repetitive: a project has many entities, each with several sub
+sections (`public`, `mesh`, `tls`, `env`, `settings`, `provider`), and each connect point
+and route is a small record. YAML expresses that nesting directly, with block lists
+(`- name: ...`) for repeated parts and indented maps for grouped settings.
 
-A few conventions hold throughout the file:
+Conventions for the whole file:
 
-- Lists of records (`entities`, `connect_points`, `identity.providers`,
-  `routes`) are YAML block sequences. Each element begins with `- ` and its keys are
-  indented under it. Order does not matter anywhere, `routes` included. When two
-  routes both match a path, the one with more literal segments wins rather than the one
-  declared first.
-- Grouped settings (for example an entity's `public`, `mesh`, `tls`, `env`,
-  `settings`, and `provider` sections) are nested maps under the record they belong
-  to. There is no repetition of the entity name inside those sub sections the way a
-  flatter format would require. They nest under the entity.
-- Scalars are written plainly. Unquoted strings (`name: web`), booleans (`true`
-  / `false`), and integers (`port: 8443`) are all fine. Quote a string only when it
-  contains YAML significant characters. The examples quote values such as URLs and
-  CSP strings where quoting aids readability, and leave the rest bare.
-- Secrets are never literals here. Any value that carries a credential is an
-  `env:` reference (for example `env:DB_PASSWORD`), never written into `synqt.yaml`.
-  Validation enforces this. The name is answered when the entity starts, from its own
-  environment, the entity's env file (`web/edge/.env` for an entity in `web/`, or wherever
-  `env: {file: ...}` points) and then the project `.env`, most specific first, with
-  neither able to overwrite a variable the real environment already set. That last rule
-  is what lets an entity be deployed with a container secret, a systemd unit or a CI
-  secret store and no file on disk at all.
-- Comments use `#`, and are used liberally in the scaffolded file to explain
-  each default in place.
+- **Lists of records** (`entities`, `connect_points`, `identity.providers`, `routes`) are
+  YAML block sequences: each element starts with `- ` and its keys are indented under it.
+  Order never matters, `routes` included. When two routes match a path, the one with more
+  literal segments wins.
+- **Grouped settings** (an entity's `public`, `mesh`, `tls`, `env`, `settings` and
+  `provider` sections) are maps nested under their record, so the entity name is never
+  repeated inside them.
+- **Scalars are plain.** Unquoted strings (`name: web`), booleans (`true` / `false`) and
+  integers (`port: 8443`) all work. Quote a string only when it contains characters YAML
+  treats specially. The examples quote URLs and CSP strings for readability.
+- **Secrets are never literals.** A credential is always an `env:` reference (for example
+  `env:DB_PASSWORD`), and validation enforces it. The entity resolves the name when it
+  starts, most specific source first: its own environment, then its env file
+  (`web/edge/.env` for an entity in `web/`, or wherever `env: {file: ...}` points), then
+  the project `.env`. No file overrides a variable the real environment already set, so an
+  entity can run with a container secret, a systemd unit or a CI secret store and no file
+  on disk.
+- **Comments use `#`.** The scaffolded file uses them to explain each default in place.
 
-A minimal project needs a `project` block, two entities, and one connect point.
-Everything else has a default and may be omitted. The full schema follows, grouped
-by concern, with every default stated. Each top level key below (`project`,
-`scopes`, `entities`, `connect_points`, `security`, `mesh`, `identity`,
-`router`, `routes`, `build`, `check`) is a section of the one `synqt.yaml` file.
+A minimal project needs a `project` block, two entities and one connect point. Everything
+else has a default. The full schema follows, grouped by concern, with every default. Each
+top level key below (`project`, `scopes`, `entities`, `connect_points`, `security`, `mesh`,
+`identity`, `router`, `routes`, `build`, `check`) is a section of the same `synqt.yaml`.
 
 ### `project`
 
-Identity and cross cutting choices for the whole application.
+The application's name and choices that affect every entity.
 
 ```yaml
 project:
@@ -150,24 +140,21 @@ project:
   qt_version: 6.12.0           # pinned Qt; drives the Emscripten version too
 ```
 
-`name` is the only required key. The rest have defaults. `qt_version` pins the
-toolchain. It fixes the Qt version every entity builds against and, through it, the
-Emscripten version used for the client (see
+`name` is the only required key. `qt_version` pins the toolchain: the Qt version every
+entity builds against and, through it, the client's Emscripten version (see
 [build system and CLI](build-system-and-cli.md)).
 
-There is no `origin_model` here. A project with no
-`origin_model` is same origin. The client and the web edge answer on one origin, the
-session cookie is first party, and the content security policy and the upgrade origin
-check stay in their simplest form. Everything in this document assumes that shape. The
-other value, `split_origin`, exists and is still validated, but you write it by hand
-after reading [serving the client from another
-origin](#serving-the-client-from-another-origin), which is where its cost is measured.
+The scaffold writes no `origin_model`. Without it, the project is same origin: the client
+and the web edge share one origin, the session cookie is first party, and the content
+security policy and the upgrade origin check stay simple. This page assumes that setup.
+The other value, `split_origin`, is still validated, but you add it by hand after reading
+[serving the client from another origin](#serving-the-client-from-another-origin), which
+measures its cost.
 
 ### Where the framework reads and writes
 
-The project layout is fixed. There is no `paths` section. Every
-path below is where the framework looks, always, so that a `synqt.yaml` describes
-an application and never a directory scheme.
+The project layout is fixed, so there is no `paths` section. The framework always looks
+at the paths below, and a `synqt.yaml` describes an application, never a directory scheme.
 
 | Directory | Holds |
 |-----------|-------|
@@ -177,25 +164,21 @@ an application and never a directory scheme.
 | `synqt/toolchain/` | the pinned Qt and Emscripten kits `synqt` provisions |
 | `.synqt/design.json` | where the [designer](visual-editor.md) last left each entity on its canvas |
 
-Generated C++ (the rep files, the repc output, the Source helpers) is a build
-artifact rather than a source file. It is written into the CMake binary directory under
-`synqt_generated/<target>/` and never into the project tree. Nothing in the
-repository has to be regenerated by hand, and nothing generated has to be
-committed.
+Generated C++ (the rep files, the repc output, the Source helpers) is a build artifact. It
+goes into the CMake binary directory under `synqt_generated/<target>/`, never into the
+project tree, so nothing needs regenerating by hand or committing.
 
-`.synqt/design.json` is the one file here that describes no part of the running system. It
-holds an x and a y per entity, which is where the [designer](visual-editor.md) left that
-node on its canvas, and it is advisory. Nothing reads it but the editor, and an entity it
-says nothing about is laid out from the default any project gets, the browser on the left
-and everything it must not reach on the right. Deleting it loses the arrangement and
-nothing else. It is not git ignored, because a team that arranges a diagram usually wants the
-arrangement to be the same one on everybody's screen. Ignore it in your own `.gitignore`
-if you would rather it were not.
+`.synqt/design.json` is the only file here that describes nothing in the running system.
+It holds an x and y per entity, where the [designer](visual-editor.md) left each node on
+its canvas. Only the editor reads it. An entity it does not mention gets the default
+layout: the browser on the left, and everything the browser must not reach on the right.
+Deleting it loses only the arrangement. It is not git ignored, because a team usually
+wants the same diagram on every screen; add it to your own `.gitignore` if you prefer.
 
 ### `scopes` (browser user permissions)
 
-The vocabulary of user permission levels for the whole app. Connect point gates and
-identity mapping both draw on this list, so it is declared once here.
+The app's user permission levels. Connect point gates and identity mapping both use this
+list, so it is declared once, here.
 
 ```yaml
 scopes:
@@ -204,45 +187,41 @@ scopes:
   default: anonymous
 ```
 
-`order` lists the scopes from least to most privileged. `hierarchical: true` (the
-default) makes a check like `hasScope("user")` succeed for any scope at or above
-`user` in `order`. Set it to `false` for set based scopes, where no scope implies
-another and a check succeeds only on the name the session holds. `default` is the
-scope a brand new, unauthenticated browser session runs at.
+`order` lists the scopes from least to most privileged. With `hierarchical: true` (the
+default), `hasScope("user")` succeeds for any scope at or above `user` in `order`. Set it
+to `false` for set based scopes: no scope implies another, and a check succeeds only on
+the exact name the session holds. `default` is the scope of a new, unauthenticated browser
+session.
 
 ### `entities` (the topology)
 
-A block sequence with one entry per entity. The list of entities, and through each
-entity's owned and consumed connect points the whole mesh topology, is defined here.
-Each entry is a map. The two keys every entity has are `name` and `type`, and the
-rest depend on the type of entity.
+A block sequence with one entry per entity. It defines every entity and, through the
+connect points each one owns and consumes, the whole mesh topology. Every entity has a
+`name` and a `type`; the other keys depend on the type.
 
-`name` is also the entity's directory, and its QML module, and the name other
-entities address it by. There is no separate path key. An entity sits under its own name
-inside the folder its type shares, so `name: edge` on a `web_edge` puts its QML in
-`web/edge/`, its secrets in `web/edge/.env`, and its build output in `build/edge/`.
-A client entity's window is `client/<name>/Main.qml`, always, which is why nothing
-declares an entry point either.
+`name` is also the entity's directory, its QML module, and the name other entities use to
+reach it. There is no separate path key: an entity sits under its name inside its type's
+folder, so `name: edge` on a `web_edge` puts its QML in `web/edge/`, its secrets in
+`web/edge/.env`, and its build output in `build/edge/`. A client's window is always
+`client/<name>/Main.qml`, so nothing declares an entry point either.
 
-Every other entity's own file is `<type>/<name>/<Name>.qml`, written when the entity is
-created and rooted at the type the entity exports. It is the entity and the surface
-it exports at once. The connect point's `server` file defaults to it, and on a shared
-entity (the default) there is one of it for the whole process.
+Every other entity's own file is `<type>/<name>/<Name>.qml`. It is written when the entity
+is created, rooted at the type the entity exports, and serves as both the entity and its
+exported surface. The connect point's `server` file defaults to it, and a shared entity
+(the default) has one instance for the whole process.
 
-State that has to outlive any one caller goes in a `pragma Shared` file beside it,
-named whatever suits it (the arena's `World.qml`). This matters on an entity with
-`shared: false`, where `<Name>.qml` is minted per caller and anything the callers
-share cannot live there. `pragma Shared` is SynQt's word for QML's own `pragma
-Singleton`, and `synqt build` writes the line back to `pragma Singleton` in the copy
-under `generated/` the engine loads, in the same pass that makes a self-named root
-loadable. A shared file is discovered by that line itself, so adding one needs no
-declaration anywhere. It is also created when the entity starts rather than when its
-first caller arrives, so an entity that subscribes to a mesh signal or starts a loop
-there misses nothing.
+State that must outlive any one caller goes in a `pragma Shared` file beside it, with any
+name (the arena's `World.qml`). This matters with `shared: false`, where each caller gets
+its own `<Name>.qml`, so state the callers share cannot live there. `pragma Shared` is
+SynQt's spelling of QML's `pragma Singleton`: `synqt build` rewrites the line to
+`pragma Singleton` in the copy under `generated/` that the engine loads, in the same pass
+that makes a self-named root loadable. The line itself marks the file, so adding one needs
+no declaration. The file is created when the entity starts, not when its first caller
+arrives, so a mesh signal subscription or a loop started there misses nothing.
 
-A shared file is the entity rather than a caller, so `Caller` is not in scope in it and
-`synqt check` says so. An authorization line there would read like a rule and run as a
-ReferenceError. Those belong in the Source, where a caller arrives.
+A shared file belongs to the entity, not to a caller, so `Caller` is not in scope there and
+`synqt check` reports it. An authorization line there would look like a rule and fail with
+a ReferenceError. Put it in the Source, where callers arrive.
 
 A client entity:
 
@@ -253,12 +232,11 @@ entities:
     targets: [wasm]           # [wasm] (default); add "desktop" for a native app
 ```
 
-A client does not name the edge it attaches to. There is one web edge to reach and
-the topology already says which entity it is, so naming it again would be a second
-spelling of one fact, and the one that lost would fail silently.
+A client does not name its edge. There is one web edge, and the topology already says
+which, so a second spelling of the same fact could only disagree and fail silently.
 
-A web edge entity, with its nested sub sections for the public (internet facing)
-side, the mesh (service to service) side, the public TLS, and its env file:
+A web edge entity, with sub sections for its public (internet facing) side, its mesh
+(service to service) side, the public TLS and its env file:
 
 ```yaml
   - name: edge
@@ -324,12 +302,12 @@ side, the mesh (service to service) side, the public TLS, and its env file:
       file: web/edge/.env
 ```
 
-`serve_client: false` hands delivery to a CDN. It is the other half of
-`split_origin`, so it is described in [serving the client from another
-origin](#serving-the-client-from-another-origin) rather than here.
+`serve_client: false` hands delivery to a CDN. It goes with `split_origin`, so
+[serving the client from another origin](#serving-the-client-from-another-origin)
+describes it.
 
-A database entity. The embedded default needs no `provider` section at all, and
-the type's own settings go under `settings`:
+A database entity. The embedded default needs no `provider` section, and the type's own
+settings go under `settings`:
 
 ```yaml
   - name: store
@@ -357,10 +335,9 @@ the type's own settings go under `settings`:
       busy_timeout_ms: 5000
 ```
 
-To back the same entity with a third party engine instead of the embedded default,
-add a `provider` section naming the engine and carrying its connection. Everything
-else (the connect points, the consumers, the mesh) is unchanged. This is the
-graduated path described in [providers](providers.md):
+To back the same entity with a third party engine, add a `provider` section naming the
+engine and its connection. The connect points, consumers and mesh stay the same. This is
+the upgrade path described in [providers](providers.md):
 
 ```yaml
   - name: store
@@ -380,60 +357,52 @@ graduated path described in [providers](providers.md):
 
 Notes:
 
-- `name` is the entity, everywhere. It is the directory its files live in, the build
-  target, the accessor other entities reach it through (capitalized, so `store`
-  becomes `Store`), and the subject of its mesh certificate. So it is held to a shape.
-  It starts with a letter and is made of letters, digits, underscores and hyphens, up
-  to 64 characters. `synqt check` refuses anything else rather than letting a space or
-  a dot turn into a build failure somewhere a long way from the line that caused it.
-- `type` is the one field that says what an entity is: `client`, `web_edge`, or one
-  of the entity types on the [entities](entities.md) page (`relational`, `document`,
-  `cache`, `api`, `jobs`, `service`). It decides the folder the entity lives in, the
-  helper the runtime puts in its QML, and whether it faces the internet. Omitted, it
-  is `service`, with no engine, no browser-facing side, and reachable only over the mesh.
-- The `provider` section selects the engine behind a type that has one (see
-  [providers](providers.md)). Omit it to use that type's default (the embedded
-  engine), which needs no provider section. `provider.name` picks the engine and the
-  remaining keys in the section carry the connection.
-- `transport: mtls` (the default for every mesh link) uses QtRO over mutually
-  authenticated TLS against the project CA, bound to loopback when the two entities
-  share a host, so `Caller.entity` is certificate authenticated everywhere.
-  `transport: local` uses QLocalServer and QLocalSocket (filesystem permission
-  protected, no network). It is an explicit opt in for co located, equally trusted
-  entities, because a local socket identifies the connecting user rather than the
-  connecting entity (see [security](security.md)). It is never chosen implicitly.
-- The entity's `mesh` block says how other entities reach this entity, which is
-  what you write when a service moves to its own host. Set `host` and `port` there
-  once and every connect point it owns follows. A connect point may override
-  `transport`, `host`, `port`, or `socket` for its own link, key by key, which is
-  how one entity can own a loopback link and a cross host link at the same time.
-  Anything neither of them says falls back to loopback on a port derived from the
-  connect point's position in the sorted list, so a single host project needs no
-  `mesh` block at all. A link whose resolved host is not this machine is a cross
-  host link, and `mesh.require_mtls_cross_host` governs it.
-- Every address written here is an address rather than a name. `mesh.host`,
-  `public.host` and `network.inbound.bind` are read into a `QHostAddress`, which
-  holds an address and resolves nothing, so `db.internal` binds nothing and dials
-  nothing, and so does `localhost`. Write `127.0.0.1` for this machine and
-  `0.0.0.0` for every interface. `synqt check` refuses a name here rather than
-  resolving one, for the reason it refuses one in `trusted_proxies`. Resolving
-  would pick one of a name's addresses at build time and bake it in, which is a
-  different deployment from the one that was written down. A provider's own `host`
-  is not one of these, because a database is reached through its driver, which does
-  resolve names.
-- A client entity has no mesh section. It never listens and never participates in
-  the mesh. It reaches exactly one web edge over wss. Its `targets` select how the
-  same QML is packaged, `wasm` for the browser and `desktop` for a native
-  Windows/macOS/Linux build. A `desktop` target adds a
-  [`build.desktop`](#builddesktop) section. See [desktop clients](desktop.md).
+- **`name`** identifies the entity everywhere: its directory, its build target, the
+  accessor other entities use (capitalized, so `store` becomes `Store`), and the subject of
+  its mesh certificate. So it has a fixed shape: it starts with a letter, contains only
+  letters, digits, underscores and hyphens, and has at most 64 characters. `synqt check`
+  refuses anything else, so a space or a dot cannot cause a build failure far from the line
+  that caused it.
+- **`type`** is the one field that says what an entity is: `client`, `web_edge`, or one of
+  the types on the [entities](entities.md) page (`relational`, `document`, `cache`, `api`,
+  `jobs`, `service`). It decides the entity's folder, the helper the runtime puts in its
+  QML, and whether it faces the internet. Without it, the entity is a `service`: no engine,
+  no browser-facing side, reachable only over the mesh.
+- **`provider`** selects the engine behind a type that has one (see
+  [providers](providers.md)). Omit it to use the type's embedded default.
+  `provider.name` picks the engine, and the other keys carry the connection.
+- **`transport`** chooses how a mesh link travels. `mtls`, the default for every link, runs
+  QtRO over TLS with mutual authentication against the project CA, bound to loopback when
+  both entities share a host, so `Caller.entity` is always certificate authenticated.
+  `local` uses QLocalServer and QLocalSocket (protected by filesystem permissions, no
+  network). It is an explicit opt in for colocated, equally trusted entities, because a
+  local socket identifies the connecting user, not the connecting entity (see
+  [security](security.md)). SynQt never chooses it for you.
+- **`mesh`** on an entity says how other entities reach it; write it when a service moves to
+  its own host. Set `host` and `port` once and every connect point it owns follows. A
+  connect point may override `transport`, `host`, `port` or `socket` for its own link, key
+  by key, so one entity can own a loopback link and a cross host link at once. Anything
+  neither sets falls back to loopback, on a port derived from the connect point's position
+  in the sorted list, so a single host project needs no `mesh` block. A link whose host is
+  not this machine is a cross host link, governed by `mesh.require_mtls_cross_host`.
+- **Addresses, not names.** `mesh.host`, `public.host` and `network.inbound.bind` are read
+  into a `QHostAddress`, which holds an address and resolves nothing, so `db.internal` and
+  even `localhost` bind and dial nothing. Write `127.0.0.1` for this machine and `0.0.0.0`
+  for every interface. `synqt check` refuses a name here, for the same reason it refuses
+  one in `trusted_proxies`: resolving would bake one of the name's addresses into the build,
+  a different deployment from the one written down. A provider's own `host` is different:
+  its driver resolves names.
+- **A client has no mesh section.** It never listens and never joins the mesh; it reaches
+  exactly one web edge over wss. Its `targets` choose how the QML is packaged: `wasm` for
+  the browser, `desktop` for a native Windows, macOS or Linux build. A `desktop` target
+  adds a [`build.desktop`](#builddesktop) section. See [desktop clients](desktop.md).
 
 ### `network`: what an entity may reach, and who may reach it { #network-what-an-entity-may-reach-and-who-may-reach-it }
 
-Every entity may carry a `network:` block, and none has to. Absent, which is the
-default on every type, means closed. The entity makes no outbound call and serves no
-public surface, and the only things that can reach it are the consumers its connect
-points list. Opening it is a deployment's decision, written next to those consumer
-lists because it is the same kind of decision.
+Any entity may have a `network:` block; none needs one. Without it (the default for every
+type), the entity is closed: it makes no outbound call, serves no public surface, and only
+the consumers its connect points list can reach it. Opening it is a deployment decision,
+written next to those consumer lists because it is the same kind of decision.
 
 ```yaml
 entities:
@@ -472,97 +441,95 @@ entities:
         reply_timeout_ms: 15000          # default, and 0 means the default rather than no deadline
 ```
 
-`outbound` is a list of URL prefixes. Declaring the key puts the `Http` helper
-in the entity's QML scope, and the list is what `Http` will allow. The two are separate.
-`outbound: []` gives the entity the helper and lets it reach nowhere, so a
-call is refused by name and tells you which key to add, where no key at all would have
-been a ReferenceError on a helper that is not there. A prefix is matched against the
-normalized URL, so a traversal cannot escape it.
+`outbound` is a list of URL prefixes. Declaring the key puts the `Http` helper in the
+entity's QML scope, and the list says what `Http` allows. The two are separate:
+`outbound: []` gives the entity the helper but lets it reach nowhere, so a call is refused
+with a message naming the key to add, where a missing key would have been a
+ReferenceError on an absent helper. Prefixes match the normalized URL, so a path traversal
+cannot escape them.
 
-An entry may be a record instead of a string, with a `name`, a `url` and `headers`.
-The runtime attaches the headers to every call under that prefix, which is how
-an API key reaches an upstream without the entity's QML ever holding it. Write it as an
-`env:` reference and it is read from that entity's environment at startup. `synqt check`
-refuses a literal credential. The `name` is the handle
-[`Http.api(name)`](runtime-api.md#http-outbound-calls-within-the-allowlist) resolves, so
-a call site writes a path and the base URL stays a configuration decision.
+An entry may be a record instead of a string, with a `name`, a `url` and `headers`. The
+runtime attaches the headers to every call under that prefix, so an API key reaches an
+upstream without the entity's QML ever holding it. Write the key as an `env:` reference,
+read from the entity's environment at startup; `synqt check` refuses a literal
+credential. [`Http.api(name)`](runtime-api.md#http-outbound-calls-within-the-allowlist)
+resolves the `name`, so a call site writes only a path and the base URL stays in the
+configuration.
 
-`inbound` opens a port and puts the `Api` helper in scope, which the entity's own
-singleton declares its routes on (see [the gateway](entities.md#gateway-the-api-entity)).
-Everything a caller can influence is checked before a handler exists, in order the rate
-limit, the API key, the origin, then the body size.
+`inbound` opens a port and puts the `Api` helper in scope; the entity's singleton declares
+its routes on it (see [the gateway](entities.md#gateway-the-api-entity)). Everything a
+caller controls is checked before a handler runs, in this order: rate limit, API key,
+origin, body size.
 
-`rate_per_minute` counts one address, and `trusted_proxies` is what decides which address
-that is. With nobody named it is the peer that connected, which is correct for a port
-callers reach directly and one budget shared by everybody as soon as a proxy sits in
-front, because every request then arrives from the proxy. Naming the proxy makes it the address the proxy
-put in `X-Forwarded-For` instead, so each caller gets its own budget again. Nothing is
-trusted implicitly. The header is read only from a peer on this list, and within it only
-the rightmost entry that is not itself a listed hop, because everything to the left of that
-is whatever the client sent. `synqt check` refuses an entry that is not an address or a
-CIDR range rather than dropping it at startup, because a host name there would leave the
-surface counting the proxy as every caller with nothing said about it.
+`rate_per_minute` counts per address, and `trusted_proxies` decides which address. With no
+proxy named, it is the connecting peer: correct when callers connect directly, but once a
+proxy sits in front, every request comes from the proxy and everybody shares one budget.
+Naming the proxy makes the limit count the address the proxy put in `X-Forwarded-For`, so
+each caller gets their own budget again. Nothing is trusted implicitly: the header is read
+only from a listed peer, and only its rightmost entry that is not itself a listed hop,
+because everything further left is whatever the client sent. `synqt check` refuses an entry
+that is not an address or CIDR range, instead of dropping it silently at startup, which
+would leave the surface counting the proxy as every caller.
 
-The list is per surface. An edge's browser side reads `public.trusted_proxies` and an API
-surface reads this one, and neither is taken to mean the other, because they are two
-listeners on two ports and a deployment can put a balancer in front of one while the other
-stays on an internal network. An entity that has both and configures only the browser one
-gets a warning, since that is more often an oversight than a decision.
+Each surface has its own list. An edge's browser side reads `public.trusted_proxies`, an
+API surface reads this one, and neither implies the other: they are two listeners on two
+ports, and a deployment can put a balancer in front of one while the other stays internal.
+An entity with both that configures only the browser list gets a warning, because that is
+usually an oversight.
 
 A handler reads the resolved address as
-[`request.client`](runtime-api.md#api-the-inbound-http-surface), which is the same address
-the rate limit counts.
+[`request.client`](runtime-api.md#api-the-inbound-http-surface), the same address the rate
+limit counts.
 
-`max_body_bytes` is the transport's limit rather than a check made after the fact. A body
-past it is refused while it is still arriving, so an oversized request is never read
-into memory. The connection also has an idle timeout, which is what ends a caller that
-opens a socket, sends half a request and stops.
+`max_body_bytes` is enforced by the transport, not checked afterwards: a body over the
+limit is refused while it arrives, so an oversized request never reaches memory. An idle
+timeout also closes a caller that opens a socket, sends half a request and stops.
 
-`max_connections` and `max_connections_per_ip` are counted at accept, before a request
-exists, because neither the rate limit nor the body ceiling sees a caller that opens a
-socket and sends nothing, or a byte every few seconds to stay under the idle timeout.
-The socket over the ceiling is answered `429` and closed, and releasing one readmits
-the next. The per-address ceiling is switched off when `trusted_proxies` names a proxy,
-since every socket is then the proxy's and a ceiling on it would refuse the whole API
-at the sixty-fifth caller. The total still holds. Zero disables either.
+`max_connections` and `max_connections_per_ip` count at accept, before any request exists,
+because neither the rate limit nor the body limit sees a caller that opens a socket and
+sends nothing, or one byte every few seconds to stay under the idle timeout. A socket over
+the limit gets `429` and is closed, and each released socket admits the next. When
+`trusted_proxies` names a proxy, the per-address limit is off: every socket then belongs to
+the proxy, and a limit on it would refuse the whole API at the sixty-fifth caller. The
+total limit still applies. Zero disables either.
 
-A handler may answer on a later turn, which is what any handler reaching a connect point
-or an upstream does. The connection is held open for it until `reply_timeout_ms`, after
-which the request is failed with 504 and the refusal is reported, so a handler that
-never answers costs one status code rather than a socket. `0` is not a way to wait
-forever. A handler that never answers would hold its request and its connection for the
-life of the process, so zero falls back to the default and says so once.
+A handler may answer later, as any handler that calls a connect point or an upstream does.
+The connection stays open until `reply_timeout_ms`; after that the request fails with 504
+and the failure is reported, so a handler that never answers costs a status code, not a
+socket. `0` does not mean wait forever: a silent handler would hold its request and
+connection for the life of the process, so zero falls back to the default, with a one-time
+notice.
 
 Validation of the block:
 
-- `api_keys` is required, and must be an `env:` reference. A surface with no keys is
-  refused unless it also says `public: true`, because leaving a line out is how an
-  internal API ends up answering the internet. A key written into `synqt.yaml` is
-  refused too, because it is a secret in a file you commit.
-- `port` is required, because a public surface has to name the port it occupies.
-- No TLS is a warning rather than an error, and it names what it costs. An API key
-  travels in a header, so anyone on the path reads it. Write `tls_terminated_upstream: true`
-  when a proxy in front of it terminates TLS, and the warning goes.
-- A `http://` prefix in `outbound` is a warning, because the runtime refuses a plaintext
-  outbound call in a release build, so it works in development and stops working when
-  you ship.
-- A client may declare neither half. A browser calls nothing but its own edge, and it
-  cannot listen at all.
-- A web edge may not declare `inbound`. It already serves the public through its own
-  `public:` and `tls:` blocks, and two listeners in one entity would be two policies to
-  keep in step.
-- Every `trusted_proxies` entry has to be an address or a CIDR range. A host name is
-  refused rather than resolved, because the runtime reads this list as addresses, so a
-  name there would be dropped and the surface would count its proxy as every caller.
+- **`api_keys` is required** and must be an `env:` reference. A surface without keys is
+  refused unless it also says `public: true`, because a forgotten line is how an internal
+  API ends up answering the internet. A key written in `synqt.yaml` is refused too: it is a
+  secret in a committed file.
+- **`port` is required,** because a public surface must name its port.
+- **Missing TLS is a warning,** and the warning says what it costs: an API key travels in a
+  header, so anyone on the path can read it. Write `tls_terminated_upstream: true` when a
+  proxy in front terminates TLS, and the warning goes away.
+- **An `http://` prefix in `outbound` is a warning,** because the runtime refuses plaintext
+  outbound calls in a release build: the call works in development and fails once you
+  ship.
+- **A client may declare neither half.** A browser calls only its own edge and cannot
+  listen.
+- **A web edge may not declare `inbound`.** It already serves the public through its
+  `public:` and `tls:` blocks, and a second listener would be a second policy to keep in
+  sync.
+- **Every `trusted_proxies` entry must be an address or CIDR range.** A host name is
+  refused, not resolved: the runtime reads the list as addresses, so it would drop the name
+  and count the proxy as every caller.
 
 An entity with `inbound` links Qt HTTP Server, which is GPLv3 only, so its artifact is
-GPLv3 and its generated `THIRD-PARTY-LICENSES` says so. An outbound only entity links
-neither and stays LGPLv3. See [licensing](licensing.md).
+GPLv3, as its generated `THIRD-PARTY-LICENSES` states. An outbound only entity does not
+link it and stays LGPLv3. See [licensing](licensing.md).
 
 ### `bundles`: which scope is served which client
 
-A web edge serves the bundle the caller's session scope maps to, and no file of any other.
-Declared on the edge entity, because delivery is that entity's job:
+A web edge serves only the bundle that the caller's session scope maps to. The block goes
+on the edge entity, because delivery is the edge's job:
 
 ```yaml
 entities:
@@ -574,45 +541,44 @@ entities:
       moderator: app
 ```
 
-A value holding a `/` is a directory, relative to the edge entity's own folder. A bare name
-is a client entity. Anything that could be read both ways is refused by
-[`synqt check`](build-system-and-cli.md) rather than guessed at.
+A value containing `/` is a directory, relative to the edge entity's folder. A bare name is
+a client entity. [`synqt check`](build-system-and-cli.md) refuses anything that could be
+read both ways instead of guessing.
 
-With no `bundles:` block the project's one client is served to everybody, which is what
-every project written before this key did, so nothing has to be added to keep working.
+Without a `bundles:` block, the project's one client goes to everybody, as before this key
+existed, so existing projects need no change.
 
-Two things follow from it, and the first is the reason it exists:
+Two consequences, the first being the reason the key exists:
 
-- The file is never delivered to an under-scoped visitor, rather than merely being
-  unreachable by navigation. A route `scope:` is a navigation guard and says so in
-  [the programming model](programming-model.md), so a privileged view in a shared bundle
-  still ships to every visitor. A bundle boundary is the one that does not.
-- A request for a file outside the caller's bundle is answered `404` rather than `403`. A
-  private deployment does not confirm that an operator console exists.
+- **An under-scoped visitor never receives the file,** not just a page they cannot navigate
+  to. A route `scope:` only guards navigation, as
+  [the programming model](programming-model.md) says, so a privileged view in a shared
+  bundle still ships to every visitor. A bundle boundary does not.
+- **A file outside the caller's bundle gets `404`, not `403`,** so a private deployment does
+  not confirm that an operator console exists.
 
-When `scopes.hierarchical` is true (the default) a scope with no bundle of its own is
-served the nearest one below it, so a project declares two bundles rather than one per
-scope. With set-based scopes there is no "below", and an unmapped scope is served the
-default scope's bundle.
+When `scopes.hierarchical` is true (the default), a scope without its own bundle gets the
+nearest one below it, so a project declares two bundles, not one per scope. Set-based
+scopes have no "below", so an unmapped scope gets the default scope's bundle.
 
-The bundle is chosen when the page loads. If a session's scope changes so that a different
-bundle now applies, the next full page load picks it up. Nothing hot-swaps a
-WebAssembly module underneath a running app.
+The edge picks the bundle when the page loads. If a scope change makes another bundle
+apply, the next full page load picks it up; nothing swaps a WebAssembly module under a
+running app.
 
-A static bundle is any directory holding an `index.html`: a landing page with a sign-in
-button, the output of a site generator, or a single form. It costs no build. A client
-entity is a full SynQt client, and because the edge mints an anonymous session for every
-visitor it can consume anonymous-scope connect points, so a landing page can show live
-public data rather than being a poster. It costs a WebAssembly build.
+A static bundle is any directory with an `index.html`: a landing page with a sign-in
+button, a site generator's output, or a single form. It needs no build. A client entity is
+a full SynQt client: the edge gives every visitor an anonymous session, so a client can
+consume anonymous-scope connect points, and a landing page can show live public data
+instead of a static poster. It needs a WebAssembly build.
 
-A project with more than one client entity gets one QML module and one bundle directory per
-client (`build/client-<name>/`). A project with one keeps `build/client/` exactly as before.
+With several client entities, each gets its own QML module and bundle directory
+(`build/client-<name>/`). A project with one keeps `build/client/`.
 
 ### `connect_points` (ownership and consumers)
 
-A block sequence with one entry per connect point. An entity has one, the surface it
-exports, with exactly one owner and a list of consumers. Nothing in the entry is a name,
-because the owner is the name.
+A block sequence with one entry per connect point. An entity has at most one: the surface
+it exports, with exactly one owner and a list of consumers. The entry has no name of its
+own, because the owner names it.
 
 ```yaml
 connect_points:
@@ -634,59 +600,56 @@ connect_points:
       slot insert(string[280] text, string[64] ownerSub)
 ```
 
-`export` is the shape of what crosses, written as a block of `prop`/`model`/`slot`/
-`signal` lines (and any `record` they use), or just the name of a member the owner
-already implements. The full member grammar, the types they can name, and what a bare
-name resolves to are in
-[the programming model](programming-model.md#contracts-the-shape-of-what-may-cross).
-`synqt check` holds every line to the owner's Source. A member nothing there implements
-is an error.
-Nothing names the point and nothing names the contract. The type a point exports is its
-owner capitalized, so `owner: edge` exports `Edge`, and that is the QML type the owner's
-Source is rooted at. It is also `web/edge/Edge.qml`, the edge's own file, because an entity
-and the surface it exports are one thing. The build writes the contract to
+`export` is the shape of what crosses: a block of `prop`/`model`/`slot`/`signal` lines
+(and any `record` they use), or just the name of a member the owner already implements.
+[The programming model](programming-model.md#contracts-the-shape-of-what-may-cross) gives
+the full member grammar, the types a member can name, and what a bare name resolves to.
+`synqt check` compares every line with the owner's Source, and a member the Source does not
+implement is an error.
+
+Neither the point nor the contract has a name of its own. A point exports its owner's name,
+capitalized: `owner: edge` exports `Edge`, the QML type the owner's Source is rooted at.
+That is also `web/edge/Edge.qml`, the edge's own file, because an entity and its exported
+surface are one thing. The build writes the contract to
 `generated/<owner's folder>/Edge.syn`, which nobody edits.
 
-A second entry for one owner is refused. Per-member `<scope>` is what covers two
-audiences on one point, and two genuinely separate surfaces are two entities.
+A second entry for the same owner is refused. Per-member `<scope>` serves two audiences on
+one point; two truly separate surfaces are two entities.
 
-`server` and `scope` are optional. `server` defaults to that type's `.qml` in the owner's
-folder, so the two lines above spelling it out could both be left off. They are there to
-show where the file goes.
+`server` and `scope` are optional. `server` defaults to the type's `.qml` in the owner's
+folder, so both lines above could be omitted; they show where the file goes.
 
-Omitting `scope` means any session, including an anonymous one, may acquire the connect
-point. Write protection then lives inside the slots, as in the examples.
+Without `scope`, any session, anonymous included, may acquire the connect point. The slots
+then enforce write protection, as in the examples.
 
-A `scope` written on the point is also the default for every member of its `export:`, and
-a member may raise it with a `<scope>` prefix of its own:
-`<admin> slot restock(string[64] sku, int count)`. What the point requires decides who
-acquires it at all. What a member requires decides whether anything about that member ever
-crosses to the caller who did. See
+A `scope` on the point is also the default for every member of its `export:`, and a member
+may raise it with its own `<scope>` prefix: `<admin> slot restock(string[64] sku, int
+count)`. The point's scope decides who acquires it at all. A member's scope decides whether
+anything about that member crosses to a caller who did. See
 [gating one member](programming-model.md#gating-one-member-scope).
 
-How many Sources a point mints is not written here. It follows from `shared:` on the
-entity that owns it. Shared (the default) is one Source everybody reaches through a mirror
-of their own, and `shared: false` is one Source per caller. See
+The number of Sources a point creates is not set here: it follows from `shared:` on the
+owning entity. Shared (the default) means one Source that everybody reaches through their
+own mirror; `shared: false` means one Source per caller. See
 [the programming model](programming-model.md#how-many-of-an-entity-there-are-shared).
 
-There is no value meaning "one Source for everybody", because such a Source could not be told who
-was calling, so its slots would have no `Caller`. State every caller shares belongs in the owner
-entity's own
+No value means "one Source for everybody", because such a Source could not know who was
+calling, so its slots would have no `Caller`. State every caller shares belongs in the
+owner entity's
 [singleton](programming-model.md#connect-points-owned-by-one-entity-consumed-by-others),
-which outlives all of them. A Source is live state either way, and a per-caller one is
-gone once that caller closes their last link, so anything that must survive that belongs
-in the singleton or behind a persistence connect point.
+which outlives all callers. A Source is live state either way, and a per-caller Source
+disappears when its caller closes their last link, so anything that must survive goes in
+the singleton or behind a persistence connect point.
 
-Validation derives the mesh links from `owner` and `consumers`. An entity may open
-a connection only to an owner it consumes from, and an owner accepts a connection
-only from a listed consumer. This is the deny by default topology.
+Validation derives the mesh links from `owner` and `consumers`. An entity may connect only
+to an owner it consumes from, and an owner accepts connections only from listed consumers.
+This is the deny by default topology.
 
 ### `security` (browser hardening and connection gating)
 
-The browser facing security policy: cross origin isolation, the content security
-policy, the upgrade origin allowlist, how the session credential is carried, and the
-resource limits on the upgrade path. The defaults are safe. Loosen them only with a
-clear reason.
+The browser facing security policy: cross origin isolation, the content security policy,
+the upgrade origin allowlist, how the session credential travels, and the resource limits
+on the upgrade path. The defaults are safe; loosen them only for a clear reason.
 
 ```yaml
 security:
@@ -741,72 +704,68 @@ security:
   # max_body_bytes: 65536
 ```
 
-`synqt build` carries every key here into the edge, and only the keys the
-project writes. What a project leaves out keeps the framework default, which is the
-safe one. The limits are whole numbers, and a limit of zero is refused rather than
-read as "no limit" (the caps are compared with `>=`, so zero would refuse the first
-connection). The one exception is `max_requests_per_second`, where zero is the word
-for "off" rather than a limit of none.
+`synqt build` passes to the edge only the keys the project writes. Everything else keeps
+the safe framework default. Limits are whole numbers, and zero is refused, not read as "no
+limit" (the limits compare with `>=`, so zero would refuse the first connection). The
+exception is `max_requests_per_second`, where zero means "off".
 
-`handshake_timeout_ms` is how long an accepted socket may stay silent. The first byte
-the peer sends cancels it, so it bounds a connection that arrives and says nothing and
-never a transfer in progress. `keep_alive_timeout_s` takes over from there. It
-closes a peer that sends part of a request and then stops. See [denial of
-service and resource limits](security.md#denial-of-service-and-resource-limits).
+`handshake_timeout_ms` is how long an accepted socket may stay silent. The peer's first
+byte cancels it, so it closes a connection that arrives and says nothing, never a transfer
+in progress. `keep_alive_timeout_s` then closes a peer that sends part of a request and
+stops. See [denial of service and resource
+limits](security.md#denial-of-service-and-resource-limits).
 
-`max_body_bytes` is derived when you leave it out, because its right answer is
-whatever this entity accepts. An edge with no `network.inbound` has only its
-own routes, which carry a session token and a password field, and gets 64 KiB. One
-that declares `network.inbound` gets the ceiling that block already names
-(`network.inbound.max_body_bytes`, 1 MiB by default). That derivation matters because
-the API's own limit is checked after QHttpServer has read the body, so an edge left at
-Qt's 32 MiB default would buffer thirty-two megabytes from a stranger in order to
-refuse it at one.
+When omitted, `max_body_bytes` is derived from what the entity accepts. An edge without
+`network.inbound` has only its own routes, which carry a session token and a password
+field, and gets 64 KiB. An edge with `network.inbound` gets that block's limit
+(`network.inbound.max_body_bytes`, 1 MiB by default). This matters because the API checks
+its own limit only after QHttpServer has read the body: at Qt's 32 MiB default, the edge
+would buffer 32 MiB from a stranger only to refuse it for exceeding 1 MiB.
 
-`max_requests_per_second` is off by default and `synqt check` refuses it on an edge
-that names `public.trusted_proxies`. Qt counts the address it is connected to and has
-never heard of `X-Forwarded-For`, so behind a balancer every visitor shares one budget
-and the limit throttles the site rather than the flood. Rate-limit at the balancer
-instead. The edge's own `max_connections_per_ip` does not have this problem, because
-it counts the address `public.trusted_proxies` resolves.
+`max_requests_per_second` is off by default, and `synqt check` refuses it on an edge that
+names `public.trusted_proxies`. Qt counts the connected address and ignores
+`X-Forwarded-For`, so behind a balancer every visitor shares one budget, and the limit
+throttles the whole site instead of the flood. Rate-limit at the balancer instead. The
+edge's own `max_connections_per_ip` does not have this problem, because it counts the
+address `public.trusted_proxies` resolves.
 
-Under `origin_model: split_origin` you list the client origin here yourself, and the
-session cookie is issued `SameSite=None; Secure`, which the edge derives from
-`origin_model` rather than from a second key that could disagree with it. The origin
-check remains the anti hijacking control in both models. See [serving the client from
-another origin](#serving-the-client-from-another-origin).
+Under `origin_model: split_origin`, you list the client origin here yourself, and the edge
+issues the session cookie as `SameSite=None; Secure`, derived from `origin_model` so no
+second key can disagree. In both models, the origin check is the defense against
+connection hijacking. See [serving the client from another
+origin](#serving-the-client-from-another-origin).
 
-`session_transport: subprotocol` is refused because of a toolkit limit rather than an
-unimplemented feature. Carrying the session in
-`Sec-WebSocket-Protocol` requires the server to select one of the offered subprotocols and
-echo it in the `101` response. Qt 6.12 gives the edge nowhere to say which.
+`synqt check` refuses `session_transport: subprotocol` because of a Qt limit. Carrying the
+session in `Sec-WebSocket-Protocol` requires the server to select one offered subprotocol
+and echo it in the `101` response, and Qt 6.12 gives the edge no way to do that:
 `QHttpServerWebSocketUpgradeResponse::accept()` takes no arguments, and the
 `QWebSocketServer` that writes the response is private to `QAbstractHttpServer`, so
-`setSupportedSubprotocols()` is out of reach. The upgrade then completes with nothing
-negotiated, and browsers do not agree on what that means. Measured on 2026-07-28 against a
-real edge, Chromium 149 closes the connection (code 1006, `Sent non-empty
+`setSupportedSubprotocols()` is out of reach. The upgrade completes with nothing
+negotiated, and browsers disagree on what that means. Measured on 2026-07-28 against a real
+edge, Chromium 149 closes the connection (code 1006, `Sent non-empty
 'Sec-WebSocket-Protocol' header but no response was received`) while Firefox 151 opens it.
-An edge that worked in one engine and not the other is worse than one that says no, so the
-word is refused at `synqt check`. The Qt half of that measurement is kept as a test
-([`tests/m5-webedge`](https://github.com/Kidev/SynQt/tree/main/tests/m5-webedge)), and it fails the day a Qt release makes the transport buildable.
+An edge that works in one engine and not the other is worse than a clear refusal. A test
+keeps the Qt half of that measurement
+([`tests/m5-webedge`](https://github.com/Kidev/SynQt/tree/main/tests/m5-webedge)), and it
+fails the day a Qt release makes this transport possible.
 
-Nothing needs it today. A browser holds the httpOnly cookie, and a native desktop client,
-which terminates its own TLS, presents its stored session on the handshake directly.
+Nothing needs it today: a browser holds the httpOnly cookie, and a native desktop client,
+which terminates its own TLS, presents its stored session directly on the handshake.
 
 ### Serving the client from another origin (deprecated) { #serving-the-client-from-another-origin }
 
-This section is the exception to the rest of this document. Everything above assumes
-the client and the web edge share an origin, which is what you get by writing nothing.
-What follows is for putting the client on a separate origin, usually a CDN.
+This section is the exception. Everything above assumes the client and the web edge share
+an origin, which is the default. This section covers putting the client on a separate
+origin, usually a CDN.
 
-`split_origin` is deprecated. It still builds, `synqt check` still validates it,
-and a project already running it keeps working in the browsers it works in today.
-`synqt check` adds a warning saying so, because the mode rests on a
-third party cookie and that is a browser policy decision going one way. Read the cost
-below and then read [what to do instead](#what-to-do-instead), which is where new
-projects should go and where existing ones can move without the client noticing.
+`split_origin` is deprecated. It still builds, `synqt check` still validates it, and an
+existing project keeps working in the browsers it works in today. `synqt check` warns
+about it, because the mode depends on a third party cookie, and browsers are phasing
+those out. Read the cost below, then [what to do instead](#what-to-do-instead): new
+projects should start there, and existing ones can move there without the client
+noticing.
 
-Two keys turn it on, both by hand:
+Two keys, written by hand, turn it on:
 
 ```yaml
 project:
@@ -823,22 +782,20 @@ security:
   allowed_origins: ["https://cdn.example.com"]
 ```
 
-The edge then serves no bundle at all, and keeps `client_route` registered as a
-credential endpoint instead. It answers a credentialed cross origin fetch with `204`
-and the session cookie, echoing the requesting origin (only one already in
-`allowed_origins`) rather than a wildcard. The generated boot script makes that
-request before the app connects, and publishes `public.origin` to the page, which is
-what the client dials instead of its own location. `synqt check` insists on all three
-keys above, because each one missing produces an app that loads perfectly and never
+The edge then serves no bundle, and keeps `client_route` as a credential endpoint. It
+answers a credentialed cross origin fetch with `204` and the session cookie, echoing the
+requesting origin (only one listed in `allowed_origins`), never a wildcard. The generated
+boot script makes that request before the app connects, and publishes `public.origin` to
+the page; the client dials that instead of its own location. `synqt check` requires all
+three keys above, because without any one of them the app loads perfectly and never
 connects.
 
 #### What it costs
 
-The session cookie is a third party cookie, so it lives or dies by browser policy.
-Measured on 2026-07-28 in Chromium 149 and Firefox 151, and on 2026-07-31 in WebKit
-26.5 on a Linux and a macOS runner, across two real sites over TLS (the rig and the
-full table are in
-[`tests/split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)):
+The session cookie is a third party cookie, so browser policy decides whether it works.
+Measured on 2026-07-28 in Chromium 149 and Firefox 151, and on 2026-07-31 in WebKit 26.5
+on Linux and macOS runners, across two real sites over TLS (the rig and the full table
+are in [`tests/split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)):
 
 | regime | what happens |
 |---|---|
@@ -846,49 +803,46 @@ full table are in
 | WebKit, which is Safari's engine, today | nothing works. The session request comes back unreadable and the upgrade carries no credential, with or without `Partitioned` |
 | third party cookies restricted | nothing works. The session request is ignored, the upgrade arrives with no credential, and the edge refuses it |
 
-In those last two rows the app appears on screen and is permanently disconnected,
-rather than degrading slowly. The middle row is today, in a shipping browser, and the
-others are where browsers are heading.
+In the last two rows, the app appears on screen but stays disconnected for good; it does
+not degrade gradually. The middle row is a shipping browser today, and the others show
+where browsers are heading.
 
-The obvious repair does not work either. Marking the cookie `Partitioned` (CHIPS) is
-the standard way to keep a third party cookie alive, and it rescues the session
-bootstrap and the upgrade under restriction. It also breaks login everywhere, including
-browsers where the plain cookie still works, because the OAuth callback is a top level
-navigation onto the edge, so the cookie is filed under the edge's own partition, and the
-client origin can never read it. That is measured, with the stored partition key
-visible, which is why the edge does not emit the attribute.
+The obvious fix does not work either. Marking the cookie `Partitioned` (CHIPS) is the
+standard way to keep a third party cookie alive, and it rescues the session bootstrap and
+the upgrade under restriction. But it breaks login everywhere, even in browsers where the
+plain cookie still works: the OAuth callback is a top level navigation to the edge, so the
+cookie lands in the edge's own partition, which the client origin can never read. The
+measurement shows the stored partition key, which is why the edge does not set the
+attribute.
 
-A repair for that half exists and needs nothing from Qt. The callback could hand the
-session back through the client context. The edge would redirect to the client origin
-with a one time code, and the page would exchange it there, so the cookie is filed under
-the client's partition and login works. It buys one engine. In the same measurement
-Firefox stored the `Partitioned` cookie with no partition key, meaning it did not apply
-CHIPS at all, so under restriction the mode still dies there whatever the callback does.
-And WebKit, measured since, never reads the cookie back from the client site at all, with
-the attribute or without it. A redesign that fixes Chromium and leaves Firefox and
-Safari where they are is not a fix for this, which is why the deprecation above is the
-answer instead.
+A fix for the login half exists and needs nothing from Qt: the callback could return the
+session through the client. The edge would redirect to the client origin with a one time
+code, and the page would exchange it there, so the cookie lands in the client's partition
+and login works. But that fixes one engine. In the same measurement, Firefox stored the
+`Partitioned` cookie with no partition key, meaning it ignored CHIPS, so under restriction
+the mode still fails there whatever the callback does. WebKit, measured since, never reads
+the cookie back from the client site, with or without the attribute. A redesign that fixes
+Chromium but not Firefox and Safari fixes nothing, so the mode is deprecated instead.
 
 #### What to do instead
 
-Keep the client and the edge on one origin, and put a node near the user that serves
-both. A node that delivers the bundle and terminates the browser link on the same
-hostname is a CDN from the browser's point of view, with no third party cookie
-anywhere. The session is first party again and none of the above applies. Whether
-that node owns its connect points or forwards them to an edge behind it is an
-operational choice the client never sees, since it reaches everything through
-`Server` either way.
+Keep the client and the edge on one origin, and put a node near the user that serves both.
+A node that delivers the bundle and terminates the browser link on the same hostname acts
+as a CDN for the browser, with no third party cookie. The session is first party again,
+and none of the above applies. Whether that node owns its connect points or forwards them
+to an edge behind it is an operational choice the client never sees: it reaches
+everything through `Server` either way.
 
-That is the direction SynQt intends to grow, and it is why `split_origin` is not in
-the scaffold and is now deprecated. Several edges under one origin, fronted by
-whatever forwarder or CDN node the deployment already has, covers what split origin
-was reached for without putting a third party cookie in the critical path. If you
-need `split_origin` today it still runs, and you own the browser policy risk.
+SynQt is growing in that direction, which is why `split_origin` is not in the scaffold
+and is deprecated. Several edges under one origin, behind whatever forwarder or CDN node
+the deployment already has, give what split origin was for without a third party cookie in
+the critical path. `split_origin` still runs if you need it today, but you carry the
+browser policy risk.
 
 ### `mesh` (service to service security)
 
-The mesh wide TLS policy: which CA every entity verifies peers against, and the
-release time guarantee that cross host links are mutual TLS.
+The TLS policy for the whole mesh: which CA every entity verifies peers against, and the
+release build guarantee that links across hosts use mutual TLS.
 
 ```yaml
 mesh:
@@ -899,25 +853,24 @@ mesh:
   require_mtls_cross_host: true      # cross host links must be mTLS; cannot be disabled in release
 ```
 
-Certificate lifetime is not a setting. Entity certificates are issued for 398 days
-and the CA for twice that, and `synqt mesh status` warns 30 days before one expires.
-398 comes from Apple's verifier, which refuses a TLS leaf
-issued after 2020-09-01 whose validity runs past 398 days, whatever it chains to, so
-a longer lifetime is one a macOS host can reject on sight. Making it configurable
-would only offer a way to issue certificates that do not work.
+Certificate lifetime is not configurable. Entity certificates last 398 days and the CA
+twice that, and `synqt mesh status` warns 30 days before one expires. The 398 comes from
+Apple's verifier, which refuses any TLS leaf issued after 2020-09-01 that is valid for
+more than 398 days, whatever it chains to, so a macOS host can reject a longer lifetime
+outright. A setting would only allow certificates that do not work.
 
-The mesh CA private key lives only where certs are issued (a developer machine or a
-CI secret store), never in a running entity and never committed. A running entity
-holds only its own cert and key plus the CA certificate to verify peers.
-`synqt dev` maintains a separate, throwaway development CA under `synqt/mesh/dev/`,
-issued automatically so development mesh links keep mutual TLS with no setup. It is
-never valid for a release build.
+The mesh CA private key stays where certificates are issued (a developer machine or a CI
+secret store): never in a running entity, never committed. A running entity holds only its
+own certificate and key, plus the CA certificate to verify peers. `synqt dev` keeps a
+separate, throwaway development CA under `synqt/mesh/dev/`, created automatically so
+development mesh links use mutual TLS with no setup. It is never valid for a release
+build.
 
 ### `monitoring` (optional operations record)
 
-Omit for a project with no monitor, and nothing is recorded and nothing is stored. Adding one
-is `synqt add entity ops --type monitor`, which writes the entity, its console client, the
-sign-in gate and this block:
+Without this block, the project has no monitor, and nothing is recorded or stored.
+`synqt add entity ops --type monitor` adds one: it writes the entity, its console client,
+the sign-in gate and this block:
 
 ```yaml
 monitoring:
@@ -931,32 +884,32 @@ monitoring:
                                   # host, which `synqt check` otherwise refuses
 ```
 
-`entity` is the whole wiring. The link every service opens to the monitor is derived from
-it rather than written, because a link every entity needs is a link nobody should have to remember
-to declare, and one an author could forget on a single entity is a hole in the record
-shaped exactly like the entity that was misbehaving. It is an ordinary mesh link,
-mutually authenticated like every other, and `synqt check` validates it like any other.
+`entity` is all the wiring. The link from every service to the monitor is derived from it,
+not written: every entity needs that link, so nobody should have to remember to declare
+it, and one forgotten declaration would leave a hole in the record exactly where the
+misbehaving entity was. It is an ordinary mesh link, mutually authenticated and validated
+by `synqt check` like any other.
 
-Being one line is also what makes it easy to leave out, so `synqt check` warns about a
-`type: monitor` entity this key does not name. Such an entity builds, starts, hosts its
-ingest point and serves its console, and its history stays empty because nothing ever
-opened a link to it, which reads as a system where nothing is happening. A second monitor
-beside a wired one has the same shape and is reported the same way.
+Because it is a single line, it is also easy to forget, so `synqt check` warns about any
+`type: monitor` entity this key does not name. Such a monitor builds, starts, hosts its
+ingest point and serves its console, but its history stays empty because nothing ever
+connects to it, which looks like a system where nothing happens. A second monitor beside a
+wired one is reported the same way.
 
-`levels` is read at startup from the resolved topology, so turning a category up is a
-configuration change and a restart rather than a rebuild.
+`levels` is read from the resolved topology at startup, so raising a category's level
+needs a configuration change and a restart, not a rebuild.
 
-Retention, the console's port and the exporters are settings on the monitor entity itself.
-See [monitoring](monitoring.md) for all of it.
+Retention, the console's port and the exporters are settings on the monitor entity. See
+[monitoring](monitoring.md).
 
 ### `identity` (optional login)
 
-Omit for an app with no login, and every browser session runs at `scopes.default`. The
-easy, secure setup is `synqt add auth <provider>`, which writes this section with
-hardened defaults. Full treatment in [authentication](authentication.md).
+Without this section, the app has no login, and every browser session runs at
+`scopes.default`. `synqt add auth <provider>` writes the section with hardened defaults.
+[Authentication](authentication.md) covers it in full.
 
-The `providers` key is a block sequence (one entry per configured OAuth provider),
-while `session` and `mapping` are nested maps:
+`providers` is a block sequence (one entry per OAuth provider); `session` and `mapping` are
+nested maps:
 
 ```yaml
 identity:
@@ -1008,85 +961,79 @@ identity:
                                   # until a store reports it (see desktop.md)
 ```
 
-A provider named `github` or `google` may be written as only a name, a `client_id`
-and a `client_secret`. The endpoints, scopes and field mapping `synqt add auth`
-would have written are filled in underneath whatever the project spells out. Any
-other name needs its endpoints written, because there is nothing to fill in.
+A `github` or `google` provider needs only a name, a `client_id` and a `client_secret`.
+SynQt fills in the endpoints, scopes and field mapping `synqt add auth` would have written,
+beneath whatever the project sets. Any other provider needs its endpoints written, because
+SynQt has no defaults for it.
 
 `mapping` accepts either the nested `hook:` above or the file directly
 (`mapping: web/edge/identity/map.qml`). Both name the same QML.
 
 `dev_stub` turns on the [development sign-in](authentication.md#the-development-sign-in),
-a provider that runs inside the edge on loopback so a scope-gated route can be exercised
-before there is an OAuth app to register. Both keys are optional (`dev_stub: true` takes
-the defaults) and the provider entry it produces is written by the framework rather than
-by the project. Every part of the login except the provider is the one that ships, and a
-`users` entry names an identity rather than a scope, so what each of them becomes is the
-mapping hook's answer. `synqt check` refuses a `users` entry with no `sub` (a mapping hook
-keys on it, so that entry would land on the default scope and look broken), a field the
-identity object does not have, and a `port` another entity already serves on. It is gated
-three ways and cannot run in a built deployment. `synqt check --release` says a project
-carries one rather than refusing it.
+a provider inside the edge on loopback, so you can try a scope-gated route before
+registering an OAuth app. Both keys are optional (`dev_stub: true` takes the defaults), and
+the framework writes the provider entry, not the project. Every part of the login except
+the provider is the code that ships. A `users` entry names an identity, not a scope, so the
+mapping hook decides each one's scope. `synqt check` refuses a `users` entry without a
+`sub` (the mapping hook keys on it, so the entry would get the default scope and look
+broken), a field the identity object lacks, and a `port` another entity already uses.
+Three gates keep it out of a built deployment. `synqt check --release` reports that a
+project has one, without refusing it.
 
-`refresh` times the server side access token renewal described in
-[authentication](authentication.md#session-lifecycle). The values above are the
-defaults, and they suit a provider issuing hour long tokens. One issuing short lived
-tokens needs a wider `margin_seconds`, and a non-positive `interval_seconds` turns the
-sweep off. Whichever entity holds the tokens reads the keys, which is the edge
-normally and the auth entity when `provider_entity` is set.
+`refresh` schedules the server side access token renewal described in
+[authentication](authentication.md#session-lifecycle). The values above are the defaults,
+suited to a provider issuing hour long tokens. A provider with short lived tokens needs a
+wider `margin_seconds`, and a zero or negative `interval_seconds` turns the sweep off. The
+entity holding the tokens reads these keys: normally the edge, or the auth entity when
+`provider_entity` is set.
 
-`provider_entity` moves identity to an entity of its own, and moving it is the whole
-change. That entity comes to own an `identity` and a `sessions` connect point, every web
-edge that serves login consumes both over the mesh, and `synqt build` writes the two
-links, the Source QML on each, and the entity's `main.cpp`. Nothing is declared for them
-and nothing is hand written, so a project holds one line where a rewrite would otherwise
-be. Declaring a connect point named `identity` or `sessions` yourself is refused rather
-than worked around, since a promotion wired half way around a name collision would look
-like it worked. The named entity has to exist and has to be a service of its own. Naming
-the web edge is refused because that is what leaving it empty already means, and naming
-the client is refused because the client holds no secret and no mesh certificate.
+`provider_entity` moves identity to its own entity, and that one line is the whole change.
+The entity then owns an `identity` and a `sessions` connect point, every web edge that
+serves login consumes both over the mesh, and `synqt build` writes the two links, the
+Source QML for each, and the entity's `main.cpp`. You declare and write nothing else, so
+one line replaces a rewrite. Declaring your own connect point named `identity` or
+`sessions` is refused, because a move wired halfway around a name collision would look like
+it worked. The named entity must exist and must be a separate service. Naming the web edge
+is refused, because leaving the key empty already means that. Naming the client is
+refused, because the client holds no secret and no mesh certificate.
 
-A promoted edge is given provider names and nothing else. It holds no client id, no
-provider endpoint, no secret, and no token.
-It drives the browser facing half (the login and callback routes, the session cookie) and
-asks the auth entity for every step that needs a secret. See
-[Where identity runs](authentication.md#where-identity-runs-at-the-edge-or-as-its-own-entity).
+The edge then receives only provider names: no client id, provider endpoint, secret or
+token. It handles the browser facing half (the login and callback routes, the session
+cookie) and asks the auth entity for every step that needs a secret. See
+[where identity runs](authentication.md#where-identity-runs-at-the-edge-or-as-its-own-entity).
 
-`desktop_session` is the one key here that puts something on a visitor's disk, which is
-why it is asked for rather than defaulted to. Under `device`, a native client keeps a
-rotating, single-use device credential in the OS secure store and spends it at the
-next launch for a fresh session. The session's own lifetime does not change. `store` is
-an ordinary provider block (the same keys an entity's `provider:` takes, `env:`
-references included), and it has to be one a second edge could reach if the deployment
-ever runs two. The full treatment, including what each platform binds the credential to
-and why there is no file fallback, is in [desktop clients](desktop.md#storing-the-session).
+`desktop_session` is the only key here that stores something on a visitor's disk, so it is
+opt in. Under `device`, a native client keeps a rotating, single-use device credential in
+the OS secure store and spends it at the next launch for a fresh session. The session's own
+lifetime does not change. `store` is an ordinary provider block (the same keys as an
+entity's `provider:`, `env:` references included), and a second edge must be able to reach
+it if the deployment ever runs two. [Desktop clients](desktop.md#storing-the-session)
+covers what each platform binds the credential to and why there is no file fallback.
 
-`synqt check` refuses `device` with no `store`, `device` with no client entity listing
-the `desktop` target, and `min_binding: hardware`, because all three produce a build in
-which nobody ever stays signed in and nothing says why. No store SynQt ships reports the
-`hardware` level, so asking for it as a floor excludes every machine rather than some.
-A floor of `application` is warned about instead of refused, since which machines reach
-it is a property of those machines and is settled by the edge at enrolment.
+`synqt check` refuses `device` without a `store`, `device` when no client entity lists the
+`desktop` target, and `min_binding: hardware`: each produces a build where nobody ever
+stays signed in, with no explanation. No store SynQt ships reports the `hardware` level, so
+requiring it excludes every machine. A floor of `application` gets a warning instead,
+because whether a machine reaches it depends on that machine, and the edge decides at
+enrolment.
 
-Two things once listed here are not settings, because they are not optional and a
-key that could contradict them would be a way to get them wrong. The session cookie's
-`SameSite` follows [`project.origin_model`](#project) (`Lax` for `same_origin`,
-`None; Secure` for `split_origin`), and the session id always rotates on a privilege
-change.
+Two behaviors are not settings, because they are mandatory, and a key that could
+contradict them would only allow mistakes. The session cookie's `SameSite` follows
+[`project.origin_model`](#project) (`Lax` for `same_origin`, `None; Secure` for
+`split_origin`), and the session id always rotates on a privilege change.
 
-The client secret is a name, never a value. It is read from the entity's environment
-when the edge starts, so it is in neither `synqt.yaml` nor the binary. Names are
-answered from the entity's own env file (`web/edge/.env`) and then the project `.env`, and
-neither file overwrites a variable the real environment already set, so a container or
-secret store always outranks a file on disk. A deployment that sets its variables
-directly needs no file at all.
+The client secret is a variable name, never a value. The edge reads it from its
+environment at startup, so it is in neither `synqt.yaml` nor the binary. Names resolve from
+the entity's env file (`web/edge/.env`), then the project `.env`, and neither overrides a
+variable the real environment already set, so a container or secret store always wins
+over a file. A deployment that sets its variables directly needs no file.
 
 ### `privacy` (what a visitor is told about their data)
 
-Optional. It feeds the three QML types `LegalFooter`, `CookieConsent` and
+Optional. It feeds three QML types, `LegalFooter`, `CookieConsent` and
 `DataErasureRequest`, and the `Privacy` accessor behind them. Every value is public
-information a visitor is entitled to under Articles 13 and 14 of the GDPR, so all of it is
-safe in a client served to anyone. [Privacy and the GDPR](privacy.md) is the page.
+information a visitor has a right to under Articles 13 and 14 of the GDPR, so all of it is
+safe in a client served to anyone. See [privacy and the GDPR](privacy.md).
 
 ```yaml
 privacy:
@@ -1109,12 +1056,12 @@ privacy:
 
 ### `router` and `routes` (client navigation)
 
-`router` holds the navigation mode, the fallback, the prefix the app is served
-under, and the remote-page palette. `routes` is a block sequence of path to page
-mappings, optionally scope gated. Both are top-level keys in `synqt.yaml`, siblings
-of `project` and `entities`, and not nested under any `client` block. Together they are
-the route table the client's [`Router`](runtime-api.md#client-router) resolves every
-URL against. [Routes and URLs](routing.md) is what that resolution does, end to end.
+`router` holds the navigation mode, the fallback, the path prefix the app is served under,
+and the remote-page palette. `routes` is a block sequence mapping paths to pages,
+optionally scope gated. Both are top-level keys in `synqt.yaml`, beside `project` and
+`entities`, not nested under a `client` block. Together they form the route table the
+client's [`Router`](runtime-api.md#client-router) resolves every URL against.
+[Routes and URLs](routing.md) explains that resolution end to end.
 
 ```yaml
 router:
@@ -1161,41 +1108,38 @@ routes:
 | `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. On a `remote:` route the edge enforces it before delivery, so an under-scoped fetch is refused with no markup, no hash, and no seed. |
 | `graphics` | no | `accelerated` or `software`. Whether this route needs a GPU-backed scene graph. Omitted, `synqt build` reads the route's QML and decides; write it to overrule that. See below. |
 
-Every QML file under the client entity's directory is put into the client's QML
-module for you: `Main.qml`, the views the routes name, and everything those views
-reach. A `Home.qml` that instantiates a sibling `Card.qml`, or reads a `Theme.qml`
-that declares `pragma Shared`, needs no declaration anywhere. A shared file is
-registered as a singleton because the file says so. Build output and vendored trees under
-the entity are left out: `build/`, `generated/`, `CMakeFiles/`, `node_modules/`,
-and anything whose name starts with a dot, file or directory.
+Every QML file under the client entity's directory goes into the client's QML module
+automatically: `Main.qml`, the views the routes name, and everything those views use. A
+`Home.qml` that instantiates a sibling `Card.qml`, or reads a `Theme.qml` declaring
+`pragma Shared`, needs no declaration. The `pragma` line registers a shared file as a
+singleton. Build output and vendored trees are excluded: `build/`, `generated/`,
+`CMakeFiles/`, `node_modules/`, and any file or directory whose name starts with a dot.
 
-Two QML files under the entity cannot share a base name, whatever directories they
-sit in. Qt names a QML type after the file, so `pages/Header.qml` and
-`widgets/Header.qml` would both register as `Header` in the one module and one
-would silently shadow the other. `synqt build` refuses that and names both files.
-Rename one of them.
+Two QML files under the entity cannot share a base name, even in different directories. Qt
+names a QML type after its file, so `pages/Header.qml` and `widgets/Header.qml` would both
+register as `Header` in the same module, and one would silently hide the other.
+`synqt build` refuses this and names both files; rename one.
 
-`synqt check` refuses a route whose view is not on disk, naming the route and the
-file it looked for, and refuses a view that reaches outside the client entity's
-directory (an absolute path, a `../` path, or a Windows drive path). A route with
-neither a `view` nor a `remote` is refused both by `synqt check` and by the
-generator, since there is nothing for it to show. Do not add views to the generated
-`CMakeLists.txt` by hand. It is rewritten from `synqt.yaml` on every build.
+`synqt check` refuses a route whose view is missing, naming the route and the file it
+looked for. It also refuses a view outside the client entity's directory (an absolute
+path, a `../` path, or a Windows drive path). Both `synqt check` and the generator refuse
+a route with neither a `view` nor a `remote`, since it has nothing to show. Do not add
+views to the generated `CMakeLists.txt` by hand: every build rewrites it from
+`synqt.yaml`.
 
 ### `graphics`: which routes need an accelerated scene graph
 
 Qt Quick draws through the GPU pipeline the browser exposes as WebGL, and some visitors
-have no such pipeline, because it can be disabled by policy or blocked for a driver. The client
-checks before it starts and uses Qt's raster adaptation when there is none, which handles
-ordinary 2D Qt Quick completely. Nothing needs configuring for that to happen.
+lack it, because a policy disables it or the browser blocks their driver. The client checks
+before it starts and falls back to Qt's raster adaptation, which handles ordinary 2D Qt
+Quick completely. This needs no configuration.
 
-Three things do not work on the raster adaptation, and they draw nothing at all rather than
-degrading: [Qt Quick 3D](https://doc.qt.io/qt-6/qtquick3d-index.html), `ShaderEffect`, and
-[Qt Quick Effects](https://doc.qt.io/qt-6/qtquickeffects-qmlmodule.html). A route holding
-any of them shows a notice explaining that instead of an empty area.
+Three features do not work on the raster adaptation, and they draw nothing instead of
+degrading: [Qt Quick 3D](https://doc.qt.io/qt-6/qtquick3d-index.html), `ShaderEffect` and
+[Qt Quick Effects](https://doc.qt.io/qt-6/qtquickeffects-qmlmodule.html). A route using any
+of them shows a notice explaining this instead of an empty area.
 
-`synqt build` decides which routes those are by reading each route's QML, and says what it
-concluded:
+`synqt build` finds those routes by reading each route's QML, and reports its conclusion:
 
 ```cli
 synqt check
@@ -1207,8 +1151,8 @@ warn: routes: /tour needs the accelerated pipeline, so it is hidden on a client 
       graphics: software to show it anyway
 ```
 
-Write `graphics:` yourself to overrule it, in either direction. The written value always
-wins, and a disagreement is reported rather than silently resolved:
+Write `graphics:` yourself to override it either way. The written value always wins, and
+`synqt build` reports any disagreement:
 
 ```yaml
   - path: /gallery
@@ -1220,63 +1164,59 @@ wins, and a disagreement is reported rather than silently resolved:
     graphics: software      # the scan is wrong about this one; show it anyway
 ```
 
-The scan reads imports and type names, so it sees what a page declares rather than what it
-loads at run time. Content it misses still reaches the visitor with an explanation. The
-client watches for Qt declining to draw something and raises the same notice over the page,
-leaving everything that did render in place. Such a page is told about a moment later than
-one the scan caught, rather than not at all.
+The scan reads imports and type names, so it sees what a page declares, not what it loads
+at run time. Content it misses still gets an explanation: the client watches for Qt
+refusing to draw something and shows the same notice over the page, leaving everything
+that did render in place. The visitor learns a moment later than for a page the scan
+caught, but still learns.
 
-`client.graphics_notice` names your own notice in place of the built-in one, as a QML file
-relative to the client entity's directory. It is shown in both positions, as the whole page
-for a refused route and over the page otherwise, so write it to work in either.
+`client.graphics_notice` replaces the built-in notice with your own QML file, relative to
+the client entity's directory. It appears as the whole page for a refused route and over
+the page otherwise, so write it to work in both positions.
 
 ### Edge-delivered pages (`remote:`)
 
-A `remote:` route is not compiled into the client. Its file lives under the web edge
-entity's `pages/` directory, flat under the project root. For an edge named `edge`,
-`remote: Campaign.qml` names `web/edge/pages/Campaign.qml` (there is no `entities/`
-prefix). The edge holds these files and delivers one over the same authenticated
-`wss` link the moment a visitor navigates to its route, so a delivered page never
-enters the bundle and can be added or changed without a client rebuild. The full
-feature, the palette trust boundary, the page seed, and what a page's `scope`
-does and does not protect, is in [remote pages](remote-pages.md).
+A `remote:` route is not compiled into the client. Its file lives in the web edge entity's
+`pages/` directory: for an edge named `edge`, `remote: Campaign.qml` means
+`web/edge/pages/Campaign.qml`. The edge holds these files and sends one over the same
+authenticated `wss` link when a visitor navigates to its route, so a delivered page never
+enters the bundle, and you can add or change it without rebuilding the client.
+[Remote pages](remote-pages.md) covers the full feature: the palette trust boundary, the
+page seed, and what a page's `scope` protects and what it does not.
 
-The `remote:` routes are not baked into the client at build time the way `view:`
-routes are. The edge sends the connected client its route table (the edge-served
-route table), so the client learns which paths are edge-delivered from the edge
-itself, and a brand-new `remote:` route becomes reachable without a client rebuild.
-The two halves merge with the compiled-in half winning. A path the bundle already
-declares as a `view:` is kept even if the edge announces a `remote:` at the same
-path, so the edge can never shadow a compiled-in page.
+Unlike `view:` routes, `remote:` routes are not fixed at build time. The edge sends the
+connected client its route table, so the client learns from the edge which paths it
+delivers, and a new `remote:` route works without a client rebuild. When the two tables
+merge, the compiled-in one wins: a path the bundle declares as a `view:` stays, even if
+the edge announces a `remote:` at the same path, so the edge can never hide a compiled-in
+page.
 
-An app that declares no `routes` at all has no route table, `Router.pageComponent`
-is null, and nothing about it changes. Routing is opt in, and `Main.qml` alone is a
-complete client. An app that does route puts one `Loader` on
-`Router.pageComponent` in `Main.qml` (see
-[rendering the current page](runtime-api.md#rendering-the-current-page)) and keeps
-its screens in the view files the table names, so `Main.qml` is the window and never
-a route's view.
+An app with no `routes` has no route table, `Router.pageComponent` is null, and nothing
+changes. Routing is opt in, and `Main.qml` alone is a complete client. An app that routes
+puts one `Loader` on `Router.pageComponent` in `Main.qml` (see
+[rendering the current page](runtime-api.md#rendering-the-current-page)) and keeps its
+screens in the view files the table names, so `Main.qml` is the window, never a route's
+view.
 
 Three rules decide what a path resolves to:
 
-- More literal segments win. `/c/summary` beats `/c/:campaign` however the two
-  are ordered in the file. Declaration order never decides a match, so moving a
-  route in the file cannot change what an existing link does.
-- An empty segment is not a segment. `/c`, `/c/`, and `/c//` are one and the
-  same route. Declaring two of them is an error, since only the first could ever be
-  reached.
-- The query string is not part of the path. It is split off before matching and
-  arrives as `Router.query`, so `/search` and `/search?q=hat` are the same route.
+- **More literal segments win.** `/c/summary` beats `/c/:campaign` in any order.
+  Declaration order never decides a match, so moving a route in the file cannot change
+  what an existing link does.
+- **Empty segments do not count.** `/c`, `/c/` and `/c//` are the same route. Declaring two
+  of them is an error, since only the first could ever match.
+- **The query string is not part of the path.** It is split off before matching and arrives
+  as `Router.query`, so `/search` and `/search?q=hat` are the same route.
 
-A route guard redirects and keeps nothing secret. Every view's QML ships
-to every visitor, and what protects the data behind a privileged view is the
-scope-gated connect point the edge refuses to an under-scoped session. See
+A route guard redirects; it keeps nothing secret. Every view's QML ships to every visitor.
+The data behind a privileged view is protected by the scope-gated connect point, which the
+edge refuses to an under-scoped session. See
 [route guards](programming-model.md#route-guards-which-client-views-are-reachable).
 
 ### Development settings live on the command line
 
-There is no `dev` section. `synqt dev` is a command rather than a deployment, so what
-varies about a development run is passed to the run:
+There is no `dev` section. `synqt dev` is a command, not a deployment, so development
+options are passed on its command line:
 
 | Flag | Default | Effect |
 |------|---------|--------|
@@ -1287,17 +1227,16 @@ varies about a development run is passed to the run:
 | `--identity-picker` | the project's own sign-in | replace every sign-in with one page listing the project's scopes, so a scope can be held without a provider ([the scope picker](authentication.md#skipping-the-flow-the-scope-picker)) |
 | `--profile NAME` | none | layer `synqt.NAME.yaml` over `synqt.yaml`, which is where a per developer override belongs |
 
-Two things about a development run are not adjustable at all. The
-browser link runs plaintext, because it is on the loopback interface and a
-self-signed certificate there teaches the wrong habit. Mesh links keep mutual TLS,
-against a throwaway development CA `synqt dev` issues for you (see
-[`mesh`](#mesh-service-to-service-security)), because development that runs without
-the security the deployment has is development that finds out about it in production.
+Two things about a development run cannot change. The browser link uses plaintext, because
+it runs on loopback and a self-signed certificate there teaches the wrong habit. Mesh links
+keep mutual TLS, with a throwaway development CA that `synqt dev` creates (see
+[`mesh`](#mesh-service-to-service-security)), because developing without the deployment's
+security means discovering it in production.
 
 ### `build`
 
-How each entity is compiled. Every key here shapes the WebAssembly client bundle.
-Native entity binaries take their settings from the CMake build type alone.
+How each entity is compiled. Every key here shapes the WebAssembly client bundle; native
+entity binaries take their settings from the CMake build type alone.
 
 ```yaml
 build:
@@ -1311,67 +1250,65 @@ build:
     edge_url: wss://app.example.com/sync
 ```
 
-`client_threads: multi` implies `security.cross_origin_isolation: true`,
-validated by the build.
+`client_threads: multi` implies `security.cross_origin_isolation: true`, and the build
+checks it.
 
-`client_logging` decides where the client's diagnostic output goes. Qt's default
-message handler does not surface to the browser console in a release WebAssembly
-build, so `console.log` (and `qDebug`) silently vanish there. The modes are
-`console` (route every message to the browser console, which is what makes
-`console.log` work in WASM), `qt` (leave Qt's default handler), and `none` (drop
-debug and info and keep warnings and above, so nothing debug-level ships to end
-users). When the key is unset the client defaults to `console` in a debug build
-and `none` in a release build, so logging works in `synqt dev` and is stripped
-from the shipped bundle automatically.
+`client_logging` decides where the client's diagnostic output goes. In a release
+WebAssembly build, Qt's default message handler does not reach the browser console, so
+`console.log` (and `qDebug`) output silently disappears. The modes:
 
-`client_asyncify` (default `false`, not written into a scaffolded project) links
-the WebAssembly client with Emscripten's asyncify. Most projects should leave it
-alone, because it costs roughly a third more bundle over the wire and instruments
-every call that can suspend.
+- **`console`** routes every message to the browser console, which makes `console.log`
+  work in WASM;
+- **`qt`** keeps Qt's default handler;
+- **`none`** drops debug and info and keeps warnings and above, so no debug output ships
+  to users.
 
-What it changes is the platform underneath your code. Qt's WebAssembly event
-dispatcher has two shapes and picks one at run time by probing the Emscripten
-runtime, so this is a link flag on your client and needs no change to the Qt kit.
-Without asyncify the main thread cannot block. `exec()` hands control back to the
-browser, and the queue behind `deleteLater()` and every `Qt::QueuedConnection` is
-drained only when one zero-delay browser callback fires. If that callback is ever
-lost, nothing re-arms it and the queue stays undrained for the life of the page,
-in an application whose timers, sockets and property updates all go on working.
-With asyncify the main thread suspends inside `processEvents()` and any browser
-event at all resumes it and sweeps the queue, so nothing depends on a single
-callback. Asyncify also lets `QEventLoop::exec()` run on the main thread, which
-otherwise calls `qFatal()`.
+Unset, the client uses `console` in a debug build and `none` in a release build, so logging
+works in `synqt dev` and disappears from the shipped bundle.
 
-SynQt does not require it. The framework resolves a returning-slot
-reply from the call's own state rather than from a queued signal, and defers
-object deletion through a timer rather than a posted event, so nothing the
-framework does depends on that one callback. Turn it on if your own client C++
-puts queued connections on that path and you would rather pay the bundle than
-audit them. The measurement, in both engines, is in
-[`tests/m0-transport/FIREFOX-LINUX.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/FIREFOX-LINUX.md).
+`client_asyncify` (default `false`, not written in a scaffolded project) links the
+WebAssembly client with Emscripten's asyncify. Most projects should leave it off: it adds
+roughly a third to the transferred bundle and instruments every call that can suspend.
+
+It changes the platform under your code. Qt's WebAssembly event dispatcher has two modes
+and picks one at run time by probing the Emscripten runtime, so this is a link flag on your
+client, with no change to the Qt kit. Without asyncify, the main thread cannot block:
+`exec()` returns control to the browser, and the queue behind `deleteLater()` and every
+`Qt::QueuedConnection` drains only when one zero-delay browser callback fires. If that
+callback is lost, nothing re-arms it, and the queue stays stuck for the life of the page
+while timers, sockets and property updates keep working. With asyncify, the main thread
+suspends inside `processEvents()`, and any browser event resumes it and drains the queue,
+so nothing depends on a single callback. Asyncify also lets `QEventLoop::exec()` run on the
+main thread, which otherwise calls `qFatal()`.
+
+SynQt does not need it. The framework resolves a returning slot's reply from the call's own
+state, not from a queued signal, and defers object deletion with a timer, not a posted
+event, so none of its code depends on that callback. Turn it on if your own client C++
+queues connections on that path and you prefer the larger bundle to auditing them.
+[`tests/m0-transport/FIREFOX-LINUX.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/FIREFOX-LINUX.md)
+has the measurement in both engines.
 
 ### `check`
 
-What `synqt check` does beyond the validation it always does.
+Checks `synqt check` runs on top of its standard validation.
 
 ```yaml
 check:
   qml_format: true          # report QML that qmlformat would reformat (synqt new sets this)
 ```
 
-`qml_format` reports, never rewrites, and its report is a warning, because formatting is
-not correctness, and a check that fails on cosmetics is one people stop reading. It needs
-the project's `.qmlformat.ini` (written by `synqt new`) and is skipped with a note if
-that file is missing, because qmlformat would otherwise fall back to a per user settings
-file and answer differently on every machine. Turn it off if your QML is hand formatted
-for reading, since qmlformat reflows expressions, and no setting stops it.
+`qml_format` only reports, never rewrites, and only as a warning: formatting is not
+correctness, and people stop reading a check that fails on cosmetics. It needs the
+project's `.qmlformat.ini` (written by `synqt new`), and is skipped with a note when the
+file is missing, because qmlformat would otherwise use a per user settings file and give
+different answers on every machine. Turn it off if you format your QML by hand for
+readability: qmlformat reflows expressions, and no setting prevents it.
 
 ### `build.loading`
 
-The page a visitor sees while the client downloads and compiles. The client is a
-large artifact, so this page is the app's first impression. By default it shows
-the SynQt mark on the SynQt gradient, with a progress bar that tracks the real
-download.
+The page a visitor sees while the client downloads and compiles. The client is large, so
+this page is the app's first impression. By default, it shows the SynQt mark on the SynQt
+gradient, with a progress bar that follows the real download.
 
 ```yaml
 build:
@@ -1381,14 +1318,13 @@ build:
     title: "Acme"             # the browser tab title while loading
 ```
 
-The logo and the styling are inlined into `index.html` rather than linked, so the
-loading page costs no extra request and paints immediately. A logo is inlined as
-markup, so it must be an SVG.
+The logo and styling are inlined into `index.html`, not linked, so the loading page needs
+no extra request and paints immediately. The logo is inlined as markup, so it must be an
+SVG.
 
-`background` is set on the document as well as on the loading overlay. The overlay is
-hidden the moment Qt reports the module loaded, which is a frame or two before the
-first QML paint. Without a background on the document the browser's default white
-flashes through that gap.
+`background` applies to the document as well as the loading overlay. The overlay hides as
+soon as Qt reports the module loaded, a frame or two before the first QML paint. Without a
+document background, the browser's default white flashes in that gap.
 
 For a page the keys cannot express, hand over the whole document:
 
@@ -1398,54 +1334,49 @@ build:
     html: client/loading.html
 ```
 
-`html` replaces the generated page, so it cannot be combined with the other keys,
-and `synqt check` rejects that combination rather than ignoring them silently. A
-replacement page keeps the same contract with the boot script: it must contain
-elements with the ids `synqt-loading` (the overlay, hidden once the app starts),
-`synqt-bar` (the progress bar, whose `width` is set as a percentage),
-`synqt-status` (the status text), and `screen` (the app's container), and it must
-load `synqt-boot.js`. `synqt check` verifies all of that, and that the files named
-by `logo` and `html` exist.
+`html` replaces the generated page, so it cannot be combined with the other keys;
+`synqt check` rejects the combination instead of silently ignoring them. A replacement page
+must keep the boot script's contract: elements with the ids `synqt-loading` (the overlay,
+hidden once the app starts), `synqt-bar` (the progress bar, whose `width` is set as a
+percentage), `synqt-status` (the status text) and `screen` (the app's container), plus a
+`synqt-boot.js` script. `synqt check` verifies all of that, and that the files named by
+`logo` and `html` exist.
 
 ### `build.client_cache`
 
-How a repeat visitor gets the client back. The client is a large artifact, so this
-is the difference between an instant load and a full re-download.
+How a returning visitor gets the client. The client is large, so this decides between an
+instant load and a full download.
 
 ```yaml
 build:
   client_cache: service_worker   # service_worker (default) | http
 ```
 
-`service_worker` precaches the shell and the module into the browser's
-CacheStorage and serves them cache-first, so a repeat visit reaches the app with
-no network on the critical path. In the background it fetches
-`synqt-manifest.json` and compares its `build_id`. Identical is the common case
-and ends there, and only a real change pulls the new module and raises an update
-(see [`App`](runtime-api.md#client-app)). It needs a secure context, which https
-and `localhost` both provide. Anywhere else the client falls back to the `http`
-behaviour on its own rather than failing.
+`service_worker` precaches the shell and the module in the browser's CacheStorage and serves
+them cache-first, so a repeat visit reaches the app without waiting on the network. In the
+background, it fetches `synqt-manifest.json` and compares its `build_id`. Usually nothing
+changed and it stops there; only a real change downloads the new module and signals an
+update (see [`App`](runtime-api.md#client-app)). It needs a secure context, which https and
+`localhost` provide. Elsewhere, the client falls back to the `http` behavior on its own.
 
-`http` keeps only the edge's `ETag` layer. A repeat visit spends one conditional
-GET and gets a `304 Not Modified` with no body. Slower than the worker but
-simpler, and it needs no CacheStorage quota. Choose it if your deployment does
-not allow service workers.
+`http` keeps only the edge's `ETag` layer: a repeat visit sends one conditional GET and gets
+a bodiless `304 Not Modified`. It is slower than the worker, but simpler, and uses no
+CacheStorage quota. Choose it if your deployment does not allow service workers.
 
-Either way the edge sends `Cache-Control: no-cache` on every bundle file, which
-means revalidate rather than do not store. That is what makes the `304` cheap,
-and what stops a browser pinning a stale worker.
+Either way, the edge sends `Cache-Control: no-cache` on every bundle file, which means
+"revalidate", not "do not store". That keeps the `304` cheap and stops a browser from
+holding on to a stale worker.
 
 `synqt dev` always behaves as `http`, because a worker serving a cached shell would fight
-the file watcher's live reload, so the dev script also unregisters any worker a
-production build left on the same origin.
+the file watcher's live reload. The dev script also unregisters any worker a production
+build left on the same origin.
 
 ### `build.desktop`
 
-A nested map under `build`, present only when the client entity lists `desktop` in
-its `targets`. The edge does not serve a native client, so unlike the browser
-client it cannot read the edge's address off the page it was delivered on. It has
-to be told, and this section is where. Full treatment in
-[desktop clients](desktop.md).
+A map nested under `build`, present only when the client entity lists `desktop` in its
+`targets`. The edge does not serve a native client, so unlike the browser client, it cannot
+read the edge's address from the page that delivered it. This section gives it that
+address. See [desktop clients](desktop.md).
 
 ```yaml
 build:
@@ -1453,15 +1384,14 @@ build:
     edge_url: wss://app.example.com/sync   # the public edge endpoint the app connects to
 ```
 
-There is no platform list. A desktop build produces an app for the machine it runs
-on, using that machine's host Qt kit, so producing all three means running
-`synqt build --client desktop` on all three. Cross compiling a native desktop app
-is not something the CLI pretends to do. The app is named after the client entity.
+There is no platform list. A desktop build produces an app for the machine it runs on,
+using that machine's host Qt kit, so building for all three platforms means running
+`synqt build --client desktop` on each. The CLI does not cross compile native desktop apps.
+The app takes the client entity's name.
 
 ## Configuration resolution order
 
-The effective configuration is layered. Later sources override earlier ones,
-key by key:
+The configuration is layered. Later sources override earlier ones, key by key:
 
 1. Framework defaults.
 2. `synqt.yaml`.
@@ -1470,10 +1400,10 @@ key by key:
 4. Environment variables `SYNQT_<SECTION>_<KEY>` for CI and containers.
 5. CLI flags.
 
-A profile file has the same schema as `synqt.yaml` and needs to carry only the keys
-it changes. Unspecified keys fall through to the base file. Secrets never come from
-`synqt.yaml` or any profile file. They come only from a per entity env file or the
-process environment, only on the relevant service entity.
+A profile file has the same schema as `synqt.yaml` and holds only the keys it changes; the
+rest come from the base file. Secrets never come from `synqt.yaml` or a profile file, only
+from a per entity env file or the process environment, and only on the service entity that
+needs them.
 
 ```yaml
 # synqt.production.yaml, applied with: synqt build --release --profile production
@@ -1489,142 +1419,138 @@ entities:
       host: 10.0.0.10
 ```
 
-`entities` and `connect_points` are matched entry by entry on `name`, so a profile
-retunes one entity without restating the topology. Every other list, such as a
-connect point's `consumers` or `scopes.order`, is replaced whole. Its membership and
-order are the value. A profile changes and adds. It never removes. There is no
-delete syntax, because dropping a consumer or an entity is a security change and it
-belongs in the file that declares the list rather than in an overlay.
+`entities` and `connect_points` merge entry by entry on `name`, so a profile can adjust one
+entity without restating the topology. Every other list, such as a connect point's
+`consumers` or `scopes.order`, is replaced whole, because its members and order are its
+value. A profile changes and adds, but never removes. There is no delete syntax: dropping a
+consumer or an entity is a security change, and it belongs in the file that declares the
+list, not in an overlay.
 
-An environment override names a key inside a section the configuration already
-declares: `SYNQT_PUBLIC_PORT=443`, `SYNQT_BUILD_DESKTOP_EDGE_URL=wss://app.example.com/sync`
-(the nested path is resolved against the structure that is there, so
-`build.desktop.edge_url` rather than `build.desktop_edge_url`). A variable naming no
-section is left alone, which keeps the runtime's own `SYNQT_ROOT`,
-`SYNQT_EDGE_URL` and `SYNQT_TEST_*` out of the topology. So is a bare section such as
-`SYNQT_ENTITIES`, and so is any path that would reach into a list. The value is read
-as the type the key already has, so `SYNQT_PROJECT_NAME=no` stays the string `no`
-rather than becoming `false`.
+An environment override names a key inside a section the configuration already declares:
+`SYNQT_PUBLIC_PORT=443`, `SYNQT_BUILD_DESKTOP_EDGE_URL=wss://app.example.com/sync` (the
+nested path follows the existing structure, so it sets `build.desktop.edge_url`, not
+`build.desktop_edge_url`). A variable that names no declared section is ignored, which
+keeps the runtime's own `SYNQT_ROOT`, `SYNQT_EDGE_URL` and `SYNQT_TEST_*` out of the
+topology. So is a bare section such as `SYNQT_ENTITIES`, and any path that would reach into
+a list. The value takes the key's existing type, so `SYNQT_PROJECT_NAME=no` stays the
+string `no` instead of becoming `false`.
 
-Every layer is validated. A profile file and a `SYNQT_...` override are held to the
-rules below exactly as `synqt.yaml` is, so neither is a way to slip in a literal
-password or a release edge with no TLS. `synqt check`, `synqt doctor`, and every
-build report which layers they applied.
+Every layer is validated. Profile files and `SYNQT_...` overrides follow the same rules as
+`synqt.yaml`, so neither can slip in a literal password or a release edge without TLS.
+`synqt check`, `synqt doctor` and every build report which layers they applied.
 
 ## Validation
 
-Before any build or run, the CLI validates the resolved configuration and fails
-fast. Non negotiable checks:
+Before any build or run, the CLI validates the resolved configuration and stops at the
+first failure. These checks always run:
 
 - A production build (or `synqt serve`) with a web edge that neither carries a
   `tls` block (`cert_file` and `key_file`) nor declares
-  `public.tls_terminated_upstream: true` is rejected, because something has to terminate
-  TLS to the browser, and the configuration has to name which end. Likewise
-  `require_mtls_cross_host` cannot be off in release.
+  `public.tls_terminated_upstream: true` is rejected: something must terminate TLS to the
+  browser, and the configuration must say what. Likewise, `require_mtls_cross_host` cannot
+  be off in release.
 - A connect point whose `owner` or `server` file does not exist is rejected, as is an
   `owner` or `consumer` that is not a declared entity. So is a point that writes a
   `contract:`, because what crosses is the point's own `export:` block and the type it
   becomes is the owner's name. The `server` file
   (`<type>/<owner>/<Owner>.qml` when the point does not name one) must also
-  be rooted at `<Owner>`. It is the owner-side half of the point, and an
-  owner with nothing to host it with fails at start-up rather than at build time.
-  `synqt add connect-point` writes that file, empty, along with the point, so the
-  usual way to meet this rule is not to notice it.
+  be rooted at `<Owner>`. It is the owner's half of the point, and an owner with nothing
+  to host would fail at start-up instead of at build time. `synqt add connect-point`
+  writes that file, empty, with the point, so you normally never see this rule.
 - A connect point reachable by the `client` entity whose `owner` lacks the
-  `type: web_edge` is rejected (the browser can only reach a web edge). So is a
-  `client` entity in a project that declares no `web_edge` entity at all, because a browser
-  reaches a web edge or it reaches nothing, so that client has no address to open.
-  A client built only for the `desktop` target is exempt, because no edge serves it
-  and it dials the one [`build.desktop.edge_url`](#builddesktop) names, which may
-  belong to another deployment entirely. That key is required of it instead.
+  `type: web_edge` is rejected (the browser can only reach a web edge). So is a `client`
+  entity in a project with no `web_edge` entity: a browser reaches only a web edge, so that
+  client has nothing to connect to. A client built only for the `desktop` target is exempt,
+  because no edge serves it: it connects to the edge
+  [`build.desktop.edge_url`](#builddesktop) names, which may belong to another deployment.
+  That key is required instead.
 - A connect point owned by a `client` entity is rejected. An owner hosts the Source and
-  listens for consumers to acquire it, and a browser cannot listen. There is no WebSocket
-  server under WebAssembly, so the client is always the side that connects out. A connect
-  point the client takes part in is owned by the web edge, whichever way the data flows.
-- A connect point that lists its own `owner` among its `consumers` is rejected. The
-  owner holds the Source and does not acquire a replica of what it already has, and
-  the entry only makes the consumer list look wider than it is.
-- An entity `name` outside the shape described [above](#entities-the-topology) is rejected. The shape is a letter,
-  then letters, digits, underscores and hyphens, up to 64 characters. The name is a
-  directory, a build target, an accessor and a certificate subject all at once, so a space
-  or a dot in it fails somewhere a long way from the line that put it there. `synqt mesh
-  cert` holds the name typed at its prompt to the same rule, because that one reaches
+  listens for consumers, and a browser cannot listen: WebAssembly has no WebSocket server,
+  so the client always connects out. The web edge owns every connect point the client uses,
+  whichever way the data flows.
+- A connect point listing its own `owner` among its `consumers` is rejected. The owner holds
+  the Source and never acquires a replica of it, so the entry only makes the consumer list
+  look wider than it is.
+- An entity `name` that does not match the shape described [above](#entities-the-topology)
+  is rejected: a letter, then letters, digits, underscores and hyphens, up to 64
+  characters. The name is a directory, a build target, an accessor and a certificate
+  subject, so a space or a dot would fail far from the line that caused it. `synqt mesh
+  cert` applies the same rule to a name typed at its prompt, because that name reaches
   openssl and the mesh directory.
-- A name declared twice, whether an entity or a connect point, is rejected. Both are
-  keyed by name, so the second declaration replaces the first rather than colliding
-  with it, and a consumer list narrowed on the first would disappear without a word.
-- An `instance` written on a connect point is rejected, naming the entity to write
-  `shared:` on instead. It is the entity's answer now, and a line that no longer does
-  anything reads exactly like a line that works.
-- A `shared` that is not true or false is rejected, and so is one written on a client,
-  because a client is one browser and shares with nobody.
-- A connect point `scope` not in `scopes.order` is rejected, and so is a member gated on
-  one. `<root> slot purge()` names an authority no session can hold, so the member would
+- A name declared twice, entity or connect point, is rejected. Both are keyed by name, so
+  the second declaration would silently replace the first, and a consumer list narrowed on
+  the first would vanish.
+- An `instance` on a connect point is rejected, with a message naming the entity to put
+  `shared:` on instead. The entity decides this now, and a line that does nothing looks
+  exactly like one that works.
+- A `shared` value other than true or false is rejected, and so is `shared` on a client: a
+  client is one browser and shares with nobody.
+- A connect point `scope` missing from `scopes.order` is rejected, and so is a member gated
+  on one. `<root> slot purge()` requires a scope no session can hold, so the member would
   reach nobody.
 - A `<scope>` gate on a connect point no client consumes is rejected. A scope belongs to a
-  user's session and a calling entity has none, so the gate would refuse every caller. The
-  message names `Caller.entity` as what to gate a mesh member on instead.
-- A gate that cannot refuse anyone is reported: below the point's own `scope` under
-  hierarchical scopes it is a warning (every caller that reached the point already holds
-  it), and under set-based scopes it is an error (no caller can hold both).
+  user's session, and a calling entity has none, so the gate would refuse every caller. The
+  message suggests gating a mesh member on `Caller.entity` instead.
+- A gate below the point's own `scope` is reported. Under hierarchical scopes it is a
+  warning (every caller that reached the point already holds it, so it refuses nobody);
+  under set-based scopes it is an error (no caller can hold both).
 - `client_threads: multi` without cross origin isolation is rejected (the CLI
   offers to set it).
 - A client entity whose `Main.qml` root object is not a window
-  (`ApplicationWindow` or `Window`) is rejected. `Main.qml` is loaded as the QML
-  engine's root object, and an engine shows a root object only if it is a window, so
-  a `Page` or `Item` root builds, loads, logs nothing, and renders a blank page. The
-  routes in `routes` name separate view files; `Main.qml` is the window that hosts
-  them.
+  (`ApplicationWindow` or `Window`) is rejected. `Main.qml` is the QML engine's root
+  object, and the engine shows a root object only if it is a window, so a `Page` or `Item`
+  root builds, loads, logs nothing and renders a blank page. Routes name separate view
+  files, and `Main.qml` is the window that hosts them.
 - Any `env:` reference used by a client target is rejected.
 - A client entity with `desktop` in `targets` but no `build.desktop.edge_url`
-  is rejected: a native client cannot discover its edge and must be told it. In a
-  release build the `edge_url` must be `wss://` (plaintext is allowed only against a
-  dev edge on localhost). A desktop client target is still a client target: it may
-  not reference a secret and no service `server` file compiles into it.
+  is rejected, because a native client cannot discover its edge. In a release build the
+  `edge_url` must be `wss://` (plaintext is allowed only against a development edge on
+  localhost). A desktop target is still a client target: it may not reference a secret,
+  and no service `server` file compiles into it.
 - An entity with `transport: mtls` that has no issued cert in `synqt/mesh/` is
   rejected before start, with a hint to run the cert command (`synqt dev` issues
   throwaway development certificates automatically).
-- `transport: local` is never chosen implicitly: it must be written explicitly,
-  and `synqt check` flags every local link with a note that the calling entity is
-  trusted by colocation on it, not authenticated by certificate.
-- A `mesh.host`, a `public.host`, a `network.inbound.bind` or a connect point's own
-  `host` that is a name rather than an address is rejected, `localhost` included.
-  Each reaches the runtime as a `QHostAddress`, which resolves nothing, so a name
-  binds nothing and dials nothing.
-- An identity provider missing a required `client_secret` is rejected before the
-  edge starts rather than at first login. A literal one is rejected too. It must be an
-  `env:` reference, so the value stays out of `synqt.yaml` and out of the binary.
-- `scopes.default` must be one of `scopes.order`, or every new session would begin
-  holding a scope that satisfies no check at all.
-- A `security` limit (`handshake_timeout_ms`, the two connection caps,
-  `max_message_bytes`) that is not a whole number is rejected, and so is one that is
-  zero or less, because the caps are compared with `>=`, so a cap of zero reads like "no
-  limit" and refuses the first connection. `security.max_sessions` is the exception.
-  Zero there removes the ceiling, and a release build says what that leaves unbounded.
-- `security.session_transport` and `identity.flow` are rejected unless they name
-  something this version implements (`cookie` and `authorization_code`). A setting
-  the edge cannot honor is refused rather than dropped, because an edge that quietly
-  runs a different one is indistinguishable from an edge that runs the one asked for.
-- A provider whose `name` is not available for the entity's type is
-  rejected, naming the providers that are. A `custom:<Name>` is checked for shape
-  only, since what an entity registers is known when it starts rather than when it is
-  checked. If that name selects nothing the entity refuses to start and names the
-  providers registered for the family. A non default provider whose engine
-  client or Qt SQL driver plugin is missing is reported by `synqt doctor` and
-  rejected before start.
-- A provider connection to an external engine that is plaintext or unverified
-  (no TLS, or verification disabled) is rejected in a release build. It is allowed
-  only in dev on localhost.
+- `transport: local` is never implicit; it must be written. `synqt check` flags every
+  local link, noting that the calling entity is trusted by colocation, not authenticated by
+  certificate. A local link with more than one consumer is rejected: a local socket
+  identifies nobody, so the owner names every caller after the point's single consumer,
+  and a second consumer would appear as the first on every call.
+- A `mesh.host`, `public.host`, `network.inbound.bind` or connect point `host` that is a
+  name instead of an address is rejected, `localhost` included. Each reaches the runtime as
+  a `QHostAddress`, which resolves nothing, so a name binds and dials nothing.
+- An identity provider without its required `client_secret` is rejected before the edge
+  starts, not at the first login. A literal secret is rejected too: it must be an `env:`
+  reference, so the value stays out of `synqt.yaml` and the binary.
+- `scopes.default` must appear in `scopes.order`; otherwise every new session would hold a
+  scope that satisfies no check.
+- A `security` limit (`handshake_timeout_ms`, the two connection limits,
+  `max_message_bytes`) is rejected unless it is a whole number above zero: the limits
+  compare with `>=`, so zero looks like "no limit" but refuses the first connection.
+  `security.max_sessions` is the exception: zero removes the limit, and a release build
+  reports what that leaves unbounded.
+- `security.session_transport` and `identity.flow` must name something this version
+  implements (`cookie` and `authorization_code`). The edge refuses a setting it cannot
+  honor instead of dropping it, because an edge that silently runs something else looks
+  exactly like one running what you asked for.
+- A provider `name` not available for the entity's type is rejected, with a list of the
+  ones that are. A `custom:<Name>` is checked for shape only, because an entity's
+  registrations are known only when it starts. If the name matches nothing, the entity
+  refuses to start and lists the providers registered for the family. `synqt doctor`
+  reports a non default provider whose engine client or Qt SQL driver plugin is missing,
+  and the entity refuses to start.
+- A plaintext or unverified provider connection to an external engine (no TLS, or
+  verification disabled) is rejected in a release build. It is allowed only in
+  development, on localhost.
 - Any provider secret (a `password` or `uri` carrying credentials) that is not an
   `env:` reference, or that is referenced by a client target, is rejected.
 
 ### The route table
 
-`synqt check` validates [`router` and `routes`](#router-and-routes-client-navigation)
-as well, because a bad route table is otherwise a production only bug. Two routes
-racing for one path, a parameter nothing can bind to, or a fallback pointing
-nowhere all build and load fine, and only misbehave the moment a visitor's browser
-reaches them. Each rule below fails the check, with the message quoted:
+`synqt check` also validates [`router` and `routes`](#router-and-routes-client-navigation),
+because a bad route table otherwise fails only in production. Two routes competing for one
+path, a parameter nothing can bind, or a fallback pointing nowhere all build and load fine,
+and misbehave only when a visitor reaches them. Each rule below fails the check, with the
+message quoted:
 
 | What is wrong | The message |
 |---------------|-------------|
@@ -1643,49 +1569,42 @@ reaches them. Each rule below fails the check, with the message quoted:
 | `router.base` is not rooted | `error: router.base 'shop' must start with '/'` |
 | `router.mode` is not `history` | `warn: router.mode 'hash' is not a mode SynQt has; the router always drives the History API ('history') and ignores this key` |
 
-Three of those deserve a note:
+Notes on three of them:
 
-- The view rules are what keep a broken route out of the build. Every view a route
-  names is compiled into the client's QML module, so a view that is not on disk
-  would otherwise stop CMake on a generated file you do not own. Caught here, the
-  message names the route and the file. A `view` written with or without `.qml`,
-  and with or without a leading `./`, means the same file either way. A route with
-  no `view` is the one rule the generator repeats rather than trusting the check
-  with, because nothing makes `synqt build` run `synqt check`, so `synqt build` stops
-  with the same sentence.
-- The duplicate rule compares paths the way the runtime splits them, where an empty
-  segment is not a segment. `/c` and `/c/` are the same route, and the message says
-  so rather than leaving you to wonder why two visibly different strings collided.
-  The fallback rule normalizes the same way, so `fallback: /` matches a route
-  declared as `/`.
-- The reserved paths are computed from your own configuration rather than from a fixed
-  list. They are each web edge's `public.sync_route` (default `/sync`), or `/sync`
-  itself while the project declares no web edge yet, plus, when the project has an
-  [`identity`](#identity-optional-login) section, that section's `login`,
-  `callback`, and `logout` routes. Move your login route and the new path is what
-  is guarded. Delete the `identity` section and `/auth/login` becomes an ordinary
+- **The view rules keep a broken route out of the build.** Every view a route names is
+  compiled into the client's QML module, so a missing view would otherwise stop CMake on a
+  generated file you do not own. Here, the message names the route and the file. A `view`
+  with or without `.qml`, and with or without a leading `./`, means the same file. A route
+  without a `view` is the one rule the generator repeats: nothing forces `synqt build` to
+  run `synqt check`, so `synqt build` stops with the same message.
+- **The duplicate rule compares paths as the runtime splits them,** where empty segments do
+  not count. `/c` and `/c/` are the same route, and the message says so, instead of leaving
+  you to wonder why two different strings collided. The fallback rule normalizes the same
+  way, so `fallback: /` matches a route declared as `/`.
+- **The reserved paths come from your configuration,** not from a fixed list: each web
+  edge's `public.sync_route` (default `/sync`), or `/sync` itself while the project has no
+  web edge yet, plus, when the project has an [`identity`](#identity-optional-login)
+  section, its `login`, `callback` and `logout` routes. Move your login route and the new
+  path is reserved. Delete the `identity` section and `/auth/login` becomes an ordinary
   route again.
 
-The `fallback` rule applies only once at least one route is declared. A project
-with no `routes` at all has nothing for a fallback to point at, and the client
-compiles an empty route table.
+The `fallback` rule applies only once at least one route exists. A project without `routes`
+has nothing for a fallback to point at, and the client compiles an empty route table.
 
-A `remote:` route has no compiled-in view, so it is exempt from the view rules
-above. The "declares no view" and file-on-disk checks are skipped for it, and its
-own file is validated as an edge-delivered page instead (next section). A route that
-sets neither key is still refused, since there is nothing for it to show.
+A `remote:` route has no compiled-in view, so the view rules above skip it (both "declares
+no view" and the file-on-disk check); its file is validated as an edge-delivered page
+instead (next section). A route with neither key is still refused, since it has nothing to
+show.
 
 ### Remote pages
 
-`synqt check` validates every route's `remote:` and `seed:` as well, because a bad
-[remote page](remote-pages.md) builds and serves
-fine, and only fails the visitor who navigates to it, as a blank page (a missing
-file), a refused delivery (an import outside the palette), or a page that quietly
-shadows one the bundle already carries. A delivered page's file is checked under
-`<edge>/pages` (the edge entity's directory directly under the project root, and not
-`entities/<edge>`). A `seed:` is resolved project-root-relative, because a hook is
-edge code rather than a delivered page. Each rule below fails the check, with the
-message quoted:
+`synqt check` also validates every route's `remote:` and `seed:`, because a bad
+[remote page](remote-pages.md) builds and serves fine, and fails only the visitor who
+navigates to it: a blank page (a missing file), a refused delivery (an import outside the
+palette), or a page that silently shadows one already in the bundle. A delivered page's
+file is checked under the edge entity's `pages/` directory. A `seed:` resolves relative to
+the project root, because a hook is edge code, not a delivered page. Each rule below fails
+the check, with the message quoted:
 
 | What is wrong | The message |
 |---------------|-------------|
@@ -1699,17 +1618,16 @@ message quoted:
 | A `remote:` names a page that is not there | `error: remote page 'Campaign.qml' for route '/c/:campaign' does not exist under <edge>/pages` |
 | A delivered page imports a module outside the palette | `error: remote page 'Campaign.qml' imports 'QtWebEngine', which is not in router.palette` |
 
-Two of those deserve a note:
+Notes on two of them:
 
-- The palette rule here is a build-time convenience. The
-  client's own `QmlPalette` enforces the palette on a delivered page at run
-  time, and it is stricter than this scan. It reads the page the way the QML lexer
-  does, so it strips comments and string literals first, ends a statement at a
-  semicolon as well as at a line break, honors a lone carriage return and a leading
-  byte order mark, and refuses any quoted (path) import outright. A page this scan
-  waves through on any of those is still refused by the client, at navigation time
-  rather than at build time.
-- The shadow rule and the "sets both" rule guard opposite mistakes. A `remote:` at
-  the same path as a separate `view:` route is a shadow the edge could never win
-  (the compiled-in half is kept), and is reported here. A single route that sets both
-  keys reports the "sets both" error instead.
+- **The palette rule is a build-time convenience.** The client's `QmlPalette` enforces the
+  palette on a delivered page at run time, and is stricter than this scan. It reads the
+  page as the QML lexer does: it strips comments and string literals first, ends a
+  statement at a semicolon as well as a line break, handles a lone carriage return and a
+  leading byte order mark, and refuses any quoted (path) import. A page this scan lets
+  through on any of those points is still refused by the client, at navigation instead of
+  at build time.
+- **The shadow rule and the "sets both" rule catch opposite mistakes.** A `remote:` at the
+  same path as a separate `view:` route is a shadow the edge can never win (the compiled-in
+  route stays), and is reported here. A single route that sets both keys gets the "sets
+  both" error instead.

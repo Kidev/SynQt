@@ -195,7 +195,8 @@ This is the only reason a second check exists. On every other topology
 framework decides the name from a verified certificate, the caller never asserts it,
 and no amount of defensive coding in a slot adds anything. So write
 `if (Caller.entity !== "edge")` and stop. What a local link changes is who decides:
-the name then comes from the connect point's own consumer list, and the operating
+the name then comes from the connect point's one consumer (which is why `synqt check`
+refuses a local link that lists two: it could not tell them apart), and the operating
 system vouches only for the peer's user. [`Caller.isEntityVerified`](runtime-api.md#service-caller)
 is false exactly there, so a slot that must not be reachable by colocation even in a
 deployment that opted into it can say

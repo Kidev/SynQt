@@ -769,6 +769,18 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                     f"warn: connect point '{name}' uses transport local: its caller entity is "
                     "colocation-trusted, not certificate-authenticated (gate privileged "
                     "actions on Caller.isEntityVerified)")
+            # A local socket carries no identity at all. The owner names every caller
+            # after the one consumer the point lists, because that is all it has to go
+            # on. With two, the second would be reported as the first on every call,
+            # and a slot that reads Caller.entity would be answering the wrong entity
+            # without anything having been forged.
+            if len(consumers) > 1:
+                messages.append(
+                    f"error: connect point '{name}' uses transport local with "
+                    f"{len(consumers)} consumers ({', '.join(str(c) for c in consumers)}); "
+                    "a local socket cannot tell them apart, so every caller would be "
+                    f"reported as '{consumers[0]}'. Keep one consumer on it, or use "
+                    "transport mtls")
 
     messages += _mesh_policy_messages(config, endpoints, release)
     messages += _edge_tls_messages(entities, web_edges, release)

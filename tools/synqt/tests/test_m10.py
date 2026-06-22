@@ -398,6 +398,21 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(any(m.startswith("warn:") and "colocation-trusted" in m
                             for m in messages))
 
+    def test_a_local_link_with_two_consumers_is_an_error(self):
+        # The owner names every local caller after the point's one consumer, because a
+        # local socket identifies nobody. Two consumers on it would both arrive as the
+        # first, so the second is refused rather than misnamed on every call.
+        config = self._base()
+        config["entities"].append({"name": "reporter", "type": "jobs"})
+        config["connect_points"] = [
+            {"owner": "database", "consumers": ["web", "reporter"],
+             "transport": "local", "transport_local_explicit": True},
+            {"owner": "web", "consumers": ["client"]}]
+        ok, messages = check.validate(config)
+        self.assertFalse(ok)
+        self.assertTrue(any("cannot tell them apart" in m and "'web'" in m
+                            for m in messages), messages)
+
     def test_implicit_local_link_is_an_error(self):
         config = self._base()
         config["connect_points"] = [
