@@ -47,6 +47,11 @@ public:
     /// for a threaded entity means through a queued call from the device's thread.
     void send(const QByteArray &batch);
 
+    /// The ceiling on bytes the kernel has refused for this socket, checked after every
+    /// send on the socket's own thread (see WebSocketTransport::setWriteBufferLimit).
+    /// Set before the channel moves; it is read only on the thread the socket is on.
+    void setWriteBufferLimit(qint64 bytes);
+
     /// Close the connection with a WebSocket close code and reason. Same threading rule
     /// as send().
     void shutdown(QWebSocketProtocol::CloseCode closeCode, const QString &reason);
@@ -55,9 +60,12 @@ signals:
     void received(const QByteArray &message);
     void bytesSent(qint64 bytes);
     void closed();
+    /// The socket's backlog passed the ceiling; it has been aborted, and `closed` follows.
+    void writeBufferOverflowed(qint64 unsent);
 
 private:
     QWebSocket *m_socket{nullptr};
+    qint64 m_writeBufferLimit{0};
 };
 
 } // namespace SynQt

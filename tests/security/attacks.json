@@ -831,6 +831,20 @@
       "defended_by": "The copy is given the same .gitignore a scaffolded project gets, written by one function (newproject.write_gitignore) so the two ways of starting a project cannot answer the question differently. The copy step also drops .env and certs/ out of the source directory rather than carrying one developer's secrets into somebody else's project, and the step that vendors the examples into the wheel drops the same names.",
       "file": "tools/synqt/tests/test_example_scaffold.py",
       "test": "test_the_copy_is_told_what_never_to_commit"
+    },
+    {
+      "id": "a-peer-that-stops-reading",
+      "what": "A browser keeps its connection open and never drains it (a debugger paused on the page, a frozen tab, or a client written to do exactly this). Once its receive window and the kernel's send buffer are full, every message the owner publishes for it lands in the socket's own buffer, which Qt does not bound, so the edge kept every fan-out message for such a tab for as long as it stayed connected: 65 MB measured for one stalled connection, times the connection cap.",
+      "defended_by": "The transport measures the socket's unsent backlog after each flush, which is what the kernel refused and not what one pass wrote, and aborts a connection that is past four times max_message_bytes behind. Aborted rather than closed, because a close frame would queue behind what the peer is not reading. Proved on both device forms, and against a reading peer that receives sixty-four times the ceiling without being touched.",
+      "file": "tests/m2-transport/tst_wstransport.cpp",
+      "test": "aPeerThatStopsReadingHitsTheWriteBufferLimit"
+    },
+    {
+      "id": "a-peer-that-stops-reading-on-a-threaded-edge",
+      "what": "The same peer on an edge whose sockets live on IO threads, where the backlog can only be measured on the socket's thread and the device that QtRO writes to is on another.",
+      "defended_by": "The channel measures and aborts on the socket's thread and the device on the main thread closes on its verdict, refusing every later write rather than gathering another batch for a connection on its way down.",
+      "file": "tests/m2-transport/tst_threadedsocket.cpp",
+      "test": "aPeerThatStopsReadingIsAbortedOnItsOwnThread"
     }
   ]
 }

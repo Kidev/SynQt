@@ -42,6 +42,13 @@ public:
     /// edge tightens it per connection, where the peer is a browser (see WebEdge).
     static constexpr qint64 DefaultReadBufferLimit{64 * 1024 * 1024};
 
+    /// The default ceiling on bytes written and not yet taken by the kernel, which is
+    /// what a peer that has stopped reading leaves behind: once its receive window and
+    /// the kernel's send buffer are full, every further write sits in QAbstractSocket's
+    /// own buffer, which has no bound of its own. The same safety net as the read side,
+    /// for the other direction, and the edge tightens it per connection the same way.
+    static constexpr qint64 DefaultWriteBufferLimit{64 * 1024 * 1024};
+
     /// The default ceiling on one batched WebSocket message, matching the default
     /// `security.max_message_bytes` a browser link is held to. A threaded edge sets its
     /// own from the configured value; this is what an unconfigured device uses.
@@ -71,6 +78,14 @@ public:
     /// in it is worse than no stream. Zero or less disables the ceiling.
     void setReadBufferLimit(qint64 bytes);
     qint64 readBufferLimit() const;
+
+    /// The ceiling on bytes the kernel has refused to take for this peer. It is measured
+    /// after a flush, never on a write, so a burst the loop has not flushed yet is not a
+    /// peer that stopped reading. Past it the connection is aborted rather than closed: a
+    /// close frame would queue behind what the peer is not reading, and a graceful
+    /// disconnect waits for that queue to drain. Zero or less disables the ceiling.
+    void setWriteBufferLimit(qint64 bytes);
+    qint64 writeBufferLimit() const;
 
     /// The ceiling on one batched message, on the split form. Batching merges the QtRO
     /// messages written in one pass into a single WebSocket message, which is safe
@@ -102,6 +117,10 @@ signals:
     /// The read buffer reached its ceiling. The buffered bytes are gone and the device
     /// is closed by the time this arrives.
     void readBufferOverflowed();
+    /// The peer fell further behind than the write ceiling allows. The device is closed
+    /// and the connection is being aborted by the time this arrives; the bytes it was
+    /// holding for the peer are gone with it.
+    void writeBufferOverflowed();
 
 protected:
     qint64 readData(char *data, qint64 maxSize) override;
@@ -115,8 +134,14 @@ private:
     /// the channel on the split one, and there is nothing to tell apart after that.
     void deliver(const QByteArray &message);
     void discardOnOverflow(qint64 incomingBytes);
+    /// The write ceiling was passed after a flush: mark the device, and put the
+    /// connection down on the next turn, because this can run under a Source that is
+    /// mid-emission and tearing the socket down here would deliver disconnected() into
+    /// that stack.
+    void discardOnWriteOverflow(qint64 pendingBytes);
     void flushBeforeBlocking();
     void flushNow();
+    static void flushDue();
     /// Ask for the batch to cross on the next pass of this thread's event loop.
     void scheduleBatchFlush();
     /// Add one QtRO message to the batch waiting to cross to the socket's thread.
@@ -148,7 +173,9 @@ private:
     QUrl m_url;
     qint64 m_readBufferLimit{DefaultReadBufferLimit};
     qint64 m_writeBatchLimit{DefaultWriteBatchLimit};
+    qint64 m_writeBufferLimit{DefaultWriteBufferLimit};
     bool m_readBufferOverflowed{false};
+    bool m_writeBufferOverflowed{false};
     bool m_flushQueued{false};
 };
 

@@ -24,6 +24,7 @@
 #include <QScopedPointer>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTcpSocket>
 #include <QThread>
 #include <QUrl>
 #include <QWebSocket>
@@ -66,8 +67,48 @@ public:
     }
 
     void setWriteBatchLimit(qint64 bytes) { m_writeBatchLimit = bytes; }
+    void setWriteBufferLimit(qint64 bytes) { m_writeBufferLimit = bytes; }
+
+    /// Listen, and accept a peer that never reads: a raw socket that speaks the upgrade
+    /// by hand, exactly as tst_wstransport's Link does for the unsplit device, so the
+    /// ceiling can be proved on the form where the socket is on another thread.
+    bool acceptStalledReader(QTcpSocket *reader)
+    {
+        if (!listenAndWire()) {
+            return false;
+        }
+        reader->setReadBufferSize(64);
+        reader->connectToHost(QHostAddress::LocalHost, m_listener.serverPort());
+        if (!reader->waitForConnected(5000)) {
+            return false;
+        }
+        reader->write("GET / HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                      "Sec-WebSocket-Version: 13\r\n\r\n");
+        return QTest::qWaitFor([this]() {
+            return !m_transport.isNull() && m_transport->isOpen();
+        }, 5000);
+    }
 
     bool connectPair()
+    {
+        if (!listenAndWire()) {
+            return false;
+        }
+        QObject::connect(&m_client, &QWebSocket::binaryMessageReceived, &m_client,
+                         [this](const QByteArray &message) { m_clientReceived.append(message); });
+        m_client.open(QUrl{QStringLiteral("ws://127.0.0.1:%1").arg(m_listener.serverPort())});
+        return QTest::qWaitFor([this]() {
+            return !m_transport.isNull() && m_transport->isOpen()
+                   && m_client.state() == QAbstractSocket::ConnectedState;
+        });
+    }
+
+private:
+    bool listenAndWire()
     {
         if (!m_listener.listen(QHostAddress::LocalHost, 0)) {
             return false;
@@ -80,19 +121,15 @@ public:
                 m_channel = new SocketChannel{incoming, m_listener.lastAccepted()};
                 m_transport.reset(new WebSocketTransport{m_channel});
                 m_transport->setWriteBatchLimit(m_writeBatchLimit);
+                m_transport->setWriteBufferLimit(m_writeBufferLimit);
                 m_transport->open(QIODevice::ReadWrite);
                 m_channel->moveToThread(&m_ioThread);
             }
         });
-        QObject::connect(&m_client, &QWebSocket::binaryMessageReceived, &m_client,
-                         [this](const QByteArray &message) { m_clientReceived.append(message); });
-        m_client.open(QUrl{QStringLiteral("ws://127.0.0.1:%1").arg(m_listener.serverPort())});
-        return QTest::qWaitFor([this]() {
-            return !m_transport.isNull() && m_transport->isOpen()
-                   && m_client.state() == QAbstractSocket::ConnectedState;
-        });
+        return true;
     }
 
+public:
     WebSocketTransport *transport() const { return m_transport.data(); }
     SocketChannel *channel() const { return m_channel; }
 
@@ -128,6 +165,7 @@ private:
     QScopedPointer<WebSocketTransport> m_transport;
     QList<QByteArray> m_clientReceived;
     qint64 m_writeBatchLimit{WebSocketTransport::DefaultWriteBatchLimit};
+    qint64 m_writeBufferLimit{WebSocketTransport::DefaultWriteBufferLimit};
 };
 
 /// Counts the queued calls delivered on one thread.
@@ -281,6 +319,7 @@ private slots:
     void aBatchNeverExceedsItsLimit();
     void aMessageLargerThanTheBatchLimitStillGoesWhole();
     void shutdownClosesASocketOnAnotherThread();
+    void aPeerThatStopsReadingIsAbortedOnItsOwnThread();
     void destroyingTheDeviceDestroysItsSocketOnItsOwnThread();
     void aFanOutCrossesOncePerSocketThreadRatherThanOncePerConnection();
 };
@@ -389,6 +428,41 @@ void TestThreadedSocket::shutdownClosesASocketOnAnotherThread()
     QTRY_COMPARE(clientClosed.size(), 1);
     QTRY_COMPARE(deviceClosed.size(), 1);
     QCOMPARE(link.client()->closeCode(), QWebSocketProtocol::CloseCodeGoingAway);
+}
+
+// The write ceiling on the split form. tst_wstransport proves it on the device whose
+// socket is its own. Here the socket is on another thread, so the backlog can only be
+// measured there, and the verdict has to come back. What this pins is that it does: the
+// channel aborts on its thread, the device on this one closes and says so, and no bytes
+// written after that are kept for a peer that will never take them.
+void TestThreadedSocket::aPeerThatStopsReadingIsAbortedOnItsOwnThread()
+{
+    constexpr qint64 limit{256 * 1024};
+    constexpr qsizetype frameSize{64 * 1024};
+    constexpr qint64 giveUpAfter{64 * 1024 * 1024};
+
+    ThreadedLink link;
+    link.setWriteBufferLimit(limit);
+    QTcpSocket stalled;
+    QVERIFY(link.acceptStalledReader(&stalled));
+    QSignalSpy overflows{link.transport(), &WebSocketTransport::writeBufferOverflowed};
+    QSignalSpy dropped{link.transport(), &WebSocketTransport::disconnected};
+
+    QByteArray payload;
+    payload.fill('w', frameSize);
+    qint64 written{0};
+    while (overflows.isEmpty() && written < giveUpAfter) {
+        QCOMPARE(link.transport()->write(payload), payload.size());
+        written += payload.size();
+        QTest::qWait(1);
+    }
+    QVERIFY2(!overflows.isEmpty(),
+             "64 MiB were written across the thread to a peer that read none of it and "
+             "nothing said stop");
+    QVERIFY(!link.transport()->isOpen());
+    QVERIFY(link.transport()->errorString().contains(QStringLiteral("write buffer limit")));
+    QCOMPARE(link.transport()->write(payload), -1);
+    QTRY_COMPARE(dropped.count(), 1);
 }
 
 void TestThreadedSocket::destroyingTheDeviceDestroysItsSocketOnItsOwnThread()

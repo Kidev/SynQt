@@ -70,13 +70,15 @@ namespace SynQt {
 
 namespace {
 
-// How many full-size frames one browser connection may have buffered but unread before
-// the edge stops paying for it. A frame is already capped at max_message_bytes; this
-// caps their sum, which that cap alone does not. Four is far above anything QtRO
-// produces (it drains the buffer synchronously on readyRead, so the steady state is one
-// frame) and it keeps the per-connection ceiling tied to the knob an operator already
-// tunes: with max_connections_global, the two bound the edge's total read memory.
-constexpr qint64 ReadBufferFrames{4};
+// How many full-size frames one browser connection may have buffered before the edge
+// stops paying for it, in either direction. A frame is already capped at
+// max_message_bytes. This caps their sum, which that cap alone does not. Four is far
+// above anything QtRO produces on the read side (it drains the buffer synchronously on
+// readyRead, so the steady state is one frame), and on the write side it is what a
+// browser may fall behind by after the kernel's buffers are full before it is counted as
+// not reading at all. It keeps both ceilings tied to the knob an operator already tunes:
+// with max_connections_global, the three bound the edge's total socket memory.
+constexpr qint64 BufferFrames{4};
 
 // The content type for a bundle file the build precompresses, or empty for anything
 // else. Empty means "no encoded variant to consider": the response falls through to
@@ -2122,7 +2124,12 @@ void WebEdge::hostConnection(QWebSocket *socket)
 
     // The device the browser is reached through, built last so it outlives the node above.
     WebSocketTransport *transport{carry(socket, connection)};
-    transport->setReadBufferLimit(m_config.maxMessageBytes * ReadBufferFrames);
+    transport->setReadBufferLimit(m_config.maxMessageBytes * BufferFrames);
+    // The same bound the other way. Without it a tab that stops reading (a debugger on
+    // the page, a script that froze it, or a client written to do exactly this) had every
+    // message the owner published kept for it on this edge, for as long as it stayed
+    // connected, and the connection caps only bound how many tabs may do that at once.
+    transport->setWriteBufferLimit(m_config.maxMessageBytes * BufferFrames);
     transport->open(QIODevice::ReadWrite);
     node->addHostSideConnection(transport);
 

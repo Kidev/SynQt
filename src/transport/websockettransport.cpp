@@ -33,6 +33,8 @@ struct PendingFlushes
     QList<QPointer<WebSocketTransport>> batched;
     /// A drain of `batched` is already posted for this pass.
     bool drainQueued{false};
+    /// A flush of `transports` is already posted for this pass.
+    bool flushQueued{false};
     // Compared, never dereferenced, and cleared by QPointer when the dispatcher goes: a
     // thread whose event loop is torn down and started again gets a new one to hook.
     QPointer<QAbstractEventDispatcher> hooked;
@@ -115,6 +117,15 @@ WebSocketTransport::WebSocketTransport(SocketChannel *channel, QObject *parent)
     connect(channel, &SocketChannel::received, this,
             [this](const QByteArray &message) { deliver(message); });
     connect(channel, &SocketChannel::bytesSent, this, &WebSocketTransport::bytesWritten);
+    // The channel measures the socket's backlog on the thread the socket is on, which is
+    // the only thread that may ask it. What comes back here is the verdict, so this device
+    // reports it and refuses further writes exactly as the unsplit form does.
+    connect(channel, &SocketChannel::writeBufferOverflowed, this,
+            [this](qint64 unsent) {
+        if (!m_writeBufferOverflowed) {
+            discardOnWriteOverflow(unsent);
+        }
+    });
 }
 
 /// The socket goes with the device, on whichever thread it is.
@@ -177,6 +188,21 @@ qint64 WebSocketTransport::readBufferLimit() const
     return m_readBufferLimit;
 }
 
+void WebSocketTransport::setWriteBufferLimit(qint64 bytes)
+{
+    m_writeBufferLimit = bytes;
+    if (m_channel) {
+        // Before the channel is moved to its thread, which is the only time this is
+        // called. The edge configures a connection before it hands the socket over.
+        m_channel->setWriteBufferLimit(bytes);
+    }
+}
+
+qint64 WebSocketTransport::writeBufferLimit() const
+{
+    return m_writeBufferLimit;
+}
+
 void WebSocketTransport::setWriteBatchLimit(qint64 bytes)
 {
     m_writeBatchLimit = bytes;
@@ -231,13 +257,48 @@ void WebSocketTransport::discardOnOverflow(qint64 incomingBytes)
     setErrorString(QStringLiteral("read buffer limit of %1 bytes exceeded")
                        .arg(m_readBufferLimit));
     // Unlike a peer that disconnects cleanly, whose buffered tail stays readable, this
-    // path throws the buffer away: holding the memory is the situation being escaped.
+    // path throws the buffer away. Holding the memory is the situation being escaped.
     m_readBuffer.clear();
     m_readOffset = 0;
     close();
-    // Last, and after the device is already closed and drained: a handler is entitled to
+    // Last, and after the device is already closed and drained. A handler is entitled to
     // delete this transport, and nothing here may touch it afterwards.
     emit readBufferOverflowed();
+}
+
+/// The other direction of the same bound. A peer that has stopped reading fills its
+/// receive window and the kernel's send buffer, and from then on every write lands in
+/// QAbstractSocket's own buffer, which has no ceiling. An edge went on keeping every
+/// fan-out message for a tab that would never take it, for as long as the tab stayed
+/// open. The socket is aborted rather than closed, because a close frame would queue
+/// behind what the peer is not reading and a graceful disconnect waits for that.
+///
+/// Deferred by one turn. On the unsplit device this runs from the flush the event loop is
+/// about to block on, and on both forms it can be reached under a Source whose signal is
+/// what produced the bytes. Aborting synchronously would deliver disconnected() into that
+/// stack, and the edge's handler deletes the connection's Sources on it.
+void WebSocketTransport::discardOnWriteOverflow(qint64 pendingBytes)
+{
+    m_writeBufferOverflowed = true;
+    qWarning("SynQt: aborting a connection whose write buffer reached its limit "
+             "(%lld unsent > %lld); the peer has stopped reading",
+             static_cast<long long>(pendingBytes),
+             static_cast<long long>(m_writeBufferLimit));
+    setErrorString(QStringLiteral("write buffer limit of %1 bytes exceeded")
+                       .arg(m_writeBufferLimit));
+    QIODevice::close();
+    if (m_channel) {
+        // The channel already aborted its socket where it measured. The batch this device
+        // was still gathering is dropped with the rest.
+        m_writeBatch.clear();
+    } else {
+        QMetaObject::invokeMethod(this, [this]() {
+            if (m_socket) {
+                m_socket->abort();
+            }
+        }, Qt::QueuedConnection);
+    }
+    emit writeBufferOverflowed();
 }
 
 void WebSocketTransport::setUrl(const QUrl &url)
@@ -324,6 +385,9 @@ qint64 WebSocketTransport::readData(char *data, qint64 maxSize)
 
 qint64 WebSocketTransport::writeData(const char *data, qint64 maxSize)
 {
+    if (m_writeBufferOverflowed) {
+        return -1;  // the connection is on its way down. Nothing more is kept for the peer
+    }
     if (m_channel) {
         return batchData(data, maxSize);
     }
@@ -370,32 +434,60 @@ void WebSocketTransport::flushBeforeBlocking()
     PendingFlushes &pending{pendingFlushes()};
     if (pending.hooked != dispatcher) {
         pending.hooked = dispatcher;
-        // Written here rather than beside PendingFlushes so it can reach flushNow(), which
-        // is nobody else's business. The dispatcher is the context as well as the sender,
-        // so the connection goes when it does.
+        // The dispatcher is the context as well as the sender, so the connection goes when
+        // it does.
         QObject::connect(dispatcher, &QAbstractEventDispatcher::aboutToBlock, dispatcher,
-                         []() {
-            PendingFlushes &queue{pendingFlushes()};
-            // Taken before flushing: a flush can close a connection, and closing one must
-            // not modify the list being walked.
-            const QList<QPointer<WebSocketTransport>> due{std::move(queue.transports)};
-            queue.transports.clear();
-            for (const QPointer<WebSocketTransport> &transport : due) {
-                if (transport) {
-                    transport->flushNow();
-                }
-            }
-        });
+                         &WebSocketTransport::flushDue);
     }
     m_flushQueued = true;
     pending.transports.append(this);
+    // And on the next round of the loop, whichever comes first. aboutToBlock is emitted
+    // only when the loop has nothing left to do, and a loop that keeps finding work (a
+    // busy edge, or a test spinning processEvents) can go a long while without that. The
+    // bytes reach the kernel either way through Qt's own write notifier. What waits for
+    // this is the measurement flushNow takes afterwards, and a ceiling that is only ever
+    // checked when the process is idle is not a ceiling. One post per thread per pass,
+    // never one per connection. On a fan-out the posting would otherwise cost what it is
+    // there to save (see scheduleBatchFlush, which does the same for the split form).
+    if (!pending.flushQueued) {
+        pending.flushQueued = true;
+        QMetaObject::invokeMethod(dispatcher, &WebSocketTransport::flushDue,
+                                  Qt::QueuedConnection);
+    }
+}
+
+/// Flush every transport on this thread that has written since the last one. Reached
+/// from aboutToBlock and from the queued call flushBeforeBlocking posts, and harmless
+/// when both arrive for one pass. The second finds nothing due.
+void WebSocketTransport::flushDue()
+{
+    PendingFlushes &queue{pendingFlushes()};
+    queue.flushQueued = false;
+    // Taken before flushing. A flush can close a connection, and closing one must not
+    // modify the list being walked.
+    const QList<QPointer<WebSocketTransport>> due{std::move(queue.transports)};
+    queue.transports.clear();
+    for (const QPointer<WebSocketTransport> &transport : due) {
+        if (transport) {
+            transport->flushNow();
+        }
+    }
 }
 
 void WebSocketTransport::flushNow()
 {
     m_flushQueued = false;
-    if (m_socket) {
-        m_socket->flush();
+    if (!m_socket) {
+        return;
+    }
+    m_socket->flush();
+    // Measured here and not in writeData(): before the flush, a whole pass of messages is
+    // sitting in the socket's buffer whether or not the peer is reading, and a burst the
+    // size of one large model would look exactly like a stalled peer. After it, what is
+    // left is what the kernel refused, which is the peer's doing and nobody else's.
+    const qint64 unsent{m_socket->bytesToWrite()};
+    if (!m_writeBufferOverflowed && m_writeBufferLimit > 0 && unsent > m_writeBufferLimit) {
+        discardOnWriteOverflow(unsent);
     }
 }
 

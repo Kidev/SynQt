@@ -32,6 +32,11 @@ QWebSocket *SocketChannel::socket() const
     return m_socket;
 }
 
+void SocketChannel::setWriteBufferLimit(qint64 bytes)
+{
+    m_writeBufferLimit = bytes;
+}
+
 void SocketChannel::send(const QByteArray &batch)
 {
     m_socket->sendBinaryMessage(batch);
@@ -40,6 +45,15 @@ void SocketChannel::send(const QByteArray &batch)
     // finished on another thread and this is the only thing that ran for it, so there is
     // no stack to reenter and nothing later in the pass to batch with.
     m_socket->flush();
+    // And measured here, after the flush, for the reason WebSocketTransport::flushNow
+    // gives: what is left is what the kernel refused. Aborted on this thread, which is
+    // the socket's, and with no Source on the stack: the device on the other thread
+    // learns of it through the signal and stops writing.
+    const qint64 unsent{m_socket->bytesToWrite()};
+    if (m_writeBufferLimit > 0 && unsent > m_writeBufferLimit) {
+        emit writeBufferOverflowed(unsent);
+        m_socket->abort();
+    }
 }
 
 void SocketChannel::shutdown(QWebSocketProtocol::CloseCode closeCode, const QString &reason)
