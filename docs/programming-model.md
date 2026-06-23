@@ -318,13 +318,20 @@ scope:
 The edge keeps what only it can keep, the session and the sign-in, and holds none of the
 data. The browser writes `Server.gate` whatever answered it. Each entity behind the front
 owns an ordinary connect point of its own that the front consumes, and `synqt check` holds
-the two together: a tier carries exactly the members the front offers its callers, no more
+the two together. A tier carries exactly the members the front offers its callers, no more
 and no fewer.
 
-An entity behind a front is reached by
-callers of one scope and no other, so it authorizes on `Caller` and never asks about scope;
-nothing enforces that at run time because nothing has to. And with a tier per process, an
-admin surface's rows never exist in the process serving anonymous visitors.
+Callers of one scope and no other reach an entity behind a front, so it authorizes on
+`Caller` and never asks about scope. Nothing enforces that at run time because nothing
+has to. And with a tier per process, an admin surface's rows never exist in the process
+serving anonymous visitors.
+
+Which tier answers a caller follows their scope for as long as the connection lives, and
+not only when it is accepted. A `Caller.setScope` under a live connection re-points the front
+at the tier the new scope names (or withdraws it, for a scope no tier serves), so a demoted
+admin stops reaching the backoffice entity at the moment of the demotion and not at their
+next reload. The same holds when the mesh link to a tier reconnects: the fresh Replica
+takes over for every browser already connected.
 
 A scope with no line of its own is handed to the highest tier at or below what the caller
 holds, so `anonymous` and `admin` alone still serve a moderator (the anonymous one). Under

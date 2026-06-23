@@ -845,6 +845,20 @@
       "defended_by": "The channel measures and aborts on the socket's thread and the device on the main thread closes on its verdict, refusing every later write rather than gathering another batch for a connection on its way down.",
       "file": "tests/m2-transport/tst_threadedsocket.cpp",
       "test": "aPeerThatStopsReadingIsAbortedOnItsOwnThread"
+    },
+    {
+      "id": "a-demoted-caller-keeps-the-tier-their-old-scope-named",
+      "what": "A fronted connect point (`behind:`) hands each caller to the entity serving their scope, and that entity, by the documented contract of a front, authorizes on Caller and never asks about scope. Which tier a connection relayed to was decided once, when it was accepted: a front carries no `scope:` of its own, so the scope-change handler skipped it, and a caller demoted from admin under a live connection went on reading from and calling into the admin tier's entity until they happened to reload.",
+      "defended_by": "The tier is decided again on every scope change under the connection (WebEdge::hostConnection's rotation handler, through servesScope and pointRelay), and the generated relay lets go of the tier it was following before it follows another, so neither the old tier's pushes nor its slots remain reachable. A scope no tier serves withdraws the point.",
+      "file": "tests/m7-caller/tst_m7.cpp",
+      "test": "aScopeChangeUnderALiveConnectionRePointsAFront"
+    },
+    {
+      "id": "a-relay-left-following-a-tier-it-was-moved-off",
+      "what": "The generated relay connected every follow to the new target without disconnecting the old, so a front pointed at a second tier received both tiers' pushes and a caller moved off a tier still got its signals.",
+      "defended_by": "synqtRelay disconnects everything the previous target and its models were delivering before it follows the next, and a null target follows and forwards to nobody.",
+      "file": "tests/m7-caller/tst_front.cpp",
+      "test": "rePointingTheRelayLetsGoOfTheTierItWasFollowing"
     }
   ]
 }

@@ -12,15 +12,9 @@
 namespace SynQt {
 
 /// How the runtime builds one more instance of a generated Source when it knows only the
-/// contract's name.
-///
-/// It needs one for a shared entity. That entity answers everyone from a single Source
-/// loaded from its QML, and every caller reaches it through a mirror. A plain instance of
-/// the same generated helper, carrying that caller's Caller, republishing what the shared
-/// Source pushes and forwarding what the caller asks. Loading the QML file again would
-/// give the wrong thing (a second Source, with the file's own timers and bindings running
-/// a second time), so the mirror is built from the C++ helper class instead, and the
-/// generated `synqtRegister<Stem>Sources()` is what registers a way to do that.
+/// contract's name: the per-caller mirrors of a shared entity. A mirror is built from the C++
+/// helper class, never by loading the QML again, and `synqtRegister<Stem>Sources()`
+/// registers the way to do it.
 class SourceFactory
 {
 public:
@@ -39,32 +33,23 @@ public:
     static bool mirror(QObject *source, QObject *shared, QObject *caller);
 
     /// Tell a Source whose caller it answers, without mirroring anything. This is the
-    /// shared Source itself: the Caller in its QML context is the one a mirror's forwarded
+    /// shared Source itself. The Caller in its QML context is the one a mirror's forwarded
     /// call adopts into.
     static bool bindCaller(QObject *source, QObject *caller);
 
-    /// Point `source` at the entity answering for it, making it one caller's view of a
-    /// connect point its own entity does not implement.
+    /// Point `source` at the entity answering for it, making it one caller's view of a connect
+    /// point its entity does not implement: a front. `behind` is a Replica of that entity's own
+    /// point; everything it publishes is followed outward and every slot forwarded back with the
+    /// caller's session. Returns false when the object does not support it.
     ///
-    /// This is what a front is: a web edge owns a point, holds the session and runs the
-    /// sign-in, and hands each caller to the entity serving people of their scope. The
-    /// Source the browser acquires is `source` and `behind` is a Replica of that entity's
-    /// own point; everything it publishes is followed outward and every slot is forwarded
-    /// back, carrying the session the call is being made for. Returns false when the object
-    /// does not answer it.
+    /// Calling it again follows the new object; a null `behind` follows nothing. A caller's
+    /// scope change and a mesh reconnect both need this.
     static bool relay(QObject *source, QObject *behind);
 
-    /// Say that this Source holds the state every caller's view is made from, so its
-    /// `\<scope\>` gated members are not gated on it.
-    ///
-    /// Only the one Source a shared entity answers everyone from. It is not any caller's
-    /// view. It holds every value for all of them, and each mirror applies that caller's
-    /// gate as it republishes. Every other Source answers exactly one caller and gates by
-    /// default, which is the fail-closed way round. A Source nobody says this about hides
-    /// a gated member rather than publishing it to whoever turns up.
-    ///
-    /// Returns false when the object does not answer it, which a contract with no gated
-    /// member does not.
+    /// Mark this Source as the one a shared entity answers everyone from, so its `\<scope\>`
+    /// gated members are not gated on it; each mirror applies its caller's gate. Every other
+    /// Source gates by default. Returns false when the object does not support it (a contract
+    /// with no gated member).
     static bool holdsSharedState(QObject *source);
 };
 

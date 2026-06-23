@@ -967,6 +967,23 @@ def _relay_impl(contract: Contract, records, path) -> str:
     lines = [
         f"void {helper}::synqtRelay(QObject *replica)",
         "{",
+        "    if (m_synqtRelay && m_synqtRelay != replica) {",
+        "        // Let go of the entity this was relaying to before following another. A",
+        "        // front is re-pointed when the caller's scope moves to a tier another",
+        "        // entity serves, and when the mesh link to the same entity comes back with",
+        "        // a fresh Replica; a follow left on the old one would go on republishing",
+        "        // what a caller is no longer entitled to, or nothing at all.",
+        "        QObject::disconnect(m_synqtRelay.data(), nullptr, this, nullptr);",
+    ]
+    for model in contract.models:
+        lines += [
+            "        if (QAbstractItemModel *rows{",
+            f'                m_synqtRelay->property("{model.name}").value<QAbstractItemModel *>()}}) {{',
+            "            QObject::disconnect(rows, nullptr, this, nullptr);",
+            "        }",
+        ]
+    lines += [
+        "    }",
         "    m_synqtRelay = replica;",
         "    if (!replica) {",
         "        return;",

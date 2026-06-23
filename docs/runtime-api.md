@@ -838,21 +838,22 @@ The framework owns each accessor's lifecycle:
 
 - A scope-gated connect point is acquired only when the session meets its
   `scope`. Below that scope the Replica is never handed over, so
-  its slots cannot be called at all; the gate is enforced at acquisition, not by
+  its slots cannot be called at all. The gate is enforced at acquisition rather than by
   hiding buttons. On a scope change under a live connection (`Caller.setScope` in a
   slot) the newly permitted connect points are acquired without a reconnect, and the
-  ones the session no longer meets the scope of are withdrawn; on logout they are all
-  released.
+  ones the session no longer meets the scope of are withdrawn. On logout they are all
+  released. A fronted point (`behind:`) is re-pointed at the tier the new scope names
+  on the same event, so which entity answers it is never older than the scope.
 - Attached signal handlers (`<Owner>.on<Signal>`) fire only while the connect
-  point is live. Before acquisition, or during `reconnecting`, they simply do not
+  point is live. Before acquisition, or during `reconnecting`, they do not
   fire, and they resume on reconnect.
 - `Router` resolves the URL the page was loaded at before the link to the edge
   opens, and re-resolves the current route on every scope change, so a scope-gated
-  page is refused at boot and reached again once the session actually holds the
+  page is refused at boot and reached again once the session holds the
   scope. See [deep links, refreshes, and scope
   changes](#deep-links-refreshes-and-scope-changes).
 - `Caller` exists only for the duration of a slot invocation that originated from a
-  consumer. Do not capture it and use it later; read what you need from it inside
+  consumer. Do not capture it and use it later. Read what you need from it inside
   the slot.
 - Every link uses a QtRO heartbeat, so a dropped connection is noticed promptly and
   `Session.state` reflects it. See [connection lifecycle and offline

@@ -14,6 +14,7 @@
 #include "entityruntime.h"
 #include "meshclient.h"
 #include "sessionmanager.h"
+#include "sourcefactory.h"
 #include "topology.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
@@ -28,6 +29,8 @@
 #include "items_consumer.h"      // ItemsConsumer, the edge's facade for the mesh half
 #include "items_sourcehelper.h"  // synqtRegisterItemsSources()
 #include "draft_sourcehelper.h"  // synqtRegisterDraftSources()
+#include "gated_sourcehelper.h"  // synqtRegisterGatedSources(), the front's surface
+#include "backoffice_sourcehelper.h"  // the slice an entity behind the front answers
 
 #include <QHostAddress>
 #include <QQmlEngine>
@@ -89,7 +92,8 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
     config.connectPoints = {{QStringLiteral("todo"), QStringLiteral("Todo")},
                             {QStringLiteral("draft"), QStringLiteral("Draft")},
-                            {QStringLiteral("scratch"), QStringLiteral("Draft")}};
+                            {QStringLiteral("scratch"), QStringLiteral("Draft")},
+                            {QStringLiteral("gate"), QStringLiteral("Gated")}};
     config.pinnedCaCertPath = QStringLiteral(M7_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
@@ -121,6 +125,11 @@ private:
     std::unique_ptr<EntityRuntime> m_database;
     std::unique_ptr<EntityRuntime> m_web;
     std::unique_ptr<WebEdge> m_edge;
+    /// The two entities behind the edge's `gate` front, one per tier. Sources of their
+    /// own contract stand in for the Replicas a real edge consumes them through, since
+    /// the relay is by name and tst_front proves it does not care which.
+    std::unique_ptr<BackofficeSourceHelper> m_lobby;
+    std::unique_ptr<BackofficeSourceHelper> m_backoffice;
     quint16 m_itemsPort{0};
     quint16 m_edgePort{0};
 
@@ -147,6 +156,7 @@ private slots:
             QStringLiteral("Items"),
             []() -> SynQt::ConsumerBase * { return new ItemsConsumer{}; });
         synqtRegisterDraftSources();
+        synqtRegisterGatedSources();
 
         // The database entity owns `items`, on an OS-assigned mTLS port.
         m_dbEngine = std::make_unique<QQmlEngine>();
@@ -205,11 +215,31 @@ private slots:
         WebEdgeConnectPoint scratch{draft};
         scratch.name = QStringLiteral("scratch");
         scratch.shared = true;
-        config.connectPoints = {todo, draft, scratch};
+        // A front. The edge owns `gate` and implements none of it. An anonymous visitor
+        // is handed to `lobby`, an admin to `backoffice`, and (hierarchical scopes) a user
+        // or a moderator to the highest tier below them, which is the lobby.
+        WebEdgeConnectPoint gate;
+        gate.name = QStringLiteral("gate");
+        gate.contract = QStringLiteral("Gated");
+        gate.shared = false;
+        gate.behind.insert(QStringLiteral("anonymous"), QStringLiteral("lobby"));
+        gate.behind.insert(QStringLiteral("admin"), QStringLiteral("backoffice"));
+        config.connectPoints = {todo, draft, scratch, gate};
+
+        m_lobby = std::make_unique<BackofficeSourceHelper>();
+        SourceFactory::holdsSharedState(m_lobby.get());
+        m_lobby->setHeadline(QStringLiteral("the lobby is open"));
+        m_lobby->setPending(1);
+        m_backoffice = std::make_unique<BackofficeSourceHelper>();
+        SourceFactory::holdsSharedState(m_backoffice.get());
+        m_backoffice->setHeadline(QStringLiteral("prices are up"));
+        m_backoffice->setPending(7);
 
         m_edge = std::make_unique<WebEdge>(config, m_edgeEngine.get());
         m_edge->setContextObject(QStringLiteral("Database"),
                                  m_web->accessor(QStringLiteral("Database")));
+        m_edge->setEntityBehind(QStringLiteral("lobby"), m_lobby.get());
+        m_edge->setEntityBehind(QStringLiteral("backoffice"), m_backoffice.get());
         QVERIFY2(m_edge->start(), qPrintable(m_edge->errorString()));
         m_edgePort = m_edge->serverPort();
         QVERIFY(m_edgePort != 0);
@@ -218,6 +248,8 @@ private slots:
     void cleanupTestCase()
     {
         m_edge.reset();
+        m_lobby.reset();
+        m_backoffice.reset();
         m_web.reset();
         m_database.reset();
         m_edgeEngine.reset();
@@ -509,6 +541,94 @@ private slots:
         QVERIFY(!m_edge->sessionManager()->setScope(demoted, QStringLiteral("user")).isEmpty());
         QTRY_VERIFY_WITH_TIMEOUT(todo->isReplicaValid(), 5000);
         QCOMPARE(visitor.session()->state(), QStringLiteral("connected"));
+    }
+
+    // Which entity answers a front is a function of the caller's scope, and the scope
+    // moves under a live connection. Deciding it once, when the connection is
+    // accepted, leaves a hole. A fronted point carries no `scope:` of its own (its `behind:` block is the
+    // gate), so a rotation handler that skips it lets a caller demoted from admin go on
+    // relaying to the backoffice entity, which by the documented contract of a front
+    // authorizes on Caller and never asks about scope. Read access, and write access,
+    // would outlive the scope that granted them.
+    void aScopeChangeUnderALiveConnectionRePointsAFront()
+    {
+        const QByteArray anonToken{m_edge->sessionManager()->createSession()};
+        QQmlEngine clientEngine;
+        SynClient visitor{clientConfig(m_edgePort, cookieFor(anonToken)), &clientEngine};
+        visitor.start();
+        QTRY_COMPARE_WITH_TIMEOUT(visitor.session()->state(), QStringLiteral("connected"),
+                                  8000);
+        QRemoteObjectDynamicReplica *gate{replicaNamed(&visitor, QStringLiteral("gate"))};
+        QVERIFY(gate != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(gate->isReplicaValid(), 5000);
+        QTRY_COMPARE(gate->property("headline").toString(), QStringLiteral("the lobby is open"));
+        // `pending` is `<admin>`, so the lobby's value never reaches an anonymous caller.
+        QCOMPARE(gate->property("pending").toInt(), 0);
+
+        // Raised to admin: the same Replica, on the same connection, now answered by the
+        // backoffice entity, gated members included.
+        const QByteArray asAdmin{
+            m_edge->sessionManager()->setScope(anonToken, QStringLiteral("admin"),
+                                               identityFor(QStringLiteral("erin")))};
+        QVERIFY(!asAdmin.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(gate->property("headline").toString(),
+                                  QStringLiteral("prices are up"), 5000);
+        QTRY_COMPARE(gate->property("pending").toInt(), 7);
+        QVERIFY(gate->isReplicaValid());
+
+        // Demoted: back to the lobby, and the backoffice entity's changes no longer arrive.
+        const QByteArray demoted{
+            m_edge->sessionManager()->setScope(asAdmin, QStringLiteral("anonymous"))};
+        QVERIFY(!demoted.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(gate->property("headline").toString(),
+                                  QStringLiteral("the lobby is open"), 5000);
+        QTRY_COMPARE(gate->property("pending").toInt(), 0);
+        m_backoffice->setHeadline(QStringLiteral("prices are down"));
+        QTest::qWait(500);
+        QCOMPARE(gate->property("headline").toString(), QStringLiteral("the lobby is open"));
+        m_backoffice->setHeadline(QStringLiteral("prices are up"));
+        QCOMPARE(visitor.session()->state(), QStringLiteral("connected"));
+    }
+
+    // The entity behind a front is a Replica over a mesh link, and a link that reconnects
+    // is a fresh Replica: the runtime retires the old one a turn after the new one
+    // arrives. A relay left pointed at the old one followed a deleted object and answered
+    // nobody, for every browser already connected, until each of them reconnected on its
+    // own. The edge is told of the replacement exactly as it is told of the first one.
+    void aReplacedEntityBehindAFrontIsFollowedByLiveConnections()
+    {
+        const QByteArray token{m_edge->sessionManager()->createSession(
+            QStringLiteral("admin"), identityFor(QStringLiteral("fay")))};
+        QQmlEngine clientEngine;
+        SynClient admin{clientConfig(m_edgePort, cookieFor(token)), &clientEngine};
+        admin.start();
+        QTRY_COMPARE_WITH_TIMEOUT(admin.session()->state(), QStringLiteral("connected"),
+                                  8000);
+        QRemoteObjectDynamicReplica *gate{replicaNamed(&admin, QStringLiteral("gate"))};
+        QVERIFY(gate != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(gate->isReplicaValid(), 5000);
+        QTRY_COMPARE(gate->property("headline").toString(), QStringLiteral("prices are up"));
+
+        // The mesh link came back. A new Replica of the same entity, and the old one gone.
+        std::unique_ptr<BackofficeSourceHelper> reconnected{
+            std::make_unique<BackofficeSourceHelper>()};
+        SourceFactory::holdsSharedState(reconnected.get());
+        reconnected->setHeadline(QStringLiteral("prices after the restart"));
+        reconnected->setPending(3);
+        m_edge->setEntityBehind(QStringLiteral("backoffice"), reconnected.get());
+        m_backoffice.reset();
+
+        QTRY_COMPARE_WITH_TIMEOUT(gate->property("headline").toString(),
+                                  QStringLiteral("prices after the restart"), 5000);
+        QTRY_COMPARE(gate->property("pending").toInt(), 3);
+        reconnected->setHeadline(QStringLiteral("and still following"));
+        QTRY_COMPARE(gate->property("headline").toString(),
+                     QStringLiteral("and still following"));
+
+        // Put back for whatever runs after this.
+        m_backoffice = std::move(reconnected);
+        m_backoffice->setHeadline(QStringLiteral("prices are up"));
+        m_backoffice->setPending(7);
     }
 
     // Clause 7: an entity not on the consumer allowlist is refused at the mesh handshake

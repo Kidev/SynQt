@@ -240,9 +240,19 @@ private:
     QObject *relayFor(const WebEdgeConnectPoint &connectPoint, Caller *caller,
                       QObject *parent, QString *error);
     /// Which entity serves a caller holding `scope`, on a fronted point. Their own scope
-    /// where the block names it; otherwise, under hierarchical scopes, the highest tier at
+    /// where the block names it. Otherwise, under hierarchical scopes, the highest tier at
     /// or below what they hold. Empty when nothing serves them, which hosts nothing.
     QString entityFor(const WebEdgeConnectPoint &connectPoint, const QString &scope) const;
+    /// Point a front's Source at the entity named, or at nothing when the name is empty,
+    /// and remember which it is at so that a replacement Replica for that entity finds
+    /// it. The one place a relay is pointed, so the record cannot disagree with the relay.
+    void pointRelay(QObject *source, const QString &entity);
+    /// Whether a caller holding `scope` is served on this point at all: the scope gate,
+    /// and on a front also that the tier for that scope names an entity this edge can
+    /// reach right now. Decided when a connection is accepted and again on every scope
+    /// change under it, because both halves move. The scope with the session, and the
+    /// entity with the mesh link.
+    bool servesScope(const WebEdgeConnectPoint &connectPoint, const Caller *caller) const;
     /// Drop this connection's claim on its session's Sources, and destroy them when it was
     /// the last one. Called from the socket's disconnected handler.
     void releaseSessionSources(const QByteArray &sessionId);
@@ -395,6 +405,16 @@ private:
     QHash<QString, SharedSource> m_sharedSources;
     /// What answers for each entity this edge fronts a point with, by entity name.
     QHash<QString, QPointer<QObject>> m_entitiesBehind;
+    /// Every live relay Source on this edge, by the entity it is pointed at.
+    ///
+    /// A relay is not pointed once. The caller's scope can move to a tier another entity
+    /// serves (Caller.setScope under the live connection), and the entity itself is
+    /// replaced whenever its mesh link reconnects, since a reconnect is a fresh Replica.
+    /// Left where it was, a relay went on forwarding a demoted caller to the entity their
+    /// old scope named, which authorizes on Caller and never asks about scope, and after a
+    /// reconnect it pointed at a deleted object and answered nobody until the browser
+    /// itself reconnected. Entries leave when the Source does.
+    QHash<QObject *, QString> m_relayTargets;
 
     /// Connection caps. Keyed on the visitor's address as m_clientAddress resolves it,
     /// which is the peer's own address until a deployment names a balancer in front.

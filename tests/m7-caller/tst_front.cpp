@@ -168,6 +168,58 @@ private slots:
         QCOMPARE(m_tier->pending(), 7);
     }
 
+    /// A front is pointed more than once in its life: at another tier when the caller's
+    /// scope moves to one another entity serves, and at a fresh Replica when the mesh link
+    /// behind it comes back. What it followed before has to be let go of, or a demoted
+    /// caller keeps receiving the tier they left, and a reconnect leaves the front
+    /// following an object the runtime is about to delete.
+    void rePointingTheRelayLetsGoOfTheTierItWasFollowing()
+    {
+        const QByteArray session{m_sessions->createSession(
+            QStringLiteral("admin"), {{QStringLiteral("sub"), QStringLiteral("u1")}})};
+        GatedSourceHelper *front{frontFor(session)};
+        QCOMPARE(front->headline(), QStringLiteral("prices are up"));
+
+        Tier other;
+        SourceFactory::holdsSharedState(&other);
+        other.setHeadline(QStringLiteral("the lobby is open"));
+        other.setPending(1);
+        QVERIFY(SourceFactory::relay(front, &other));
+
+        // What the new tier holds is what the caller sees now.
+        QCOMPARE(front->headline(), QStringLiteral("the lobby is open"));
+        QCOMPARE(front->pending(), 1);
+        QCOMPARE(front->catalogue()->rowCount(), 0);
+
+        // And the tier it left no longer reaches it: not its properties, not its rows,
+        // not its signals.
+        QSignalSpy relayed{front, &GatedSource::restocked};
+        m_tier->setHeadline(QStringLiteral("prices are gone"));
+        m_tier->setPending(9);
+        m_tier->setCatalogue(catalogueRows());
+        m_tier->emitRestocked(QStringLiteral("SKU-1"));
+        QCOMPARE(front->headline(), QStringLiteral("the lobby is open"));
+        QCOMPARE(front->pending(), 1);
+        QCOMPARE(front->catalogue()->rowCount(), 0);
+        QCOMPARE(relayed.count(), 0);
+        other.emitRestocked(QStringLiteral("SKU-2"));
+        QCOMPARE(relayed.count(), 1);
+
+        // A call goes to the tier it is pointed at, and nowhere else.
+        front->restock(QStringLiteral("SKU-2"), 5);
+        QCOMPARE(m_tier->asked.size(), 0);
+        QCOMPARE(other.asked.size(), 1);
+
+        // Pointed at nothing, it follows nobody and forwards to nobody.
+        QVERIFY(SourceFactory::relay(front, nullptr));
+        other.setHeadline(QStringLiteral("closed"));
+        other.emitRestocked(QStringLiteral("SKU-3"));
+        QCOMPARE(front->headline(), QStringLiteral("the lobby is open"));
+        QCOMPARE(relayed.count(), 1);
+        front->restock(QStringLiteral("SKU-2"), 1);
+        QCOMPARE(other.asked.size(), 1);
+    }
+
 private:
     GatedSourceHelper *frontFor(const QString &scope)
     {

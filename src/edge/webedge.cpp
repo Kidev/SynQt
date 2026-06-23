@@ -1780,6 +1780,44 @@ QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
 void WebEdge::setEntityBehind(const QString &entity, QObject *replica)
 {
     m_entitiesBehind.insert(entity, replica);
+    // Every relay already pointed at this entity follows the replacement. The old Replica
+    // is retired by the runtime a turn after the new one arrives, and a relay holding it
+    // would have gone quiet for good. Nothing on the browser's side ever learns that the
+    // mesh behind its edge reconnected.
+    for (auto it{m_relayTargets.cbegin()}; it != m_relayTargets.cend(); ++it) {
+        if (it.value() == entity) {
+            SourceFactory::relay(it.key(), replica);
+        }
+    }
+}
+
+void WebEdge::pointRelay(QObject *source, const QString &entity)
+{
+    if (entity.isEmpty()) {
+        SourceFactory::relay(source, nullptr);
+        m_relayTargets.remove(source);
+        return;
+    }
+    SourceFactory::relay(source, m_entitiesBehind.value(entity).data());
+    if (!m_relayTargets.contains(source)) {
+        connect(source, &QObject::destroyed, this,
+                [this, source]() { m_relayTargets.remove(source); });
+    }
+    m_relayTargets.insert(source, entity);
+}
+
+bool WebEdge::servesScope(const WebEdgeConnectPoint &connectPoint, const Caller *caller) const
+{
+    if (!connectPoint.scope.isEmpty() && !caller->hasScope(connectPoint.scope)) {
+        return false;
+    }
+    if (connectPoint.behind.isEmpty()) {
+        return true;
+    }
+    // A scope nobody wrote a line for is served by nobody, which hosts nothing for them;
+    // so is a tier whose entity has not come up yet, until it does.
+    const QString entity{entityFor(connectPoint, caller->scope())};
+    return !entity.isEmpty() && !m_entitiesBehind.value(entity).isNull();
 }
 
 QString WebEdge::entityFor(const WebEdgeConnectPoint &connectPoint,
@@ -1843,7 +1881,7 @@ QObject *WebEdge::relayFor(const WebEdgeConnectPoint &connectPoint, Caller *call
     }
     caller->setSource(source);
     SourceFactory::bindCaller(source, caller);
-    SourceFactory::relay(source, behind);
+    pointRelay(source, entity);
     return source;
 }
 
@@ -2078,9 +2116,11 @@ void WebEdge::hostConnection(QWebSocket *socket)
     // rotation handler further down, and only with it.
     const auto hosted{std::make_shared<QHash<QString, QObject *>>()};
     for (const WebEdgeConnectPoint &connectPoint : m_config.connectPoints) {
-        // Scope gating: never host a scoped connect point for an under-scoped session, so
-        // the browser can never even acquire a Replica it is not authorized for.
-        if (!connectPoint.scope.isEmpty() && !gate->hasScope(connectPoint.scope)) {
+        // Scope gating. Never host a scoped connect point for an under-scoped session, so
+        // the browser can never even acquire a Replica it is not authorized for. On a
+        // front, also nothing for a scope no tier serves. That is a documented outcome
+        // of the `behind:` block, not a Source that failed to load.
+        if (!servesScope(connectPoint, gate)) {
             continue;
         }
         hostConnectPoint(connectPoint, sessionId, connection, node, hosted.get());
@@ -2164,21 +2204,48 @@ void WebEdge::hostConnection(QWebSocket *socket)
             // The gate reads the session live and has already moved to the new id: Caller
             // subscribes to this same signal in forUser(), which ran before this connect,
             // and Qt delivers in connection order.
+            //
+            // A front is re-decided as well, and not only for whether it is hosted: which
+            // entity answers it is a function of the scope too (`behind:` names one per
+            // tier), so the relay is pointed at the tier the session holds now. Before
+            // this, a fronted point with no `scope:` of its own was skipped here outright,
+            // and a caller demoted from admin went on relaying to the admin tier's
+            // entity, which authorizes on Caller and never asks about scope.
             for (const WebEdgeConnectPoint &connectPoint :
                  std::as_const(m_config.connectPoints)) {
-                if (connectPoint.scope.isEmpty()) {
+                const bool fronted{!connectPoint.behind.isEmpty()};
+                if (connectPoint.scope.isEmpty() && !fronted) {
                     continue;
                 }
-                const bool entitled{gate->hasScope(connectPoint.scope)};
+                const QString scope{gate->scope()};
+                const bool entitled{servesScope(connectPoint, gate)};
                 QObject *current{hosted->value(connectPoint.name)};
                 if (entitled && !current) {
                     hostConnectPoint(connectPoint, to, connection, node, hosted.get());
+                    current = hosted->value(connectPoint.name);
+                    // A session's Source continued from before the scope moved is still
+                    // pointed where the old scope sent it; the tier is decided again.
+                    if (fronted && current) {
+                        pointRelay(current, entityFor(connectPoint, scope));
+                    }
                 } else if (!entitled && current) {
                     hosted->remove(connectPoint.name);
                     // The Source itself is left where it is. A per-session one belongs to
                     // the session and is reclaimed with it (releaseSessionSources); if the
                     // scope is raised again it is what the visitor continues from.
                     node->disableRemoting(current);
+                    if (fronted) {
+                        // Pointed at nothing rather than left following an entity this
+                        // caller no longer reaches. Withdrawn from the node, it would
+                        // still be pulling that tier's every change into a Source that
+                        // is theirs.
+                        pointRelay(current, QString{});
+                    }
+                } else if (entitled && current && fronted) {
+                    const QString entity{entityFor(connectPoint, scope)};
+                    if (m_relayTargets.value(current) != entity) {
+                        pointRelay(current, entity);
+                    }
                 }
             }
         });

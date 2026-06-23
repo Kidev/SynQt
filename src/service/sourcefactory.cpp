@@ -42,8 +42,8 @@ bool SourceFactory::mirror(QObject *source, QObject *shared, QObject *caller)
     if (!source || !shared) {
         return false;
     }
-    // The caller first. A mirror that forwarded a call before it knew whose it was would
-    // hand the shared Source the previous caller's identity.
+    // The caller first, so a forwarded call never carries the previous caller's identity to
+    // the shared Source.
     if (!bindCaller(source, caller)) {
         return false;
     }
@@ -62,7 +62,8 @@ bool SourceFactory::bindCaller(QObject *source, QObject *caller)
 
 bool SourceFactory::relay(QObject *source, QObject *behind)
 {
-    if (!source || !behind) {
+    // A null `behind` is a real instruction. Stop following whatever it was following.
+    if (!source) {
         return false;
     }
     return QMetaObject::invokeMethod(source, "synqtRelay", Qt::DirectConnection,
