@@ -14,6 +14,7 @@
 
 #include <QDir>
 #include <QObject>
+#include <QRemoteObjectReplica>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QVariantList>
@@ -41,6 +42,11 @@ public:
 
 public slots:
     void publish(const QVariantList &events) { batches.append(events); }
+
+signals:
+    /// What a QRemoteObjectReplica says when its link goes: Valid to Suspect, and the
+    /// signature is the one the client connects to by name.
+    void stateChanged(QRemoteObjectReplica::State state, QRemoteObjectReplica::State oldState);
 };
 
 QList<TraceEvent> events(int count, int from = 0)
@@ -103,6 +109,45 @@ private slots:
         QCOMPARE(replayed.last().toMap().value(QStringLiteral("message")).toString(),
                  QStringLiteral("99"));
         // Replayed once, not kept for the next reconnect as well.
+        QCOMPARE(client.spooledEvents(), static_cast<qint64>(0));
+    }
+
+    // The monitor goes away while the link is up, which is the ordinary outage: it
+    // restarts, or the network between the two does. The Replica the entity holds does
+    // not disappear then; QtRO marks it Suspect, and a call on a Suspect Replica is dropped
+    // with a warning. Every batch published between the drop and the reconnect went
+    // there, so the spool that exists for exactly this window never saw it, and the
+    // record had a hole right where an operator would look for what went wrong.
+    void aMonitorThatGoesAwayIsSpooledForUntilItIsBack()
+    {
+        QTemporaryDir dir;
+        MonitorStandIn monitor;
+        IngestClient client{dir.filePath(QStringLiteral("spool.bin")), 1 << 20};
+        client.setReplica(&monitor);
+        client.publish(events(3));
+        QTRY_COMPARE(monitor.flattened().size(), 3);
+
+        // The link dropped. The same object, no longer valid.
+        emit monitor.stateChanged(QRemoteObjectReplica::Suspect, QRemoteObjectReplica::Valid);
+        client.publish(events(5, 3));
+        QCOMPARE(client.spooledEvents(), static_cast<qint64>(5));
+        QTest::qWait(50);
+        QCOMPARE(monitor.flattened().size(), 3);
+
+        // Back, as the runtime brings it back. A fresh Replica, and everything the
+        // outage held is replayed to it in order, then held nowhere else.
+        MonitorStandIn fresh;
+        client.setReplica(&fresh);
+        const QVariantList replayed = fresh.flattened();
+        QCOMPARE(replayed.size(), 5);
+        QCOMPARE(replayed.first().toMap().value(QStringLiteral("message")).toString(),
+                 QStringLiteral("3"));
+        QCOMPARE(replayed.last().toMap().value(QStringLiteral("message")).toString(),
+                 QStringLiteral("7"));
+        QCOMPARE(client.spooledEvents(), static_cast<qint64>(0));
+        // And it is live again. The next batch goes straight through.
+        client.publish(events(2, 8));
+        QTRY_COMPARE(fresh.flattened().size(), 7);
         QCOMPARE(client.spooledEvents(), static_cast<qint64>(0));
     }
 

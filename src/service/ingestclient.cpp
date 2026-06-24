@@ -55,11 +55,44 @@ IngestClient::~IngestClient() = default;
 
 void IngestClient::setReplica(QObject *replica)
 {
+    if (m_attached && m_attached != replica) {
+        m_attached->disconnect(this);
+    }
+    m_attached = replica;
+    if (replica != nullptr) {
+        // By name, as every call on it is. This library knows the Replica only as a
+        // QObject with a `publish`. A stand-in that says nothing about its state is
+        // taken as always live, which is what a stand-in is.
+        connect(replica, SIGNAL(stateChanged(QRemoteObjectReplica::State,
+                                             QRemoteObjectReplica::State)),
+                this, SLOT(onReplicaStateChanged(QRemoteObjectReplica::State)),
+                Qt::UniqueConnection);
+    }
     {
         QMutexLocker locker{&m_replicaMutex};
         m_replica = replica;
     }
     if (replica != nullptr) {
+        replay();
+    }
+}
+
+void IngestClient::onReplicaStateChanged(QRemoteObjectReplica::State state)
+{
+    const bool live{state == QRemoteObjectReplica::Valid};
+    {
+        QMutexLocker locker{&m_replicaMutex};
+        if (live && m_replica.isNull() && !m_attached.isNull()) {
+            m_replica = m_attached;
+        } else if (!live && !m_replica.isNull()) {
+            m_replica.clear();
+        } else {
+            return;
+        }
+    }
+    if (live) {
+        // Back on the same object, which a reconnect on one node does. What the outage
+        // held goes out now, ahead of anything published from here on.
         replay();
     }
 }

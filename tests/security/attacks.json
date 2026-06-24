@@ -859,6 +859,13 @@
       "defended_by": "synqtRelay disconnects everything the previous target and its models were delivering before it follows the next, and a null target follows and forwards to nobody.",
       "file": "tests/m7-caller/tst_front.cpp",
       "test": "rePointingTheRelayLetsGoOfTheTierItWasFollowing"
+    },
+    {
+      "id": "a-monitor-outage-leaves-a-hole-in-the-record",
+      "what": "The record an operator investigates an incident from is the monitor's, and an incident is when a monitor is most likely to restart. The reporting entity spooled batches only while it held no Replica; once the link had come up, a monitor going away left the Replica in place, marked Suspect, and QtRemoteObjects dropped every publish on it with a warning until the reconnect. Everything an entity said during the outage was lost, and the spool that exists for that window never saw it.",
+      "defended_by": "IngestClient follows the Replica's state and treats one that is not Valid as absent: batches spool from the moment the link drops and replay, in order, to the Replica the reconnect brings, ahead of anything published since.",
+      "file": "tests/monitor/tst_ingest.cpp",
+      "test": "aMonitorThatGoesAwayIsSpooledForUntilItIsBack"
     }
   ]
 }

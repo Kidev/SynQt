@@ -11,6 +11,7 @@
 #include <QMutex>
 #include <QObject>
 #include <QPointer>
+#include <QRemoteObjectReplica>
 #include <QString>
 
 QT_BEGIN_NAMESPACE
@@ -19,30 +20,17 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// The half of monitoring that lives in every reporting entity. It takes each batch the
-/// tracer hands it and pushes it to the monitor, keeping what the monitor did not get.
+/// The half of monitoring that lives in every reporting entity: it pushes each batch the
+/// tracer hands it to the monitor, and keeps what the monitor did not get.
 ///
-/// A monitor is a service like any other, so it can be restarting, redeploying, or
-/// slower than the entity reporting to it. Three things follow, and they are the whole
-/// design:
+/// 1. **Nothing waits.** A publish is a fire-and-forget slot on a Replica; without one, the
+///    batch goes to the spool.
+/// 2. **What was missed is kept.** The spool is replayed oldest first when the link returns.
+/// 3. **The spool is bounded, and says when it drops.** Past the cap the oldest batches go, and
+///    the count is reported to the monitor.
 ///
-/// 1. **Nothing waits.** A publish is a fire-and-forget slot on a Replica. If the Replica
-///    is not there, the batch goes to the spool and the call returns. An entity must never
-///    be slowed down, let alone blocked, by the thing watching it.
-/// 2. **What was missed is kept.** The window around a restart is the window an operator
-///    is usually looking at, so an unreachable monitor means a file on disk rather than a
-///    gap. The spool is replayed oldest first when the link comes back.
-/// 3. **The spool is bounded, and says when it drops.** A monitor that never comes back
-///    must not fill the entity's disk. Past the cap the oldest batches go, and how many
-///    went is reported to the monitor when it returns, so the gap is visible as a gap.
-///
-/// Everything here runs on the tracer's writer thread, which is where the sink is called,
-/// so the entity's own event loop is left alone. The one thing that has to cross back is
-/// the publish itself. A Replica belongs to the thread that acquired it, and reaching into
-/// one from here would be touching another thread's QObject state (Qt says so, loudly:
-/// "Timers cannot be stopped from another thread"). So the batch is serialized here, where
-/// the cost is, and handed over queued. The entity's loop pays one metacall to give an
-/// already-built list to a socket.
+/// Runs on the tracer's writer thread. The Replica belongs to the entity's thread, so the
+/// batch is serialized here and handed over queued.
 class IngestClient : public QObject
 {
     Q_OBJECT
@@ -65,8 +53,17 @@ public:
     qint64 droppedBatches() const;
 
     /// How many events are waiting on disk right now. For tests and for the monitor's own
-    /// health view; it reads the file, so it is not for a hot path.
+    /// health view. It reads the file, so it is not for a hot path.
     qint64 spooledEvents() const;
+
+private slots:
+    /// The Replica's link came or went. QtRO does not take a Replica away when the link
+    /// under it drops. It marks it Suspect and drops every call made on it, with a
+    /// warning, until the link is back. Publishing to it in that state is publishing to
+    /// nobody, so a Replica that is not Valid is treated exactly as no Replica at all,
+    /// which is what makes the spool cover the outage rather than only the time before
+    /// the monitor was first reached.
+    void onReplicaStateChanged(QRemoteObjectReplica::State state);
 
 private:
     bool send(const QList<TraceEvent> &batch);
@@ -90,20 +87,18 @@ private:
     /// Read on the writer thread and written on the entity's, so it is guarded. A raw
     /// QPointer read across threads is a race whatever the pointer is worth.
     mutable QMutex m_replicaMutex;
+    /// The Replica publish() hands batches to, or null while there is nothing that would
+    /// deliver them. No Replica yet, or one whose link is down. Written on the entity's
+    /// thread, read on the tracer's, hence the mutex.
     QPointer<QObject> m_replica;
+    /// The Replica the runtime last handed over, valid or not, so a link coming back on
+    /// the same object can be adopted again.
+    QPointer<QObject> m_attached;
     QString m_spoolPath;
     qint64 m_spoolCapBytes{0};
 
-    /// The spool file and the count of what it dropped, which are the other two things two
-    /// threads reach. Spooling runs on the tracer's writer thread and replay runs on the
-    /// entity's, so without this the writer can be appending a batch while the entity is
-    /// reading the file and then removing it. The appended batch goes with the file it was
-    /// never read out of, and the counter beside it is read and written from both threads
-    /// at once, which is a data race whatever the number is worth.
-    ///
-    /// Held for the file work and released before anything is published, so a monitor
-    /// coming back does not stall the thread that is trying to record what happened while
-    /// it was away.
+    /// Guards the spool file and its drop count, which the writer thread (spooling) and the
+    /// entity's thread (replay) both reach. Released before anything is published.
     mutable QMutex m_spoolMutex;
     qint64 m_droppedBatches{0};
 };

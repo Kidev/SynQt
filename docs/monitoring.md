@@ -285,27 +285,35 @@ environment. A credential derived with fewer iterations is refused at load rathe
 accepted with a warning, one malformed entry does not lock everyone else out, and an empty
 store refuses everybody rather than allowing all.
 
-`synqt monitor operator add <name>` mints an entry. There is no `list` and no `remove`:
-the list lives in the deployment's environment, and a CLI that edited that file would be a
+`synqt monitor operator add <name>` mints an entry. There is no `list` and no `remove`,
+because the list lives in the deployment's environment, and a CLI that edited that file would be a
 CLI editing a running deployment's secrets.
 
 The sign-in route is rationed per client address, ten attempts a minute, counted before the
 password is read. A monitor reached through a proxy names it in `public.trusted_proxies`
 like any other browser-facing entity, otherwise every operator arrives from the proxy and
-shares one budget: ten wrong guesses from anywhere would answer `429` to all of them.
+shares one budget, so ten wrong guesses from anywhere would answer `429` to all of them.
 
 ## When the monitor is down
 
 Nothing stops. An entity whose monitor is unreachable keeps running with no degradation
-other than a spool file: batches it could not hand over are written to a bounded file under
-its own build directory and replayed when the monitor returns. Past the cap the oldest are
+other than a spool file. It writes batches it could not hand over to a bounded file under
+its own build directory and replays them when the monitor returns. Past the cap the oldest are
 dropped, the newest kept, and the number dropped is published to the monitor when it comes
 back, so the gap is visible rather than silent.
+
+Unreachable covers both halves of an outage, a monitor that was never there when the
+entity started, and one that went away under a live link. The second is the ordinary
+one (a restart, a redeploy), and it is not the same event on the wire. The Replica the
+entity holds stays where it is and is marked suspect, and QtRemoteObjects drops a call
+on it rather than refusing it. The entity reads that state as "no monitor" and
+spools from the moment the link drops, so the record has no hole between the outage and
+the reconnect.
 
 ## Testing what an entity says
 
 `Log.info("bid accepted", { amount: amount })` is a fact about how an entity behaves, so it
-is testable like any other. The QML harness hands the events back; see
+is testable like any other. The QML harness hands the events back. See
 [asserting on what an entity said](testing.md#asserting-on-what-an-entity-said).
 
 ## Configuration reference
