@@ -13,6 +13,7 @@
 #include "rep_mesh_source.h"
 #include "rep_mesh_replica.h"
 
+#include "localpeer.h"
 #include "meshclient.h"
 #include "meshpeer.h"
 #include "meshserver.h"
@@ -22,6 +23,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
+#include <QLocalServer>
+#include <QLocalSocket>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
 #include <QSignalSpy>
@@ -493,9 +496,51 @@ private slots:
         QCOMPARE(observedPeer.entity, QStringLiteral("beta"));
         QVERIFY(!observedPeer.authenticated);
     }
+
+    // The check behind that trust, on both ends of a local link. The owner has asked the
+    // operating system who connected since the transport existed. The consumer asked
+    // nothing about who was listening, and a local socket is a path in a directory every
+    // user of the machine can write, so a process of another user that took the owner's
+    // name first was taken for the owner. The same primitive now runs at both ends
+    // (MeshServer::onLocalConnectionPending, MeshClient::openLocal), and this is the
+    // primitive. Asked of a real connected pair, it recognises this user on either side
+    // and refuses any other. Another user cannot be stood up inside one test process, so
+    // the refusal is proved by asking about a user this process is not.
+    void bothEndsOfALocalLinkAskWhoThePeerRunsAs()
+    {
+        QLocalServer listener;
+        const QString name{
+            QStringLiteral("synqt-m3-peer-%1").arg(QCoreApplication::applicationPid())};
+        QLocalServer::removeServer(name);
+        QVERIFY2(listener.listen(name), qPrintable(listener.errorString()));
+
+        QLocalSocket consumer;
+        consumer.connectToServer(name);
+        QVERIFY(consumer.waitForConnected(5000));
+        QTRY_VERIFY(listener.hasPendingConnections());
+        QLocalSocket *accepted{listener.nextPendingConnection()};
+        QVERIFY(accepted != nullptr);
+
+        const quint64 me{SynQt::currentEffectiveUser()};
+        // The owner's question about the consumer, and the consumer's about the owner.
+        QVERIFY(SynQt::localPeerRunsAsThisUser(accepted));
+        QVERIFY(SynQt::localPeerRunsAsThisUser(&consumer));
+        QVERIFY(SynQt::localPeerRunsAs(accepted->socketDescriptor(), me));
+        QVERIFY(SynQt::localPeerRunsAs(consumer.socketDescriptor(), me));
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+        // Somebody else on the far end is refused, from either side.
+        QVERIFY(!SynQt::localPeerRunsAs(accepted->socketDescriptor(), me + 1));
+        QVERIFY(!SynQt::localPeerRunsAs(consumer.socketDescriptor(), me + 1));
+#endif
+        // And a socket the OS cannot speak for is refused rather than waved through.
+        QVERIFY(!SynQt::localPeerRunsAs(-1, me));
+        QLocalSocket unconnected;
+        QVERIFY(!SynQt::localPeerRunsAsThisUser(&unconnected));
+        QVERIFY(!SynQt::localPeerRunsAsThisUser(nullptr));
+    }
 };
 
-// The expansion of QTEST_GUILESS_MAIN, with one addition: stdout and stderr are made
+// The expansion of QTEST_GUILESS_MAIN, with one addition. Stdout and stderr are made
 // unbuffered before the run. On Windows a piped standard stream is block-buffered, so a
 // hard termination (an access violation or an abort, the kind a failed QVERIFY never
 // produces) discards everything QtTest had printed into the buffer and the failure reaches

@@ -4,6 +4,7 @@
 #include "meshclient.h"
 
 #include "deletesoon.h"
+#include "localpeer.h"
 #include "socketoptions.h"
 
 #include <QLocalSocket>
@@ -58,12 +59,12 @@ void MeshClient::openMutualTls()
     configuration.setPeerVerifyMode(QSslSocket::VerifyPeer);
     m_sslSocket->setSslConfiguration(configuration);
 
-    // Captured rather than read from the member, so a signal arriving from a socket this
-    // client has already moved on from cannot be mistaken for the current one's.
+    // Captured, not read from the member, so a signal from a socket this client has moved
+    // on from is not taken for the current one.
     QSslSocket *socket{m_sslSocket};
     connect(socket, &QSslSocket::encrypted, this, [this, socket]() {
-        // Once the socket is connected, so the option has an engine to reach. Qt sets this
-        // itself only on a socket QWebSocket dials, and a mesh link is SynQt's on both ends.
+        // After connecting, so the option reaches an engine. Qt sets it only on sockets
+        // QWebSocket dials, and a mesh link is SynQt's on both ends.
         disableNagle(socket);
         m_backoffMs = ReconnectBaseMs;
         emit connected(socket);
@@ -84,13 +85,12 @@ void MeshClient::openMutualTls()
                 emit errorOccurred(errors.isEmpty()
                                        ? QStringLiteral("peer verification failed")
                                        : errors.first().errorString());
-                // No retry here. The handshake continues to fail or succeed on its own,
-                // and whichever it does reports through the two handlers above. Retrying
-                // from here as well would open a second socket for one failure.
+                // No retry here: the handshake reports through the two handlers above, and
+                // a retry here too would open a second socket.
             });
 
-    // Verify the owner's certificate identifies the expected entity (its subject),
-    // while connecting over the network address.
+    // Verify that the owner's certificate subject is the expected entity while connecting
+    // to the network address.
     socket->connectToHostEncrypted(m_address.toString(), m_port, m_ownerEntity);
 }
 
@@ -107,6 +107,17 @@ void MeshClient::openLocal()
     m_localSocket = new QLocalSocket{this};
     QLocalSocket *socket{m_localSocket};
     connect(socket, &QLocalSocket::connected, this, [this, socket]() {
+        // The check the owner applies to every consumer, applied to the owner. A local
+        // socket is a path, and in a shared directory another user's process could listen
+        // on it first and receive every call and forwarded session.
+        if (!localPeerRunsAsThisUser(socket)) {
+            emit errorOccurred(QStringLiteral("local mesh owner failed the OS credential "
+                                              "check"));
+            socket->disconnect(this);
+            socket->abort();
+            scheduleRetry();
+            return;
+        }
         m_backoffMs = ReconnectBaseMs;
         emit connected(socket);
     });
@@ -124,10 +135,9 @@ void MeshClient::openLocal()
 
 void MeshClient::retireUnusedSocket()
 {
-    // Only a socket nobody took: once connected() was emitted and the receiver reparented
-    // the device (the entity runtime parents it to the node it feeds), that node owns it
-    // and frees it when the node is retired. Freeing it here as well would pull the
-    // transport out from under a node still using it.
+    // Only a socket nobody took: after connected(), the entity runtime reparents the device
+    // to the node it feeds, which frees it on retirement. Freeing it here too would remove
+    // the transport from under the node.
     if (m_sslSocket && m_sslSocket->parent() == this) {
         m_sslSocket->disconnect(this);
         m_sslSocket->abort();

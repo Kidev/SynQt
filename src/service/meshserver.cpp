@@ -1,14 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// struct ucred (SO_PEERCRED) requires _GNU_SOURCE, which must be defined before any
-// system header is pulled in, hence before the Qt includes below.
-#if defined(__linux__) && !defined(_GNU_SOURCE)
-#  define _GNU_SOURCE
-#endif
-
 #include "meshserver.h"
 
+#include "localpeer.h"
 #include "socketoptions.h"
 
 #include <QLocalServer>
@@ -19,13 +14,6 @@
 #include <QSslServer>
 #include <QSslSocket>
 
-#if defined(Q_OS_LINUX)
-#  include <sys/socket.h>
-#  include <unistd.h>
-#elif defined(Q_OS_MACOS)
-#  include <unistd.h>
-#endif
-
 namespace SynQt {
 
 namespace {
@@ -35,36 +23,6 @@ QString peerEntityName(const QSslSocket *socket)
     const QStringList names{
         socket->peerCertificate().subjectInfo(QSslCertificate::CommonName)};
     return names.value(0);
-}
-
-// Verify the local-socket peer runs as the same OS user. The OS identifies the user,
-// not the entity: on this transport identity is colocation trust, not authentication.
-bool peerIsSameUser(QLocalSocket *socket)
-{
-    const qintptr descriptor{socket->socketDescriptor()};
-    if (descriptor < 0) {
-        return false;
-    }
-#if defined(Q_OS_LINUX)
-    struct ucred credentials;
-    socklen_t length{sizeof(credentials)};
-    if (getsockopt(static_cast<int>(descriptor), SOL_SOCKET, SO_PEERCRED, &credentials,
-                   &length) != 0) {
-        return false;
-    }
-    return credentials.uid == geteuid();
-#elif defined(Q_OS_MACOS)
-    uid_t peerUid{0};
-    gid_t peerGid{0};
-    if (getpeereid(static_cast<int>(descriptor), &peerUid, &peerGid) != 0) {
-        return false;
-    }
-    return peerUid == geteuid();
-#else
-    // No OS peer-credential API on this platform; the socket-file permission
-    // restriction is the only guard. Colocation trust already assumes same-user.
-    return true;
-#endif
 }
 
 } // namespace
@@ -153,14 +111,10 @@ void MeshServer::onTlsConnectionPending()
             continue;
         }
         disableNagle(socket);
-        // The handshake completed and the certificate verified against the CA; the
-        // subject is the calling entity. Whoever takes the device owns it from here, the
-        // way MeshClient hands its side over. The receiver puts the socket under the
-        // object that also holds the QtRO node for this link, and the order those two are
-        // destroyed in is the receiver's to arrange. A socket that deleted itself here
-        // took the node with it as a child, and a node destroyed from inside ~QObject
-        // writes its farewell into a QIODevice whose own destructor has already run.
-        // Until somebody takes it, it stays a child of the server and goes with it.
+        // The handshake completed and the certificate verified against the CA; the subject
+        // is the calling entity. Whoever takes the device owns it, as with MeshClient. The
+        // receiver places the socket under the object that also holds this link's QtRO node
+        // and decides their destruction order. Until taken, it stays a child of the server.
         emit peerConnected(socket, MeshPeer{peerEntityName(socket), true});
     }
 }
@@ -168,15 +122,18 @@ void MeshServer::onTlsConnectionPending()
 void MeshServer::onLocalConnectionPending()
 {
     while (QLocalSocket *socket{m_localServer->nextPendingConnection()}) {
-        if (!peerIsSameUser(socket)) {
+        // The OS identifies the user, not the entity: on this transport identity is
+        // colocation trust, not authentication. The consumer checks its end too
+        // (MeshClient::openLocal).
+        if (!localPeerRunsAsThisUser(socket)) {
             emit peerRejected(QStringLiteral("local peer failed the OS credential check"));
             socket->abort();
             socket->deleteLater();
             continue;
         }
-        // Colocation trust, not authentication. The OS confirmed the same user, but
-        // the entity name is the configured one and could be any same-user process.
-        // Ownership passes with the device, as on the mutual-TLS path above.
+        // Colocation trust, not authentication: the OS confirmed the same user, but the
+        // entity name is the configured one. Ownership passes with the device, as on the
+        // mutual-TLS path.
         emit peerConnected(socket, MeshPeer{m_colocatedEntity, false});
     }
 }

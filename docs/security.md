@@ -180,23 +180,27 @@ loopback TLS link for a QLocalServer and QLocalSocket pair, a filesystem object 
 Unix domain socket or a named pipe) that never touches the network. The operating
 system's filesystem permissions decide who may connect, and the framework
 restricts the socket to the user the entities run as and checks the peer's OS
-credentials (the connecting user id) through the socket descriptor where the
-platform provides them. Understand what that does not give you: the OS identifies
-the connecting user, not the connecting entity, so any process running as that
+credentials (the user id at the other end) through the socket descriptor where the
+platform provides them, on both ends of the link. The owner asks it of every
+process that connects, and the consumer asks it of whatever is listening at the
+socket's path, because that path lives in a directory every user of the machine
+can write and a process of another user that took the name first would otherwise
+be taken for the owner. That does not give you everything. The OS identifies
+the connecting user rather than the connecting entity, so any process running as that
 user can connect and present itself as any entity. `Caller.entity` on a local link
-is therefore trusted by colocation, not authenticated. The framework treats it
-accordingly: local transport is never chosen implicitly, `synqt check` flags every
+is therefore trusted by colocation rather than authenticated. The framework treats it
+accordingly. Local transport is never chosen implicitly, `synqt check` flags every
 local link, and a connect point that authorizes by `Caller.entity` should stay on
 the default mutual TLS transport unless every process running as that user on that
 host is trusted as much as the entities themselves.
 
 This is the only reason a second check exists. On every other topology
-`Caller.entity` is complete on its own: the
+`Caller.entity` is complete on its own. The
 framework decides the name from a verified certificate, the caller never asserts it,
 and no amount of defensive coding in a slot adds anything. So write
-`if (Caller.entity !== "edge")` and stop. What a local link changes is who decides:
-the name then comes from the connect point's one consumer (which is why `synqt check`
-refuses a local link that lists two: it could not tell them apart), and the operating
+`if (Caller.entity !== "edge")` and stop. What a local link changes is who decides.
+The name then comes from the connect point's one consumer (which is why `synqt check`
+refuses a local link that lists two, since it could not tell them apart), and the operating
 system vouches only for the peer's user. [`Caller.isEntityVerified`](runtime-api.md#service-caller)
 is false exactly there, so a slot that must not be reachable by colocation even in a
 deployment that opted into it can say

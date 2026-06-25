@@ -866,6 +866,13 @@
       "defended_by": "IngestClient follows the Replica's state and treats one that is not Valid as absent: batches spool from the moment the link drops and replay, in order, to the Replica the reconnect brings, ahead of anything published since.",
       "file": "tests/monitor/tst_ingest.cpp",
       "test": "aMonitorThatGoesAwayIsSpooledForUntilItIsBack"
+    },
+    {
+      "id": "another-user-listens-at-a-local-owner-s-socket-path",
+      "what": "A `transport: local` link is a path, by default under the shared temporary directory and derived from the project and point names. The owner asked the OS who connected to it; the consumer asked nothing about who was listening, so a process of another user on the host that bound the owner's name first was handed every call the consumer forwards and every session it forwards them for.",
+      "defended_by": "One peer-credential primitive (SynQt::localPeerRunsAs, SO_PEERCRED on Linux and getpeereid on macOS) now runs at both ends: the owner on each accepted socket as before, and the consumer on the socket it connected, which it aborts and retries when the listener is not this user. The link stays colocation trust, never authentication, exactly as documented.",
+      "file": "tests/m3-mesh/tst_m3.cpp",
+      "test": "bothEndsOfALocalLinkAskWhoThePeerRunsAs"
     }
   ]
 }

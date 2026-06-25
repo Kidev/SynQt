@@ -41,6 +41,8 @@ endif()
 
 qt_add_library(SynQtService STATIC
     meshpeer.h
+    localpeer.cpp
+    localpeer.h
     meshserver.cpp
     meshserver.h
     meshclient.cpp
