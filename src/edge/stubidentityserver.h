@@ -30,21 +30,14 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// A dev-only OpenID Connect / OAuth2 provider, so a developer can exercise the whole
-/// login flow without registering a real OAuth app. It authenticates a preconfigured user
-/// with no password prompt. It is for `synqt dev` and tests ONLY and must never ship: it
-/// refuses to start unless the caller passes the explicit dev acknowledgement, and the
-/// runtime also refuses a devStub provider entry in a shipped edge (see IdentityProvider).
+/// A dev-only OpenID Connect / OAuth2 provider for exercising the login flow without a real
+/// OAuth app. It authenticates a preconfigured user with no password. For `synqt dev` and
+/// tests only: it refuses to start without the explicit dev acknowledgement, and a shipped
+/// edge refuses a devStub provider entry (see IdentityProvider).
 ///
-/// It serves /authorize (redirects back with a code, after asking which of the configured
-/// people you are when there is more than one), /token (verifies the client secret and the
-/// PKCE S256 verifier, issues tokens and a signed ID token), /userinfo (Bearer-guarded
-/// profile), and /jwks (the ID-token signing key).
-///
-/// Nothing else about the login is faked. The state, the PKCE challenge, the code
-/// exchange, the ID-token signature check against the JWKS, the mapping hook, the session
-/// and its cookie are the ones a real provider's login goes through, which is the point:
-/// what runs under `synqt dev` is the shipped flow with a stand-in at one end of it.
+/// It serves /authorize (asking which configured person you are when there are several),
+/// /token (checks the client secret and the PKCE S256 verifier, issues tokens and a signed ID
+/// token), /userinfo and /jwks. Everything else in the login is the shipped flow.
 class StubIdentityServer : public QObject
 {
     Q_OBJECT
@@ -68,24 +61,20 @@ public:
     int userCount() const;
     void setIssuer(const QString &issuer);   ///< iss for the ID token
 
-    /// Leave a claim out of the ID tokens this stub signs ("exp", "sub").
-    ///
-    /// A provider that omits a required claim is precisely what the ID-token verifier is
-    /// there to refuse, and the only way to produce a validly signed token that is missing
-    /// one is for the signer to leave it out. Mutating the payload of a good token breaks
-    /// the signature, so the verifier would refuse it a step earlier and prove nothing.
-    /// This widens no production surface (the stub is a fake provider that a shipped edge
-    /// already refuses to run). It only lets the fake misbehave the way a real one can.
+    /// Leave a claim out of the ID tokens this stub signs ("exp", "sub"), to drive the verifier's
+    /// refusal of a validly signed token missing a required claim.
     void omitIdTokenClaim(const QString &claim);
 
-    /// Answer a refresh without naming how long the new token lasts.
-    ///
-    /// The same idea as omitIdTokenClaim, for the other half of what a provider answers.
-    /// `expires_in` is RECOMMENDED and not REQUIRED by RFC 6749 section 5.1, so a provider
-    /// that leaves it out is conforming, and what the edge does with an entry whose expiry
-    /// nobody named is worth being able to drive. Only the refresh answer, because the
-    /// exchange answer is what a test needs in order to get a first sweep at all.
+    /// Answer a refresh without `expires_in`, which RFC 6749 section 5.1 only recommends.
     void setRefreshOmitsExpiry(bool omits);
+
+    /// Answer the token exchange this much later than it is ready.
+    ///
+    /// A real provider takes a round trip, and what an entity does while it waits is the
+    /// thing to be able to see. A slot that blocks on the exchange holds its
+    /// entity's event loop, and only a provider that is slow on purpose can show whether
+    /// the entity kept serving in the meantime. The answer itself is unchanged.
+    void setTokenDelayMs(int milliseconds);
 
     bool start(quint16 port = 0);
     quint16 port() const;
@@ -131,6 +120,8 @@ private:
     QSet<QString> m_omittedClaims;
     /// Whether a refresh answer names a lifetime (setRefreshOmitsExpiry).
     bool m_refreshOmitsExpiry{false};
+    /// How long /token sits on a ready answer (setTokenDelayMs).
+    int m_tokenDelayMs{0};
     QString m_jwkModulus;  ///< base64url
     QString m_jwkExponent; ///< base64url
 };

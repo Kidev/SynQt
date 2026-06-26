@@ -363,19 +363,26 @@ and the two customizations either side of it.
 
 - Creation. A session is created on successful login, with a bounded lifetime
   (`identity.session.ttl_minutes`).
-- Rotation. The session id is rotated when privilege changes (for example after a
-  scope upgrade), preventing session fixation.
-- Refresh. When the provider issues a refresh token, the access token is renewed
-  server side without involving the browser, by whichever entity holds the tokens (the
-  edge, or the auth entity when `provider_entity` is set). Every
+- Rotation. The edge rotates the session id when privilege changes (for example after
+  a scope upgrade), which prevents session fixation.
+- Refresh. When the provider issues a refresh token, whichever entity holds the tokens
+  (the edge, or the auth entity when `provider_entity` is set) renews the access token
+  server side without involving the browser. Every
   `identity.refresh.interval_seconds` (60 by default) it renews anything within
   `identity.refresh.margin_seconds` (120) of expiring. Widen the margin for a provider
-  that issues short lived tokens; a non-positive interval turns the sweep off.
+  that issues short lived tokens. A non-positive interval turns the sweep off.
+- Tokens nobody claimed. A finished exchange holds what the provider issued under the
+  login's state key until a session is bound to it, which is normally the next thing
+  that happens. When the caller that started the login goes away in between, the
+  entity that holds the tokens lets go of them five minutes later rather than keeping
+  a live refresh token, and refreshing it, on behalf of somebody who was never signed
+  in. This sweep is always on, unlike the refresh one above. Whether tokens are
+  renewed is a project's choice, and whether an unclaimed secret is let go of is not.
 - Expiry and revocation. A session expires at its TTL or can be revoked (logout, or
   an administrative action). A revoked or expired session fails the upgrade
   verifier, and the client retries with its backoff as it would against an edge
-  that is down: the browser does not report a handshake's status code, so the two
-  are not distinguishable from inside the client. The session it reconnects with is
+  that is down, because the browser does not report a handshake's status code, so
+  the client cannot tell the two apart. The session it reconnects with is
   anonymous, so `Session.isAuthenticated` goes false and every scope-gated Replica
   is released, which is the signal an app routes back to login on.
 - Logout. `Session.logout()` calls the edge logout route, which clears the session

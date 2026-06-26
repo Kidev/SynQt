@@ -24,6 +24,7 @@
 #include <QScopeGuard>
 #include <QSet>
 #include <QOAuth2AuthorizationCodeFlow>
+#include <QPointer>
 #include <QTimer>
 #include <QUrlQuery>
 
@@ -65,17 +66,51 @@ constexpr int kMaxPendingLogins{1024};
 // whatever answered. Generous enough that no provider approaches it.
 constexpr qint64 kMaxProviderResponseBytes{1024 * 1024};
 
-// Refuse an answer past kMaxProviderResponseBytes while it is still arriving. Connected to
-// the loop rather than to the reply so it dies with the wait, exactly as the deadline does.
-void boundResponse(QNetworkReply *reply, QEventLoop *loop)
+// How long one request to a provider may take, whichever endpoint it is.
+constexpr int kProviderTimeoutMs{15000};
+
+// How often to look for tokens nobody claimed, given how long they may go unclaimed:
+// twice a window, and never more than once a minute nor less often than that.
+int unclaimedSweepMs(int windowSeconds)
 {
-    QObject::connect(reply, &QNetworkReply::downloadProgress, loop,
-                     [reply, loop](qint64 received, qint64 total) {
+    return qBound(1000, (windowSeconds * 1000) / 2, 60000);
+}
+
+// Refuse an answer past kMaxProviderResponseBytes while it is still arriving, and walk out
+// on one that takes longer than kProviderTimeoutMs. Both mark the reply before aborting
+// it, because an aborted reply reports only that it was cancelled and the handler has to
+// tell a deadline from a refusal. Connected to the reply, so they go when it does.
+void boundReply(QNetworkReply *reply)
+{
+    QObject::connect(reply, &QNetworkReply::downloadProgress, reply,
+                     [reply](qint64 received, qint64 total) {
         if (received > kMaxProviderResponseBytes || total > kMaxProviderResponseBytes) {
+            reply->setProperty("synqtTooLarge", true);
             reply->abort();
-            loop->quit();
         }
     });
+    QTimer *deadline{new QTimer{reply}};
+    deadline->setSingleShot(true);
+    QObject::connect(deadline, &QTimer::timeout, reply, [reply]() {
+        reply->setProperty("synqtTimedOut", true);
+        reply->abort();
+    });
+    deadline->start(kProviderTimeoutMs);
+}
+
+// A reply that was walked out on, or refused for its size, read the one way it can be:
+// off the marks boundReply left. Empty when the reply finished on its own terms.
+QString boundReplyFailure(const QNetworkReply *reply, const QUrl &url)
+{
+    if (reply->property("synqtTimedOut").toBool()) {
+        return QStringLiteral("the request to %1 timed out")
+            .arg(url.toString(QUrl::RemoveUserInfo | QUrl::RemoveQuery));
+    }
+    if (reply->property("synqtTooLarge").toBool()) {
+        return QStringLiteral("the answer from %1 is larger than a provider's can be")
+            .arg(url.toString(QUrl::RemoveUserInfo | QUrl::RemoveQuery));
+    }
+    return QString{};
 }
 
 } // namespace
@@ -84,6 +119,38 @@ OAuthBackend::OAuthBackend(IdentityConfig config, QObject *parent)
     : QObject{parent}
     , m_config{std::move(config)}
 {
+    // Unconditional, unlike the refresh sweep. Whether tokens are refreshed is a project's
+    // choice, and whether a secret nobody claimed is let go of is not.
+    m_unclaimedTimer = new QTimer{this};
+    connect(m_unclaimedTimer, &QTimer::timeout, this, [this]() { releaseUnclaimed(); });
+    m_unclaimedTimer->start(unclaimedSweepMs(m_unclaimedWindowSeconds));
+}
+
+void OAuthBackend::setUnclaimedWindow(int seconds)
+{
+    m_unclaimedWindowSeconds = qMax(0, seconds);
+    // At least twice per window, so an entry is never kept for much longer than the
+    // window says, and never more often than once a minute on the default.
+    m_unclaimedTimer->start(unclaimedSweepMs(m_unclaimedWindowSeconds));
+}
+
+void OAuthBackend::releaseUnclaimed()
+{
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    const qint64 window{static_cast<qint64>(m_unclaimedWindowSeconds) * 1000};
+    for (auto it{m_tokens.begin()}; it != m_tokens.end();) {
+        if (!it->bound && (now - it->storedMs) >= window) {
+            // Said out loud. A login that got as far as the provider and then had nobody
+            // to hand the session to needs reporting, and the alternative to
+            // saying so is a count that quietly goes down.
+            qWarning("SynQt: letting go of the tokens of a login no session was bound to "
+                     "within %d seconds; the caller that started it did not come back",
+                     m_unclaimedWindowSeconds);
+            it = m_tokens.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 OAuthBackend::~OAuthBackend() = default;
@@ -230,18 +297,255 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
     return result;
 }
 
+/// The steps of one exchange, taken as each reply arrives.
+///
+/// Owned by the backend and gone once it has answered. The flow it drives is the pending
+/// login's, and the tokens it ends with are the backend's. Every step reports through the
+/// one `done` the caller handed in, exactly once.
+class OAuthBackend::ExchangeJob : public QObject
+{
+public:
+    ExchangeJob(OAuthBackend *backend, Pending pending, QString state,
+                IdentityProviderConfig provider, ExchangeCallback done)
+        : QObject{backend}
+        , m_backend{backend}
+        , m_pending{std::move(pending)}
+        , m_state{std::move(state)}
+        , m_provider{std::move(provider)}
+        , m_done{std::move(done)}
+    {
+    }
+
+    void start(const QString &code)
+    {
+        QOAuth2AuthorizationCodeFlow *flow{m_pending.flow};
+        connect(flow, &QOAuth2AuthorizationCodeFlow::granted, this,
+                &ExchangeJob::resolveIdentity);
+        connect(flow, &QAbstractOAuth::requestFailed, this,
+                [this](QAbstractOAuth::Error) {
+            fail(QStringLiteral("token exchange failed"));
+        });
+        QTimer *deadline{new QTimer{this}};
+        deadline->setSingleShot(true);
+        connect(deadline, &QTimer::timeout, this, [this]() {
+            fail(QStringLiteral("token exchange failed"));
+        });
+        deadline->start(kProviderTimeoutMs);
+
+        auto *handler{qobject_cast<EdgeReplyHandler *>(flow->replyHandler())};
+        handler->receiveCallback(QVariantMap{{QStringLiteral("code"), code},
+                                             {QStringLiteral("state"), m_state}});
+    }
+
+private:
+    void resolveIdentity()
+    {
+        QOAuth2AuthorizationCodeFlow *flow{m_pending.flow};
+        if (m_provider.useIdToken) {
+            // OpenID Connect: identity from the ID token, whose signature is verified
+            // against the provider JWKS before any claim is trusted.
+            if (!m_backend->m_jwks) {
+                m_backend->m_jwks = new JwksVerifier{m_backend->network(), m_backend};
+            }
+            const QPointer<ExchangeJob> self{this};
+            m_backend->m_jwks->verifyAsync(flow->idToken(), m_provider, m_pending.nonce,
+                                           [self](const QVariantMap &claims,
+                                                  const QString &error) {
+                if (!self) {
+                    return;
+                }
+                if (claims.isEmpty()) {
+                    self->fail(error);
+                    return;
+                }
+                QVariantMap identity;
+                identity.insert(QStringLiteral("sub"),
+                                claims.value(QStringLiteral("sub")).toString());
+                identity.insert(QStringLiteral("login"),
+                                claims.value(QStringLiteral("preferred_username")));
+                identity.insert(QStringLiteral("name"), claims.value(QStringLiteral("name")));
+                const QString email{claims.value(QStringLiteral("email")).toString()};
+                identity.insert(QStringLiteral("email"),
+                                email.isEmpty() ? QVariant{} : QVariant{email});
+                self->finish(identity);
+            });
+            return;
+        }
+
+        if (m_provider.userinfoUrl.isEmpty()) {
+            fail(QStringLiteral("provider has no userinfo endpoint"));
+            return;
+        }
+        m_backend->httpGet(m_provider.userinfoUrl, flow->token(), this,
+                           [this](const QByteArray &body, const QString &error) {
+            onUserinfo(body, error);
+        });
+    }
+
+    void onUserinfo(const QByteArray &body, const QString &error)
+    {
+        const QJsonDocument document{QJsonDocument::fromJson(body)};
+        if (!document.isObject()) {
+            fail(error.isEmpty() ? QStringLiteral("userinfo response was not an object")
+                                 : error);
+            return;
+        }
+        const QVariantMap profile{document.object().toVariantMap()};
+
+        // The subject, first and required. Everything downstream keys on it: the scope
+        // mapping reads it, a device credential is enrolled against it, and an application
+        // tells one user from another by it. A profile that carries none (a misspelled
+        // `sub_field`, a provider that answered something else) would otherwise sign every
+        // such visitor in as the same empty subject, which is one shared account rather
+        // than a failed login.
+        const QString subject{profile.value(m_provider.subField).toString()};
+        if (subject.isEmpty()) {
+            fail(QStringLiteral("userinfo response carried no '%1'").arg(m_provider.subField));
+            return;
+        }
+
+        m_identity.insert(QStringLiteral("sub"), subject);
+        m_identity.insert(QStringLiteral("login"), profile.value(m_provider.loginField));
+        m_identity.insert(QStringLiteral("name"), profile.value(m_provider.nameField));
+        const QVariant email{profile.value(m_provider.emailField)};
+        if ((email.isNull() || email.toString().isEmpty()) && !m_provider.emailsUrl.isEmpty()) {
+            // GitHub-style fallback. The primary verified address from the emails endpoint.
+            m_backend->httpGet(m_provider.emailsUrl, m_pending.flow->token(), this,
+                               [this](const QByteArray &emailsBody, const QString &) {
+                onEmails(emailsBody);
+            });
+            return;
+        }
+        finishWithEmail(email.toString());
+    }
+
+    void onEmails(const QByteArray &body)
+    {
+        QString email;
+        const QJsonDocument emailsDoc{QJsonDocument::fromJson(body)};
+        if (emailsDoc.isArray()) {
+            // Copy initialized, not braced: QJsonArray's initializer_list constructor
+            // would take this array as a single element (see Topology::topologyFromJson).
+            const QJsonArray emails = emailsDoc.array();
+            for (const QJsonValue &value : emails) {
+                const QJsonObject entry{value.toObject()};
+                if (entry.value(QStringLiteral("primary")).toBool()
+                    && entry.value(QStringLiteral("verified")).toBool()) {
+                    email = entry.value(QStringLiteral("email")).toString();
+                    break;
+                }
+            }
+        }
+        finishWithEmail(email);
+    }
+
+    void finishWithEmail(const QString &email)
+    {
+        // Email is nullable. A valid address or a null QVariant, never an empty string.
+        m_identity.insert(QStringLiteral("email"),
+                          email.isEmpty() ? QVariant{} : QVariant{email});
+        finish(m_identity);
+    }
+
+    void finish(const QVariantMap &identity)
+    {
+        if (m_answered) {
+            return;
+        }
+        m_answered = true;
+        QOAuth2AuthorizationCodeFlow *flow{m_pending.flow};
+        // Store the tokens under the state key (rekeyed to the session id once it exists).
+        // The tokens never leave this engine and are never logged.
+        TokenEntry entry;
+        entry.providerName = m_pending.providerName;
+        entry.accessToken = flow->token();
+        entry.refreshToken = flow->refreshToken();
+        entry.idToken = flow->idToken();
+        const QDateTime expiry{flow->expirationAt()};
+        entry.expiresAtMs = expiry.isValid() ? expiry.toMSecsSinceEpoch() : 0;
+        // Under the state key and unclaimed. The caller binds a session to it next, and
+        // OAuthBackend::releaseUnclaimed is what happens when it never does.
+        entry.storedMs = QDateTime::currentMSecsSinceEpoch();
+        entry.bound = false;
+        m_backend->m_tokens.insert(m_state, entry);
+        flow->deleteLater();
+
+        ExchangeResult result;
+        result.identity = identity;
+        result.tokenKey = m_state;
+        result.context = m_pending.context;
+        answer(result);
+    }
+
+    void fail(const QString &error)
+    {
+        if (m_answered) {
+            return;
+        }
+        m_answered = true;
+        m_pending.flow->deleteLater();
+        ExchangeResult result;
+        result.error = error.isEmpty() ? QStringLiteral("identity could not be resolved")
+                                       : error;
+        result.context = m_pending.context;
+        answer(result);
+    }
+
+    void answer(const ExchangeResult &result)
+    {
+        // Retired before the caller is told, so a caller that starts another exchange
+        // from inside `done` finds this one gone. The callback is moved out first: the
+        // deferred delete cannot run under this stack, but a callback that owns something
+        // should not have to know that.
+        const ExchangeCallback done{std::move(m_done)};
+        deleteLater();
+        done(result);
+    }
+
+    OAuthBackend *m_backend;
+    Pending m_pending;
+    QString m_state;
+    IdentityProviderConfig m_provider;
+    ExchangeCallback m_done;
+    QVariantMap m_identity;
+    bool m_answered{false};
+};
+
 OAuthBackend::ExchangeResult OAuthBackend::exchange(const QString &state, const QString &code,
                                                     const QString &redirectUri,
                                                     const QString &presentedBinding)
 {
-    Q_UNUSED(redirectUri);  // the pending flow already carries the matching redirect_uri
+    // The asynchronous form, waited on. A route handler may wait (it answers when it
+    // returns, and the identity routes bound how many of them may be waiting at once). A
+    // slot may not, and takes exchangeAsync directly.
     ExchangeResult result;
+    bool answered{false};
+    QEventLoop loop;
+    exchangeAsync(state, code, redirectUri, presentedBinding,
+                  [&result, &answered, &loop](const ExchangeResult &outcome) {
+        result = outcome;
+        answered = true;
+        loop.quit();
+    });
+    if (!answered) {
+        loop.exec();
+    }
+    return result;
+}
+
+void OAuthBackend::exchangeAsync(const QString &state, const QString &code,
+                                 const QString &redirectUri, const QString &presentedBinding,
+                                 ExchangeCallback done)
+{
+    Q_UNUSED(redirectUri);  // the pending flow already carries the matching redirect_uri
 
     // Only a state this engine issued (and still holds) is accepted. An unknown or replayed
     // state is rejected before any token exchange.
     if (state.isEmpty() || !m_pending.contains(state)) {
+        ExchangeResult result;
         result.error = QStringLiteral("invalid or expired state");
-        return result;
+        done(result);
+        return;
     }
     Pending pending{m_pending.take(state)};
     QOAuth2AuthorizationCodeFlow *flow{pending.flow};
@@ -257,64 +561,26 @@ OAuthBackend::ExchangeResult OAuthBackend::exchange(const QString &state, const 
     // finds none either.
     if (!pending.binding.isEmpty() && !constantTimeEquals(presentedBinding, pending.binding)) {
         flow->deleteLater();
+        ExchangeResult result;
         result.error = QStringLiteral("login session mismatch");
-        return result;
+        done(result);
+        return;
     }
-    result.context = pending.context;
 
     const IdentityProviderConfig *provider{m_config.provider(pending.providerName)};
     if (!provider) {
         flow->deleteLater();
+        ExchangeResult result;
         result.error = QStringLiteral("unknown provider");
-        return result;
+        result.context = pending.context;
+        done(result);
+        return;
     }
 
-    // Drive the token exchange to completion (bounded). A nested loop keeps the caller
-    // synchronous; this is a one-shot per-login action.
-    QEventLoop loop;
-    bool granted{false};
-    connect(flow, &QOAuth2AuthorizationCodeFlow::granted, &loop, [&granted, &loop]() {
-        granted = true;
-        loop.quit();
-    });
-    connect(flow, &QAbstractOAuth::requestFailed, &loop,
-            [&loop](QAbstractOAuth::Error) { loop.quit(); });
-    QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-
-    auto *handler{qobject_cast<EdgeReplyHandler *>(flow->replyHandler())};
-    handler->receiveCallback(QVariantMap{{QStringLiteral("code"), code},
-                                         {QStringLiteral("state"), state}});
-    loop.exec();
-
-    if (!granted) {
-        flow->deleteLater();
-        result.error = QStringLiteral("token exchange failed");
-        return result;
-    }
-
-    QString error;
-    const QVariantMap identity{normalizeIdentity(*provider, flow, pending.nonce, &error)};
-    if (identity.isEmpty()) {
-        flow->deleteLater();
-        result.error = error.isEmpty() ? QStringLiteral("identity could not be resolved") : error;
-        return result;
-    }
-
-    // Store the tokens under the state key (rekeyed to the session id once it exists). The
-    // tokens never leave this engine and are never logged.
-    TokenEntry entry;
-    entry.providerName = pending.providerName;
-    entry.accessToken = flow->token();
-    entry.refreshToken = flow->refreshToken();
-    entry.idToken = flow->idToken();
-    const QDateTime expiry{flow->expirationAt()};
-    entry.expiresAtMs = expiry.isValid() ? expiry.toMSecsSinceEpoch() : 0;
-    m_tokens.insert(state, entry);
-
-    flow->deleteLater();
-    result.identity = identity;
-    result.tokenKey = state;
-    return result;
+    // From here on nothing is waited for. The job answers through `done` as the provider
+    // does, and takes itself down when it has.
+    auto *job{new ExchangeJob{this, std::move(pending), state, *provider, std::move(done)}};
+    job->start(code);
 }
 
 void OAuthBackend::rekeyTokens(const QString &fromKey, const QString &toKey)
@@ -326,7 +592,11 @@ void OAuthBackend::rekeyTokens(const QString &fromKey, const QString &toKey)
     if (it == m_tokens.constEnd()) {
         return;
     }
-    m_tokens.insert(toKey, it.value());
+    TokenEntry moved{it.value()};
+    // Claimed: a session names it now, so it lives and dies with that session rather than
+    // with the window an unbound login gets.
+    moved.bound = true;
+    m_tokens.insert(toKey, moved);
     m_tokens.erase(m_tokens.find(fromKey));
 }
 
@@ -446,20 +716,15 @@ bool OAuthBackend::refreshOne(const QString &key)
     QNetworkReply *reply{
         network()->post(request, body.toString(QUrl::FullyEncoded).toUtf8())};
 
+    // A sweep runs from a timer and not from a slot or a route, so it may wait. What it
+    // waits with is the same bound every other request to a provider has. A reply the
+    // deadline walked out on is finished with an abort, which reads below as an error and
+    // keeps the old entry, which is the right outcome either way. It may still have time
+    // left on it.
+    boundReply(reply);
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    boundResponse(reply, &loop);
-    QTimer::singleShot(15000, &loop, &QEventLoop::quit);
     loop.exec();
-
-    // See httpGet: an unfinished reply has no error on it, and a partial token response
-    // would otherwise be parsed as an answer. Keeping the old entry is the right outcome
-    // either way, since it may still have time left on it.
-    if (!reply->isFinished()) {
-        reply->abort();
-        reply->deleteLater();
-        return false;
-    }
     if (reply->error() != QNetworkReply::NoError) {
         reply->deleteLater();
         return false;
@@ -511,125 +776,30 @@ bool OAuthBackend::refreshOne(const QString &key)
     return true;
 }
 
-QByteArray OAuthBackend::httpGet(const QUrl &url, const QString &bearer, QString *error)
+void OAuthBackend::httpGet(const QUrl &url, const QString &bearer, QObject *context,
+                           BodyCallback done)
 {
     QNetworkRequest request{url};
     request.setRawHeader(QByteArrayLiteral("Authorization"), "Bearer " + bearer.toUtf8());
     request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("application/json"));
     QNetworkReply *reply{network()->get(request)};
-
-    QEventLoop loop;
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    boundResponse(reply, &loop);
-    QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-    loop.exec();
-
-    // The deadline, read the only way it can be read. A reply the timer walked out on
-    // carries no error yet, so asking error() alone takes a half-arrived body for a whole
-    // one: here, a truncated profile that parses into an identity missing fields.
-    if (!reply->isFinished()) {
-        reply->abort();
-        if (error) {
-            *error = QStringLiteral("the request to %1 timed out")
-                         .arg(url.toString(QUrl::RemoveUserInfo | QUrl::RemoveQuery));
-        }
+    boundReply(reply);
+    // Answered on `context`, so a job that is gone by the time the provider answers is
+    // not told anything. The reply is still finished and freed, on its own.
+    connect(reply, &QNetworkReply::finished, context, [reply, url, done]() {
         reply->deleteLater();
-        return {};
-    }
-    if (reply->error() != QNetworkReply::NoError) {
-        if (error) {
-            *error = reply->errorString();
+        const QString bound{boundReplyFailure(reply, url)};
+        if (!bound.isEmpty()) {
+            done({}, bound);
+            return;
         }
-        reply->deleteLater();
-        return {};
-    }
-    const QByteArray data{reply->readAll()};
-    reply->deleteLater();
-    return data;
-}
-
-QVariantMap OAuthBackend::normalizeIdentity(const IdentityProviderConfig &provider,
-                                            QOAuth2AuthorizationCodeFlow *flow,
-                                            const QString &expectedNonce, QString *error)
-{
-    if (provider.useIdToken) {
-        // OpenID Connect: identity from the ID token, whose signature is verified against
-        // the provider JWKS before any claim is trusted.
-        if (!m_jwks) {
-            m_jwks = new JwksVerifier{network(), this};
+        if (reply->error() != QNetworkReply::NoError) {
+            done({}, reply->errorString());
+            return;
         }
-        const QVariantMap claims{
-            m_jwks->verify(flow->idToken(), provider, expectedNonce, error)};
-        if (claims.isEmpty()) {
-            return {};
-        }
-        QVariantMap identity;
-        identity.insert(QStringLiteral("sub"), claims.value(QStringLiteral("sub")).toString());
-        identity.insert(QStringLiteral("login"),
-                        claims.value(QStringLiteral("preferred_username")));
-        identity.insert(QStringLiteral("name"), claims.value(QStringLiteral("name")));
-        const QString email{claims.value(QStringLiteral("email")).toString()};
-        identity.insert(QStringLiteral("email"), email.isEmpty() ? QVariant{} : QVariant{email});
-        return identity;
-    }
-
-    if (provider.userinfoUrl.isEmpty()) {
-        if (error) {
-            *error = QStringLiteral("provider has no userinfo endpoint");
-        }
-        return {};
-    }
-    const QByteArray body{httpGet(provider.userinfoUrl, flow->token(), error)};
-    const QJsonDocument document{QJsonDocument::fromJson(body)};
-    if (!document.isObject()) {
-        if (error) {
-            *error = QStringLiteral("userinfo response was not an object");
-        }
-        return {};
-    }
-    const QVariantMap profile{document.object().toVariantMap()};
-
-    // The subject, first and required. Everything downstream keys on it: the scope mapping
-    // reads it, a device credential is enrolled against it, and an application tells one
-    // user from another by it. A profile that carries none (a misspelled `sub_field`, a
-    // provider that answered something else) would otherwise sign every such visitor in as
-    // the same empty subject, which is one shared account rather than a failed login.
-    const QString subject{profile.value(provider.subField).toString()};
-    if (subject.isEmpty()) {
-        if (error) {
-            *error = QStringLiteral("userinfo response carried no '%1'").arg(provider.subField);
-        }
-        return {};
-    }
-
-    QVariantMap identity;
-    identity.insert(QStringLiteral("sub"), subject);
-    identity.insert(QStringLiteral("login"), profile.value(provider.loginField));
-    identity.insert(QStringLiteral("name"), profile.value(provider.nameField));
-
-    QVariant email{profile.value(provider.emailField)};
-    if ((email.isNull() || email.toString().isEmpty()) && !provider.emailsUrl.isEmpty()) {
-        // GitHub-style fallback: the primary verified address from the emails endpoint.
-        const QByteArray emailsBody{httpGet(provider.emailsUrl, flow->token(), nullptr)};
-        const QJsonDocument emailsDoc{QJsonDocument::fromJson(emailsBody)};
-        if (emailsDoc.isArray()) {
-            // Copy initialized, not braced: QJsonArray's initializer_list constructor
-            // would take this array as a single element (see Topology::topologyFromJson).
-            const QJsonArray emails = emailsDoc.array();
-            for (const QJsonValue &value : emails) {
-                const QJsonObject entry{value.toObject()};
-                if (entry.value(QStringLiteral("primary")).toBool()
-                    && entry.value(QStringLiteral("verified")).toBool()) {
-                    email = entry.value(QStringLiteral("email")).toString();
-                    break;
-                }
-            }
-        }
-    }
-    // Email is nullable: a valid address or a null QVariant, never an empty string.
-    identity.insert(QStringLiteral("email"),
-                    email.toString().isEmpty() ? QVariant{} : QVariant{email.toString()});
-    return identity;
+        done(reply->readAll(), QString{});
+    });
+    connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
 }
 
 void OAuthBackend::expirePending()

@@ -873,6 +873,20 @@
       "defended_by": "One peer-credential primitive (SynQt::localPeerRunsAs, SO_PEERCRED on Linux and getpeereid on macOS) now runs at both ends: the owner on each accepted socket as before, and the consumer on the socket it connected, which it aborts and retries when the listener is not this user. The link stays colocation trust, never authentication, exactly as documented.",
       "file": "tests/m3-mesh/tst_m3.cpp",
       "test": "bothEndsOfALocalLinkAskWhoThePeerRunsAs"
+    },
+    {
+      "id": "one-slow-login-holds-every-other-login-on-the-auth-entity",
+      "what": "On a promoted auth entity (identity.provider_entity) the `exchangeCode` slot drove the provider round trip in a nested event loop and returned when it had an answer. A nested loop keeps serving, so the entity looked healthy; what it did was put every caller that arrived meanwhile UNDER the earlier one on the stack, and none of them could be answered until the slowest one below them had been. Anyone who can reach an edge can start a login and complete its callback, so a handful of concurrent sign-ins against a slow provider made everybody else's sign-in wait on the slowest of them, with a chain of stack frames per concurrent login and nothing on the entity bounding how many (the edge bounds its own waits; the entity bounded none, and a replicated edge multiplies them).",
+      "defended_by": "Nothing on the entity waits. OAuthBackend::exchangeAsync drives the token exchange and the identity lookup behind it as replies arrive, and IdentityService answers the Source that asked through its own emitExchangeResult, held as a QPointer so an edge whose link dropped meanwhile is simply not answered. The test measures it as ordering, which is a fact about the entity rather than about a timer: the first login's provider answers in 150 ms and the second's in 800, and the first must finish first.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aSlowLoginDoesNotHoldUpTheOneBehindIt"
+    },
+    {
+      "id": "tokens-of-a-login-no-session-was-bound-to",
+      "what": "A finished exchange stores the access and refresh tokens the provider issued under the login's state key and waits for the caller to bind a session to them. When that never happened, because the edge that asked went away in between, the entry stayed for the life of the process: a live refresh token belonging to somebody who was never signed in, and, with the refresh sweep on, one spent against the provider once an interval forever on their behalf. Measured before the fix: still held after a sweep.",
+      "defended_by": "An entry is stored unclaimed and is marked claimed only by rekeyTokens, which is what binding a session does. A sweep of its own, on always rather than with the optional refresh sweep, lets go of anything still unclaimed past its window (five minutes, the same window a pending login already gets). An entry a session was bound to is never swept.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aLoginNoSessionWasBoundToDoesNotKeepItsTokens"
     }
   ]
 }

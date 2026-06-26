@@ -4,6 +4,7 @@
 #include "stubidentityserver.h"
 
 #include <QCryptographicHash>
+#include <QFuture>
 #include <QHostAddress>
 #include <QHttpHeaders>
 #include <QHttpServer>
@@ -11,8 +12,10 @@
 #include <QHttpServerResponse>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QPromise>
 #include <QRandomGenerator>
 #include <QTcpServer>
+#include <QTimer>
 #include <QUrlQuery>
 
 #include <jwt-cpp/jwt.h>
@@ -22,6 +25,7 @@
 #include <openssl/pem.h>
 
 #include <chrono>
+#include <memory>
 #include <system_error>
 
 namespace SynQt {
@@ -153,11 +157,10 @@ std::string StubIdentityServer::signIdToken(const QString &nonce,
             jwt::claim(user.value(QStringLiteral("name")).toString().toStdString()))
         .set_payload_claim("preferred_username",
             jwt::claim(user.value(QStringLiteral("login")).toString().toStdString()));
-    // Both are required claims, and both are here rather than in the chain above so a test
-    // can ask this stub to behave like a provider that does not send one (omitIdTokenClaim).
+    // Both are required claims, added here so a test can make the stub omit one
+    // (omitIdTokenClaim).
     if (!m_omittedClaims.contains(QStringLiteral("sub"))) {
-        // `sub` where a configuration wrote one, `id` where a GitHub-shaped profile did.
-        // One accessor rather than two shapes of dev user to remember.
+        // `sub` from a configured user, or `id` from a GitHub-shaped profile.
         const QVariant subject{user.contains(QStringLiteral("sub"))
                                    ? user.value(QStringLiteral("sub"))
                                    : user.value(QStringLiteral("id"))};
@@ -173,6 +176,11 @@ std::string StubIdentityServer::signIdToken(const QString &nonce,
     const std::string token{
         builder.sign(jwt::algorithm::rs256(m_publicKeyPem, m_privateKeyPem, "", ""), ec)};
     return ec ? std::string{} : token;
+}
+
+void StubIdentityServer::setTokenDelayMs(int milliseconds)
+{
+    m_tokenDelayMs = milliseconds;
 }
 
 void StubIdentityServer::setRefreshOmitsExpiry(bool omits)
@@ -192,8 +200,23 @@ bool StubIdentityServer::start(quint16 port)
     m_server->route(QStringLiteral("/authorize"), [this](const QHttpServerRequest &request) {
         return handleAuthorize(request);
     });
-    m_server->route(QStringLiteral("/token"), [this](const QHttpServerRequest &request) {
-        return handleToken(request);
+    m_server->route(QStringLiteral("/token"),
+                    [this](const QHttpServerRequest &request) -> QFuture<QHttpServerResponse> {
+        // Computed now, delivered after the delay; only the timing changes.
+        auto promise{std::make_shared<QPromise<QHttpServerResponse>>()};
+        QFuture<QHttpServerResponse> future{promise->future()};
+        promise->start();
+        auto answer{std::make_shared<QHttpServerResponse>(handleToken(request))};
+        const auto deliver{[promise, answer]() {
+            promise->addResult(std::move(*answer));
+            promise->finish();
+        }};
+        if (m_tokenDelayMs <= 0) {
+            deliver();
+        } else {
+            QTimer::singleShot(m_tokenDelayMs, this, deliver);
+        }
+        return future;
     });
     m_server->route(QStringLiteral("/userinfo"), [this](const QHttpServerRequest &request) {
         return handleUserinfo(request);
@@ -215,9 +238,8 @@ bool StubIdentityServer::start(quint16 port)
 
 QHttpServerResponse StubIdentityServer::handleAuthorize(const QHttpServerRequest &request)
 {
-    // A real provider authenticates the user here. With one person configured the stub
-    // approves them and redirects straight back. With several it asks which, because
-    // which one you are is the whole reason to configure more than one.
+    // A real provider authenticates the user here. With one configured person the stub
+    // approves and redirects back; with several it asks which.
     const QUrlQuery query{request.url().query()};
     const QString picked{query.queryItemValue(kUserParameter)};
     if (m_users.size() > 1 && picked.isEmpty()) {
@@ -230,8 +252,7 @@ QHttpServerResponse StubIdentityServer::handleAuthorize(const QHttpServerRequest
 
 QHttpServerResponse StubIdentityServer::chooser(const QHttpServerRequest &request) const
 {
-    // Every value written into this page comes from the project's own configuration and
-    // is escaped anyway. The stub is a development server and its page is still a page.
+    // Every value here comes from the project configuration and is escaped anyway.
     QString body{QStringLiteral(
         "<!doctype html><meta charset=\"utf-8\">"
         "<title>Sign in (development)</title>"
@@ -297,9 +318,9 @@ QHttpServerResponse StubIdentityServer::handleToken(const QHttpServerRequest &re
     const QString grantType{form.queryItemValue(QStringLiteral("grant_type"))};
     const QString clientSecret{form.queryItemValue(QStringLiteral("client_secret"))};
 
-    // RFC 6749 section 6: the refresh grant issues a fresh access token (and rotates the refresh
-    // token) server-side, with no browser and no authorization code. The client secret is
-    // still required.
+    // RFC 6749 section 6: the refresh grant issues a new access token (and rotates the
+    // refresh token) server-side, without a browser or authorization code. The client
+    // secret is still required.
     if (grantType == QLatin1String("refresh_token")) {
         const QString presented{form.queryItemValue(QStringLiteral("refresh_token"))};
         if (clientSecret != m_clientSecret) {

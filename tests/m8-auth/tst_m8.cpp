@@ -38,8 +38,11 @@
 #include <QNetworkCookieJar>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QRegularExpression>
+#include <QSignalSpy>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
 #include <QScopeGuard>
@@ -556,7 +559,54 @@ private:
         return response;
     }
 
-    /// One real ID token from the stub provider, for a nonce of our choosing.
+    /// One whole login on `backend`, from begin to a finished exchange, answering with the
+    /// state key its tokens are stored under. False if any step of it did not work.
+    bool exchangeOn(OAuthBackend *backend, QString *tokenKey)
+    {
+        const OAuthBackend::BeginResult begun{
+            backend->begin(QStringLiteral("stub"), edgeUrl(QStringLiteral("/auth/callback")))};
+        if (begun.state.isEmpty()) {
+            return false;
+        }
+        const Response redirected{get(begun.authorizeUrl)};
+        if (redirected.status != 302) {
+            return false;
+        }
+        const QString code{QUrlQuery{QUrl{redirected.location}.query()}
+                               .queryItemValue(QStringLiteral("code"))};
+        const OAuthBackend::ExchangeResult result{
+            backend->exchange(begun.state, code,
+                              edgeUrl(QStringLiteral("/auth/callback")), QString{})};
+        *tokenKey = result.tokenKey;
+        return result.error.isEmpty() && !result.tokenKey.isEmpty();
+    }
+
+    /// One pending login on `service`, taken as far as a browser takes it. Begin, then the
+    /// provider's /authorize, which redirects carrying the code.
+    ///
+    /// Both halves are the engine's own, so the state, the PKCE verifier behind it and the
+    /// code are the ones an exchange is checked against. A pair assembled here by
+    /// hand would be refused before it reached anything worth measuring.
+    bool beginAndAuthorize(IdentityService *service, QString *state, QString *code)
+    {
+        const QVariantMap begun{
+            service->beginLogin(QStringLiteral("stub"),
+                                edgeUrl(QStringLiteral("/auth/callback")))};
+        *state = begun.value(QStringLiteral("state")).toString();
+        const QString authorizeUrl{begun.value(QStringLiteral("authorizeUrl")).toString()};
+        if (state->isEmpty() || authorizeUrl.isEmpty()) {
+            return false;
+        }
+        const Response redirected{get(QUrl{authorizeUrl})};
+        if (redirected.status != 302) {
+            return false;
+        }
+        *code = QUrlQuery{QUrl{redirected.location}.query()}
+                    .queryItemValue(QStringLiteral("code"));
+        return !code->isEmpty();
+    }
+
+    /// One real ID token from the stub provider, for a nonce the test chooses.
     ///
     /// Driven over the provider's own HTTP surface (/authorize for a code, /token to
     /// exchange it) rather than by reaching into the stub to sign one, so the token under
@@ -1459,6 +1509,228 @@ private slots:
         m_edge->sessionManager()->revoke(token);
         QVERIFY2(backend->tokens(QString::fromLatin1(token)).isEmpty(),
                  "revoking a session must take its provider tokens with it");
+    }
+
+    // A connect point slot may not wait, and this is the one that did.
+    //
+    // The auth entity answers `exchangeCode` from its Identity Source. An exchange
+    // that drives the provider round trip (the /token POST, then /userinfo)
+    // in a nested event loop and returns when it has an answer looks healthy, because a
+    // nested loop keeps serving, but it puts every later
+    // caller under the earlier one on the stack, and none of them can be answered until
+    // the slowest one below them is. Two people signing in at once is not a rare event,
+    // and the second one's provider being slow would hold the first one's sign-in hostage.
+    //
+    // Measured as ordering, which is what makes it a fact about the entity rather than
+    // about a timer. The first login's provider answers in 150 ms and the second's in
+    // 800, so the first login must finish first. Nested, it cannot. Its own event loop
+    // has the second one's on top of it and cannot return until that one has.
+    //
+    // The same wait is why an edge dropping mid-login could take the entity down with it;
+    // the case below this one is that half.
+    void aSlowLoginDoesNotHoldUpTheOneBehindIt()
+    {
+        IdentityConfig authConfig;
+        authConfig.enabled = true;
+        authConfig.allowDevStub = true;
+        authConfig.providers = {stubProvider(m_stub->baseUrl())};
+        IdentityService service{authConfig};
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("IdentityEngine"), &service);
+        QQmlComponent component{&engine,
+                                QUrl::fromLocalFile(QStringLiteral(M8_SRCDIR "/auth/Identity.qml"))};
+        QScopedPointer<QObject> source{component.create()};
+        QVERIFY2(!source.isNull(), qPrintable(component.errorString()));
+
+        QString firstState;
+        QString firstCode;
+        QVERIFY(beginAndAuthorize(&service, &firstState, &firstCode));
+        QString secondState;
+        QString secondCode;
+        QVERIFY(beginAndAuthorize(&service, &secondState, &secondCode));
+
+        QSignalSpy answered{source.data(),
+                            SIGNAL(exchangeResult(QString, QString, QString, QString))};
+
+        // The second login is started from inside the first, which is the only way it can
+        // be. A real one arrives as a QtRemoteObjects packet the entity reads while the
+        // first slot is still running, and a nested loop is precisely what reads it.
+        QTimer::singleShot(50, source.data(), [this, &source, secondState, secondCode]() {
+            m_stub->setTokenDelayMs(800);
+            QMetaObject::invokeMethod(source.data(), "exchangeCode", Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("second")),
+                                      Q_ARG(QString, secondState),
+                                      Q_ARG(QString, secondCode),
+                                      Q_ARG(QString, edgeUrl(QStringLiteral("/auth/callback"))),
+                                      Q_ARG(QString, QString{}));
+        });
+        m_stub->setTokenDelayMs(150);
+        QMetaObject::invokeMethod(source.data(), "exchangeCode", Qt::DirectConnection,
+                                  Q_ARG(QString, QStringLiteral("first")),
+                                  Q_ARG(QString, firstState),
+                                  Q_ARG(QString, firstCode),
+                                  Q_ARG(QString, edgeUrl(QStringLiteral("/auth/callback"))),
+                                  Q_ARG(QString, QString{}));
+
+        QTRY_COMPARE_WITH_TIMEOUT(answered.count(), 2, 20000);
+        m_stub->setTokenDelayMs(0);
+        QCOMPARE(answered.at(0).at(0).toString(), QStringLiteral("first"));
+        QCOMPARE(answered.at(1).at(0).toString(), QStringLiteral("second"));
+        // And both signed in. An ordering that came from two failures would prove
+        // nothing about either.
+        for (int index{0}; index < 2; ++index) {
+            QVERIFY2(answered.at(index).at(3).toString().isEmpty(),
+                     qPrintable(answered.at(index).at(3).toString()));
+            QVERIFY(!answered.at(index).at(1).toString().isEmpty());
+        }
+    }
+
+    // The other half of the same wait. What the entity was standing on while it waited.
+    //
+    // A slot runs on a Source, and that Source belongs to the link the call arrived on.
+    // While the exchange waited in its nested loop the entity kept serving events, so an
+    // edge that went away in the meantime was noticed right there: the socket's
+    // `disconnected` ran, the link was deleted, and `releasePeerSource` deleted the very
+    // Source whose slot was on the stack. The wait then returned into a destroyed object
+    // and into QtRemoteObjects' own bookkeeping for a connection that no longer existed.
+    // A login takes a provider round trip, an edge restart or a network blip is ordinary,
+    // so this needed no attacker at all.
+    //
+    // A normal build may or may not fall over on that. The tree the leak job configures
+    // with AddressSanitizer reports it as a heap-use-after-free either way. What is
+    // asserted here is what can be asserted in every build. The entity is still there and
+    // still answers the next caller.
+    void anEdgeThatDropsMidLoginLeavesTheAuthEntityServing()
+    {
+        IdentityConfig authConfig;
+        authConfig.enabled = true;
+        authConfig.allowDevStub = true;
+        authConfig.providers = {stubProvider(m_stub->baseUrl())};
+        IdentityService service{authConfig};
+
+        ConnectPointConfig point;
+        point.name = QStringLiteral("identity");
+        point.contract = QStringLiteral("Identity");
+        point.owner = QStringLiteral("auth");
+        point.consumers = {QStringLiteral("web")};
+        point.serverFile = QStringLiteral(M8_SRCDIR "/auth/Identity.qml");
+        point.shared = false;
+        point.endpoint.mode = MeshTransportMode::MutualTls;
+        point.endpoint.host = QStringLiteral("127.0.0.1");
+        point.endpoint.port = 0;
+
+        QQmlEngine authEngine;
+        ConnectPointHost host{point, credsFor(QStringLiteral("auth")), &authEngine};
+        host.setContextObject(QStringLiteral("IdentityEngine"), &service);
+        QVERIFY2(host.start(), qPrintable(host.errorString()));
+        const quint16 authPort{host.serverPort()};
+
+        QString state;
+        QString code;
+        QVERIFY(beginAndAuthorize(&service, &state, &code));
+
+        {
+            QRemoteObjectNode node;
+            MeshClient client;
+            connect(&client, &MeshClient::connected, &node, [&node](QIODevice *device) {
+                node.addClientSideConnection(device);
+            });
+            client.connectMutualTls(QHostAddress::LocalHost, authPort, QStringLiteral("auth"),
+                loadCertificate(QStringLiteral(M8_CERT_DIR "/ca.crt")),
+                loadCertificate(QStringLiteral(M8_CERT_DIR "/web.crt")),
+                loadPrivateKey(QStringLiteral(M8_CERT_DIR "/web.key")));
+            QScopedPointer<QRemoteObjectDynamicReplica> replica{
+                node.acquireDynamic(QStringLiteral("identity"))};
+            QVERIFY2(replica->waitForSource(8000), "the auth entity never came up");
+
+            // Long enough that the link below is certainly gone before the provider
+            // answers, so the slot is standing on a Source nobody owns any more.
+            m_stub->setTokenDelayMs(1500);
+            QMetaObject::invokeMethod(replica.data(), "exchangeCode",
+                                      Q_ARG(QString, QStringLiteral("dropped")),
+                                      Q_ARG(QString, state), Q_ARG(QString, code),
+                                      Q_ARG(QString, edgeUrl(QStringLiteral("/auth/callback"))),
+                                      Q_ARG(QString, QString{}));
+            QTest::qWait(300);   // the call is on its way to the provider
+        }
+        // The edge is gone, mid-login. Past the provider's answer, and then some.
+        QTest::qWait(2000);
+        m_stub->setTokenDelayMs(0);
+
+        // Still serving: a second edge connects, acquires, and is answered.
+        QString nextState;
+        QString nextCode;
+        QVERIFY(beginAndAuthorize(&service, &nextState, &nextCode));
+
+        QRemoteObjectNode node;
+        MeshClient client;
+        connect(&client, &MeshClient::connected, &node, [&node](QIODevice *device) {
+            node.addClientSideConnection(device);
+        });
+        client.connectMutualTls(QHostAddress::LocalHost, authPort, QStringLiteral("auth"),
+            loadCertificate(QStringLiteral(M8_CERT_DIR "/ca.crt")),
+            loadCertificate(QStringLiteral(M8_CERT_DIR "/web.crt")),
+            loadPrivateKey(QStringLiteral(M8_CERT_DIR "/web.key")));
+        QScopedPointer<QRemoteObjectDynamicReplica> replica{
+            node.acquireDynamic(QStringLiteral("identity"))};
+        QVERIFY2(replica->waitForSource(8000),
+                 "the auth entity stopped serving after an edge dropped mid-login");
+
+        QSignalSpy answered{replica.data(),
+                            SIGNAL(exchangeResult(QString, QString, QString, QString))};
+        QMetaObject::invokeMethod(replica.data(), "exchangeCode",
+                                  Q_ARG(QString, QStringLiteral("after")),
+                                  Q_ARG(QString, nextState), Q_ARG(QString, nextCode),
+                                  Q_ARG(QString, edgeUrl(QStringLiteral("/auth/callback"))),
+                                  Q_ARG(QString, QString{}));
+        QTRY_COMPARE_WITH_TIMEOUT(answered.count(), 1, 20000);
+        QCOMPARE(answered.at(0).at(0).toString(), QStringLiteral("after"));
+        QVERIFY2(answered.at(0).at(3).toString().isEmpty(),
+                 qPrintable(answered.at(0).at(3).toString()));
+    }
+
+    // A login that got as far as the provider and then had nobody to hand the session to.
+    //
+    // The exchange stores what the provider issued under the login's state key and waits
+    // for the caller to bind a session to it, which is normally the very next thing that
+    // happens. When it is not, because the edge that asked went away in between (its link
+    // dropped, or the process restarted), an entry kept for the life of the
+    // process is an access token and a refresh token belonging to somebody who was never
+    // signed in, and with the refresh sweep on, a refresh token spent against the provider
+    // once an interval, forever, on their behalf.
+    //
+    // A session bound to it is the other half, and it must not be swept. That one is a
+    // signed-in visitor, and it lives and dies with their session.
+    void aLoginNoSessionWasBoundToDoesNotKeepItsTokens()
+    {
+        IdentityConfig config;
+        config.enabled = true;
+        config.allowDevStub = true;
+        config.providers = {stubProvider(m_stub->baseUrl())};
+        OAuthBackend backend{config};
+        // Nothing may go unclaimed, so one sweep decides. The window is what an operator
+        // sets. Zero is the end of the range and is what makes this observable in a test
+        // rather than in five minutes.
+        backend.setUnclaimedWindow(0);
+
+        QString claimed;
+        QVERIFY(exchangeOn(&backend, &claimed));
+        QCOMPARE(backend.heldTokenCount(), 1);
+        // Claimed by a session, the way the callback claims one.
+        backend.rekeyTokens(claimed, QStringLiteral("session-1"));
+
+        QString abandoned;
+        QVERIFY(exchangeOn(&backend, &abandoned));
+        QCOMPARE(backend.heldTokenCount(), 2);
+
+        // One sweep later. The login nobody bound a session to is gone, and the one
+        // somebody did is still there.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral("no session was bound to")});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.heldTokenCount(), 1, 5000);
+        QVERIFY(!backend.tokens(QStringLiteral("session-1")).isEmpty());
+        QVERIFY(backend.tokens(abandoned).isEmpty());
     }
 
     // AUTH-1: with identity.provider_entity set, the client secret and the tokens live only

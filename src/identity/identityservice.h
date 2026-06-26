@@ -8,6 +8,7 @@
 #include "identityconfig.h"
 
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QVariantMap>
 
@@ -16,14 +17,10 @@ namespace SynQt {
 class OAuthBackend;
 
 /// The auth-entity half of easy auth (docs/authentication.md "Where identity runs"). It owns
-/// the OAuthBackend (the client secret, the token exchange, ID-token verification, the
-/// stored tokens and their server-side refresh) and exposes it to the Identity connect
-/// point Source over the mesh. The edges consuming that connect point hold no secret and no
-/// token. They only drive login/callback and issue the session cookie.
-///
-/// The begin/exchange methods are synchronous (the backend runs a bounded nested loop for the
-/// token exchange), so the per-caller Source can emit each result on itself and answer only the
-/// edge that asked. A user's identity never crosses to another edge.
+/// the OAuthBackend (the client secret, the token exchange, ID-token verification, the stored
+/// tokens and their refresh) and exposes it to the Identity connect point Source over the
+/// mesh. The edges consuming that point hold no secret and no token. Each result is emitted
+/// on the per-caller Source, so it reaches only the edge that asked.
 class IdentityService : public QObject
 {
     Q_OBJECT
@@ -33,26 +30,23 @@ public:
     ~IdentityService() override;
 
     /// Build the authorization URL for a provider (PKCE + state held here). Returns
-    /// { state, authorizeUrl, error }.
-    ///
-    /// `binding` is what the calling edge must present again on the callback, and `context`
-    /// is opaque and handed back on exchange. Both are held against the state on this entity
-    /// rather than on that edge, which is what lets any edge process finish a login any
-    /// other one began. See OAuthBackend::begin.
+    /// { state, authorizeUrl, error }. `binding` and `context` are held against the state on this
+    /// entity, so any edge process can finish the login. See OAuthBackend::begin.
     Q_INVOKABLE QVariantMap beginLogin(const QString &provider, const QString &redirectUri,
                                        const QString &binding = QString{},
                                        const QString &context = QString{});
 
-    /// Exchange the returned code for tokens (secret + verifier), verify and normalize the
-    /// identity, and store the tokens under the state key. Returns
-    /// { identityJson, context, error }; the tokens never leave this entity.
+    /// Exchange the returned code for tokens, verify and normalize the identity, and store the
+    /// tokens under the state key; the tokens never leave this entity. `presentedBinding` is
+    /// checked before the code is spent, and the record is consumed either way.
     ///
-    /// `presentedBinding` is checked against what beginLogin stored, before the code is
-    /// spent, and the record is consumed either way, so a callback is answerable exactly
-    /// once across every edge consuming this point.
-    Q_INVOKABLE QVariantMap exchangeCode(const QString &state, const QString &code,
-                                         const QString &redirectUri,
-                                         const QString &presentedBinding = QString{});
+    /// Reached from a connect point slot, so nothing waits: `answerTo`, the Source that asked, is
+    /// answered through its own `emitExchangeResult` when the provider replies. Held as a
+    /// QPointer, so an edge whose link dropped is not answered.
+    Q_INVOKABLE void exchangeCode(const QString &state, const QString &code,
+                                  const QString &redirectUri,
+                                  const QString &presentedBinding,
+                                  QObject *answerTo, const QString &requestId);
 
     /// Move the tokens from the temporary state key to the stable session id.
     Q_INVOKABLE void bindSession(const QString &state, const QString &sessionId);

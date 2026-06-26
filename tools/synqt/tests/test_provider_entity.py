@@ -1,22 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""`identity.provider_entity` has to be the one line the docs say it is.
+"""`identity.provider_entity` is one line, as the docs say.
 
-Setting it moves identity out of the web edge and into an entity of its own. Nothing else
-in synqt.yaml changes, so everything the promotion needs is generated: two mesh connect
-points nobody declared, a Source QML bridge for each, an auth main that builds the OAuth
-engine and the authoritative session store, and an edge main that adopts both Replicas in
-C++.
-
-These tests pin the two halves that decide whether the promotion is worth anything. The
-first is that it happens at all: the links exist, they are wired to the right entities, and
-nothing downstream reaches for an app contract that does not exist. The second is what does
-NOT move: a promoted edge holds no client id, no provider endpoint and no secret, because
-if it did, promotion would have added a mesh hop and moved no risk at all.
-
-`tests/appgen-native/promoted/` is the same claim compiled and run. This is the same claim
-as strings, where a wrong one is a one-line diff rather than a build.
+It moves identity into its own entity and generates the rest: two mesh connect points, a
+Source bridge for each, an auth main with the OAuth engine and the session store, and an
+edge main that adopts both Replicas in C++. A promoted edge holds no client id, provider
+endpoint or secret. `tests/appgen-native/promoted/` compiles and runs the same.
 """
 
 import unittest
@@ -39,10 +29,8 @@ def promoted_config(**overrides):
         ],
         "identity": {
             "provider_entity": "auth",
-            # The hook stays on the edge even when identity is promoted: the auth entity
-            # says who somebody is, each edge decides what that means in its own system.
-            # Required, like scopes.order above, or the project serves a login with nothing
-            # to give a session a scope (check.validate refuses that).
+            # The hook stays on the edge: the auth entity says who somebody is, each edge
+            # maps it to a scope. Required, like scopes.order.
             "mapping": {"hook": "web/edge/identity/map.qml"},
             "providers": [{"name": "github", "client_id": "Iv1.abc",
                            "client_secret": "env:GITHUB_CLIENT_SECRET"}],
@@ -75,8 +63,7 @@ class AuthConnectPoints(unittest.TestCase):
         self.assertIs(appmodel.with_auth_connect_points(config), config)
 
     def test_no_provider_means_no_auth_entity_to_wire(self):
-        """There is no login to promote, so promoting it would bring up an entity that
-        serves nothing."""
+        """No provider, no auth entity to wire."""
         config = promoted_config()
         config["identity"]["providers"] = []
         self.assertEqual(appmodel.auth_connect_points(config), [])
@@ -94,8 +81,7 @@ class AuthConnectPoints(unittest.TestCase):
             self.assertEqual(point["consumers"], ["web"])
 
     def test_a_declared_point_of_the_same_name_is_never_overwritten(self):
-        # A point is named after its owner, so the only way to collide with the framework's
-        # two is to call an entity `identity` or `sessions` and give it a connect point.
+        # Only an entity called `identity` or `sessions` owning a point can collide.
         config = promoted_config()
         config["entities"].append({"name": "identity", "type": "service"})
         config["connect_points"].append({"owner": "identity", "consumers": ["web"]})
@@ -155,8 +141,9 @@ class AuthEntityMain(unittest.TestCase):
                       self.source)
 
     def test_the_engines_outlive_the_runtime_that_reaches_them(self):
-        """Declaration order is the lifetime. The runtime's Sources call into these two, so
-        the runtime has to be destroyed first."""
+        """Declaration order is lifetime: the runtime, whose Sources call the engines, is
+        destroyed first.
+        """
         self.assertLess(self.source.index("IdentityService identityEngine"),
                         self.source.index("EntityRuntime runtime"))
         self.assertLess(self.source.index("SessionManager sessions"),
@@ -205,8 +192,7 @@ class PromotedEdgeMain(unittest.TestCase):
                       self.source)
 
     def test_the_edge_holds_no_secret_no_client_id_and_no_endpoint(self):
-        """The point of promoting identity. An edge that kept these would have gained a
-        mesh hop and moved no risk."""
+        """The promoted edge holds no secret, client id or endpoint."""
         self.assertIn('provider0.name = QStringLiteral("github");', self.source)
         self.assertNotIn("clientSecret", self.source)
         self.assertNotIn("Iv1.abc", self.source)
@@ -231,8 +217,7 @@ class PromotedEdgeMain(unittest.TestCase):
         self.assertIn('#include "sessionmanager.h"', self.source)
 
     def test_it_generates_no_consumer_surface_for_a_framework_contract(self):
-        """`<Owner>.<point>` is for QML. These two are adopted by C++, and there is no
-        app-side contract to generate a facade from."""
+        """No consumer facade for a framework contract; C++ adopts it."""
         self.assertNotIn("synqtRegisterIdentityConsumers", self.source)
         self.assertNotIn("synqtRegisterSessionConsumers", self.source)
         self.assertNotIn('#include "identity_consumer.h"', self.source)
@@ -267,25 +252,24 @@ class SourceQmlBridges(unittest.TestCase):
     def test_each_bridge_forwards_to_the_context_object_its_main_installs(self):
         identity = authentity.render_source_qml("Identity")
         self.assertIn("Identity {", identity)
-        # The binding and the context travel with the state to the engine, which is what
-        # lets any edge process finish a login another one began (a replicated edge). A
-        # bridge that dropped them would compile, run, and quietly put the record back in
-        # the memory of whichever process happened to answer first.
+        # The binding and context travel with the state, so any edge process can finish a
+        # login another began.
         self.assertIn("IdentityEngine.beginLogin(provider, redirectUri, binding, context)",
                       identity)
-        self.assertIn("IdentityEngine.exchangeCode(state, code, redirectUri, presentedBinding)",
+        # The engine answers the Source asynchronously, for the request that asked.
+        self.assertIn("IdentityEngine.exchangeCode(state, code, redirectUri, presentedBinding,\n"
+                      "                                    root, requestId)",
                       identity)
-        self.assertIn("result.context", identity)
+        # The engine answers with identity, context and error together; the bridge only
+        # delegates.
+        self.assertNotIn("root.emitExchangeResult", identity)
         session = authentity.render_source_qml("SessionStore")
         self.assertIn("SessionStore {", session)
         self.assertIn("Sessions.applyUpsert(token, scope, identityJson, createdMs)",
                       session)
 
     def test_the_generated_bridge_is_the_one_m8_proves_over_a_real_mesh_link(self):
-        """The M8 acceptance suite hosts these two files against a live edge. If the
-        generator emitted something else, the thing that is proven and the thing that ships
-        would be two different files.
-        """
+        """The generated bridges are the files the M8 suite proves over a real mesh link."""
         from pathlib import Path
         fixtures = Path(__file__).resolve().parents[3] / "tests" / "m8-auth" / "auth"
         for contract, file_name in (("Identity", "Identity.qml"), ("SessionStore", "SessionStore.qml")):
@@ -295,14 +279,8 @@ class SourceQmlBridges(unittest.TestCase):
 
 
 class BridgesLandWhereTheTopologyLooks(unittest.TestCase):
-    """The two generated bridges are only worth anything at the path the auth entity opens.
-
-    Nobody authors these files, so `auth_connect_points` names a `server:` under
-    ``generated/`` outright. The QML mirror then prefixes the same directory onto every
-    Source path it writes into the topology, and a path already under ``generated/`` came
-    back as ``generated/generated/service/auth/Identity.qml``. Everything compiled: the
-    entity came up, found no file to instantiate, hosted no Source, and every login the
-    promoted edge answered went out as a 500.
+    """The generated bridges are at the path the auth entity opens: a `server:` already under
+    ``generated/`` is not prefixed again.
     """
 
     def promoted(self, tmp):
@@ -391,8 +369,7 @@ class ProviderEntityValidation(unittest.TestCase):
                             for m in messages), messages)
 
     def test_the_implied_links_are_held_to_the_same_mesh_rules(self):
-        """A synthesized link is still a mesh link, and a project cannot see it to fix it,
-        which is exactly why validation has to look at the expanded topology."""
+        """The implied links are validated by the mesh rules."""
         config = promoted_config()
         entity_named(config, "auth")["mesh"] = {"transport": "local"}
         messages = self.messages(config)

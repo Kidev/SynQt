@@ -11,7 +11,6 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QScopeGuard>
 #include <QTimer>
 
 #include <jwt-cpp/jwt.h>
@@ -32,15 +31,13 @@ constexpr qint64 kMinRefetchMs{5 * 60 * 1000};
 /// the process can spend on a document it is about to parse as JSON.
 constexpr qint64 kMaxJwksBytes{1024 * 1024};
 
-/// How deep a JWKS fetch may nest inside another one.
-///
-/// The wait below is a nested event loop, which keeps serving requests while it spins, so a
-/// second callback arriving during a fetch runs its own exchange inside this stack frame.
-/// The identity routes bound their own nesting for exactly this reason
-/// (kMaxConcurrentWaits in identityprovider.cpp); this is the same bound for the one wait
-/// that sits below them, so a provider that goes slow cannot turn a queue of callbacks into
-/// a stack that runs out.
-constexpr int kMaxNestedFetches{16};
+/// How many fetches of a key set may be in flight at once. A fetch is one request to the
+/// provider per login that needs one, and a provider that goes slow must not turn a queue
+/// of callbacks into an unbounded set of open replies.
+constexpr int kMaxConcurrentFetches{16};
+
+/// How long one fetch may take.
+constexpr int kFetchTimeoutMs{15000};
 
 QByteArray decodeBase64Url(const QString &segment)
 {
@@ -102,7 +99,7 @@ JwksVerifier::JwksVerifier(QNetworkAccessManager *network, QObject *parent)
 {
 }
 
-bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error, bool force)
+void JwksVerifier::fetchJwks(const QUrl &jwksUrl, bool force, FetchCallback done)
 {
     const auto cached{m_jwksCache.constFind(jwksUrl.toString())};
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
@@ -111,79 +108,168 @@ bool JwksVerifier::ensureJwks(const QUrl &jwksUrl, QString *error, bool force)
         // Held, and either good enough or refetched too recently to try again. The rate
         // limit is what stops a stream of tokens naming keys that do not exist from
         // turning into a stream of requests to the provider.
-        return !force;
+        done(!force, QString{});
+        return;
     }
     if (!isSecureIdentityEndpoint(jwksUrl)) {
-        // The keys every ID token is trusted against; over http, whoever is on the path
+        // The keys every ID token is trusted against. Over http, whoever is on the path
         // chooses who your users are.
-        if (error) {
-            *error = QStringLiteral("refusing to fetch JWKS over a plaintext connection");
-        }
-        return false;
+        done(false, QStringLiteral("refusing to fetch JWKS over a plaintext connection"));
+        return;
     }
-    if (m_fetching >= kMaxNestedFetches) {
-        if (error) {
-            *error = QStringLiteral("too many JWKS fetches are already waiting");
-        }
-        return false;
+    if (m_fetching >= kMaxConcurrentFetches) {
+        done(false, QStringLiteral("too many JWKS fetches are already waiting"));
+        return;
     }
     ++m_fetching;
-    const auto released{qScopeGuard([this]() { --m_fetching; })};
 
     QNetworkReply *reply{m_network->get(QNetworkRequest{jwksUrl})};
-    QEventLoop loop;
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     // The size ceiling, checked as the body arrives. These are the keys every ID token is
-    // trusted against, so the endpoint is one an attacker would like to control; a document
+    // trusted against, so the endpoint is one an attacker would like to control. A document
     // this size is not a key set whatever it is, and reading it to the end to find that out
     // is the part worth refusing.
-    connect(reply, &QNetworkReply::downloadProgress, &loop,
-            [reply, &loop](qint64 received, qint64 total) {
+    connect(reply, &QNetworkReply::downloadProgress, reply,
+            [reply](qint64 received, qint64 total) {
         if (received > kMaxJwksBytes || total > kMaxJwksBytes) {
+            reply->setProperty("synqtTooLarge", true);
             reply->abort();
-            loop.quit();
         }
     });
-    QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-    loop.exec();
-    // isFinished() before error(), and this is the whole of the deadline. A reply the
-    // timer above walked out on has no error on it yet, so asking error() alone reads a
-    // half-arrived body as a good one, and this is the one place that would then be
-    // cached as the key set, with `fetchedMs` set to now, which the refetch floor holds
+    // The deadline. A reply walked out on carries no error of its own, so the timer marks
+    // the reply before aborting it and the handler below reads the mark rather than
+    // taking a half-arrived body for a whole one: this is the one place that would then
+    // be cached as the key set, with `fetchedMs` set to now, which the refetch floor holds
     // for five minutes. A provider that went slow once would refuse every login for the
     // rest of that window.
-    if (!reply->isFinished()) {
+    QTimer *deadline{new QTimer{reply}};
+    deadline->setSingleShot(true);
+    connect(deadline, &QTimer::timeout, reply, [reply]() {
+        reply->setProperty("synqtTimedOut", true);
         reply->abort();
-        if (error) {
-            *error = QStringLiteral("JWKS fetch timed out");
-        }
+    });
+    deadline->start(kFetchTimeoutMs);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, jwksUrl, done]() {
+        --m_fetching;
         reply->deleteLater();
-        return false;
-    }
-    if (reply->error() != QNetworkReply::NoError) {
-        if (error) {
-            *error = QStringLiteral("JWKS fetch failed: %1").arg(reply->errorString());
+        if (reply->property("synqtTimedOut").toBool()) {
+            done(false, QStringLiteral("JWKS fetch timed out"));
+            return;
         }
-        reply->deleteLater();
-        return false;
-    }
-    const QByteArray body{reply->readAll()};
-    reply->deleteLater();
-    // A key set with no keys in it is not a key set. Caching one would put the refetch
-    // floor in front of the real answer for five minutes, exactly as a timeout would.
-    if (QJsonDocument::fromJson(body).object().value(QStringLiteral("keys")).toArray()
-            .isEmpty()) {
-        if (error) {
-            *error = QStringLiteral("JWKS response carried no keys");
+        if (reply->property("synqtTooLarge").toBool()) {
+            done(false, QStringLiteral("JWKS response is larger than a key set can be"));
+            return;
         }
-        return false;
-    }
-    m_jwksCache.insert(jwksUrl.toString(), CachedJwks{body, now});
-    return true;
+        if (reply->error() != QNetworkReply::NoError) {
+            done(false, QStringLiteral("JWKS fetch failed: %1").arg(reply->errorString()));
+            return;
+        }
+        const QByteArray body{reply->readAll()};
+        // A key set with no keys in it is not a key set. Caching one would put the refetch
+        // floor in front of the real answer for five minutes, exactly as a timeout would.
+        if (QJsonDocument::fromJson(body).object().value(QStringLiteral("keys")).toArray()
+                .isEmpty()) {
+            done(false, QStringLiteral("JWKS response carried no keys"));
+            return;
+        }
+        m_jwksCache.insert(jwksUrl.toString(),
+                           CachedJwks{body, QDateTime::currentMSecsSinceEpoch()});
+        done(true, QString{});
+    });
 }
 
 QVariantMap JwksVerifier::verify(const QString &idToken, const IdentityProviderConfig &provider,
                                  const QString &expectedNonce, QString *error)
+{
+    // The asynchronous form, waited on. A route handler may wait; a slot may not, and
+    // takes verifyAsync directly.
+    QVariantMap claims;
+    QString failure;
+    bool answered{false};
+    QEventLoop loop;
+    verifyAsync(idToken, provider, expectedNonce,
+                [&claims, &failure, &answered, &loop](const QVariantMap &result,
+                                                       const QString &why) {
+        claims = result;
+        failure = why;
+        answered = true;
+        loop.quit();
+    });
+    if (!answered) {
+        loop.exec();
+    }
+    if (error) {
+        *error = failure;
+    }
+    return claims;
+}
+
+void JwksVerifier::verifyAsync(const QString &idToken, const IdentityProviderConfig &provider,
+                               const QString &expectedNonce, VerifyCallback done)
+{
+    // A JWT is three non-empty base64url segments. header.payload.signature.
+    const QStringList parts{idToken.split(QLatin1Char('.'))};
+    if (parts.size() != 3 || parts.at(0).isEmpty() || parts.at(1).isEmpty()
+        || parts.at(2).isEmpty()) {
+        done({}, QStringLiteral("malformed ID token"));
+        return;
+    }
+
+    const QJsonObject header{jsonSegment(parts.at(0))};
+    if (header.value(QStringLiteral("alg")).toString() != QLatin1String("RS256")) {
+        done({}, QStringLiteral("unsupported ID-token algorithm"));
+        return;
+    }
+    const QString kid{header.value(QStringLiteral("kid")).toString()};
+    const QString cacheKey{provider.jwksUrl.toString()};
+    const auto missingKey{[kid]() {
+        return kid.isEmpty()
+                   ? QStringLiteral("the ID token names no signing key and the provider "
+                                    "publishes more than one, so which key signed it "
+                                    "cannot be told")
+                   : QStringLiteral("no signing key in the JWKS matches this ID token's "
+                                    "kid");
+    }};
+    const auto answer{[this, parts, provider, expectedNonce, done](const QJsonObject &jwk) {
+        QString error;
+        const QVariantMap claims{checkToken(parts, jwk, provider, expectedNonce, &error)};
+        done(claims, error);
+    }};
+
+    fetchJwks(provider.jwksUrl, false,
+              [this, cacheKey, kid, provider, missingKey, answer, done](
+                  bool ok, const QString &error) {
+        if (!ok) {
+            done({}, error);
+            return;
+        }
+        const QJsonObject jwk{selectKey(m_jwksCache.value(cacheKey).json, kid)};
+        if (!jwk.isEmpty()) {
+            answer(jwk);
+            return;
+        }
+        // The key set on hand does not contain this token's key. The ordinary reason is a
+        // rotation. The provider signed with a key it published after this set was
+        // fetched. Fetch once more (rate limited inside fetchJwks) and look again, or the
+        // first rotation would end every login until the edge restarts.
+        fetchJwks(provider.jwksUrl, true,
+                  [this, cacheKey, kid, missingKey, answer, done](bool refreshed,
+                                                                  const QString &) {
+            const QJsonObject again{refreshed
+                                        ? selectKey(m_jwksCache.value(cacheKey).json, kid)
+                                        : QJsonObject{}};
+            if (again.isEmpty()) {
+                done({}, missingKey());
+                return;
+            }
+            answer(again);
+        });
+    });
+}
+
+QVariantMap JwksVerifier::checkToken(const QStringList &parts, const QJsonObject &jwk,
+                                     const IdentityProviderConfig &provider,
+                                     const QString &expectedNonce, QString *error) const
 {
     const auto fail{[error](const QString &message) -> QVariantMap {
         if (error) {
@@ -191,39 +277,6 @@ QVariantMap JwksVerifier::verify(const QString &idToken, const IdentityProviderC
         }
         return {};
     }};
-
-    // A JWT is three non-empty base64url segments: header.payload.signature.
-    const QStringList parts{idToken.split(QLatin1Char('.'))};
-    if (parts.size() != 3 || parts.at(0).isEmpty() || parts.at(1).isEmpty()
-        || parts.at(2).isEmpty()) {
-        return fail(QStringLiteral("malformed ID token"));
-    }
-
-    const QJsonObject header{jsonSegment(parts.at(0))};
-    if (header.value(QStringLiteral("alg")).toString() != QLatin1String("RS256")) {
-        return fail(QStringLiteral("unsupported ID-token algorithm"));
-    }
-
-    if (!ensureJwks(provider.jwksUrl, error)) {
-        return {};
-    }
-    const QString kid{header.value(QStringLiteral("kid")).toString()};
-    QJsonObject jwk{selectKey(m_jwksCache.value(provider.jwksUrl.toString()).json, kid)};
-    if (jwk.isEmpty() && ensureJwks(provider.jwksUrl, error, true)) {
-        // The key set on hand does not contain this token's key. The ordinary reason is a
-        // rotation: the provider signed with a key it published after this set was
-        // fetched. Fetch once more (rate limited inside ensureJwks) and look again, or the
-        // first rotation would end every login until the edge restarts.
-        jwk = selectKey(m_jwksCache.value(provider.jwksUrl.toString()).json, kid);
-    }
-    if (jwk.isEmpty()) {
-        return fail(kid.isEmpty()
-                        ? QStringLiteral("the ID token names no signing key and the provider "
-                                         "publishes more than one, so which key signed it "
-                                         "cannot be told")
-                        : QStringLiteral("no signing key in the JWKS matches this ID token's "
-                                         "kid"));
-    }
     if (jwk.value(QStringLiteral("kty")).toString() != QLatin1String("RSA")) {
         return fail(QStringLiteral("the ID token's signing key is not RSA"));
     }

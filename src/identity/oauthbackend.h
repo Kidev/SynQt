@@ -12,6 +12,8 @@
 #include <QUrl>
 #include <QVariantMap>
 
+#include <functional>
+
 QT_BEGIN_NAMESPACE
 class QNetworkAccessManager;
 class QOAuth2AuthorizationCodeFlow;
@@ -50,17 +52,14 @@ public:
         QUrl authorizeUrl;
         QString error;
     };
-    /// Two things travel with the state, and they have different jobs:
+    /// Two things travel with the state:
     ///
-    ///  - `binding` is what the caller must present again on the callback, and exchange()
-    ///    refuses one that does not. The edge puts the browser's CSRF cookie value here, so
-    ///    a state alone is not enough to complete a login.
-    ///  - `context` is opaque and is handed back on exchange. The edge puts the
-    ///    desktop loopback return in it, which it needs to answer the waiting client.
+    ///  - `binding`, which the caller must present again on the callback; exchange() refuses a
+    ///    mismatch. The edge puts the browser's CSRF cookie value here.
+    ///  - `context`, opaque and handed back on exchange. The edge puts the desktop loopback
+    ///    return here.
     ///
-    /// Both are held here with the state rather than by the caller, which is what lets any
-    /// edge process finish a login any other one started (a replicated edge). With a single
-    /// edge it changes nothing except where the record lives.
+    /// Both are held with the state, so any edge process can finish a login another began.
     BeginResult begin(const QString &providerName, const QString &redirectUri,
                       const QString &binding = QString{},
                       const QString &context = QString{});
@@ -73,26 +72,37 @@ public:
         QVariantMap identity;
         QString tokenKey;
         QString error;
-        /// The `context` begin() was given, back again. It comes back on a failed exchange
-        /// too: a desktop login that is refused has to tell the waiting client
-        /// so, over the loopback address that is in here, or the app sits on its listener
-        /// until the timeout and the visitor reads a refusal as a hang. Empty only when
-        /// there was no record to match (unknown or expired state) or the presented binding
-        /// did not match it, since neither of those is a login this caller started.
+        /// The `context` begin() was given, back again, on a failed exchange too, so a
+        /// refused desktop login can tell its waiting client. Empty when no record matched
+        /// or the binding did not.
         QString context;
     };
-    /// `presentedBinding` is checked against what begin() stored, in constant time, BEFORE
-    /// the code is spent: a callback whose binding does not match is somebody else's, and
-    /// exchanging first would burn a real authorization code on it. The pending record is
-    /// consumed either way, so a callback cannot be replayed against a second process.
+    /// `presentedBinding` is checked against what begin() stored, in constant time, before the
+    /// code is spent. The pending record is consumed either way, so a callback cannot be replayed.
+    ///
+    /// This form waits for the provider, which suits an HTTP route handler. A connect point slot
+    /// must use exchangeAsync instead: a waiting slot holds its entity's event loop, and a mesh
+    /// link dropping meanwhile would tear down the Source the slot runs on.
     ExchangeResult exchange(const QString &state, const QString &code,
                             const QString &redirectUri,
                             const QString &presentedBinding = QString{});
 
-    /// Move a stored token entry to a stable key (the session id) once the session exists.
+    /// The token step as a slot runs it: nothing waits, and `done` is called with the result
+    /// when the provider has answered (at once for a refusal that needs no provider).
+    using ExchangeCallback = std::function<void(const ExchangeResult &result)>;
+    void exchangeAsync(const QString &state, const QString &code, const QString &redirectUri,
+                       const QString &presentedBinding, ExchangeCallback done);
+
+    /// Move a stored token entry to a stable key (the session id) once the session exists. This
+    /// also marks the entry claimed (see setUnclaimedWindow).
     void rekeyTokens(const QString &fromKey, const QString &toKey);
 
-    /// The stored tokens for a key (never sent to a browser); empty if none.
+    /// How long tokens may sit unclaimed under a state key before they are released, in case the
+    /// edge that asked went away before binding a session. Five minutes by default, the window a
+    /// login already has. Zero releases anything unclaimed at the next sweep.
+    void setUnclaimedWindow(int seconds);
+
+    /// The stored tokens for a key (never sent to a browser). Empty if none.
     QVariantMap tokens(const QString &key) const;
 
     void releaseTokens(const QString &key);
@@ -137,24 +147,38 @@ private:
         QString refreshToken;
         QString idToken;
         qint64 expiresAtMs{0}; ///< 0 == unknown/never
+        /// When this entry was stored, and whether a session has been bound to it. An
+        /// unbound entry is a login in flight. See setUnclaimedWindow.
+        qint64 storedMs{0};
+        bool bound{false};
     };
+
+    /// One exchange in flight. See exchangeAsync. A child of the backend, so a backend
+    /// going away takes the exchanges it was running with it, and every callback it holds.
+    class ExchangeJob;
 
     QOAuth2AuthorizationCodeFlow *makeFlow(const IdentityProviderConfig &provider,
                                            const QString &redirectUri);
-    QVariantMap normalizeIdentity(const IdentityProviderConfig &provider,
-                                  QOAuth2AuthorizationCodeFlow *flow,
-                                  const QString &expectedNonce, QString *error);
-    QByteArray httpGet(const QUrl &url, const QString &bearer, QString *error);
+    /// One bounded GET with a bearer token, answered through `done` with the body, or an
+    /// empty body and the error. The provider's profile endpoints are read through this.
+    using BodyCallback = std::function<void(const QByteArray &body, const QString &error)>;
+    void httpGet(const QUrl &url, const QString &bearer, QObject *context, BodyCallback done);
     QNetworkAccessManager *network();
     bool refreshOne(const QString &key);
     void expirePending();
+    /// Drop every entry no session was ever bound to that is past the window. Runs on its
+    /// own timer, not the refresh one: refreshing is optional and letting go of a secret
+    /// nobody claimed is not.
+    void releaseUnclaimed();
 
     IdentityConfig m_config;
     QNetworkAccessManager *m_network{nullptr};
     JwksVerifier *m_jwks{nullptr};
     QTimer *m_refreshTimer{nullptr};
+    QTimer *m_unclaimedTimer{nullptr};
+    int m_unclaimedWindowSeconds{300};
     int m_refreshMargin{0};
-    bool m_sweeping{false};   ///< a refresh sweep is running; see refreshExpiring()
+    bool m_sweeping{false};   ///< a refresh sweep is running. See refreshExpiring()
 
     QHash<QString, Pending> m_pending;      ///< state -> pending login (verifier + nonce)
     QHash<QString, TokenEntry> m_tokens;    ///< key -> stored tokens

@@ -8,12 +8,17 @@
 
 #include <QByteArray>
 #include <QHash>
+#include <QJsonObject>
 #include <QObject>
+#include <QStringList>
 #include <QString>
 #include <QVariantMap>
 
+#include <functional>
+
 QT_BEGIN_NAMESPACE
 class QNetworkAccessManager;
+class QUrl;
 QT_END_NAMESPACE
 
 namespace SynQt {
@@ -31,13 +36,33 @@ public:
 
     /// The verified claims (sub, email, name, ...) on success, or an empty map with *error
     /// set on any failure (bad signature, wrong issuer/audience, expired, nonce mismatch).
+    ///
+    /// Waits for the key set when it has to be fetched. That is fine on an HTTP route and
+    /// never inside a connect point slot; a slot uses verifyAsync.
     QVariantMap verify(const QString &idToken, const IdentityProviderConfig &provider,
                        const QString &expectedNonce, QString *error);
 
+    /// The same verification, answered through `done` (the claims, or empty with the
+    /// error) once the key set is on hand: at once when it is cached, after the fetch when
+    /// it is not. Nothing waits. A slot on an entity may run this, because a slot that
+    /// blocks holds the entity's event loop and, worse, lets a link that drops meanwhile
+    /// tear down the very objects the slot is running on.
+    using VerifyCallback = std::function<void(const QVariantMap &claims, const QString &error)>;
+    void verifyAsync(const QString &idToken, const IdentityProviderConfig &provider,
+                     const QString &expectedNonce, VerifyCallback done);
+
 private:
-    /// Fetch the key set unless it is already held. `force` fetches anyway, which is what
-    /// a token signed by a key the cached set does not contain asks for.
-    bool ensureJwks(const QUrl &jwksUrl, QString *error, bool force = false);
+    /// Have the key set at `jwksUrl` on hand. Answer at once from the cache, or fetch it
+    /// and answer when it arrives. `force` fetches although one is held, which is what a
+    /// token signed by a key the cached set does not contain asks for. `ok` is then false
+    /// with an empty error when the refetch floor refused it, which is not a failure to
+    /// report.
+    using FetchCallback = std::function<void(bool ok, const QString &error)>;
+    void fetchJwks(const QUrl &jwksUrl, bool force, FetchCallback done);
+    /// The checks that need no network: the key's shape, the signature, the claims.
+    QVariantMap checkToken(const QStringList &parts, const QJsonObject &jwk,
+                           const IdentityProviderConfig &provider,
+                           const QString &expectedNonce, QString *error) const;
 
     /// One provider's key set and when it was fetched.
     struct CachedJwks
