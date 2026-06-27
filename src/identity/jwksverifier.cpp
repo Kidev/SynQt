@@ -148,9 +148,12 @@ void JwksVerifier::fetchJwks(const QUrl &jwksUrl, bool force, FetchCallback done
     });
     deadline->start(kFetchTimeoutMs);
 
+    // Freed whatever happens to this verifier. The handler below is bound to `this` and
+    // goes with it, and a reply nothing ever deletes would then sit on the network manager
+    // until the manager itself went.
+    connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
     connect(reply, &QNetworkReply::finished, this, [this, reply, jwksUrl, done]() {
         --m_fetching;
-        reply->deleteLater();
         if (reply->property("synqtTimedOut").toBool()) {
             done(false, QStringLiteral("JWKS fetch timed out"));
             return;

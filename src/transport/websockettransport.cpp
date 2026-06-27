@@ -472,6 +472,11 @@ void WebSocketTransport::flushBeforeBlocking()
     PendingFlushes &pending{pendingFlushes()};
     if (pending.hooked != dispatcher) {
         pending.hooked = dispatcher;
+        // A queued flush posted to the dispatcher that has gone was never delivered,
+        // so the flag it set is stale. Left standing it would suppress every later post on
+        // this thread, and the only flushes still reaching these devices would be the ones
+        // aboutToBlock happens to produce.
+        pending.flushQueued = false;
         // The dispatcher is the context as well as the sender, so the connection goes when
         // it does.
         QObject::connect(dispatcher, &QAbstractEventDispatcher::aboutToBlock, dispatcher,
