@@ -650,6 +650,31 @@ def _selected_entities(config: Dict[str, Any], entity: Optional[str]) -> List[Di
     return selected
 
 
+def volatile_store_notices(entities: List[Dict[str, Any]]) -> List[str]:
+    """Which of these entities keep everything they are given in memory.
+
+    The document type's embedded default is an in-process store. It holds what it is
+    given for as long as the process lives and not one moment longer, and it has no
+    bound, because a store that forgets is not a store. That is the right default for
+    getting started and the wrong one to find out about after a deploy, so a build that
+    produced such an entity says so, once, beside the licence reminders and on the same
+    terms as them. Only for an artifact this build made.
+    """
+    notices: List[str] = []
+    for entity in entities:
+        if appmodel.entity_type(entity) != "document":
+            continue
+        provider = (entity.get("provider") or {}).get("name") or "memory"
+        if provider != "memory":
+            continue
+        notices.append(
+            f"Note: '{entity.get('name')}' keeps its documents in memory, which is the "
+            "document type's embedded default: they are gone when the process stops, and "
+            "nothing bounds how many it holds. Select the mongodb provider for storage "
+            "that outlives a restart. See https://synqt.org/providers/.")
+    return notices
+
+
 def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
           custom_type: str = "", strip: bool = False, dev_tools: bool = False,
           client: str = "wasm", qt_license_mode: str = "open_source",
@@ -791,4 +816,9 @@ def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
                            "Server / Network Authorization). See https://synqt.org/licensing/.")
         if notices:
             summary += [""] + notices
+    # Not a licence matter, so it is outside the block above and is said whichever Qt
+    # licence this build was made under.
+    volatile = volatile_store_notices(selected)
+    if volatile:
+        summary += [""] + volatile
     return "\n".join(summary)

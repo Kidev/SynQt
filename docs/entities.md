@@ -203,14 +203,19 @@ must survive a restart goes to the relational entity.
 
 ### Document
 
-Purpose: durable storage for records that do not want a fixed set of columns
+Purpose: storage for records that do not want a fixed set of columns
 (documents with varying fields, nested structures, per tenant shapes), owned by one
 entity, reachable only by the entities you authorize.
 
-Backend: a provider, exactly as for persistence. The default is an embedded in
-process store, so the type runs with nothing to install; selecting the
+Backend: a provider, exactly as for persistence, but the default is a different kind
+of thing. The embedded default keeps its documents in the entity's own memory, so the
+type runs with nothing to install and nothing to configure, and what it holds is gone
+when the process stops. Nothing bounds how much it holds either, because a store that
+forgets is not a store. That is what you want while you are finding the shape of your
+data and not what you want in front of anybody. Selecting the
 `mongodb` provider moves the same entity onto a MongoDB server, with the connect
-points and every consumer unchanged. The entity's QML calls the `Docs` helper the
+points and every consumer unchanged, and that is the one to be on by the time the data
+matters. `synqt build` names every entity still on the embedded default. The entity's QML calls the `Docs` helper the
 runtime injects, passing the collection, the document and the filter as maps, never
 as an engine query string, which is what keeps a Source working across that swap.
 

@@ -29,19 +29,15 @@ class MeshTest(unittest.TestCase):
         mesh.init(self.root)
         ca_key = self.root / "synqt" / "mesh" / "ca.key"
         self.assertTrue(ca_key.exists())
-        # The CA private key is 0600. Only where the mode means something: Windows has no
-        # POSIX bits, os.chmod there only toggles read-only, and stat reports 0666 whatever
-        # was asked for. mesh._restrict() carries the Windows half (an ACL), which this
-        # cannot assert from a POSIX box.
+        # The CA key is 0600 where POSIX modes apply. The Windows ACL half (mesh._restrict)
+        # cannot be asserted from a POSIX host.
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(ca_key.stat().st_mode), 0o600)
         # ...and git-ignored, so it is never committed.
         self.assertIn("synqt/mesh/*.key", (self.root / ".gitignore").read_text())
 
-        # An entity certificate carries the entity name as its subject. Read it back with
-        # -nameopt RFC2253 rather than openssl's default rendering. That default is not
-        # stable across openssl versions ("CN=database" here, "CN = database" on the CI
-        # image), so an unpinned format tests the local openssl build, not the subject.
+        # The subject is the entity name. -nameopt RFC2253 gives a format stable across
+        # openssl versions.
         mesh.cert(self.root, "database")
         self.assertTrue((self.root / "synqt" / "mesh" / "database.crt").exists())
         import subprocess
@@ -55,17 +51,10 @@ class MeshTest(unittest.TestCase):
             mesh.cert(self.root, "client", kind="client")
 
     def test_a_private_key_is_never_readable_by_anyone_else_even_briefly(self):
-        """The key file is created with its final mode, not chmod-ed into it afterwards.
+        """The key file is created with its final mode, not chmod-ed afterwards.
 
-        `openssl genrsa -out` creates the file with the process umask, which on a default
-        system is 0644, and the `chmod` that follows closes a window rather than never
-        opening it. In that window every account on the machine can read the trust anchor
-        for every mesh link in the project.
-
-        Asserted by running the generation with a permissive umask, which is what makes the
-        window observable. Without the fix the file is left 0666 & ~umask at creation, and
-        the assertion below is on the mode openssl itself wrote, taken from a callable that
-        stands in for it.
+        Run with a permissive umask, which makes the window observable; the mode is taken at
+        the moment a stand-in for openssl starts writing.
         """
         if os.name == "nt":
             self.skipTest("POSIX modes; mesh._restrict carries the Windows ACL half")
@@ -73,8 +62,7 @@ class MeshTest(unittest.TestCase):
         real = mesh._openssl
 
         def watching(*args):
-            # The moment openssl would start writing the key is the moment the file has to
-            # be private already.
+            # When openssl starts writing, the file is already private.
             if args[0] == "genrsa":
                 target = Path(args[args.index("-out") + 1])
                 seen[target.name] = stat.S_IMODE(target.stat().st_mode)
@@ -93,12 +81,8 @@ class MeshTest(unittest.TestCase):
             stat.S_IMODE((self.root / "synqt" / "mesh" / "ca.key").stat().st_mode), 0o600)
 
     def test_a_name_that_is_not_an_entity_name_never_reaches_openssl(self):
-        """`synqt mesh cert` takes its name from a prompt, and puts it in three literal
-        places: the key and certificate file names, the `/CN=` of the subject, and the SAN.
-
-        A separator writes a private key outside the mesh directory. A `/` opens a second
-        RDN in the subject, so the certificate a peer is identified by is not the one the
-        operator asked for. Refused on the shape of the name, before openssl is reached.
+        """A name typed at the prompt that is not an entity name never reaches openssl: it
+        lands in file names, the subject `/CN=` and the SAN.
         """
         mesh.init(self.root)
         for name in ["../evil", "a/b", "..", "web edge", "CN=web/O=elsewhere", "", "9lives"]:
@@ -111,11 +95,7 @@ class MeshTest(unittest.TestCase):
         self.assertTrue((self.root / "synqt" / "mesh" / "web-edge_2.crt").exists())
 
     def test_status_reads_an_expiry_whatever_the_machine_locale_is(self):
-        """openssl prints English month abbreviations. `%b` in strptime reads the current
-        locale's. On a machine whose locale is not English that combination raised a
-        ValueError out of `synqt mesh status`, printing a traceback where an expiry date
-        belongs.
-        """
+        """`synqt mesh status` reads openssl's English month names under any locale."""
         with unittest.mock.patch.object(
                 mesh, "_openssl", return_value="notAfter=Aug  4 12:34:56 2027 GMT\n"):
             parsed = mesh._not_after(Path("anything.crt"))
@@ -126,20 +106,10 @@ class MeshTest(unittest.TestCase):
             self.assertIsNone(mesh._not_after(Path("anything.crt")))
 
     def test_entity_certs_carry_the_key_usages_a_strict_verifier_requires(self):
-        """An entity cert must chain to the CA and state both TLS roles it plays: server
-        on the links it owns, client on the links it consumes.
+        """An entity certificate chains to the CA and carries serverAuth and clientAuth.
 
-        The usages are asserted as extensions rather than through `openssl verify
-        -purpose`, which cannot see this defect. The shipped bug was certificates issued
-        with no extendedKeyUsage at all; OpenSSL only enforces an EKU that is *present*,
-        so it returns OK for both sslserver and sslclient on an EKU-less cert (measured,
-        not assumed). Apple's verifier instead requires the matching usage OID, so those
-        certs were fine on Linux and untrusted on macOS; every suite that verified a
-        peer failed there, and the ones that skipped verification passed. An EKU-less
-        cert is not "unrestricted" everywhere. It is unusable on a strict verifier.
-
-        Since the platform that enforces this cannot be run from here, the extension is
-        the thing to assert. Keep this test string-based for that reason.
+        Asserted on the extensions, not with `openssl verify -purpose`: OpenSSL accepts a
+        certificate with no EKU, while Apple's verifier requires the usage OID.
         """
         import subprocess
 
@@ -158,13 +128,11 @@ class MeshTest(unittest.TestCase):
             ["openssl", "x509", "-noout", "-text", "-in", crt], text=True)
         self.assertIn("TLS Web Server Authentication", text)
         self.assertIn("TLS Web Client Authentication", text)
-        # A leaf must not also be a CA: a verifier that enforces basic constraints has to
-        # see an end entity, and nothing must be able to sign with it.
+        # A leaf is not a CA.
         self.assertIn("CA:FALSE", text.replace(" ", ""))
 
     def test_the_ca_states_it_may_sign_certificates(self):
-        """The CA is the trust anchor for every mesh link, so what it is allowed to do is
-        part of the tool's contract rather than of the host's openssl.cnf."""
+        """The CA states its own extensions; nothing is inherited from the host openssl.cnf."""
         import subprocess
 
         mesh.init(self.root)
@@ -184,12 +152,7 @@ class MeshTest(unittest.TestCase):
         self.assertIn("ca: valid until", report)
 
     def test_rotate_issues_a_new_certificate_for_the_same_entity(self):
-        """Rotation replaces the certificate on disk, for one entity or for the topology.
-
-        The point of the command is that the old key stops being the one the mesh trusts,
-        so the file has to change. A rotate that reissued nothing would report
-        success and leave a compromised key in service.
-        """
+        """Rotation replaces the certificate on disk, for one entity or for the topology."""
         mesh.init(self.root)
         mesh.cert(self.root, "web")
         before = (self.root / "synqt" / "mesh" / "web.crt").read_bytes()
@@ -198,25 +161,19 @@ class MeshTest(unittest.TestCase):
         after = (self.root / "synqt" / "mesh" / "web.crt").read_bytes()
         self.assertNotEqual(before, after)
 
-        # Without an entity it rotates every service entity it is given, and says so for
-        # each. The client is not among them. It never holds a mesh certificate.
+        # Without an entity it rotates every service entity, never the client.
         summary = mesh.rotate(self.root, service_entities=["web", "database"])
         self.assertIn("Issued web.crt", summary)
         self.assertIn("Issued database.crt", summary)
         self.assertTrue((self.root / "synqt" / "mesh" / "database.crt").exists())
 
-        # A topology with no service entities is not an error. There is nothing to
-        # issue, and saying that beats printing an empty line that reads like a failure.
+        # No service entities: nothing to issue, and it says so.
         self.assertEqual(mesh.cert_all(self.root, []),
                          "No service entities in the topology.")
 
     def test_status_separates_expired_from_expiring_and_says_when_it_cannot_read_one(self):
-        """The three states `synqt mesh status` exists to tell apart.
-
-        Dates come from a stubbed reader rather than from certificates issued with a past
-        validity: openssl's options for backdating are not the same across the versions
-        this suite runs on, and the question here is what status reports for a given
-        expiry, not whether openssl can be talked into producing one.
+        """The three states `synqt mesh status` reports. Dates come from a stubbed reader,
+        since openssl's backdating options differ across versions.
         """
         mesh.init(self.root)
         mesh.cert(self.root, "web")
@@ -226,8 +183,7 @@ class MeshTest(unittest.TestCase):
         with unittest.mock.patch.object(mesh, "_not_after",
                                         lambda crt: expiries.get(crt.stem)):
             report = mesh.status(self.root)
-        # Expired, not "expires soon": a mesh that is already down reads differently from
-        # one that needs attention this month.
+        # Expired, not "expires soon".
         self.assertIn("web: valid until", report)
         self.assertIn("<-- EXPIRED", report)
         self.assertNotIn("<-- EXPIRES SOON", report)
@@ -240,8 +196,7 @@ class MeshTest(unittest.TestCase):
                                         lambda crt: expiries.get(crt.stem)):
             self.assertIn("<-- EXPIRES SOON", mesh.status(self.root))
 
-        # None means the file is there but openssl could not read a date out of it, which
-        # is a different problem from an expiry and must not be reported as one.
+        # None: the file exists but its date could not be read.
         with unittest.mock.patch.object(mesh, "_not_after", lambda crt: None):
             report = mesh.status(self.root)
         self.assertIn("web: unreadable", report)
@@ -277,11 +232,8 @@ class LicenseTest(unittest.TestCase):
         self.assertIn("Commercial", text)
 
     def test_a_pure_service_names_no_gpl_module_and_no_jwt(self):
-        """The LGPLv3 line has to be a fact about the binary, not a hope.
-
-        `SynQtService` links neither Qt HTTP Server nor Qt Network Authorization, so a
-        relational, cache, document, jobs or plain service entity carries neither, and its
-        file must not claim otherwise either way.
+        """A pure service names no GPLv3-only module: `SynQtService` links neither Qt HTTP
+        Server nor Qt Network Authorization.
         """
         for entity_type in ("relational", "cache", "document", "jobs", "service"):
             with self.subTest(entity_type):
@@ -293,11 +245,8 @@ class LicenseTest(unittest.TestCase):
                               text)
 
     def test_the_auth_entity_reports_what_promoting_identity_made_it_link(self):
-        """`identity.provider_entity` is the one thing that makes a service GPLv3.
-
-        Nothing on the entity itself says it runs the login. The project block names it. So
-        the file is generated with the config, and without it the same entity is an ordinary
-        LGPLv3 service, which is what it is in every project that does not promote identity.
+        """The auth entity is GPLv3 only because `identity.provider_entity` names it; without
+        the config it reads as a plain LGPLv3 service.
         """
         auth = {"name": "auth", "type": "service"}
         config = {"entities": [{"name": "web", "type": "web_edge"}, auth],
@@ -312,11 +261,8 @@ class LicenseTest(unittest.TestCase):
         self.assertIn("LGPL-3.0-only", licenses.generate(auth))
 
     def test_the_file_and_the_build_read_the_same_table(self):
-        """A GPLv3-only module is named if and only if the entity links the library with it.
-
-        `licenses.py` and `cmakegen.py` both go through `appmodel.service_libraries`. This
-        is what stops the two from drifting. The old file keyed the auth obligations off a
-        field nothing wrote, and reported LGPL for entities that were linking HttpServer.
+        """A GPLv3-only module is named if and only if the entity links it. `licenses.py` and
+        `cmakegen.py` both use `appmodel.service_libraries`.
         """
         config = {"entities": [{"name": "web", "type": "web_edge"},
                                {"name": "auth", "type": "service"},
@@ -339,13 +285,7 @@ class LicenseTest(unittest.TestCase):
                     self.assertIn(module, modules)
 
     def test_the_client_notice_names_every_module_the_client_links(self):
-        """The Qt components cmakegen links into the client are the ones the notice lists.
-
-        Two files naming the same set is two lists to keep in step, and they had already
-        drifted: the client links `Qt6::Network` and the notice did not mention it. The
-        effective license was right either way, which is exactly why nobody noticed, and
-        the file's claim is that it says what the entity links.
-        """
+        """The client notice lists every Qt component cmakegen links into the client."""
         config = {"project": {"name": "app", "qt_version": "6.12.0"},
                   "entities": [{"name": "app", "type": "client"},
                                {"name": "edge", "type": "web_edge"}]}
@@ -386,8 +326,8 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(ok, messages)
 
     def test_explicit_local_link_is_flagged_but_not_an_error(self):
-        # Every local link is surfaced (colocation-trusted, not authenticated) yet a
-        # legitimately opted-in one does not fail the build (pitfall 7).
+        # Every local link is reported, but an explicit one does not fail the build (pitfall
+        # 7).
         config = self._base()
         config["connect_points"] = [
             {"owner": "database", "consumers": ["web"],
@@ -399,9 +339,7 @@ class CheckTest(unittest.TestCase):
                             for m in messages))
 
     def test_a_local_link_with_two_consumers_is_an_error(self):
-        # The owner names every local caller after the point's one consumer, because a
-        # local socket identifies nobody. Two consumers on it would both arrive as the
-        # first, so the second is refused rather than misnamed on every call.
+        # A local point with two consumers is refused: both would be named after the first.
         config = self._base()
         config["entities"].append({"name": "reporter", "type": "jobs"})
         config["connect_points"] = [
@@ -441,8 +379,7 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(ok, messages)
 
     def test_set_based_scopes_pass(self):
-        # scopes.hierarchical. False is a legitimate, fully-honored setting (both mains
-        # emit it now), so it must validate clean.
+        # `scopes.hierarchical: false` is honoured by both mains and validates clean.
         config = self._base()
         config["connect_points"] = [
             {"owner": "web", "consumers": ["client"]}]
@@ -451,8 +388,7 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(ok, messages)
 
     def test_non_boolean_scopes_hierarchical_is_an_error(self):
-        # The string "false" is truthy in Python, so a quoted value would silently stay
-        # hierarchical, the authorization surprise the setter meant to turn off. Refuse it.
+        # The string "false" is refused.
         config = self._base()
         config["connect_points"] = [
             {"owner": "web", "consumers": ["client"]}]
@@ -474,9 +410,8 @@ class NewBuildDoctorTest(unittest.TestCase):
         names = {e["name"] for e in config["entities"]}
         self.assertEqual(names, {"app", "edge"})
         self.assertTrue((root / "client" / "app" / "Main.qml").exists())
-        # CMake reads presets from the top-level source directory and nowhere else, and
-        # that directory is the project. The root CMakeLists.txt beside them is four lines
-        # and hands the build to generated/synqt.cmake.
+        # Presets sit at the project root, where CMake reads them, beside the four-line root
+        # CMakeLists.txt.
         self.assertTrue((root / "CMakePresets.json").exists())
         self.assertIn("generated/synqt.cmake", (root / "CMakeLists.txt").read_text())
         self.assertTrue((root / "generated" / "synqt.cmake").exists())
@@ -506,10 +441,9 @@ class NewBuildDoctorTest(unittest.TestCase):
         self.assertIn("GPLv3", report)
 
     def test_doctor_reports_the_sql_driver_plugin_a_provider_needs(self):
-        """A SQL-backed provider needs a Qt driver plugin at run time, and doctor is the
-        only place that says so before the first query fails. It must not claim `synqt
-        build` resolves it, which would be wrong twice. The build installs no engine client,
-        and it does not produce the plugin either."""
+        """doctor reports the Qt SQL driver plugin a provider needs, and does not claim `synqt
+        build` provides it.
+        """
         newproject.scaffold(self.parent, "app")
         root = self.parent / "app"
         config = configmod.load(root)
@@ -532,27 +466,19 @@ class NewBuildDoctorTest(unittest.TestCase):
         self.assertIn("Provider 'mysql' on entity 'store'", report)
         self.assertIn("QMYSQL", report)
         self.assertIn("MariaDB Connector/C", report)
-        # The licensing reason, not only the instruction. It is why the shipped plugin is
-        # unusable rather than merely inconvenient.
+        # The licensing reason is printed with the instruction.
         self.assertIn("libmysqlclient", report)
         self.assertIn("build-qmysql-plugin.sh", report)
         self.assertNotIn("synqt build resolves it", report)
 
     def test_doctor_reads_the_plugin_from_the_resolved_kit_not_the_host(self):
-        """The same two providers again, against a kit that has both plugin files.
-
-        The kit is built here rather than borrowed from the machine, for two reasons.
-        A developer box with Qt installed and a CI runner without it are opposite halves
-        of this function, and only one of them can be the environment the suite happens to
-        run in. A kit the test lays down itself exercises both halves everywhere. And the
-        mysql wording is the point. A plugin file being there settles nothing, because the
-        shipped one is linked against Oracle's libmysqlclient, so doctor must not report it
-        the way it reports QPSQL.
+        """The same two providers against a kit the test lays down with both plugin files.
+        QMYSQL is still reported as unusable: the shipped plugin links Oracle's
+        libmysqlclient.
         """
         newproject.scaffold(self.parent, "app")
         root = self.parent / "app"
-        # The project's own toolchain directory wins over any system Qt, so this resolves
-        # the same on a machine with a kit installed and on one without.
+        # The project toolchain directory wins over any system Qt.
         drivers = (root / "synqt" / "toolchain" / "qt" / toolchain.QT_VERSION
                    / toolchain.host_kit_dir() / "plugins" / "sqldrivers")
         drivers.mkdir(parents=True)
@@ -574,11 +500,8 @@ class NewBuildDoctorTest(unittest.TestCase):
 
 
 class BuildEntitySelectionTest(unittest.TestCase):
-    """`synqt build --entity <name>`: build one entity instead of the whole system.
-
-    Two builds, not one per assertion: on a machine with both Qt kits every build() here
-    compiles a real WebAssembly client, so a test per claim costs minutes. The whole-system
-    build is covered by NewBuildDoctorTest above. These two cover what --entity changes.
+    """`synqt build --entity <name>` builds one entity. Two builds only, since each compiles a
+    real WebAssembly client when both kits are present.
     """
 
     def setUp(self):
@@ -587,42 +510,49 @@ class BuildEntitySelectionTest(unittest.TestCase):
         self.root = self.parent / "app"
 
     def test_an_unknown_entity_is_an_error_naming_the_real_ones(self):
-        # Not an empty build: "Built 0 entity artifact(s)" for a typo is a success message
-        # for work that never happened. Raises before any compilation, so this one is cheap.
+        # An unknown name raises before any compilation.
         with self.assertRaises(buildmod.BuildError) as caught:
             buildmod.build(self.root, entity="databse")
         self.assertIn("app", str(caught.exception))
         self.assertIn("edge", str(caught.exception))
 
+    def test_a_build_names_every_entity_whose_store_does_not_outlive_it(self):
+        """A build names every entity it produced whose store is in memory (the document type
+        default), and only those.
+        """
+        from synqt import build as buildmod
+
+        memory_doc = {"name": "notes", "type": "document"}
+        named_memory = {"name": "drafts", "type": "document",
+                        "provider": {"name": "memory"}}
+        on_mongo = {"name": "records", "type": "document",
+                    "provider": {"name": "mongodb"}}
+        relational = {"name": "books", "type": "relational"}
+
+        notices = buildmod.volatile_store_notices([memory_doc, named_memory, on_mongo,
+                                                   relational])
+        self.assertEqual(len(notices), 2)
+        self.assertIn("'notes' keeps its documents in memory", notices[0])
+        self.assertIn("'drafts' keeps its documents in memory", notices[1])
+        for notice in notices:
+            self.assertIn("gone when the process stops", notice)
+        self.assertEqual(buildmod.volatile_store_notices([on_mongo, relational]), [])
+
     def test_a_failed_compile_is_an_error_and_never_a_summary_bullet(self):
-        # The rule: `synqt build` must not report success for a build that did not happen.
-        # It used to. A failing cmake was caught, turned into a note, appended to a "Built N
-        # entity artifact(s)" summary, printed, and the command exited 0, having also written
-        # each named artifact a THIRD-PARTY-LICENSES describing a binary that did not exist.
-        # CI ran that way for as long as this command has existed: the arena's edge failed to
-        # configure for a missing dependency and the job went red only because a later step
-        # looked for the bundle on disk and did not find it.
-        #
-        # Driven through _compile_failure rather than a real broken build, for the reason the
-        # note test below gives: reaching the compile path needs a resolved Qt toolchain.
+        # A failed compile raises instead of reporting success. Driven through
+        # _compile_failure, since reaching the compile path needs a Qt toolchain.
         error = subprocess.CalledProcessError(
             returncode=1, cmd=["cmake", "--preset", "host"],
             stderr="CMake Error at src/identity/CMakeLists.txt:29 (message):\n"
                    "  jwt-cpp not found.\n"
                    "-- Configuring incomplete, errors occurred!\n")
         message = buildmod._compile_failure(error, verbose=False)
-        # The cause has to survive, not only the last line: cmake signs off with
-        # "Configuring incomplete, errors occurred!", which names nothing at all.
+        # The cause survives, not only cmake's "Configuring incomplete, errors occurred!".
         self.assertIn("jwt-cpp not found.", message)
         self.assertIn("cmake --preset host", message)
 
     def test_a_failed_compile_quotes_the_diagnostics_ninja_wrote_to_stdout(self):
-        # The half that was missing, and it is the half the common failure uses.
-        # `cmake --build` hands the work to Ninja, which writes its "FAILED:" line and the
-        # compiler diagnostics under it to stdout. Stderr stays empty. Reading stderr alone
-        # meant that every broken compile (the ordinary case, as against a broken
-        # configure) reported "no output captured" and named the command, which is the one
-        # thing the reader already had.
+        # stdout is read too: Ninja writes "FAILED:" and the compiler diagnostics there.
         error = subprocess.CalledProcessError(
             returncode=1, cmd=["cmake", "--build", "build/host-debug", "--target", "edge"],
             output="[3/9] Building CXX object edge/CMakeFiles/edge.dir/main.cpp.o\n"
@@ -642,17 +572,13 @@ class BuildEntitySelectionTest(unittest.TestCase):
         self.assertIn("1", message)
 
     def test_the_compiled_note_names_the_targets_it_actually_built(self):
-        # The rule this pins. With --entity, the note is the only thing that says the build
-        # was partial, so it names the targets. Asserted on the wording itself rather than
-        # on a real build's summary, because reaching the compile path needs a resolved Qt
-        # toolchain. A machine without one skips compilation, and the assertion would then
-        # only ever be testing whether Qt happened to be installed.
+        # With --entity the note names the targets. Asserted on the wording, which needs no
+        # toolchain.
         self.assertEqual(buildmod.built_note(["web"], []),
                          "compiled web through the pinned toolchain.")
         self.assertEqual(buildmod.built_note(["web", "database"], ["wasm"]),
                          "compiled web, database, client (wasm) through the pinned toolchain.")
-        # A desktop client is a host target, so it is already named. It must not be counted
-        # twice as a client target too.
+        # A desktop client is a host target, not counted twice.
         self.assertEqual(buildmod.built_note(["client"], ["desktop"]),
                          "compiled client through the pinned toolchain.")
         self.assertEqual(buildmod.built_note([], []), "nothing to compile.")
@@ -662,9 +588,7 @@ class BuildEntitySelectionTest(unittest.TestCase):
         self.assertTrue((self.root / "build" / "edge" / "THIRD-PARTY-LICENSES").exists())
         self.assertFalse((self.root / "build" / "client").exists())
         self.assertIn("Built 1 entity artifact(s)", summary)
-        # The client GPLv3 reminder is about the client artifact, and no client was built.
-        # A warning that appears when it does not apply is one people learn to skim, and
-        # this is the warning that must not be skimmed.
+        # No client GPLv3 reminder when no client was built.
         self.assertNotIn("served to every visitor", summary)
         self.assertIn("distributing the edge binary", summary)
 

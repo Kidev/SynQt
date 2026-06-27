@@ -4,7 +4,6 @@
 #include "jwksverifier.h"
 
 #include <QDateTime>
-#include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -176,32 +175,6 @@ void JwksVerifier::fetchJwks(const QUrl &jwksUrl, bool force, FetchCallback done
                            CachedJwks{body, QDateTime::currentMSecsSinceEpoch()});
         done(true, QString{});
     });
-}
-
-QVariantMap JwksVerifier::verify(const QString &idToken, const IdentityProviderConfig &provider,
-                                 const QString &expectedNonce, QString *error)
-{
-    // The asynchronous form, waited on. A route handler may wait; a slot may not, and
-    // takes verifyAsync directly.
-    QVariantMap claims;
-    QString failure;
-    bool answered{false};
-    QEventLoop loop;
-    verifyAsync(idToken, provider, expectedNonce,
-                [&claims, &failure, &answered, &loop](const QVariantMap &result,
-                                                       const QString &why) {
-        claims = result;
-        failure = why;
-        answered = true;
-        loop.quit();
-    });
-    if (!answered) {
-        loop.exec();
-    }
-    if (error) {
-        *error = failure;
-    }
-    return claims;
 }
 
 void JwksVerifier::verifyAsync(const QString &idToken, const IdentityProviderConfig &provider,

@@ -72,7 +72,7 @@ flowchart TB
   end
   subgraph fam2["document"]
     ID["IDocumentProvider<br/>connect, insert, find, update, remove"]
-    ID --- memdoc["memory (default, embedded)"]
+    ID --- memdoc["memory (default, embedded, not durable)"]
     ID --- mongodb["mongodb (mongo client)"]
     ID --- custom2["custom:YourEngine (yours)"]
   end
@@ -201,9 +201,16 @@ client libraries are pulled through the pinned vcpkg baseline and reviewed. SynQ
 a maintained client behind the entity rather than reimplementing the engine, so a Mongo
 backed entity leaves the rest of the system speaking no Mongo at all.
 
-The embedded defaults (SQLite for persistence, in memory for cache) need no engine
-and no extra build, which is why they are the defaults and why a fresh project runs
-with none of this configured.
+The embedded defaults (SQLite for persistence, in memory for the cache and for
+documents) need no engine and no extra build, which is why they are the defaults and
+why a fresh project runs with none of this configured.
+
+They are not all the same promise. SQLite writes a file, so a relational entity on the
+default keeps what it is given across a restart. The other two hold what they are
+given in the entity's own memory. The cache is bounded and is meant to forget, and the
+document store is neither, so it holds everything until the process stops and then holds
+none of it. Move a document entity onto `mongodb` before its data is worth keeping.
+`synqt build` names every one still on the embedded default.
 
 ## Selecting a provider: graduated configuration
 
