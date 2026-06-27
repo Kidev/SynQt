@@ -68,6 +68,7 @@ public:
 
     void setWriteBatchLimit(qint64 bytes) { m_writeBatchLimit = bytes; }
     void setWriteBufferLimit(qint64 bytes) { m_writeBufferLimit = bytes; }
+    void setWriteStallTimeout(int milliseconds) { m_writeStallMs = milliseconds; }
 
     /// Listen, and accept a peer that never reads: a raw socket that speaks the upgrade
     /// by hand, exactly as tst_wstransport's Link does for the unsplit device, so the
@@ -122,6 +123,7 @@ private:
                 m_transport.reset(new WebSocketTransport{m_channel});
                 m_transport->setWriteBatchLimit(m_writeBatchLimit);
                 m_transport->setWriteBufferLimit(m_writeBufferLimit);
+                m_transport->setWriteStallTimeout(m_writeStallMs);
                 m_transport->open(QIODevice::ReadWrite);
                 m_channel->moveToThread(&m_ioThread);
             }
@@ -166,6 +168,7 @@ private:
     QList<QByteArray> m_clientReceived;
     qint64 m_writeBatchLimit{WebSocketTransport::DefaultWriteBatchLimit};
     qint64 m_writeBufferLimit{WebSocketTransport::DefaultWriteBufferLimit};
+    int m_writeStallMs{WebSocketTransport::DefaultWriteStallMs};
 };
 
 /// Counts the queued calls delivered on one thread.
@@ -443,6 +446,9 @@ void TestThreadedSocket::aPeerThatStopsReadingIsAbortedOnItsOwnThread()
 
     ThreadedLink link;
     link.setWriteBufferLimit(limit);
+    // Short, so the case is reached in a test. It stands for the default, which is a peer
+    // that has taken nothing at all for half a minute.
+    link.setWriteStallTimeout(300);
     QTcpSocket stalled;
     QVERIFY(link.acceptStalledReader(&stalled));
     QSignalSpy overflows{link.transport(), &WebSocketTransport::writeBufferOverflowed};

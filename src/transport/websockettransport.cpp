@@ -6,6 +6,7 @@
 #include "socketchannel.h"
 
 #include <QAbstractEventDispatcher>
+#include <QDateTime>
 #include <QHash>
 #include <QThread>
 #include <QWebSocket>
@@ -104,6 +105,11 @@ WebSocketTransport::WebSocketTransport(QWebSocket *socket, QObject *parent)
     connect(socket, &QWebSocket::binaryMessageReceived, this,
             [this](const QByteArray &message) { deliver(message); });
     connect(socket, &QWebSocket::bytesWritten, this, &WebSocketTransport::bytesWritten);
+    // What the socket has handed the kernel. It is the only thing that separates
+    // a peer draining slowly, which is ordinary and none of this device's business, from
+    // one that has stopped reading.
+    connect(socket, &QWebSocket::bytesWritten, this,
+            [this](qint64 bytes) { m_sentTotal += bytes; });
 }
 
 /// The split form. Nothing here knows which thread the channel is on, and nothing needs
@@ -198,6 +204,38 @@ void WebSocketTransport::setWriteBufferLimit(qint64 bytes)
     }
 }
 
+void WebSocketTransport::setWriteStallTimeout(int milliseconds)
+{
+    m_writeStallMs = milliseconds;
+    if (m_channel) {
+        m_channel->setWriteStallTimeout(milliseconds);
+    }
+}
+
+int WebSocketTransport::writeStallTimeout() const
+{
+    return m_writeStallMs;
+}
+
+bool WebSocketTransport::isWriteStalled(qint64 unsent)
+{
+    if (m_writeBufferLimit <= 0 || unsent <= m_writeBufferLimit) {
+        m_overSinceMs = 0;
+        return false;
+    }
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    // Progress resets the clock, however far behind the peer is. A browser on a slow link
+    // is meant to be behind, and the framework has no business deciding how fast a
+    // visitor's connection has to be. What it can say is that a peer which has taken
+    // nothing at all, for this long, while more than the ceiling waits for it, is gone.
+    if (m_overSinceMs == 0 || m_sentTotal > m_sentAtOver) {
+        m_overSinceMs = now;
+        m_sentAtOver = m_sentTotal;
+        return false;
+    }
+    return (now - m_overSinceMs) > m_writeStallMs;
+}
+
 qint64 WebSocketTransport::writeBufferLimit() const
 {
     return m_writeBufferLimit;
@@ -280,9 +318,9 @@ void WebSocketTransport::discardOnOverflow(qint64 incomingBytes)
 void WebSocketTransport::discardOnWriteOverflow(qint64 pendingBytes)
 {
     m_writeBufferOverflowed = true;
-    qWarning("SynQt: aborting a connection whose write buffer reached its limit "
-             "(%lld unsent > %lld); the peer has stopped reading",
-             static_cast<long long>(pendingBytes),
+    qWarning("SynQt: aborting a connection that has taken nothing for %d ms with %lld "
+             "bytes waiting for it (ceiling %lld); the peer has stopped reading",
+             m_writeStallMs, static_cast<long long>(pendingBytes),
              static_cast<long long>(m_writeBufferLimit));
     setErrorString(QStringLiteral("write buffer limit of %1 bytes exceeded")
                        .arg(m_writeBufferLimit));
@@ -486,7 +524,7 @@ void WebSocketTransport::flushNow()
     // size of one large model would look exactly like a stalled peer. After it, what is
     // left is what the kernel refused, which is the peer's doing and nobody else's.
     const qint64 unsent{m_socket->bytesToWrite()};
-    if (!m_writeBufferOverflowed && m_writeBufferLimit > 0 && unsent > m_writeBufferLimit) {
+    if (!m_writeBufferOverflowed && isWriteStalled(unsent)) {
         discardOnWriteOverflow(unsent);
     }
 }

@@ -435,18 +435,22 @@ read them.
   tightens both, and with the global connection cap the two bound the edge's total
   read memory. A drained buffer also returns its allocation instead of keeping it
   for the life of the connection.
-- Write buffer ceiling. The same bound the other way. A tab that stops reading (a
+- Stalled peers. The same concern the other way round. A tab that stops reading (a
   debugger paused on the page, a script that froze it, or a client written to do
   exactly this) fills its receive window and the kernel's send buffer, and from then
   on every message the owner publishes for it sits in the socket's own buffer, which
-  Qt does not bound: the edge was keeping every fan-out message for such a tab for as
-  long as it stayed connected. The transport measures what the kernel refused after
-  each flush, never what one pass wrote, so a burst the size of a large model is not
-  mistaken for a peer that stopped reading; past four times `max_message_bytes` the
-  connection is aborted rather than closed, because a close frame would queue behind
-  what the peer is not reading and a graceful disconnect waits for that queue to
-  drain. With the connection caps, the read and write ceilings together bound the
-  edge's socket memory.
+  Qt does not bound, so without a ceiling the edge would keep every fan-out message
+  for such a tab for as long as it stayed connected. What is measured is what the
+  kernel refused, after each flush rather than on each write, so a burst the size of a
+  large model is not mistaken for a peer in trouble. Past four times
+  `max_message_bytes` the peer has to be seen taking bytes. Falling behind is not on
+  its own a reason to do anything,
+  because a browser on a slow link is meant to fall behind and cutting one off for
+  that would be the framework deciding how fast a visitor's connection has to be. A
+  peer already past the ceiling that has handed the kernel nothing at all for thirty
+  seconds has stopped, and its connection is aborted rather than closed, because a
+  close frame would queue behind everything it is not reading and a graceful
+  disconnect waits for that queue to drain.
 
 - Password and credential gates. Two routes take something guessable and are rationed by
   client address on a one minute fixed window: the entity password gate (`sign_in`) at ten
@@ -529,8 +533,8 @@ fully trust in one mesh, that is the assumption to revisit first.
 Of the limits in this section, only the QtRO heartbeat and the per socket message
 size cap come from Qt APIs. The handshake timeout, the connection caps, and the two
 buffer ceilings have no equivalent on the QHttpServer upgrade path and are enforced
-by the framework itself. The ceilings live in the transport rather than on the edge,
-so the client is held to them too: its peer is one edge rather than the open internet,
+by the framework itself. These live in the transport rather than on the edge,
+so the client is held to them too. Its peer is one edge rather than the open internet,
 but a client that buffers without bound is a browser tab that dies.
 
 Network and volumetric DoS belong to infrastructure in front of the edge and are

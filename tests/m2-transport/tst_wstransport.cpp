@@ -62,6 +62,7 @@ public:
     /// does not care is unaffected by one that does.
     void setPeerReadBufferLimit(qint64 bytes) { m_peerReadBufferLimit = bytes; }
     void setPeerWriteBufferLimit(qint64 bytes) { m_peerWriteBufferLimit = bytes; }
+    void setPeerWriteStallTimeout(int milliseconds) { m_peerWriteStallMs = milliseconds; }
 
     /// Listen, connect, and wrap both ends. Returns false rather than asserting, because
     /// QVERIFY belongs to the test function that calls this.
@@ -80,6 +81,7 @@ public:
                                  m_peer.reset(new WebSocketTransport{incoming});
                                  m_peer->setReadBufferLimit(m_peerReadBufferLimit);
                                  m_peer->setWriteBufferLimit(m_peerWriteBufferLimit);
+                                 m_peer->setWriteStallTimeout(m_peerWriteStallMs);
                                  m_peer->open(peerMode);
                              }
                          });
@@ -94,11 +96,12 @@ public:
         }, 5000);
     }
 
-    /// Listen, and let a peer that is not a QWebSocket connect: a raw socket that speaks
+    /// Listen, and let a peer that is not a QWebSocket connect. A raw socket that speaks
     /// the upgrade by hand and then reads nothing, which is the one thing the QWebSocket
     /// client above cannot be made to do, since its event loop is this one. `peer` wraps
-    /// the accepted end as connectPair() does; there is no `client` transport.
-    bool acceptStalledReader(QTcpSocket *reader, QIODevice::OpenMode peerMode = QIODevice::ReadWrite)
+    /// the accepted end as connectPair() does. There is no `client` transport.
+    bool acceptStalledReader(QTcpSocket *reader, QIODevice::OpenMode peerMode = QIODevice::ReadWrite,
+                             int readBufferSize = 64)
     {
         if (!m_server.listen(QHostAddress::LocalHost, 0)) {
             return false;
@@ -110,13 +113,17 @@ public:
                                  m_peer.reset(new WebSocketTransport{incoming});
                                  m_peer->setReadBufferLimit(m_peerReadBufferLimit);
                                  m_peer->setWriteBufferLimit(m_peerWriteBufferLimit);
+                                 m_peer->setWriteStallTimeout(m_peerWriteStallMs);
                                  m_peer->open(peerMode);
                              }
                          });
-        // A few bytes, so Qt stops draining the kernel almost at once and the sender's
-        // buffers are what fill: with no ceiling, QTcpSocket reads everything the kernel
-        // has into its own buffer and the sender never sees a peer that is not reading.
-        reader->setReadBufferSize(64);
+        // Bounded, so Qt stops draining the kernel and the sender's buffers are what
+        // fill: with no ceiling at all, QTcpSocket reads everything the kernel has into
+        // its own buffer and the sender never sees a peer that is not reading. A few
+        // bytes is the stalled case; a reader that means to make progress needs enough
+        // room that the receive window actually reopens when it reads, so it asks for
+        // more (see aPeerThatReadsSlowlyIsNotAStalledPeer).
+        reader->setReadBufferSize(readBufferSize);
         reader->connectToHost(QHostAddress::LocalHost, m_server.serverPort());
         if (!reader->waitForConnected(5000)) {
             return false;
@@ -146,6 +153,7 @@ private:
     QScopedPointer<WebSocketTransport> m_peer;
     qint64 m_peerReadBufferLimit{WebSocketTransport::DefaultReadBufferLimit};
     qint64 m_peerWriteBufferLimit{WebSocketTransport::DefaultWriteBufferLimit};
+    int m_peerWriteStallMs{WebSocketTransport::DefaultWriteStallMs};
 };
 
 /// Reaches the protected QIODevice overrides directly, for the cases a live socket cannot
@@ -560,9 +568,13 @@ private slots:
 
         Link link;
         link.setPeerWriteBufferLimit(limit);
+        // Short, so the case is reached in a test rather than in half a minute. What it
+        // stands for is the default. A peer that has taken nothing at all for that long.
+        link.setPeerWriteStallTimeout(300);
         QTcpSocket stalled;
         QVERIFY(link.acceptStalledReader(&stalled));
         QCOMPARE(link.peer()->writeBufferLimit(), limit);
+        QCOMPARE(link.peer()->writeStallTimeout(), 300);
         QSignalSpy overflows{link.peer(), &WebSocketTransport::writeBufferOverflowed};
         QSignalSpy dropped{link.peer(), &WebSocketTransport::disconnected};
 
@@ -595,6 +607,7 @@ private slots:
 
         Link link;
         link.setPeerWriteBufferLimit(limit);
+        link.setPeerWriteStallTimeout(300);
         QVERIFY(link.connectPair());
         QSignalSpy overflows{link.peer(), &WebSocketTransport::writeBufferOverflowed};
 
@@ -610,9 +623,63 @@ private slots:
         QVERIFY(link.peer()->isOpen());
     }
 
+    // A browser on a slow link is meant to fall behind, and must not be cut off for it.
+    //
+    // This is the case a ceiling counted in bytes alone gets wrong, and getting it wrong
+    // is worse than not having the ceiling. The peer here is reading, only not as fast as
+    // the owner is writing, which is every phone on a bad connection receiving a large
+    // model. It sits far past the ceiling for several times the stall timeout and takes
+    // bytes the whole while, so it is never stalled and is never touched. What the
+    // framework refuses to do is decide how fast a visitor's connection has to be.
+    void aPeerThatReadsSlowlyIsNotAStalledPeer()
+    {
+        constexpr qint64 limit{128 * 1024};
+        constexpr qsizetype frameSize{64 * 1024};
+
+        Link link;
+        link.setPeerWriteBufferLimit(limit);
+        link.setPeerWriteStallTimeout(200);
+        QTcpSocket slow;
+        // Room enough that reading reopens the receive window, which is what makes this a
+        // slow reader rather than a second stalled one: with a few bytes of buffer the
+        // window never reopens and the peer makes no progress at all, however often it
+        // calls read().
+        QVERIFY(link.acceptStalledReader(&slow, QIODevice::ReadWrite, 256 * 1024));
+        QSignalSpy overflows{link.peer(), &WebSocketTransport::writeBufferOverflowed};
+
+        // Reading, and slowly: well under what is being written to it, so the backlog
+        // only grows, and steadily, so the peer is always visibly taking bytes.
+        QTimer drain;
+        drain.setInterval(20);
+        QObject::connect(&drain, &QTimer::timeout, &slow, [&slow]() {
+            slow.read(32 * 1024);
+        });
+        drain.start();
+
+        const QByteArray payload{patterned(frameSize)};
+        QElapsedTimer elapsed;
+        elapsed.start();
+        // Five times the stall timeout, writing the whole time.
+        while (elapsed.elapsed() < 1000) {
+            if (link.peer()->isOpen()) {
+                link.peer()->write(payload);
+            }
+            QTest::qWait(10);
+        }
+        drain.stop();
+
+        QVERIFY2(overflows.isEmpty(),
+                 "a peer that was reading, only slowly, was cut off as if it had stopped");
+        QVERIFY(link.peer()->isOpen());
+        // And it really was behind: the case would prove nothing if the backlog had
+        // stayed under the ceiling the whole time.
+        QVERIFY2(link.acceptedSocket()->bytesToWrite() > limit,
+                 "the peer never fell past the ceiling, so nothing was exercised");
+    }
+
     // A drained buffer hands its allocation back to the process.
     //
-    // A buffer that keeps being refilled wants to keep its capacity; a connection does not.
+    // A buffer that keeps being refilled wants to keep its capacity. A connection does not.
     // One idle browser tab that once received a large model would otherwise hold that
     // allocation until it closed, times the connection cap. So the adapter drops the buffer
     // outright once the reader has taken the last byte of it.

@@ -835,14 +835,21 @@
     {
       "id": "a-peer-that-stops-reading",
       "what": "A browser keeps its connection open and never drains it (a debugger paused on the page, a frozen tab, or a client written to do exactly this). Once its receive window and the kernel's send buffer are full, every message the owner publishes for it lands in the socket's own buffer, which Qt does not bound, so the edge kept every fan-out message for such a tab for as long as it stayed connected: 65 MB measured for one stalled connection, times the connection cap.",
-      "defended_by": "The transport measures the socket's unsent backlog after each flush, which is what the kernel refused and not what one pass wrote, and aborts a connection that is past four times max_message_bytes behind. Aborted rather than closed, because a close frame would queue behind what the peer is not reading. Proved on both device forms, and against a reading peer that receives sixty-four times the ceiling without being touched.",
+      "defended_by": "The transport measures the socket's unsent backlog after each flush, which is what the kernel refused and not what one pass wrote. Past four times max_message_bytes the peer has to be seen taking bytes, and one that has handed the kernel nothing for thirty seconds is aborted rather than closed, because a close frame would queue behind everything it is not reading. Progress and not the backlog's size is the test, so a browser on a slow link is never cut off for falling behind; that case is proved separately (aPeerThatReadsSlowlyIsNotAStalledPeer), because a ceiling counted in bytes alone gets it wrong and getting it wrong is worse than having no ceiling.",
       "file": "tests/m2-transport/tst_wstransport.cpp",
       "test": "aPeerThatStopsReadingHitsTheWriteBufferLimit"
     },
     {
+      "id": "a-slow-browser-cut-off-as-if-it-had-stopped",
+      "what": "Not an attack but the defence's own failure mode, and the reason the one above is written the way it is. A ceiling counted in bytes alone cannot tell a peer that has stopped reading from one that is merely behind, so it disconnects every browser on a slow link that is sent something large: the framework deciding how fast a visitor's connection has to be, which is worse than having no ceiling at all.",
+      "defended_by": "Being past the ceiling is not on its own a reason to do anything. What trips the guard is a peer already past it that has handed the kernel nothing for the stall timeout, so a peer taking bytes steadily is never touched however far behind it gets. The test keeps a reader well past the ceiling for five times the timeout while it drains, and fails against the byte-only rule.",
+      "file": "tests/m2-transport/tst_wstransport.cpp",
+      "test": "aPeerThatReadsSlowlyIsNotAStalledPeer"
+    },
+    {
       "id": "a-peer-that-stops-reading-on-a-threaded-edge",
       "what": "The same peer on an edge whose sockets live on IO threads, where the backlog can only be measured on the socket's thread and the device that QtRO writes to is on another.",
-      "defended_by": "The channel measures and aborts on the socket's thread and the device on the main thread closes on its verdict, refusing every later write rather than gathering another batch for a connection on its way down.",
+      "defended_by": "The channel applies the same progress test and aborts on the socket's thread, and the device on the main thread closes on its verdict, refusing every later write rather than gathering another batch for a connection on its way down.",
       "file": "tests/m2-transport/tst_threadedsocket.cpp",
       "test": "aPeerThatStopsReadingIsAbortedOnItsOwnThread"
     },
