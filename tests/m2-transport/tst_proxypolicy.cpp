@@ -144,6 +144,23 @@ private slots:
                  QNetworkProxy::NoProxy);
     }
 
+    void aProxyReachedOverTlsIsNotOneQtCanSpeakTo()
+    {
+        // `https://` in a proxy variable means the proxy itself is reached over TLS, which
+        // is how curl and every other runtime read it, and is what a deployment writes
+        // when the credential in the URL is not meant to cross the network in the clear.
+        // Qt has no proxy type for that. What it would do is send the CONNECT, and the
+        // Proxy-Authorization with it, in plaintext, to a port expecting a handshake. So
+        // the setting is refused out loud rather than quietly downgraded.
+        qputenv("HTTPS_PROXY", "https://user:secret@gateway.internal:3128");
+        QTest::ignoreMessage(QtWarningMsg,
+                             "SynQt: ignoring a proxy that is itself reached over TLS "
+                             "(https://): Qt speaks to a proxy in plaintext only, and "
+                             "the credential in the URL would go across in the clear");
+        QCOMPARE(chosenFor(QStringLiteral("https://api.example.com/")).type(),
+                 QNetworkProxy::NoProxy);
+    }
+
     void anUnreadableSettingIsNotAProxy()
     {
         // Better to go direct and say so than to send the entity's credential headers to

@@ -15,11 +15,9 @@ namespace SynQt {
 
 namespace {
 
-/// The first of these variables that is set, upper case before lower.
-///
-/// Both spellings are read because both are in use. `HTTPS_PROXY` is what a container
-/// image and a CI runner set, `https_proxy` is what a shell profile usually sets. Upper
-/// wins when a deployment has set both, so the explicit one does.
+/// The first of these variables that is set, upper case before lower. Containers and CI set
+/// `HTTPS_PROXY`, shell profiles usually `https_proxy`; when both are set the upper-case
+/// one wins.
 QString fromEnvironment(const QStringList &names)
 {
     for (const QString &name : names) {
@@ -31,19 +29,15 @@ QString fromEnvironment(const QStringList &names)
     return QString{};
 }
 
-/// One `HTTPS_PROXY`-style value as a proxy, or a null proxy if it says nothing usable.
-///
-/// A bare `host:port` is accepted as well as a full URL, because both are written in the
-/// wild and refusing the shorter one would only mean the deployment's proxy is silently
-/// ignored.
+/// One `HTTPS_PROXY`-style value as a proxy, or a null proxy. A bare `host:port` is
+/// accepted as well as a URL, since both are common.
 QNetworkProxy proxyFrom(const QString &value)
 {
     if (value.isEmpty()) {
         return QNetworkProxy{QNetworkProxy::NoProxy};
     }
-    // On `://` rather than on whether a scheme parsed, because `gateway.internal:3128` is
-    // a valid URL whose scheme is `gateway.internal` (a dot is legal in a scheme), so
-    // asking QUrl leaves a bare host and port looking like a misspelled protocol.
+    // Checked on `://`, not on whether a scheme parsed: `gateway.internal:3128` parses with
+    // scheme `gateway.internal`.
     const QUrl url{value.contains(QLatin1String("://")) ? value
                                                         : QStringLiteral("http://") + value};
     if (!url.isValid() || url.host().isEmpty()) {
@@ -53,12 +47,20 @@ QNetworkProxy proxyFrom(const QString &value)
 
     QNetworkProxy::ProxyType type{QNetworkProxy::HttpProxy};
     int defaultPort{8080};
-    // socks5h is socks5 with the name resolved at the proxy; Qt's SOCKS5 proxy already
-    // resolves there, so the two are the same setting here.
+    // socks5h resolves names at the proxy, which Qt's SOCKS5 proxy already does, so the two
+    // are equivalent here.
     if (url.scheme() == QLatin1String("socks5") || url.scheme() == QLatin1String("socks5h")) {
         type = QNetworkProxy::Socks5Proxy;
         defaultPort = 1080;
-    } else if (url.scheme() != QLatin1String("http") && url.scheme() != QLatin1String("https")) {
+    } else if (url.scheme() == QLatin1String("https")) {
+        // `https://` names a proxy reached over TLS, and deployments put credentials in
+        // that URL. Qt has no such proxy type (HttpProxy sends CONNECT and
+        // Proxy-Authorization in the clear), so it is refused rather than downgraded.
+        qWarning("SynQt: ignoring a proxy that is itself reached over TLS (https://): Qt "
+                 "speaks to a proxy in plaintext only, and the credential in the URL "
+                 "would go across in the clear");
+        return QNetworkProxy{QNetworkProxy::NoProxy};
+    } else if (url.scheme() != QLatin1String("http")) {
         qWarning("SynQt: ignoring a proxy with an unsupported scheme: %s", qPrintable(value));
         return QNetworkProxy{QNetworkProxy::NoProxy};
     }
@@ -71,8 +73,7 @@ QNetworkProxy proxyFrom(const QString &value)
     return proxy;
 }
 
-/// Hosts reached directly whatever the proxy variables say. The `NO_PROXY` list, plus
-/// loopback, which is never somebody else's network to route through.
+/// Hosts always reached directly: the `NO_PROXY` list, plus loopback.
 class DirectHosts
 {
 public:
@@ -86,8 +87,8 @@ public:
             if (trimmed == QLatin1String("*")) {
                 m_all = true;
             } else if (!trimmed.isEmpty()) {
-                // A port on an entry (`example.com:443`) narrows it to that port, which is
-                // more than this needs to distinguish. The host is what a bypass is about.
+                // A port on an entry (`example.com:443`) is ignored; the host decides the
+                // bypass.
                 m_hosts.append(trimmed.section(QLatin1Char(':'), 0, 0).toLower());
             }
         }
@@ -104,8 +105,8 @@ public:
             return true;
         }
         for (const QString &entry : m_hosts) {
-            // `.example.com` covers only subdomains; `example.com` covers the name itself
-            // and its subdomains. That is how curl and every proxy-aware runtime read it.
+            // `.example.com` covers only subdomains; `example.com` covers the name and its
+            // subdomains, as curl reads it.
             const QString suffix{entry.startsWith(QLatin1Char('.')) ? entry
                                                                     : QLatin1Char('.') + entry};
             if (lowered == entry || lowered.endsWith(suffix)) {
@@ -161,8 +162,7 @@ void applyEnvironmentProxy(QNetworkAccessManager *network)
     if (!network) {
         return;
     }
-    // Per manager, not application-wide. An entity's outbound calls are what this governs,
-    // and nothing else in the process should have its routing decided as a side effect.
+    // Per manager, not application-wide, so only this entity's outbound calls are affected.
     // QNetworkAccessManager takes ownership of the factory.
     network->setProxyFactory(new EnvironmentProxyFactory{});
 }

@@ -3,32 +3,30 @@
 
 # Entities
 
-This page is the depth reference for the entity model: what an entity is, the
-types, the official entity types SynQt ships so common needs are
-one command away, and how to build a custom entity. It assumes the programming
-model in [programming model](programming-model.md) and the topology config in
-[project layout and configuration](project-layout-and-config.md).
+This page is the reference for the entity model: what an entity is, its types, the
+official entity types that put common needs one command away, and how to build a custom
+entity. It assumes you know the [programming model](programming-model.md) and the topology
+config in [project layout and configuration](project-layout-and-config.md).
 
 ## What an entity is
 
 An entity is a unit of a SynQt system with:
 
-- a unique name (its identity in the topology and, for cross host links, the
-  subject of its mesh certificate),
-- a folder of its own,
-- a type (one word: what it is),
-- a binary of its own (WebAssembly for a client, native for everything else),
-- a set of connect points it owns and a set it consumes,
-- a place in the deny by default topology and a transport binding.
+- a unique name (its identity in the topology, and the subject of its mesh
+  certificate);
+- its own folder;
+- a type (one word saying what it is);
+- its own binary (WebAssembly for a client, native for everything else);
+- the connect points it owns and those it consumes;
+- a place in the topology, which denies by default, and a transport binding.
 
-Entities are how SynQt lets you build a whole system (UI, edge, storage, cache,
-integrations) in one framework, one toolchain, and one security model. Postgres,
-Redis, and a gateway become three SynQt entities sharing the contract format, the
-mesh transport, and the mutual TLS identity model, rather than three external
-systems each configured and secured on its own.
+Entities let you build a whole system (UI, edge, storage, cache, integrations) with one
+framework, one toolchain and one security model. Postgres, Redis and a gateway become three
+SynQt entities that share the contract format, the mesh transport and the mutual TLS
+identity model, instead of three external systems, each configured and secured on its
+own.
 
-A typical system as a topology, with the internet on the left and the internal
-mesh on the right:
+A typical topology, with the internet on the left and the internal mesh on the right:
 
 ```mermaid
 flowchart LR
@@ -52,72 +50,68 @@ flowchart LR
   class db,cache,jobs priv;
 ```
 
-Only the web edge faces the internet. Every other entity is private and reachable
-only over the authenticated mesh, by the entities the topology allows. A database
-entity's engine sits behind a provider ([Official entity types](#official-entity-types)
-below and [providers](providers.md)).
+Only the web edge faces the internet. Every other entity is private, reachable only over
+the authenticated mesh by the entities the topology allows. A database entity's engine sits
+behind a provider (see [official entity types](#official-entity-types) below, and
+[providers](providers.md)).
 
 ## The one field: `type`
 
-`type:` decides the folder the entity lives in, the helper the runtime puts in its QML,
-whether it faces the internet, and whether it is compiled native or to WebAssembly. An
-entity that names no type is a `service`.
+`type:` decides the entity's folder, the helper the runtime puts in its QML, whether it
+faces the internet, and whether it compiles to native code or to WebAssembly. An entity
+with no type is a `service`.
 
 `type: client`:
 
-- Compiled to WebAssembly, runs in the browser, untrusted, connect only.
-- Reaches exactly one web edge over wss. Never participates in the mesh.
-- A project has at least one, and may have several. A separate admin app is an
-  ordinary second client entity. Each gets its own QML module and its own bundle
-  directory (`build/client-<name>/`), and
+- Compiled to WebAssembly, runs in the browser, untrusted, and only connects out.
+- Reaches exactly one web edge over wss, and never joins the mesh.
+- A project has at least one and may have several; a separate admin app is an ordinary
+  second client. Each gets its own QML module and bundle directory
+  (`build/client-<name>/`), and an edge's
   [`bundles:`](project-layout-and-config.md#bundles-which-scope-is-served-which-client)
-  on an edge decides which scope is served which of them.
+  decides which scope gets which bundle.
 
 `type: web_edge`:
 
-- A native binary that serves a client bundle and accepts that client's wss
-  connection. It is the type that faces the internet, and most projects have one.
-  A project may declare several, each on its own public port, and `replicas:` runs
-  one of them as several interchangeable processes (see
-  [deploying](deploying.md#8-running-more-than-one-edge)).
+- A native binary that serves a client bundle and accepts that client's wss connection.
+  It is the type that faces the internet, and most projects have one. A project may
+  declare several, each on its own public port, and `replicas:` runs one as several
+  interchangeable processes (see [deploying](deploying.md#8-running-more-than-one-edge)).
 
-Every other type is a native binary that listens and connects on the mesh only, reachable
-by the entities the topology allows and by nobody else. `relational`, `document` and
-`cache` each come with an engine behind a provider. `api` and `jobs` come with a helper and
-no engine. `service` is the plain one, with neither.
+Every other type is a native binary that listens and connects only on the mesh, reachable
+only by the entities the topology allows. `relational`, `document` and `cache` each have an
+engine behind a provider. `api` and `jobs` have a helper and no engine. `service` has
+neither.
 
-A typical system: one `client`, one `web_edge`, and one or more internal entities
+A typical system has one `client`, one `web_edge`, and one or more internal entities
 (database, cache, document store, api, jobs, auth).
 
 ## Official entity types
 
-An entity type is a prebuilt entity you instantiate with
-`synqt add entity <name> --type <type>`. It scaffolds the entity folder, its
-config block, its contracts, and its secure defaults. The types are part of the
-framework and are reviewed. Using one does not pull in an unaudited third party.
+An entity type is a prebuilt entity you create with
+`synqt add entity <name> --type <type>`, which scaffolds its folder, config block,
+contracts and secure defaults. The types are part of the framework and reviewed, so using
+one pulls in no unaudited third party.
 
 ### Persistence (the database entity)
 
-Purpose: durable storage, owned by one entity, reachable only by the entities you
+**Purpose:** durable storage, owned by one entity, reachable only by the entities you
 authorize.
 
-Backend: a provider. The default provider is Qt SQL with the bundled SQLite driver
-(QSQLITE), the in process database with the best test coverage and platform support
-in Qt, running no separate daemon. The storage is an embedded library inside a SynQt
-entity rather than a separate server to operate. The same entity can instead be backed
-by a third party engine
-(PostgreSQL, MySQL, and others, or a document engine through the document entity type)
-by selecting a provider, with the connect points and every consumer unchanged. The
-provider system, the available engines, and their security are the subject of
-[providers](providers.md). This section describes the default embedded provider, which
-is what a fresh project uses with no configuration.
+**Backend:** a provider. The default is Qt SQL with the bundled SQLite driver (QSQLITE):
+an in process database with no separate daemon, and the best test coverage and platform
+support in Qt. The storage is a library inside the entity, not a server to operate. By
+selecting another provider, the same entity can use a third party engine (PostgreSQL,
+MySQL and others, or a document engine through the document type), with its connect
+points and consumers unchanged. [Providers](providers.md) covers the provider system, the
+engines and their security. This section describes the embedded default, which a new
+project uses with no configuration.
 
-The type provides a `Db` helper exposed to the entity's QML for parameterized
-queries (always parameterized, never string built, to prevent SQL injection). With
-the SQLite provider it talks to the embedded engine. With another relational
-provider it talks to that engine through the same helper. The connect point declares a
-model whose listed roles are all that ever reach a consumer, and the generated Source
-exposes `set<Model>` to publish rows (see
+The type gives the entity's QML a `Db` helper for parameterized queries (always
+parameterized, never built from strings, to prevent SQL injection). It talks to the
+embedded engine with the SQLite provider, and to any other relational engine through the
+same helper. The connect point declares a model whose listed roles are all that ever reach
+a consumer, and the generated Source offers `set<Model>` to publish rows (see
 [the programming model](programming-model.md#contracts-the-shape-of-what-may-cross)):
 
 ```yaml
@@ -151,89 +145,80 @@ Store {
 }
 ```
 
-Schema: the type reads `db/relational/store/schema.sql` at startup and applies
-migrations. Migrations are forward only and versioned. The type records the
-applied version in a metadata table.
+**Schema:** the type reads `db/relational/store/schema.sql` at startup and applies
+migrations, which are versioned and forward only. It records the applied version in a
+metadata table.
 
-Operational notes that the type enforces, because they are real SQLite
-constraints documented by Qt:
+The type enforces these real SQLite constraints, which Qt documents:
 
-- Single writer. SQLite blocks under concurrent write transactions and will retry
-  until a busy timeout. The entity type serializes writes on the entity's event loop
-  (which owns the connection; Qt SQL requires a connection be used only from the
-  thread that created it) and sets `busy_timeout_ms` from config.
-- WAL mode. `journal_mode: wal` (the default) allows concurrent readers with a
+- **Single writer.** SQLite blocks concurrent write transactions and retries until a busy
+  timeout. The type serializes writes on the entity's event loop, which owns the
+  connection (Qt SQL requires a connection to be used only on the thread that created
+  it), and sets `busy_timeout_ms` from config.
+- **WAL mode.** `journal_mode: wal` (the default) allows concurrent readers alongside the
   single writer and improves throughput.
-- Connection ownership. The entity owns one `QSqlDatabase` connection on its main
-  thread. Heavy read work that must not block the writer can be delegated to a read
-  only connection in a worker, but the type keeps a single connection by default
-  for simplicity and correctness.
+- **One connection.** The entity owns one `QSqlDatabase` connection on its main thread.
+  Heavy reads that must not block the writer could use a read only connection on a
+  worker, but by default the type keeps one connection, for simplicity and correctness.
 
-Security: the database entity is not a `web_edge`, binds private or local
-only, authorizes the calling entity in every slot, and holds its own secrets (the
-data file path, any encryption key) in its own `.env`. There is no path to it from
-the browser except through an edge connect point that the edge authorizes.
+**Security:** the database entity is not a `web_edge`, binds only to a private address or a
+local socket, checks the calling entity in every slot, and keeps its own secrets (the data
+file path, any encryption key) in its own `.env`. The browser can reach it only through a
+connect point the edge implements and authorizes.
 
-Scaling note: SynQt targets one database entity process. If a future system
-needs more write throughput than embedded SQLite gives, select a provider backed by
-a server engine (PostgreSQL, MySQL) for the same entity, with no change to any
-consumer. The contract is the stable boundary, and the provider behind it is what
-changes (see [providers](providers.md)).
+**Scaling:** SynQt targets one database entity process. If you need more write throughput
+than embedded SQLite provides, select a server engine provider (PostgreSQL, MySQL) for the
+same entity, with no change to any consumer. The contract stays the same; only the
+provider behind it changes (see [providers](providers.md)).
 
 ### Cache
 
-Purpose: fast, ephemeral key value storage (sessions of computed data, rate limit
-counters, memoized results), owned by one entity, consumed by the entities that
-need it.
+**Purpose:** fast, temporary key value storage (computed data, rate limit counters,
+memoized results), owned by one entity and consumed by the entities that need it.
 
-Backend: in process memory (a bounded map with a least recently used eviction
-policy, in the spirit of QCache). With a `file` configured it loads that snapshot when
-it connects and writes one when it disconnects, so a clean restart does not lose
-everything. A process that is killed rather than stopped writes nothing. No separate
-cache server is run.
+**Backend:** memory in the process: a bounded map with least recently used eviction, like
+QCache. With a `file` configured, it loads that snapshot when it connects and writes one
+when it disconnects, so a clean restart keeps its data. A killed process writes nothing.
+No separate cache server runs.
 
-Contract shape (illustrative): `get(string key)`, `set(string key, var value, int
-ttlSeconds)`, `del(string key)`, `incr(string key)`, matching the `Cache` helper the
-type injects ([runtime API](runtime-api.md#cache-ephemeral-key-value)). The cache entity authorizes
-the calling entity and bounds value sizes and key counts to prevent memory
-exhaustion.
+**Contract** (illustrative): `get(string key)`, `set(string key, var value,
+int ttlSeconds)`, `del(string key)`, `incr(string key)`, matching the `Cache` helper the
+type provides ([runtime API](runtime-api.md#cache-ephemeral-key-value)). The cache entity
+checks the calling entity and bounds value sizes and key counts, so it cannot exhaust
+memory.
 
-Use it over the database for data you can afford to lose and want fast. Anything that
-must survive a restart goes to the relational entity.
+Prefer it to the database for data you can afford to lose and need fast. Anything that
+must survive a restart goes in the relational entity.
 
 ### Document
 
-Purpose: storage for records that do not want a fixed set of columns
-(documents with varying fields, nested structures, per tenant shapes), owned by one
-entity, reachable only by the entities you authorize.
+**Purpose:** storage for records without a fixed set of columns (documents with varying
+fields, nested structures, shapes that differ per tenant), owned by one entity and
+reachable only by the entities you authorize.
 
-Backend: a provider, exactly as for persistence, but the default is a different kind
-of thing. The embedded default keeps its documents in the entity's own memory, so the
-type runs with nothing to install and nothing to configure, and what it holds is gone
-when the process stops. Nothing bounds how much it holds either, because a store that
-forgets is not a store. That is what you want while you are finding the shape of your
-data and not what you want in front of anybody. Selecting the
-`mongodb` provider moves the same entity onto a MongoDB server, with the connect
-points and every consumer unchanged, and that is the one to be on by the time the data
-matters. `synqt build` names every entity still on the embedded default. The entity's QML calls the `Docs` helper the
-runtime injects, passing the collection, the document and the filter as maps, never
-as an engine query string, which is what keeps a Source working across that swap.
+**Backend:** a provider, as for persistence, but the default is different. The embedded
+default keeps documents in the entity's own memory: nothing to install or configure, and
+everything is lost when the process stops. Nothing bounds its size either, since it keeps
+nothing permanently. That suits you while you work out the shape of your data, not in
+front of users. The `mongodb` provider moves the same entity onto a MongoDB server, with
+its connect points and consumers unchanged; switch to it before the data matters.
+`synqt build` names every entity still on the embedded default. The entity's QML uses the
+`Docs` helper, passing the collection, the document and the filter as maps, never as an
+engine query string, so a Source keeps working across the swap.
 
-A document store buys you shape freedom over persistence, and gives up the relational
-guarantees (joins, foreign keys, a schema the engine enforces) the relational entity
-type is there for. Use it when the records differ from each other, and not to skip
-writing a schema.
+A document store gives you freedom of shape, and gives up the relational guarantees
+(joins, foreign keys, a schema the engine enforces) that the relational type provides. Use
+it when records differ from each other, not to avoid writing a schema.
 
-Security: identical in shape to the relational entity. Not a `web_edge`, a
-private or local only bind, the calling entity authorized in every slot, and its
-credentials in its own `.env`.
+**Security:** the same as the relational entity: not a `web_edge`, bound only to a private
+address or a local socket, checking the calling entity in every slot, with its credentials
+in its own `.env`.
 
-One difference has no equivalent on the
-persistence side. A filter map is the document engine's query language, the way a
-string is SQL's. `Db` cannot be handed concatenated SQL, so a parameter is only ever
-data. A filter has no such separation, and a map forwarded whole from a caller can
-carry engine operators the Source never meant to allow. So build the filter in the
-Source from the fields you accept:
+One difference has no counterpart on the persistence side. A filter map is the document
+engine's query language, as a string is SQL's. `Db` cannot receive concatenated SQL, so a
+parameter is always data. A filter has no such separation: a map passed through whole
+from a caller can carry engine operators the Source never meant to allow. So build the
+filter in the Source from the fields you accept:
 
 ```qml
 function byAuthor(author) {
@@ -245,39 +230,45 @@ not `Docs.find("notes", filterFromTheCaller)`.
 
 ### Gateway (the api entity)
 
-Purpose: expose selected connect points to the outside world as a plain HTTP or
-REST API for non SynQt consumers (mobile apps, partner integrations, webhooks), and
-consume external HTTP APIs on behalf of the system.
+**Purpose:** expose selected connect points as a plain HTTP or REST API for consumers
+outside SynQt (mobile apps, partner integrations, webhooks), and call external HTTP APIs
+for the system.
 
-Backend: QNetworkAccessManager for outbound calls and QHttpServer for the inbound
-surface. Both arrive as QML helpers, and both are granted by the entity's
+**Backend:** QNetworkAccessManager for outbound calls and QHttpServer for the inbound
+surface. Both come as QML helpers, and the entity's
 [`network:` block](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it)
-rather than by the type, so the same two lines work on any entity and an entity that
+grants them, not the type. So the same two lines work on any entity, and an entity that
 writes neither can neither call out nor be called.
 
-`Http` is the outbound half, a promise returning wrapper (`Http.get(url).then(...)`,
-and the other verbs likewise) that enforces TLS verification, refuses plaintext in a
-release build, and refuses any URL that is not under one of the prefixes
-`network.outbound` names. Gateway code never touches a socket and never reaches
-somewhere the topology did not list.
+`Http` is the outbound half: a promise returning wrapper (`Http.get(url).then(...)`, and
+the same for the other verbs). It enforces TLS verification, refuses plaintext in a
+release build, and refuses any URL outside the prefixes `network.outbound` lists. Gateway
+code never touches a socket and never reaches a place the topology did not list.
 
-Prefixes are matched structurally. A declared `https://api.example.com/v1` covers that
-scheme, that host, that port, and that path or a path below it, and it covers nothing
-else. It does not cover `https://api.example.com@evil.test/v1` (whose host is evil.test),
-`api.example.com.evil.test`, `http://` instead of `https://`, or `/v1evil`. More is at
-stake than a request landing somewhere unexpected, because the headers the entry
-declared travel with whatever gets through, so a prefix that could be escaped by spelling
-would be a way to post the API key to an attacker's host.
+Prefixes are matched by structure. A declared `https://api.example.com/v1` covers that
+scheme, host and port, and that path or paths below it, and nothing else. It does not
+cover `https://api.example.com@evil.test/v1` (whose host is evil.test),
+`api.example.com.evil.test`, `http://` instead of `https://`, or `/v1evil`. This matters
+beyond where a request lands: the entry's headers travel with any request that matches,
+so a prefix you could escape by spelling would let someone send the API key to their own
+host.
 
 A named `network.outbound` entry is also a preset. `Http.api("github").get("user/repos")`
-resolves the base URL the entry declared and sends the headers it declared with it. That
-is how an upstream that wants an API key is reached without the key appearing in the
-QML, since a header value written as `env:GITHUB_TOKEN` is read from the entity's
-environment and attached by the runtime.
+resolves the entry's base URL and sends its headers. That way an upstream that needs an
+API key is reached without the key appearing in the QML: a header value written as
+`env:GITHUB_TOKEN` is read from the entity's environment and attached by the runtime.
 
-`Api` is the inbound half: the entity's own singleton declares its routes on it, and
-each handler is ordinary JavaScript that can validate a body, reach several connect
-points, and shape an answer.
+Outbound calls leave the host like any other server runtime's: through the proxy named in
+the entity's own environment (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, with `NO_PROXY`
+for hosts reached directly; loopback is always direct), or else directly, never through
+the machine's user proxy settings. The runtime talks to a proxy in plaintext, so it
+refuses an `https://` proxy URL (one reached over TLS) with a warning instead of
+downgrading it, because the credential such a URL usually carries would cross the network
+in the clear.
+
+`Api` is the inbound half. The entity's own singleton declares routes on it, and each
+handler is ordinary JavaScript that can validate a body, reach several connect points and
+build an answer.
 
 ```qml
 // api/gateway/Gateway.qml
@@ -296,83 +287,80 @@ QtObject {
 }
 ```
 
-A handler that returns a value answers with it as 200. One that will answer later
-returns nothing and calls `request.reply(...)` or `request.fail(...)` when it can, as
-the one above does. The connection is held open for it until
-`network.inbound.reply_timeout_ms`, after which the request is failed with 504, so a
-handler that never answers costs one status code rather than a socket. The gateway maps
-between its public HTTP surface and the internal connect points it consumes, so the rest
-of the system never speaks raw HTTP to the outside.
+A handler that returns a value answers with it as 200. A handler that answers later
+returns nothing and calls `request.reply(...)` or `request.fail(...)` when ready, as the
+one above does. The connection stays open until `network.inbound.reply_timeout_ms`, then
+the request fails with 504, so a handler that never answers costs one status code, not a
+socket. The gateway maps its public HTTP surface to the internal connect points it
+consumes, so the rest of the system never speaks raw HTTP to the outside.
 
-Security: everything a public caller can influence is checked before a handler exists,
-in the same shape as the web edge's upgrade pipeline and for the same reason. In order:
-the per IP rate limit, the API key, the request origin, and the body size. A request
-that fails any of them is answered by the framework and never reaches QML.
+**Security:** everything a public caller controls is checked before any handler runs, like
+the web edge's upgrade pipeline and for the same reason. In order: the per IP rate limit,
+the API key, the request origin and the body size. The framework answers a request that
+fails any check, and it never reaches QML.
 
-The keys come from the entity's own environment (`api_keys: env:GATEWAY_API_KEYS`,
-comma separated so rotating one is a deployment change), and `synqt check` refuses an
-inbound surface that names none unless it also says `public: true`. Leaving a line out
-is how an internal API ends up answering the internet, so the omission is an error and
-the exposure is a sentence you have to write. A request carrying an `Origin` the block
-does not list is refused, so a key that leaked into a page still buys nothing.
+The keys come from the entity's own environment (`api_keys: env:GATEWAY_API_KEYS`, comma
+separated, so rotating one is a deployment change). `synqt check` refuses an inbound
+surface with no keys unless it also says `public: true`: forgetting a line is how an
+internal API ends up answering the internet, so the omission is an error and exposure is
+something you must write down. A request whose `Origin` the block does not list is
+refused, so a key leaked into a page gains nothing.
 
 `allowed_origins` is what lets a page call in at all. A browser sends a preflight before
-any cross-origin request that carries a custom header, and the key is one, so the
-preflight arrives with no key. The surface answers it for an origin the list names,
-allowing the method and the headers the browser asked about, and refuses it for any other,
-which stops the real request from being sent. An answer to a named origin carries
-`Access-Control-Allow-Origin` for that origin and nothing wider, and never allows
-credentials, because a caller here authenticates with the key header and this surface
-reads no cookie.
+any cross origin request with a custom header, and the key is one, so the preflight
+arrives without a key. The surface answers a preflight from a listed origin, allowing the
+method and headers the browser asked about, and refuses any other origin, so the real
+request is never sent. The answer to a listed origin carries `Access-Control-Allow-Origin`
+for that origin only, and never allows credentials: callers authenticate with the key
+header, and this surface reads no cookie.
 
-The rate limit counts one address, and which address that is depends on what sits in
-front. Reached directly it is the peer that connected. Behind a proxy every request
-arrives from the proxy, so name it in `network.inbound.trusted_proxies` and the address
-it forwards is counted instead. Nothing is trusted implicitly, because a
-forwarding header is a field any client can write. A handler reads the resolved address
-as [`request.client`](runtime-api.md#api-the-inbound-http-surface).
+The rate limit counts one address, which depends on what sits in front. Reached directly,
+it is the connecting peer. Behind a proxy, every request comes from the proxy, so name it
+in `network.inbound.trusted_proxies`, and the address it forwards is counted instead.
+Nothing is trusted implicitly, because any client can write a forwarding header. A
+handler reads the resolved address as
+[`request.client`](runtime-api.md#api-the-inbound-http-surface).
 
 ### Jobs (scheduled and background work)
 
-Purpose: run scheduled tasks (cron style) and background jobs (email sending, data
-rollups, cleanup) off the request path.
+**Purpose:** run scheduled tasks (like cron) and background jobs (sending email, data
+rollups, cleanup) outside the request path.
 
-Backend: Qt timers for scheduling and a bounded work queue for background jobs. The
-jobs entity consumes the connect points it needs (for example the database) and is
-consumed by entities that enqueue work. It is internal only.
+**Backend:** Qt timers for scheduling and a bounded work queue for background jobs. The jobs
+entity consumes the connect points it needs (for example the database), and entities that
+enqueue work consume it. It is internal only.
 
-Security: the jobs entity authorizes who may enqueue work, bounds queue size, and
-runs each job with only the connect point access its work requires.
+**Security:** the jobs entity checks who may enqueue work, bounds the queue size, and runs
+each job with only the connect point access that job needs.
 
 ### Monitor (the operations record)
 
-Purpose: hold what every other entity did, and serve an operator console that turns one
-click into one trace running through every entity it touched.
+**Purpose:** record what every other entity did, and serve an operator console that turns
+one click into one trace through every entity it touched.
 
-Backend: a bounded ring in each reporting entity, drained by a writer thread, SQLite with
-WAL and FTS5 on the monitor itself, and optional export to an OpenTelemetry collector or a
-rotated JSONL file. The monitor owns one connect point, `ingest`, that every service
-consumes, and that link is derived from the single `monitoring.entity` line rather than
-declared, so no entity can be left out of the record by forgetting to wire it.
+**Backend:** a bounded ring buffer in each reporting entity, drained by a writer thread;
+SQLite with WAL and FTS5 on the monitor; and optional export to an OpenTelemetry collector
+or a rotated JSONL file. The monitor owns one connect point, `ingest`, which every service
+consumes. That link is derived from the single `monitoring.entity` line, not declared, so
+no entity can be left out of the record by a forgotten line.
 
-Security: the console binds `127.0.0.1` and `synqt check` refuses any other host without
-`monitoring: {public: acknowledged}`. Its identity is its own rather than the
-application's, and an anonymous visitor is handed a sign-in page rather than a refusal on
-the console, so the console is not addressable to them at all. No credential, no call
-argument a member did not ask to [`capture`](programming-model.md), and nothing a browser
-claimed ever enters the record.
+**Security:** the console binds `127.0.0.1`, and `synqt check` refuses any other host
+without `monitoring: {public: acknowledged}`. The console has its own identity, separate
+from the application's, and an anonymous visitor gets a sign-in page instead of the
+console, so they cannot address the console at all. No credential, no call argument a
+member did not [`capture`](programming-model.md), and nothing a browser claimed ever enters
+the record.
 
 `synqt add entity ops --type monitor` writes the entity, its console client, the sign-in
-gate and the `monitoring.entity` line together. It is one command because any three of them
-leave something that does not work or is not safe. All of it, including turning categories
-up during an incident without a rebuild, is in [monitoring](monitoring.md).
+gate and the `monitoring.entity` line in one step, because any three of the four without
+the fourth leave something broken or unsafe. [Monitoring](monitoring.md) covers the rest,
+including raising categories during an incident without a rebuild.
 
 ### `Log` (in every entity, whatever its type)
 
-The helpers above exist because a type has an engine behind it, and each one is in scope
-only where that engine is: `Db` in a relational entity, `Cache` in a cache entity. `Log` is
-the other kind, and there is one of it. Every entity has something to say about itself, so
-every entity has it.
+The helpers above come with an engine, so each exists only where its engine does: `Db` in
+a relational entity, `Cache` in a cache entity. `Log` is different: every entity has
+something to report about itself, so every entity has `Log`.
 
 ```qml
     function placeBid(amount, bidder) {
@@ -385,68 +373,62 @@ every entity has it.
     }
 ```
 
-Four levels: `Log.debug`, `Log.info`, `Log.warn`, `Log.error`. Pass a message and a map,
-never a sentence with the values glued into it. Whoever reads the record filters and
-searches it, and `Log.info("saved " + count + " rows")` makes both a substring hunt where
+There are four levels: `Log.debug`, `Log.info`, `Log.warn`, `Log.error`. Pass a message and
+a map, never a sentence with the values pasted in. Readers filter and search the record;
+`Log.info("saved " + count + " rows")` turns both into a substring hunt, and
 `Log.info("saved rows", { rows: count })` does not.
 
-The framework already records what it can see, which is links coming up, callers being
-refused and calls crossing. What it cannot see is why an entity did what it did, and that is
-usually the half an operator is looking for. Where all of it goes, and who may read it, is
-[monitoring](monitoring.md).
+The framework already records what it can see: links coming up, callers refused, calls
+crossing. It cannot see why an entity did something, which is usually what an operator
+wants to know. [Monitoring](monitoring.md) covers where all of it goes and who may read
+it.
 
-The runtime stamps which entity said it, past anything QML can reach, so an entity
-cannot claim to be another one. It costs nothing when nobody is listening. The level check
-is a single atomic read, measured at 0.23 ns per call site
+The runtime stamps which entity logged, below anything QML can reach, so no entity can
+pose as another. Logging costs nothing when nobody listens: the level check is one atomic
+read, measured at 0.23 ns per call site
 ([the monitoring baseline](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md)).
-What an entity says is testable like anything else it does. See
+You can test what an entity logs like anything else it does; see
 [asserting on what an entity said](testing.md#asserting-on-what-an-entity-said).
 
 ## Building a custom entity
 
-When no other type fits, `synqt add entity <name>` scaffolds a bare service entity:
-a folder, a config block, an empty owned connect point, and its mesh binding. You
-then:
+When no other type fits, `synqt add entity <name>` scaffolds a bare service entity: a
+folder, a config block, an empty owned connect point and its mesh binding. Then:
 
-1. Declare its connect points in `synqt.yaml` with `owner: <name>`, a `consumers`
-   allowlist, and an `export:` block saying what crosses each.
-2. Implement the owned Sources in the entity's folder, authorizing `Caller` in
-   every slot.
-3. List the connect points it consumes from other entities. The framework opens
-   only those mesh links, mutually authenticated.
+1. Declare its connect point in `synqt.yaml` with `owner: <name>`, a `consumers`
+   allowlist, and an `export:` block saying what crosses.
+2. Implement the owned Source in the entity's folder, checking `Caller` in every slot.
+3. List the connect points it consumes from other entities. The framework opens only
+   those mesh links, mutually authenticated.
 
-A custom entity is a full peer: it can own connect points, consume others, run any
-Qt logic a native process can, and integrate any C++ library through the standard
-Qt build. The only entity that cannot be custom in this way is the client, which is
-constrained by the browser sandbox.
+A custom entity is a full peer: it can own a connect point, consume others, run any Qt
+logic a native process can, and link any C++ library through the standard Qt build. Only
+the client cannot be customized this way, because of the browser sandbox.
 
 ## Deploying entities
 
-Entities are independent binaries, so deployment is flexible:
+Entities are independent binaries, so you can deploy them flexibly:
 
-- All on one host: mesh links run their default mutual TLS over loopback, the edge
-  binds the public port, everything else binds loopback only. Entities you judge
-  equally trusted can be opted into local socket links (fast, no network, but the
-  caller is then trusted by colocation rather than authenticated by certificate, see
-  [security](security.md)). Simplest, and a fine default for small systems.
-- Spread across hosts: services that cross a host use mutual TLS mesh links on
-  private interfaces. The edge is the only entity on a public interface. The
-  database sits on its own host on a private network, reachable only by the entities
-  that consume it.
+- **All on one host:** mesh links use mutual TLS over loopback, the edge binds the public
+  port, and everything else binds only to loopback. Entities you trust equally can opt
+  into local socket links (fast, no network, but the caller is then trusted by colocation
+  instead of authenticated by certificate; see [security](security.md)). This is the
+  simplest setup, and a good default for small systems.
+- **Across hosts:** services on different hosts use mutual TLS mesh links on private
+  interfaces. Only the edge is on a public interface. The database sits on its own host
+  on a private network, reachable only by the entities that consume it.
 
-Each entity is supervised by your process manager. Every build writes
-`build/process-manifest.json` for it: the binaries, the order to start them in, the
-certificate and key each expects, and which of them bind to a public interface.
-The order is owners before the consumers that need them, though a consumer retries until
-its owner is ready either way. [Deploying a SynQt system](deploying.md) walks the rest of
-the path.
+Your process manager supervises each entity. Every build writes
+`build/process-manifest.json`, which lists the binaries, the order to start them in, the
+certificate and key each expects, and which bind to a public interface. The order puts
+owners before the consumers that need them, though a consumer retries until its owner is
+ready anyway. [Deploying a SynQt system](deploying.md) covers the rest.
 
 ## Compared with separate third party services
 
-A conventional stack wires together a database server, a cache server, a gateway,
-and a job runner, each with its own authentication, its own network exposure, its
-own configuration language, and its own failure modes. Every one of those is a
-separate thing to secure and a separate place to get it wrong. SynQt entities share
-one identity model (mesh mutual TLS), one authorization model (`Caller` checks in
-slots), one contract format, one transport, and one deny by default topology, which
-leaves fewer credentials and one security model to audit.
+A conventional stack connects a database server, a cache server, a gateway and a job
+runner, each with its own authentication, network exposure, configuration language and
+failure modes, and each a separate thing to secure and get wrong. SynQt entities share one
+identity model (mesh mutual TLS), one authorization model (`Caller` checks in slots), one
+contract format, one transport and one topology that denies by default. That means fewer
+credentials, and one security model to audit.

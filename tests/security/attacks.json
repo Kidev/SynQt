@@ -901,6 +901,13 @@
       "defended_by": "An entry is stored unclaimed and is marked claimed only by rekeyTokens, which is what binding a session does. A sweep of its own, on always rather than with the optional refresh sweep, lets go of anything still unclaimed past its window (five minutes, the same window a pending login already gets). An entry a session was bound to is never swept.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "aLoginNoSessionWasBoundToDoesNotKeepItsTokens"
+    },
+    {
+      "id": "a-proxy-credential-downgraded-to-plaintext",
+      "what": "A deployment sets `HTTPS_PROXY=https://user:secret@proxy:3128`, meaning the proxy is reached over TLS and the credential travels inside it, as curl and every other runtime read it; Qt has no TLS-to-proxy type, so a naive reading would send the CONNECT and the Proxy-Authorization in the clear to a port expecting a handshake.",
+      "defended_by": "The proxy policy refuses an https:// proxy URL with a warning naming why, rather than downgrading it to a plaintext HTTP proxy; only http:// and socks5 proxies, which Qt speaks as written, are taken from the environment.",
+      "file": "tests/m2-transport/tst_proxypolicy.cpp",
+      "test": "aProxyReachedOverTlsIsNotOneQtCanSpeakTo"
     }
   ]
 }
