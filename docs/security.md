@@ -426,15 +426,20 @@ read them.
   for one field, 128 fields, a 64 KiB URL), which no browser approaches. They are
   named here because they are the only thing bounding how long one peer may dribble a
   request, and at one byte every few seconds that bound is days away. How many such
-  peers there may be is the socket cap's job, not theirs.
+  peers there may be is the socket cap's job rather than theirs.
 - Read buffer ceiling. Capping one frame does not cap their sum, so the transport
-  also caps what one connection may hold unread: past the ceiling it discards the
+  also caps what one connection may hold unread. Past the ceiling it discards the
   buffer and closes the connection, rather than letting a peer that sends faster
   than anything reads decide how much memory the process allocates. The edge sets it
   to four times `max_message_bytes` per connection, so tightening that one knob
   tightens both, and with the global connection cap the two bound the edge's total
   read memory. A drained buffer also returns its allocation instead of keeping it
-  for the life of the connection.
+  for the life of the connection. On an edge running `threads: N` the ceiling is
+  measured on the socket's thread rather than the device's. There the socket is
+  read by a thread that is never busy, and each message it takes off the wire is
+  posted to the thread hosting the caller's Sources, so the queue between the two
+  is the buffer. The channel counts what it has sent across and not yet been told
+  was read, and cuts the peer off at the same ceiling.
 - Stalled peers. The same concern the other way round. A tab that stops reading (a
   debugger paused on the page, a script that froze it, or a client written to do
   exactly this) fills its receive window and the kernel's send buffer, and from then

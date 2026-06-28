@@ -34,19 +34,15 @@ class WebSocketTransport : public QIODevice
     Q_OBJECT
 
 public:
-    /// The default ceiling on unread bytes held for one connection. A safety net, not
-    /// a tuning knob. Legitimate traffic never approaches it, because QtRO drains the
-    /// buffer synchronously on readyRead. What reaches it is a peer that keeps sending
-    /// while its consumer has stopped reading. The default is generous because the
-    /// client's peer is its own edge and one model replication can be megabytes. The
-    /// edge tightens it per connection, where the peer is a browser (see WebEdge).
+    /// The default ceiling on unread bytes held for one connection: a safety net for a peer that
+    /// keeps sending while its consumer stopped reading, since QtRO drains the buffer on
+    /// readyRead. Generous because the client's peer is its own edge and one model replication
+    /// can be megabytes; the edge tightens it per browser connection (see WebEdge).
     static constexpr qint64 DefaultReadBufferLimit{64 * 1024 * 1024};
 
-    /// The default ceiling on bytes written and not yet taken by the kernel, which is
-    /// what a peer that has stopped reading leaves behind. Once its receive window and
-    /// the kernel's send buffer are full, every further write sits in QAbstractSocket's
-    /// own buffer, which has no bound of its own. The same safety net as the read side,
-    /// for the other direction, and the edge tightens it per connection the same way.
+    /// The default ceiling on bytes written and not yet taken by the kernel, which a peer that
+    /// stopped reading leaves in QAbstractSocket's unbounded buffer. The edge tightens it per
+    /// connection.
     static constexpr qint64 DefaultWriteBufferLimit{64 * 1024 * 1024};
 
     /// How long a peer already past the write ceiling may hand the kernel nothing before
@@ -61,14 +57,10 @@ public:
 
     explicit WebSocketTransport(QWebSocket *socket, QObject *parent = nullptr);
 
-    /// The split form: this device stays on the thread that creates it while the socket
-    /// runs on the channel's thread. Writes accumulate here and cross once per pass of
-    /// this thread's event loop. Messages arrive as queued signals.
-    ///
-    /// The channel may still be on this thread when the device is built, and usually is:
-    /// the edge builds both, opens the device, hosts the connection on it, and only then
-    /// hands the channel to an IO thread. Every call across is an automatic connection,
-    /// so it is direct before the move and queued after, with nothing to switch over.
+    /// The split form: this device stays on its creating thread while the socket runs on the
+    /// channel's thread. Writes accumulate here and cross once per pass of this thread's event
+    /// loop; messages arrive as queued signals. Every call across is an automatic connection, so
+    /// it is direct until the channel moves to an IO thread and queued after.
     explicit WebSocketTransport(SocketChannel *channel, QObject *parent = nullptr);
 
     /// Puts the channel down on the thread it lives on, so a device is the whole of what
@@ -84,49 +76,31 @@ public:
     void setReadBufferLimit(qint64 bytes);
     qint64 readBufferLimit() const;
 
-    /// The ceiling on bytes the kernel has refused to take for this peer. It is measured
-    /// after a flush, never on a write, so a burst the loop has not flushed yet is not a
-    /// peer that stopped reading. Zero or less disables the ceiling.
-    ///
-    /// Being over it is not on its own a reason to do anything. A browser on a slow link
-    /// is meant to fall behind, and cutting one off for that would be the framework
-    /// deciding how fast a visitor's connection has to be. What the ceiling does is mark
-    /// the point past which a peer has to be seen making progress. See
-    /// setWriteStallTimeout.
+    /// The ceiling on bytes the kernel has refused to take for this peer, measured after a flush,
+    /// never on a write. Zero or less disables it. Being over it only means the peer must now be
+    /// seen making progress (see setWriteStallTimeout): a slow link is allowed to fall behind.
     void setWriteBufferLimit(qint64 bytes);
     qint64 writeBufferLimit() const;
 
-    /// How long the backlog may sit above the ceiling with the socket handing the kernel
-    /// nothing at all before the connection is given up on. Zero means the first
-    /// measurement past the ceiling with no progress behind it is enough.
-    ///
-    /// Progress, not the backlog's size, is the test. A peer that is reading slowly keeps
-    /// taking bytes, so it is never stalled however far behind it gets. A peer that has
-    /// stopped takes none, and this is how long it is given to start again. Past it the
-    /// connection is aborted rather than closed. A close frame would queue behind
-    /// everything the peer is not reading, and a graceful disconnect waits for that queue
-    /// to drain, which for this peer is never.
+    /// How long the backlog may stay above the ceiling while the kernel takes nothing before the
+    /// connection is aborted. Zero means the first such measurement is enough. A slow reader keeps
+    /// taking bytes and is never stalled. The connection is aborted, not closed, since a close
+    /// frame would queue behind everything the peer is not reading.
     void setWriteStallTimeout(int milliseconds);
     int writeStallTimeout() const;
 
-    /// The ceiling on one batched message, on the split form. Batching merges the QtRO
-    /// messages written in one pass into a single WebSocket message, which is safe
-    /// because QtRO frames its own. This is what keeps the merged result inside what the
-    /// far end will accept. A message already over the ceiling on its own goes alone and
-    /// whole, exactly as it would with no batching at all. Zero or less disables the
-    /// ceiling. Ignored on the unsplit form, which never batches.
+    /// The ceiling on one batched message, on the split form. Batching merges the QtRO messages
+    /// written in one pass into one WebSocket message (QtRO frames its own); a message already
+    /// over the ceiling goes alone. Zero or less disables it. Ignored on the unsplit form.
     void setWriteBatchLimit(qint64 bytes);
     qint64 writeBatchLimit() const;
 
     /// Close with a WebSocket close code and reason, whichever thread the socket is on.
     void shutdown(QWebSocketProtocol::CloseCode closeCode, const QString &reason);
 
-    /// Hand this device's socket to `thread`, on the split form.
-    ///
-    /// Call it last, once the connection is hosted, so nothing runs on the socket between
-    /// being wired up and being somewhere else. Anything already written is waiting in the
-    /// batch and crosses on the next pass, by which time the socket is where it will stay.
-    /// Does nothing on the unsplit form, whose socket is this thread's.
+    /// Hand this device's socket to `thread`, on the split form. Call it last, once the
+    /// connection is hosted; anything already written crosses on the next pass. Does nothing on
+    /// the unsplit form.
     void moveSocketToThread(QThread *thread);
 
     bool isSequential() const override;
@@ -155,8 +129,11 @@ private:
     /// arrives straight from the socket on the unsplit one and as a queued signal from
     /// the channel on the split one, and there is nothing to tell apart after that.
     void deliver(const QByteArray &message);
-    void discardOnOverflow(qint64 incomingBytes);
-    /// The peer was found stalled after a flush: mark the device, and put the connection
+    void discardOnOverflow(qint64 pendingBytes, qint64 incomingBytes);
+    /// Tell the channel what the reader has taken, so the count it keeps of bytes in
+    /// flight between the threads comes down. Nothing on the unsplit form.
+    void acknowledgeRead();
+    /// The peer was found stalled after a flush. Mark the device, and put the connection
     /// down on the next turn, because this can run under a Source that is mid-emission and
     /// tearing the socket down here would deliver disconnected() into that stack.
     void discardOnWriteOverflow(qint64 pendingBytes);
@@ -187,13 +164,13 @@ private:
     /// QByteArray QWebSocket delivered, shared rather than copied. It only becomes a
     /// buffer of its own once a second message arrives before the first was drained.
     QByteArray m_readBuffer;
-    /// How far into m_readBuffer the reader has got. An offset rather than erasing at the
-    /// front, so taking the common case's shared array does not have to detach it: the
-    /// first read of a message would otherwise copy the whole message to remove the part
-    /// it had just consumed.
+    /// How far into m_readBuffer the reader has got, so a read never detaches the shared array.
     qsizetype m_readOffset{0};
+    /// Bytes delivered by the channel and not yet reported back to it as read. Only the
+    /// split form keeps it. The unsplit one has nobody to report to.
+    qint64 m_unacknowledged{0};
     /// What has been written since the last flush, waiting to cross as one message. Only
-    /// the split form uses it; the unsplit one hands each message straight to the socket.
+    /// the split form uses it. The unsplit one hands each message straight to the socket.
     QByteArray m_writeBatch;
     QUrl m_url;
     qint64 m_readBufferLimit{DefaultReadBufferLimit};

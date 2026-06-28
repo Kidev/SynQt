@@ -67,6 +67,7 @@ public:
     }
 
     void setWriteBatchLimit(qint64 bytes) { m_writeBatchLimit = bytes; }
+    void setReadBufferLimit(qint64 bytes) { m_readBufferLimit = bytes; }
     void setWriteBufferLimit(qint64 bytes) { m_writeBufferLimit = bytes; }
     void setWriteStallTimeout(int milliseconds) { m_writeStallMs = milliseconds; }
 
@@ -122,6 +123,7 @@ private:
                 m_channel = new SocketChannel{incoming, m_listener.lastAccepted()};
                 m_transport.reset(new WebSocketTransport{m_channel});
                 m_transport->setWriteBatchLimit(m_writeBatchLimit);
+                m_transport->setReadBufferLimit(m_readBufferLimit);
                 m_transport->setWriteBufferLimit(m_writeBufferLimit);
                 m_transport->setWriteStallTimeout(m_writeStallMs);
                 m_transport->open(QIODevice::ReadWrite);
@@ -167,6 +169,7 @@ private:
     QScopedPointer<WebSocketTransport> m_transport;
     QList<QByteArray> m_clientReceived;
     qint64 m_writeBatchLimit{WebSocketTransport::DefaultWriteBatchLimit};
+    qint64 m_readBufferLimit{WebSocketTransport::DefaultReadBufferLimit};
     qint64 m_writeBufferLimit{WebSocketTransport::DefaultWriteBufferLimit};
     int m_writeStallMs{WebSocketTransport::DefaultWriteStallMs};
 };
@@ -323,6 +326,7 @@ private slots:
     void aMessageLargerThanTheBatchLimitStillGoesWhole();
     void shutdownClosesASocketOnAnotherThread();
     void aPeerThatStopsReadingIsAbortedOnItsOwnThread();
+    void aPeerThatFloodsAThreadThatIsNotReadingIsCutOff();
     void destroyingTheDeviceDestroysItsSocketOnItsOwnThread();
     void aFanOutCrossesOncePerSocketThreadRatherThanOncePerConnection();
 };
@@ -471,6 +475,57 @@ void TestThreadedSocket::aPeerThatStopsReadingIsAbortedOnItsOwnThread()
     QTRY_COMPARE(dropped.count(), 1);
 }
 
+// The read ceiling on the split form. On the unsplit device a peer that sends faster than
+// anything reads is held back by the socket itself. The loop that would read it is busy,
+// the kernel's window closes, and the ceiling measures what one thread let in. Split, the
+// socket is read by a thread that is never busy, and every message it takes off the wire
+// is posted to the device's thread as an event. That queue is the buffer, the device's own
+// ceiling never sees it because QtRO drains each message the moment it lands, and a peer
+// with an authorized link could grow it at line rate for as long as the device's thread
+// was doing anything else. So the channel counts what it has sent across and not yet been
+// told was read, and cuts the peer off at the same ceiling the device would have.
+void TestThreadedSocket::aPeerThatFloodsAThreadThatIsNotReadingIsCutOff()
+{
+    constexpr qint64 limit{256 * 1024};
+    constexpr qsizetype frameSize{64 * 1024};
+    constexpr int frames{64};
+
+    ThreadedLink link;
+    link.setReadBufferLimit(limit);
+    QVERIFY(link.connectPair());
+    QSignalSpy overflows{link.transport(), &WebSocketTransport::readBufferOverflowed};
+
+    // A reader that keeps up whenever its thread gets to run, which is what QtRO is.
+    qint64 delivered{0};
+    QObject::connect(link.transport(), &QIODevice::readyRead, link.transport(),
+                     [&link, &delivered]() { delivered += link.transport()->readAll().size(); });
+
+    // Everything below happens with this thread's event loop not running: the peer's
+    // bytes are pushed into the kernel by hand, the IO thread takes them off the wire on
+    // its own, and this thread, which the device lives on, is busy the whole while.
+    QByteArray payload;
+    payload.fill('r', frameSize);
+    for (int index{0}; index < frames; ++index) {
+        link.client()->sendBinaryMessage(payload);
+        link.client()->flush();
+    }
+    for (int spins{0}; link.client()->bytesToWrite() > 0 && spins < 5000; ++spins) {
+        link.client()->flush();
+        QThread::msleep(1);
+    }
+    QThread::msleep(300);
+
+    // Now it runs, and what it finds waiting is the question.
+    QTRY_VERIFY2(!overflows.isEmpty(),
+                 "4 MiB arrived from a peer while nothing on this thread was reading, "
+                 "and nothing said stop");
+    QVERIFY2(delivered <= limit + frameSize,
+             qPrintable(QStringLiteral("%1 bytes were queued for a device whose ceiling "
+                                       "is %2").arg(delivered).arg(limit)));
+    QVERIFY(!link.transport()->isOpen());
+    QTRY_COMPARE(link.client()->state(), QAbstractSocket::UnconnectedState);
+}
+
 void TestThreadedSocket::destroyingTheDeviceDestroysItsSocketOnItsOwnThread()
 {
     // A QWebSocket torn down from a thread that is not its own leaves socket notifiers
@@ -508,13 +563,13 @@ void TestThreadedSocket::destroyingTheDeviceDestroysItsSocketOnItsOwnThread()
 }
 
 /// The whole reason the split pays. A fan-out writes to every connection in one pass, so
-/// what crosses to the socket thread has to be one call carrying every connection's bytes
-/// and not one call per connection.
+/// what crosses to the socket thread has to be one call carrying every connection's bytes,
+/// not one call per connection.
 ///
-/// A queued call costs about a microsecond, which is nothing against what a connection's
-/// send work costs and everything against it a hundred times over. The thread holding the
-/// Sources would spend its pass posting instead of serialising, and the throughput of a
-/// threaded edge would stop climbing after two cores. That is what it did.
+/// A queued call costs about a microsecond, nothing against one connection's send work and
+/// everything against it a hundred times over. Posting per connection, the thread holding
+/// the Sources would spend its pass posting instead of serialising, and a threaded edge's
+/// throughput would stop climbing after two cores.
 void TestThreadedSocket::aFanOutCrossesOncePerSocketThreadRatherThanOncePerConnection()
 {
     constexpr int Connections{8};

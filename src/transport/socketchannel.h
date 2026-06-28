@@ -16,19 +16,10 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// The socket half of a split WebSocketTransport: everything that touches the QWebSocket,
-/// gathered into one object so it can be handed to an IO thread in a single step.
-///
-/// A socket cannot be moved on its own. The QWebSocket and the QTcpSocket
-/// underneath it are two objects, and on a server-accepted connection neither is the
-/// other's child. The raw socket belongs to whoever accepted it. Moving one and not the
-/// other leaves a connection being read on one thread and written on another. Making both
-/// children of this channel is what turns the hand-over into one moveToThread() with
-/// nothing able to run in the middle of it.
-///
-/// Everything here runs on the socket's thread. The device on the other side reaches it
-/// through queued calls and reads its two signals the same way, so the only shared state
-/// between the threads is what the event loop copies across.
+/// The socket half of a split WebSocketTransport: the QWebSocket and the raw socket under it,
+/// both children of this channel, so one moveToThread() hands the whole connection to an IO
+/// thread. Everything here runs on the socket's thread; the device reaches it through queued
+/// calls.
 class SocketChannel : public QObject
 {
     Q_OBJECT
@@ -54,6 +45,14 @@ public:
     void setWriteBufferLimit(qint64 bytes);
     void setWriteStallTimeout(int milliseconds);
 
+    /// The ceiling on bytes taken off the wire and not yet read on the device's side, since the
+    /// event queue between the threads is otherwise unbounded. A peer that fills it is cut off.
+    /// Set before the channel moves.
+    void setReadBufferLimit(qint64 bytes);
+
+    /// The device has read `bytes` of what was sent across. Same threading rule as send().
+    void acknowledgeRead(qint64 bytes);
+
     /// Close the connection with a WebSocket close code and reason. Same threading rule
     /// as send().
     void shutdown(QWebSocketProtocol::CloseCode closeCode, const QString &reason);
@@ -63,13 +62,21 @@ signals:
     void bytesSent(qint64 bytes);
     void closed();
     /// The socket's backlog sat above the ceiling with nothing moving for longer than the
-    /// stall timeout; it has been aborted, and `closed` follows.
+    /// stall timeout. It has been aborted, and `closed` follows.
     void writeBufferOverflowed(qint64 unsent);
+    /// More was taken off the wire than the device's side has read. The socket has been
+    /// aborted, the message that went over was never sent across, and `closed` follows.
+    void readBufferOverflowed(qint64 unread, qint64 incoming);
 
 private:
     bool isWriteStalled(qint64 unsent);
+    void forward(const QByteArray &message);
 
     QWebSocket *m_socket{nullptr};
+    qint64 m_readBufferLimit{0};
+    /// Bytes sent across to the device and not yet acknowledged as read.
+    qint64 m_unread{0};
+    bool m_readOverflowed{false};
     qint64 m_writeBufferLimit{0};
     int m_writeStallMs{0};
     /// When the backlog first went over the ceiling and stayed there, and how much the

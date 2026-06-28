@@ -854,6 +854,13 @@
       "test": "aPeerThatStopsReadingIsAbortedOnItsOwnThread"
     },
     {
+      "id": "a-peer-that-floods-a-threaded-edge",
+      "what": "A caller with an authorized link to an edge running `threads: N` sends as fast as the wire allows while the thread that hosts its Sources is busy: the IO thread takes every message off the socket and posts it to the host thread, and that event queue grows at line rate with nothing bounding it, because the device's own read ceiling measures only what its reader has not taken and QtRO takes each message the moment it lands.",
+      "defended_by": "The channel counts what it has sent across and the device has not yet acknowledged reading, and aborts the socket on its own thread when that count would pass the connection's read ceiling; the device closes on the verdict exactly as it does when its own buffer fills.",
+      "file": "tests/m2-transport/tst_threadedsocket.cpp",
+      "test": "aPeerThatFloodsAThreadThatIsNotReadingIsCutOff"
+    },
+    {
       "id": "a-demoted-caller-keeps-the-tier-their-old-scope-named",
       "what": "A fronted connect point (`behind:`) hands each caller to the entity serving their scope, and that entity, by the documented contract of a front, authorizes on Caller and never asks about scope. Which tier a connection relayed to was decided once, when it was accepted: a front carries no `scope:` of its own, so the scope-change handler skipped it, and a caller demoted from admin under a live connection went on reading from and calling into the admin tier's entity until they happened to reload.",
       "defended_by": "The tier is decided again on every scope change under the connection (WebEdge::hostConnection's rotation handler, through servesScope and pointRelay), and the generated relay lets go of the tier it was following before it follows another, so neither the old tier's pushes nor its slots remain reachable. A scope no tier serves withdraws the point.",

@@ -19,12 +19,12 @@ SocketChannel::SocketChannel(QWebSocket *socket, QAbstractSocket *rawSocket, QOb
     if (rawSocket && !isUnder(rawSocket, socket)) {
         rawSocket->setParent(this);
     }
-    // Relayed rather than exposed: the device on the other thread never gets a pointer to
-    // the socket, so there is no way for it to reach across by accident.
-    connect(socket, &QWebSocket::binaryMessageReceived, this, &SocketChannel::received);
+    // Relayed, never exposed: the device on the other thread never gets a pointer to the
+    // socket.
+    connect(socket, &QWebSocket::binaryMessageReceived, this, &SocketChannel::forward);
     connect(socket, &QWebSocket::bytesWritten, this, &SocketChannel::bytesSent);
-    // What the socket has actually handed the kernel, which is the only thing that
-    // separates a peer draining slowly from one that has stopped reading.
+    // What the socket has handed the kernel, which separates a slow peer from one that
+    // stopped reading.
     connect(socket, &QWebSocket::bytesWritten, this,
             [this](qint64 bytes) { m_sentTotal += bytes; });
     connect(socket, &QWebSocket::disconnected, this, &SocketChannel::closed);
@@ -35,6 +35,36 @@ SocketChannel::~SocketChannel() = default;
 QWebSocket *SocketChannel::socket() const
 {
     return m_socket;
+}
+
+void SocketChannel::setReadBufferLimit(qint64 bytes)
+{
+    m_readBufferLimit = bytes;
+}
+
+/// One message off the wire, on its way across. Counted before it goes: only the device's
+/// acknowledgement decrements the count, and this thread cannot otherwise tell whether the
+/// device's thread is reading.
+void SocketChannel::forward(const QByteArray &message)
+{
+    if (m_readOverflowed) {
+        return;
+    }
+    const qint64 incoming{message.size()};
+    if (m_readBufferLimit > 0 && (m_unread + incoming) > m_readBufferLimit) {
+        m_readOverflowed = true;
+        emit readBufferOverflowed(m_unread, incoming);
+        // Aborted, not closed: a close frame would queue behind the peer's own flood.
+        m_socket->abort();
+        return;
+    }
+    m_unread += incoming;
+    emit received(message);
+}
+
+void SocketChannel::acknowledgeRead(qint64 bytes)
+{
+    m_unread = qMax(qint64{0}, m_unread - bytes);
 }
 
 void SocketChannel::setWriteBufferLimit(qint64 bytes)
@@ -50,25 +80,22 @@ void SocketChannel::setWriteStallTimeout(int milliseconds)
 void SocketChannel::send(const QByteArray &batch)
 {
     m_socket->sendBinaryMessage(batch);
-    // Flushed here, unlike the unsplit device, which defers to aboutToBlock. This is
-    // already the far side of a queued call. The QtRO write that produced these bytes
-    // finished on another thread and this is the only thing that ran for it, so there is
-    // no stack to reenter and nothing later in the pass to batch with.
+    // Flushed here, unlike the unsplit device, which waits for aboutToBlock: this already
+    // runs as a queued call after the QtRO write finished on another thread, so there is
+    // nothing to reenter or batch with.
     m_socket->flush();
-    // And measured here, after the flush, for the reason WebSocketTransport::flushNow
-    // gives. What is left is what the kernel refused. Aborted on this thread, which is
-    // the socket's, and with no Source on the stack. The device on the other thread
-    // learns of it through the signal and stops writing.
+    // Measured after the flush, as in WebSocketTransport::flushNow: what remains is what
+    // the kernel refused. Aborted on the socket's thread with no Source on the stack; the
+    // device learns through the signal and stops writing.
     if (isWriteStalled(m_socket->bytesToWrite())) {
         emit writeBufferOverflowed(m_socket->bytesToWrite());
         m_socket->abort();
     }
 }
 
-/// Whether this peer has stopped reading, as opposed to reading slowly.
-///
-/// The same rule the unsplit device applies, and it has to be asked here because only
-/// this thread may ask the socket anything. See WebSocketTransport::isWriteStalled.
+/// Whether this peer has stopped reading rather than reading slowly. The unsplit device's
+/// rule, asked here because only this thread may query the socket. See
+/// WebSocketTransport::isWriteStalled.
 bool SocketChannel::isWriteStalled(qint64 unsent)
 {
     if (m_writeBufferLimit <= 0 || unsent <= m_writeBufferLimit) {

@@ -132,6 +132,16 @@ WebSocketTransport::WebSocketTransport(SocketChannel *channel, QObject *parent)
             discardOnWriteOverflow(unsent);
         }
     });
+    // And the read ceiling, measured where the bytes are taken off the wire. What the
+    // channel counts is what it has sent across and this device has not yet acknowledged
+    // reading, which is the queue between the two threads. The one buffer on this form
+    // that the device's own measurement cannot see.
+    connect(channel, &SocketChannel::readBufferOverflowed, this,
+            [this](qint64 unread, qint64 incoming) {
+        if (!m_readBufferOverflowed) {
+            discardOnOverflow(unread, incoming);
+        }
+    });
 }
 
 /// The socket goes with the device, on whichever thread it is.
@@ -157,8 +167,11 @@ void WebSocketTransport::deliver(const QByteArray &message)
     // Summed as qint64: both sides are qsizetype, which is int on a 32-bit host, and the
     // sum of two large frames is what would overflow it.
     if (m_readBufferLimit > 0 && (pendingBytes() + incoming) > m_readBufferLimit) {
-        discardOnOverflow(incoming);
+        discardOnOverflow(pendingBytes(), incoming);
         return;
+    }
+    if (m_channel) {
+        m_unacknowledged += incoming;
     }
     if (m_readOffset == m_readBuffer.size()) {
         // Nothing pending, which is the case on every message while the reader keeps up:
@@ -187,6 +200,11 @@ void WebSocketTransport::deliver(const QByteArray &message)
 void WebSocketTransport::setReadBufferLimit(qint64 bytes)
 {
     m_readBufferLimit = bytes;
+    if (m_channel) {
+        // Before the channel is moved to its thread, like the write ceiling: the edge
+        // configures a connection before it hands the socket over.
+        m_channel->setReadBufferLimit(bytes);
+    }
 }
 
 qint64 WebSocketTransport::readBufferLimit() const
@@ -281,15 +299,15 @@ void WebSocketTransport::shutdown(QWebSocketProtocol::CloseCode closeCode,
 
 /// A peer that keeps sending while nothing reads is either broken or hostile, and either
 /// way the memory is the thing to stop. The message is closed over rather than dropped
-/// because QtRO carries a framed protocol: a stream missing a message in the middle is
+/// because QtRO carries a framed protocol. A stream missing a message in the middle is
 /// desynchronized, and nothing downstream can recover its framing.
-void WebSocketTransport::discardOnOverflow(qint64 incomingBytes)
+void WebSocketTransport::discardOnOverflow(qint64 pendingBytes, qint64 incomingBytes)
 {
     m_readBufferOverflowed = true;
     qWarning("SynQt: closing a connection whose read buffer reached its limit "
              "(%lld buffered + %lld incoming > %lld); the peer is sending faster than "
              "anything is reading",
-             static_cast<long long>(pendingBytes()),
+             static_cast<long long>(pendingBytes),
              static_cast<long long>(incomingBytes),
              static_cast<long long>(m_readBufferLimit));
     setErrorString(QStringLiteral("read buffer limit of %1 bytes exceeded")
@@ -417,8 +435,26 @@ qint64 WebSocketTransport::readData(char *data, qint64 maxSize)
         // one and dropping the reference is all that happens.
         m_readBuffer.clear();
         m_readOffset = 0;
+        acknowledgeRead();
     }
     return size;
+}
+
+/// Once per drained message rather than once per byte read: QtRO takes a message whole,
+/// so this is one crossing per message the peer sent, in the direction where messages
+/// are rare (a browser's calls, against the fan-out going the other way).
+void WebSocketTransport::acknowledgeRead()
+{
+    if (!m_channel || m_unacknowledged <= 0) {
+        return;
+    }
+    const qint64 bytes{m_unacknowledged};
+    m_unacknowledged = 0;
+    QMetaObject::invokeMethod(m_channel, [channel = m_channel, bytes]() {
+        if (channel) {
+            channel->acknowledgeRead(bytes);
+        }
+    });
 }
 
 qint64 WebSocketTransport::writeData(const char *data, qint64 maxSize)
