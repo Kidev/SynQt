@@ -13,6 +13,8 @@
 #include "tracer.h"
 #include "traceevent.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QRegularExpression>
@@ -467,6 +469,50 @@ private slots:
                                     QStringLiteral("connectPoint")}) {
             QVERIFY2(!Tracer::isSecretAttributeName(name), qPrintable(name));
         }
+    }
+
+    // The same bound, for a value that is not text. A slot the contract marked `capture`
+    // records what a caller passed, and a `list` or a `var` argument arrives as a list or
+    // a map, not a string. Measured by what it serializes to, or a caller who found such
+    // a member could hand the ring a megabyte per call and the monitor's disk the same.
+    void aValueThatIsNotTextIsBoundedByWhatItSerializesTo()
+    {
+        QMutex mutex;
+        QList<TraceEvent> delivered;
+        Tracer tracer;
+        tracer.setSink([&mutex, &delivered](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&mutex};
+            delivered.append(batch);
+        });
+
+        QVariantList rows;
+        for (int index{0}; index < 20000; ++index) {
+            rows.append(QStringLiteral("row %1").arg(index));
+        }
+        QVariantMap nested;
+        nested.insert(QStringLiteral("text"), QString(200000, QLatin1Char('n')));
+        TraceEvent captured;
+        captured.category = Category::Call;
+        captured.attributes.insert(QStringLiteral("rows"), rows);
+        captured.attributes.insert(QStringLiteral("blob"), QByteArray(200000, 'b'));
+        captured.attributes.insert(QStringLiteral("nested"), nested);
+        captured.attributes.insert(QStringLiteral("count"), 3);
+        tracer.record(captured);
+        tracer.flush();
+
+        QMutexLocker locker{&mutex};
+        QCOMPARE(delivered.size(), 1);
+        const QVariantMap attributes{delivered.first().attributes};
+        const qsizetype serialized{
+            QJsonDocument{QJsonObject::fromVariantMap(attributes)}
+                .toJson(QJsonDocument::Compact).size()};
+        QVERIFY2(serialized <= Tracer::MaxAttributes * Tracer::MaxAttributeChars,
+                 qPrintable(QStringLiteral("%1 bytes of attributes reached the ring")
+                                .arg(serialized)));
+        // What was too large is said to have been, not silently emptied. What fit is kept.
+        QVERIFY(attributes.value(QStringLiteral("rows")).toString().contains(
+            QStringLiteral("dropped")));
+        QCOMPARE(attributes.value(QStringLiteral("count")).toInt(), 3);
     }
 
     void whatOneEventMayCarryIsBounded()

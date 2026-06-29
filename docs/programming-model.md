@@ -294,12 +294,18 @@ monitoring:
   capture_identity: acknowledged
 ```
 
-`capture` is not a reserved word: a slot may still be called `capture`, which is settled by
+A captured value is held to the same ceiling as every other attribute of a record (512
+characters). Text past it is cut, and a `list`, a `var` or a `record` that serializes to
+more than that is replaced by a note saying how much was dropped. A member worth capturing
+is one whose values are small. Bounding its arguments in the contract (`string[80]`,
+`list[20]`) keeps every capture whole.
+
+`capture` is not a reserved word. A slot may still be called `capture`, which is settled by
 what follows it, exactly as the compiler settles it.
 
 ### Handing callers on: `behind:`
 
-Member scopes decide what crosses; `behind:` decides *who answers*. A web edge may own a
+Member scopes decide what crosses, and `behind:` decides who answers. A web edge may own a
 point it does not implement and hand each caller to the entity serving people of their
 scope:
 

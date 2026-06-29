@@ -915,6 +915,13 @@
       "defended_by": "SessionManager mints its ids through SynQt::randomSecret like every other secret, and the test pins the length to SecretBytes so the claim and the code cannot drift apart again.",
       "file": "tests/m7-caller/tst_sessions.cpp",
       "test": "tokensAreUniqueAndOpaque"
+    },
+    {
+      "id": "a-captured-argument-that-is-not-text-fills-the-record",
+      "what": "A caller finds a slot the contract marked `capture` whose argument is a `list` or a `var`, and passes a value close to `max_message_bytes` on every call: the argument arrives as a list or a map rather than a string, the record's bound measured strings only, and each call put up to a megabyte into the entity's ring, its link to the monitor and the monitor's store.",
+      "defended_by": "The tracer measures a list, a map or a blob by what it serializes to and replaces one over the attribute ceiling with a note saying how much was dropped, so a record is bounded whatever type its values arrived as.",
+      "file": "tests/monitor/tst_pipeline.cpp",
+      "test": "aValueThatIsNotTextIsBoundedByWhatItSerializesTo"
     }
   ]
 }

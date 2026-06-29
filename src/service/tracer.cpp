@@ -4,6 +4,9 @@
 #include "tracer.h"
 
 #include <QDateTime>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMutexLocker>
 #include <QPair>
 #include <QRandomGenerator>
@@ -87,6 +90,36 @@ QString randomHex(int characters)
         value[0] = QLatin1Char('1');
     }
     return value;
+}
+
+/// How much of the record one attribute value takes, for a value whose size is not a
+/// property of its type.
+///
+/// Text is its length. A list, a map or a blob is measured by what it serializes to,
+/// which is what a store writes and what a caller who found a `capture` member taking a
+/// `var` or a `list` would grow: their argument arrives as a list or a map, not as text,
+/// and a bound that read only strings let it through whole. Numbers, booleans and dates
+/// are the size they are and answer zero.
+qsizetype attributeSpan(const QVariant &value)
+{
+    switch (value.typeId()) {
+    case QMetaType::QString:
+        return value.toString().size();
+    case QMetaType::QByteArray:
+        return value.toByteArray().size();
+    case QMetaType::QUrl:
+        return value.toUrl().toString().size();
+    case QMetaType::QVariantList:
+    case QMetaType::QStringList:
+        return QJsonDocument{QJsonArray::fromVariantList(value.toList())}
+            .toJson(QJsonDocument::Compact).size();
+    case QMetaType::QVariantMap:
+    case QMetaType::QVariantHash:
+        return QJsonDocument{QJsonObject::fromVariantMap(value.toMap())}
+            .toJson(QJsonDocument::Compact).size();
+    default:
+        return 0;
+    }
 }
 
 /// Monotonic microseconds, so a duration is never a clock adjustment.
@@ -375,12 +408,8 @@ void Tracer::bound(TraceEvent &event)
     bool oversized{event.attributes.size() > MaxAttributes};
     if (!oversized) {
         for (auto it{event.attributes.cbegin()}; it != event.attributes.cend(); ++it) {
-            if (it.key().size() > MaxAttributeChars) {
-                oversized = true;
-                break;
-            }
-            if ((it.value().typeId() == QMetaType::QString)
-                && (it.value().toString().size() > MaxAttributeChars)) {
+            if (it.key().size() > MaxAttributeChars
+                || attributeSpan(it.value()) > MaxAttributeChars) {
                 oversized = true;
                 break;
             }
@@ -403,6 +432,15 @@ void Tracer::bound(TraceEvent &event)
                 value.truncate(MaxAttributeChars);
             }
             bounded.insert(it.key().left(MaxAttributeChars), value);
+            continue;
+        }
+        const qsizetype span{attributeSpan(it.value())};
+        if (span > MaxAttributeChars) {
+            // A list or a map has no meaningful first half, so it is replaced rather than
+            // cut, and the record says what it lost.
+            bounded.insert(it.key().left(MaxAttributeChars),
+                           QStringLiteral("[value of %1 bytes dropped: over %2]")
+                               .arg(span).arg(MaxAttributeChars));
             continue;
         }
         bounded.insert(it.key().left(MaxAttributeChars), it.value());
