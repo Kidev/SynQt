@@ -3,6 +3,7 @@
 
 #include "sessionmanager.h"
 
+#include "secrets.h"
 #include "tracer.h"
 
 #include <QCryptographicHash>
@@ -11,7 +12,6 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QTimer>
-#include <QUuid>
 
 #include <utility>
 
@@ -402,9 +402,13 @@ QString SessionManager::defaultScope() const
     return m_defaultScope;
 }
 
+/// The same 256 bits from the system generator that every other secret here is made of
+/// (SynQt::randomSecret). It was a v4 UUID, which is 122 random bits: nothing anybody
+/// would guess, but not what secrets.h says a session credential is, and one place minting
+/// its own is one place a weaker generator could go unnoticed.
 QByteArray SessionManager::newToken() const
 {
-    return QUuid::createUuid().toRfc4122().toHex();
+    return randomSecret();
 }
 
 void SessionManager::trackExpiry(const SessionRecord &record)

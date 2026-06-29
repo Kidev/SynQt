@@ -13,6 +13,7 @@
 
 #include "caller.h"
 #include "sessionmanager.h"
+#include "secrets.h"
 
 #include <QByteArray>
 #include <QDateTime>
@@ -74,7 +75,10 @@ private slots:
         QSet<QByteArray> issued;
         for (int index{0}; index < 500; ++index) {
             const QByteArray id{sessions.createSession()};
-            QCOMPARE(id.size(), 32);  // a 128-bit UUID, hex
+            // The same 256 bits every other secret the framework mints is made of, hex.
+            // It was a v4 UUID, which is 122 random bits. Nothing anyone would guess, but
+            // less than secrets.h says a session credential is.
+            QCOMPARE(id.size(), SynQt::SecretBytes * 2);
             QVERIFY(!issued.contains(id));
             issued.insert(id);
         }

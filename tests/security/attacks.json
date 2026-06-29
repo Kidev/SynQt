@@ -908,6 +908,13 @@
       "defended_by": "The proxy policy refuses an https:// proxy URL with a warning naming why, rather than downgrading it to a plaintext HTTP proxy; only http:// and socks5 proxies, which Qt speaks as written, are taken from the environment.",
       "file": "tests/m2-transport/tst_proxypolicy.cpp",
       "test": "aProxyReachedOverTlsIsNotOneQtCanSpeakTo"
+    },
+    {
+      "id": "a-session-credential-weaker-than-the-framework-says",
+      "what": "The session cookie is the one credential a visitor holds and the one every per-IP and per-session bound keys on; secrets.h states every opaque value the framework mints is 256 bits from the system generator, and the session id was the one exception, a 122-bit v4 UUID minted by its own code, where a weaker generator or a shorter value could have crept in unnoticed against the written claim.",
+      "defended_by": "SessionManager mints its ids through SynQt::randomSecret like every other secret, and the test pins the length to SecretBytes so the claim and the code cannot drift apart again.",
+      "file": "tests/m7-caller/tst_sessions.cpp",
+      "test": "tokensAreUniqueAndOpaque"
     }
   ]
 }
