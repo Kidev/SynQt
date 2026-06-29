@@ -64,7 +64,7 @@ public:
     QString httpOrigin() const;   // the edge's own origin, e.g. https://host:port
     QString wssOrigin() const;    // the sync endpoint origin, e.g. wss://host:port
 
-    /// The edge's session store, so the login flow (M8) and tests can create and elevate
+    /// The edge's session store, so the login flow and tests can create and elevate
     /// sessions. Never null after construction.
     SessionManager *sessionManager() const;
 
@@ -81,19 +81,13 @@ public:
     /// context, so an owner Source can delegate across the mesh (Database.items.insert).
     void setContextObject(const QString &name, QObject *object);
 
-    /// Say which object answers for the entity `entity`, on a point this edge fronts.
-    ///
-    /// A front owns a connect point it does not implement and hands each caller to the
-    /// entity serving people of their scope. This is that entity, as the Replica this edge
-    /// consumes it through. Set when the mesh link comes up, which is after the edge has
-    /// started, so a browser arriving before it does does not have that point
-    /// hosted. Nothing is answered by an object that is not there yet.
+    /// Say which object answers for the entity `entity`, on a point this edge fronts: the Replica
+    /// of the entity serving that tier. Set when the mesh link comes up; until then the point is
+    /// not hosted.
     void setEntityBehind(const QString &entity, QObject *replica);
 
-    /// The bundle directory one scope is entitled to, walking down the scope vocabulary
-    /// when this scope has no bundle of its own. Public because it answers a question
-    /// about configuration rather than about any caller, which is also what makes it
-    /// the thing a test can ask directly.
+    /// The bundle directory one scope is entitled to, walking down the scope vocabulary when this
+    /// scope has no bundle of its own.
     QString bundleForScope(const QString &scope) const;
 
 signals:
@@ -121,8 +115,7 @@ private:
     /// when the connection is accepted, and again when a scope change under it makes the
     /// session eligible for a point it was not hosting.
     void hostConnectPoint(const WebEdgeConnectPoint &connectPoint, const QByteArray &sessionId,
-                          QObject *connection, QRemoteObjectHost *node,
-                          QHash<QString, QObject *> *hosted);
+                          QRemoteObjectHost *node, QHash<QString, QObject *> *hosted);
     void trackPendingUpgrade(QAbstractSocket *socket);
     void stampResponse(const QHttpServerRequest &request, QHttpServerResponse &response);
 
@@ -132,10 +125,7 @@ private:
 
     /// The policy header, computed once. It depends only on the configured CSP, the sync
     /// endpoint's origin and the loader hashes, all of which are fixed once the edge has
-    /// bound its port, and it is stamped on every response the edge sends. Building it per
-    /// response meant splitting a string, walking its directives and joining them again on
-    /// the way out of every asset, every page and every 304: measured at 774 ns a response
-    /// on this project's reference host, against a hash lookup now.
+    /// bound its port, and it is stamped on every response the edge sends.
     QByteArray computeCsp() const;
     /// Fill m_csp and m_allowedOrigins. Called from start(), after the port is known,
     /// because both answers name it.
@@ -145,15 +135,9 @@ private:
     void collectScriptHashes(const QString &indexPath);
     void cacheBundle();
     QByteArray etagFor(const QString &path) const;
-    /// The canonical path of one bundle root, resolved once by cacheBundle() rather than by
-    /// every request that has to check containment against it. Empty for a root that does
-    /// not exist, which is refused exactly as an unresolvable one was before.
-    ///
-    /// This is the larger half of what a response would otherwise spend before reaching the
-    /// socket, 2.3 us on the reference host with the directory cache warm, and a filesystem round
-    /// trip when it is not. The file's own canonical path still has to be resolved per
-    /// request, because that is the check that follows a symlink or a `..` out of the
-    /// bundle. Only the root, which cannot move while the edge runs, is remembered.
+    /// The canonical path of one bundle root, resolved once by cacheBundle(). Empty for a root that
+    /// does not exist, which is refused. The file's own canonical path is still resolved per
+    /// request, since that check catches a symlink or a `..` leaving the bundle.
     QString canonicalRootOf(const QString &root) const;
     /// Where one URL path resolves inside a given bundle, or empty when it names no
     /// file of it. The root is the caller's, so a file of another bundle resolves to
@@ -188,20 +172,14 @@ private:
     QByteArray cookieFor(const QByteArray &token, const QByteArray &nonce = {});
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;
 
-    /// Which tab this request belongs to, from `?s=<nonce>`, or empty for the ordinary
-    /// case of a browser with one session for the whole host.
-    ///
-    /// Not development-only. Reading a session out of a named cookie is ordinary session
-    /// handling and compiles into every build. Only the development picker's *use* of it
-    /// is gated, and that use lives in identitypicker.cpp. Putting this behind the
-    /// development gate would leave a release edge unable to read a cookie it had just
-    /// set, and the failure would look like a session bug rather than a build one.
+    /// Which tab this request belongs to, from `?s=<nonce>`, or empty for one session per host.
+    /// Compiled into every build: only the development picker's use of it is gated
+    /// (identitypicker.cpp).
     static QByteArray tabNonce(const QHttpServerRequest &request);
 
-    /// The cookie name a request's session is under. The configured name, or that name
-    /// suffixed with the tab's nonce. Cookie *name* is the axis because it is the only one
-    /// available: RFC 6265 scopes a cookie to a host and not a port, so two tabs on one
-    /// host share a jar however they were opened.
+    /// The cookie name a request's session is under: the configured name, or that name suffixed
+    /// with the tab's nonce. RFC 6265 scopes a cookie to a host, not a port, so the name is the
+    /// only axis.
     QByteArray cookieNameFor(const QByteArray &nonce) const;
 
     /// The session id this request presents, under whichever cookie name is its tab's. The
@@ -219,15 +197,11 @@ private:
     WebSocketTransport *carry(QWebSocket *socket, QObject *connection);
     QObject *createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
                           QObject *parent, QString *error);
-    /// The Source this connection acquires for one connect point, minted or continued.
-    ///
-    /// The session is looked up first, so a user's second tab reaches what their first tab
-    /// has been using rather than a blank one. On a shared edge that object is a mirror of
-    /// the one Source everybody is answered from; otherwise it is that session's own
-    /// Source. Returns nullptr on a load failure, with the reason in *error.
+    /// The Source this connection acquires for one connect point, minted or continued. A second
+    /// tab reaches the Source the first tab uses: on a shared edge a mirror of the one Source,
+    /// otherwise the session's own. Returns nullptr on a load failure, with the reason in *error.
     QObject *sourceForConnection(const WebEdgeConnectPoint &connectPoint,
-                                 const QByteArray &sessionId, QObject *connection,
-                                 QString *error);
+                                 const QByteArray &sessionId, QString *error);
     /// The one Source a shared edge answers a connect point from, loaded on first use and
     /// kept for the life of the edge.
     QObject *sharedSource(const WebEdgeConnectPoint &connectPoint, QString *error);
@@ -247,34 +221,21 @@ private:
     /// and remember which it is at so that a replacement Replica for that entity finds
     /// it. The one place a relay is pointed, so the record cannot disagree with the relay.
     void pointRelay(QObject *source, const QString &entity);
-    /// Whether a caller holding `scope` is served on this point at all: the scope gate,
-    /// and on a front also that the tier for that scope names an entity this edge can
-    /// reach right now. Decided when a connection is accepted and again on every scope
-    /// change under it, because both halves move. The scope with the session, and the
-    /// entity with the mesh link.
+    /// Whether a caller holding `scope` is served on this point: the scope gate, and on a front a
+    /// reachable entity for that tier. Decided at accept and again on every scope change.
     bool servesScope(const WebEdgeConnectPoint &connectPoint, const Caller *caller) const;
     /// Drop this connection's claim on its session's Sources, and destroy them when it was
     /// the last one. Called from the socket's disconnected handler.
     void releaseSessionSources(const QByteArray &sessionId);
 
-    /// Move everything the edge keeps a session under from one credential to the next.
-    ///
-    /// A scope change rotates the credential under a live connection (Caller.setScope in a
-    /// slot), and the edge keys both its socket table and its per-session Sources by the id
-    /// the handshake presented. Without this they stay under a credential that no longer
-    /// exists. Ending the session then closes nothing, and a second tab arriving with the
-    /// new id is given a second set of Sources instead of joining the first.
+    /// Move everything the edge keys by session from one credential to the next, after a scope
+    /// change rotates the credential under a live connection: the socket table and the
+    /// per-session Sources.
     void followRotation(const QByteArray &from, const QByteArray &to,
                         WebSocketTransport *transport);
-    /// Close every browser connection still open on `sessionId`, because that session has
-    /// ended: signed out, revoked, or run past its TTL.
-    ///
-    /// The connect points a connection hosts are chosen once, when it is accepted, from the
-    /// scope the session held then. Every property and model on them then replicates for as
-    /// long as the socket is open. Without this, signing out took the credential away and
-    /// left the data flowing. A tab that had acquired a scoped connect point went on
-    /// receiving everything the owner pushed to it, and only a *new* call was refused. What
-    /// ends a session has to end the connections it authorized.
+    /// Close every browser connection still open on `sessionId`, because that session has ended:
+    /// signed out, revoked, or past its TTL. A connection's points replicate for as long as its
+    /// socket is open, so ending a session must end the connections it authorized.
     void dropSession(const QByteArray &sessionId);
     /// Build each configured page's seed hook once and install the one provider that
     /// dispatches to them, on the shared PagesService.
@@ -294,11 +255,9 @@ private:
     /// Built in start() and destroyed last, after every connection that might still be
     /// deleting a socket on one of them.
     IoThreadPool *m_ioThreads{nullptr};
-    /// The parent of everything each live connection owns on this thread: its QtRO host,
-    /// its Sources, their Callers and its device. One object to end them all, which is
-    /// what lets the destructor put the connections down before the threads their sockets
-    /// are on. The socket itself is not among them, because on a threaded
-    /// edge it is not on this thread to be a child of anything here.
+    /// The parent of everything each live connection owns on this thread: its QtRO host, its
+    /// Sources, their Callers and its device, so the destructor ends connections before their
+    /// socket threads. The socket may live on another thread and is not among them.
     QObject *m_connections{nullptr};
     SessionManager *m_sessionManager{nullptr};
     IdentityProvider *m_identity{nullptr};
@@ -317,10 +276,8 @@ private:
     QHash<QString, QByteArray> m_etags;
 
     /// The framework's own Pages connect point (see WebEdgeConfig::pages): one
-    /// PageStore/PagesService shared by every connection, built once in start() and
-    /// never rebuilt per connection. Both stay null when the project configures no
-    /// pages, so hostConnection() hosts nothing extra and an app that does not use
-    /// the feature pays nothing for it.
+    /// PageStore/PagesService for every connection, built once in start(). Null when the project
+    /// configures no pages.
     PageStore *m_pageStore{nullptr};
     PagesService *m_pagesService{nullptr};
     /// One page seed hook: the QML object, the file it was built from (for diagnostics,
@@ -342,56 +299,35 @@ private:
 
     /// Pending upgrades, for the framework-enforced handshake timeout.
     QHash<QString, QTimer *> m_pendingTimers;
-    /// The raw socket under each pending upgrade, keyed the same way, so a threaded edge
-    /// can move it with the QWebSocket that ends up on top of it.
-    ///
-    /// It has to be caught on the way in. The raw socket is not the QWebSocket's child and
-    /// QWebSocket does not hand it out, so by the time the upgrade is accepted there is no
-    /// way left to find it. Kept as a QPointer and dropped by the same handler that drops
-    /// the timeout timer, which is a child of the socket and therefore dies with it.
+    /// The raw socket under each pending upgrade, keyed the same way, so a threaded edge can move
+    /// it with its QWebSocket. Caught on the way in, since QWebSocket does not expose it. Dropped
+    /// with the timeout timer.
     QHash<QString, QPointer<QAbstractSocket>> m_pendingRawSockets;
-    /// The verified session id per accepted upgrade (keyed by peer), carried from the
-    /// verifier to the accepted socket (whose handshake headers are not re-readable).
-    /// hostConnection() takes the entry in the same turn the upgrade is accepted, so an
-    /// entry that outlives the handshake timeout belongs to a socket that never arrived
-    /// and is dropped. Nothing else removes it, and a peer can retry as often as it likes.
+    /// The verified session id per accepted upgrade (keyed by peer), carried from the verifier to
+    /// the accepted socket. hostConnection() takes it in the same turn; an entry that outlives the
+    /// handshake timeout is dropped.
     struct VerifiedSession
     {
         QByteArray id;
         qint64 verifiedMs{0};
-        /// The visitor's address as the verifier resolved it. Carried rather than
-        /// recomputed because an accepted socket's handshake headers are not re-readable,
-        /// so by the time the connection is hosted the forwarding header is gone and the
-        /// peer address is the balancer's for every visitor alike.
+        /// The visitor's address as the verifier resolved it; an accepted socket's
+        /// handshake headers cannot be re-read.
         QString clientIp;
     };
     QHash<QString, VerifiedSession> m_pendingSessions;
 
-    /// The Sources one session's connections share, for every connect point. Keyed by
-    /// session id, so a user's second tab
-    /// continues the first tab's Source rather than starting a blank one, and so does a
-    /// reconnect after the network dropped.
-    ///
-    /// `connections` is what decides when they die. A Source here outlives the socket that
-    /// built it, so it is owned by the edge and destroyed when the session's last
-    /// connection closes. Without the count the map would grow for the life of the process,
-    /// one entry per session that ever connected.
-    ///
-    /// A session id is required to key on, so an anonymous browser holding no session falls
-    /// back to a Source per connection. There is no identity to continue.
+    /// The Sources one session's connections share, for every connect point, keyed by session
+    /// id, so a second tab or a reconnect continues them. Owned by the edge and destroyed when
+    /// the session's last connection closes (`connections`).
     struct SessionSources
     {
         int connections{0};
         QHash<QString, QObject *> byConnectPoint;
     };
     QHash<QByteArray, SessionSources> m_sessionSources;
-    /// The live browser connections of each session, so ending a session can close them.
-    /// A session may hold several (one per tab), and an anonymous connection holds none.
-    ///
-    /// Held as the device rather than the socket, because on a threaded edge the socket
-    /// belongs to another thread and calling close() on it from here would do nothing and
-    /// say nothing. The device is on this thread whatever the socket is doing, and its
-    /// shutdown() is the one call that reaches either.
+    /// The live browser connections of each session, so ending a session can close them. Held
+    /// as the device, which is on this thread even when the socket is not; its shutdown() reaches
+    /// either.
     QMultiHash<QByteArray, WebSocketTransport *> m_sessionSockets;
 
     /// On a shared edge, the single Source per connect point that every session's mirror
@@ -405,15 +341,9 @@ private:
     QHash<QString, SharedSource> m_sharedSources;
     /// What answers for each entity this edge fronts a point with, by entity name.
     QHash<QString, QPointer<QObject>> m_entitiesBehind;
-    /// Every live relay Source on this edge, by the entity it is pointed at.
-    ///
-    /// A relay is not pointed once. The caller's scope can move to a tier another entity
-    /// serves (Caller.setScope under the live connection), and the entity itself is
-    /// replaced whenever its mesh link reconnects, since a reconnect is a fresh Replica.
-    /// Left where it was, a relay went on forwarding a demoted caller to the entity their
-    /// old scope named, which authorizes on Caller and never asks about scope, and after a
-    /// reconnect it pointed at a deleted object and answered nobody until the browser
-    /// itself reconnected. Entries leave when the Source does.
+    /// Every live relay Source on this edge, by the entity it points at, so a relay follows a
+    /// caller's scope change to another tier and a reconnect to a fresh Replica. Entries leave
+    /// with the Source.
     QHash<QObject *, QString> m_relayTargets;
 
     /// Connection caps. Keyed on the visitor's address as m_clientAddress resolves it,
@@ -421,29 +351,16 @@ private:
     int m_activeGlobal{0};
     QHash<QString, int> m_activePerIp;
 
-    /// Socket caps. Every socket accepted and not yet destroyed, keyed by the peer's own
-    /// address, because at accept there is no request to read a forwarding header from.
-    ///
-    /// Counted here rather than through QHttpServerConfiguration::setMaximumConnections
-    /// and setMaximumConnectionsPerHost, which count the same thing and cannot count it
-    /// back down for a WebSocket link: QHttpServer decrements on the socket's
-    /// `disconnected`, and its upgrade path wildcard-disconnects the socket as it hands it
-    /// over, so every accepted link held its slot for the life of the process (Qt 6.12.0,
-    /// QHttpServerHttp1ProtocolHandler). The raw socket's destruction is the one event no
-    /// hand-over can take away, and it is what these are decremented on. See
-    /// trackPendingUpgrade and tests/m5-webedge's aClosedWebSocketLinkGivesItsSocketBack.
+    /// Socket caps: every socket accepted and not yet destroyed, keyed by the peer's own address.
+    /// Counted on the raw socket's destruction, since Qt's own ceilings never count a WebSocket
+    /// link back down. See trackPendingUpgrade and tests/m5-webedge's
+    /// aClosedWebSocketLinkGivesItsSocketBack.
     int m_socketsGlobal{0};
     QHash<QString, int> m_socketsPerIp;
 
-    /// Attempts on the password gate, per visitor address, in a fixed window.
-    ///
-    /// The gate derives a PBKDF2 at the operator store's round count, which is
-    /// expensive by design and runs on this edge's own event loop. Without a budget
-    /// that makes an unauthenticated POST the cheapest way there is to stop the edge
-    /// answering anybody. A handful of requests a second is enough to keep the loop busy,
-    /// and the same requests are a password guess apiece. Keyed the way the connection caps
-    /// and the device route are keyed, so a balancer in front does not put every visitor in
-    /// one bucket.
+    /// Attempts on the password gate, per visitor address, in a fixed window. Each attempt
+    /// derives an expensive PBKDF2 on the event loop and is a password guess. Keyed like the
+    /// connection caps.
     QHash<QString, RateWindow> m_signInRate;
     /// The two answers stamped on, or checked against, every request. Both are pure
     /// functions of the configuration and the bound port, so they are built once when the

@@ -1726,30 +1726,12 @@ QObject *WebEdge::sharedSource(const WebEdgeConnectPoint &connectPoint, QString 
 }
 
 QObject *WebEdge::sourceForConnection(const WebEdgeConnectPoint &connectPoint,
-                                      const QByteArray &sessionId, QObject *connection,
-                                      QString *error)
+                                      const QByteArray &sessionId, QString *error)
 {
-    // An anonymous browser holds no session, so there is nothing to key a continuing Source
-    // on: it gets one per connection, parented to the connection, and nothing is remembered.
-    if (sessionId.isEmpty()) {
-        Caller *caller{Caller::forUser(connectPoint.contract, m_sessionManager, sessionId,
-                                       nullptr, connection)};
-        caller->setScopeOrder(m_config.scopeOrder, m_config.scopesHierarchical);
-        QObject *source{!connectPoint.behind.isEmpty()
-                            ? relayFor(connectPoint, caller, connection, error)
-                        : connectPoint.shared
-                            ? mirrorFor(connectPoint, caller, connection, error)
-                            : createSource(connectPoint, caller, connection, error)};
-        if (source) {
-            caller->setParent(source);
-            caller->setSource(source);
-            SourceFactory::bindCaller(source, caller);
-        } else {
-            delete caller;
-        }
-        return source;
-    }
-
+    // Every hosted connection has a session. The verifier admits nobody without a live
+    // one, and hostConnection() ends a socket it has no verified session for. So there is
+    // always something to key a continuing Source on, and no per-connection form of one.
+    Q_ASSERT(!sessionId.isEmpty());
     SessionSources &sources{m_sessionSources[sessionId]};
     if (QObject *existing{sources.byConnectPoint.value(connectPoint.name)}) {
         return existing;
@@ -2033,11 +2015,11 @@ WebSocketTransport *WebEdge::carry(QWebSocket *socket, QObject *connection)
 }
 
 void WebEdge::hostConnectPoint(const WebEdgeConnectPoint &connectPoint,
-                               const QByteArray &sessionId, QObject *connection,
-                               QRemoteObjectHost *node, QHash<QString, QObject *> *hosted)
+                               const QByteArray &sessionId, QRemoteObjectHost *node,
+                               QHash<QString, QObject *> *hosted)
 {
     QString error;
-    QObject *source{sourceForConnection(connectPoint, sessionId, connection, &error)};
+    QObject *source{sourceForConnection(connectPoint, sessionId, &error)};
     if (!source) {
         // Said out loud as well as on the signal. Every other rejection here is the
         // policy working and belongs to the connection that earned it, but a Source that
@@ -2076,6 +2058,23 @@ void WebEdge::hostConnection(QWebSocket *socket)
     const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
     const VerifiedSession verified{m_pendingSessions.take(key)};
     const QByteArray sessionId{verified.id};
+    if (sessionId.isEmpty()) {
+        // No record of this socket passing the verifier. The entry was swept as stale, or
+        // the key names a socket the verifier never saw. Either way this connection has no
+        // session the edge can vouch for, and the answer is to end it rather than to host
+        // it as an anonymous one. The verifier admits nobody without a live session, so a
+        // socket reaching here without one is exactly the case a fallback must not serve.
+        qWarning("SynQt: an accepted upgrade from %s has no verified session; closing it",
+                 qUtf8Printable(key));
+        emit upgradeRejected(QStringLiteral("no verified session for the accepted socket"));
+        QAbstractSocket *raw{m_pendingRawSockets.take(key)};
+        if (raw && !isUnder(raw, socket)) {
+            raw->setParent(socket);
+        }
+        socket->abort();
+        socket->deleteLater();
+        return;
+    }
     const QString ip{verified.clientIp.isEmpty()
                          ? normalizedAddress(socket->peerAddress()).toString()
                          : verified.clientIp};
@@ -2094,9 +2093,7 @@ void WebEdge::hostConnection(QWebSocket *socket)
     // Claimed before any Source is reached for, and released when the socket closes. The
     // count is what keeps a session's shared Sources alive across a tab closing while
     // another tab is still open, and what destroys them when the last one goes.
-    if (!sessionId.isEmpty()) {
-        ++m_sessionSources[sessionId].connections;
-    }
+    ++m_sessionSources[sessionId].connections;
 
     // One QtRO host node per connection, and one Source per connect point on it, minted
     // fresh with a Caller bound to this session. The node is per connection whatever the
@@ -2123,12 +2120,12 @@ void WebEdge::hostConnection(QWebSocket *socket)
         if (!servesScope(connectPoint, gate)) {
             continue;
         }
-        hostConnectPoint(connectPoint, sessionId, connection, node, hosted.get());
+        hostConnectPoint(connectPoint, sessionId, node, hosted.get());
     }
 
-    // The framework's own SessionState connect point: who this connection's visitor is.
+    // The framework's own SessionState connect point. Who this connection's visitor is.
     // Hosted on every accepted connection, unconditionally, rather than as a feature a
-    // project turns on: `Session.scope` and `Session.identity` are what
+    // project turns on. `Session.scope` and `Session.identity` are what
     // the runtime API says a client may always ask, and every app with a sign-in gates its
     // UI on them. Hosting it only where identity is configured would leave the two of them
     // answering "anonymous, nobody" on exactly the projects that are about to ask.
@@ -2179,11 +2176,11 @@ void WebEdge::hostConnection(QWebSocket *socket)
     // move with it. Shared rather than captured by value, so the rotation handler and the
     // disconnect handler below are reading one answer instead of two.
     const auto liveSession{std::make_shared<QByteArray>(sessionId)};
-    if (!sessionId.isEmpty()) {
+    {
         m_sessionSockets.insert(sessionId, transport);
         // Received on `connection`, so it goes when the connection does.
         connect(m_sessionManager, &SessionManager::sessionRotated, connection,
-                [this, liveSession, transport, connection, node, gate, hosted](
+                [this, liveSession, transport, node, gate, hosted](
                     const QByteArray &from, const QByteArray &to) {
             if (*liveSession != from) {
                 return;
@@ -2221,17 +2218,17 @@ void WebEdge::hostConnection(QWebSocket *socket)
                 const bool entitled{servesScope(connectPoint, gate)};
                 QObject *current{hosted->value(connectPoint.name)};
                 if (entitled && !current) {
-                    hostConnectPoint(connectPoint, to, connection, node, hosted.get());
+                    hostConnectPoint(connectPoint, to, node, hosted.get());
                     current = hosted->value(connectPoint.name);
                     // A session's Source continued from before the scope moved is still
-                    // pointed where the old scope sent it; the tier is decided again.
+                    // pointed where the old scope sent it. The tier is decided again.
                     if (fronted && current) {
                         pointRelay(current, entityFor(connectPoint, scope));
                     }
                 } else if (!entitled && current) {
                     hosted->remove(connectPoint.name);
                     // The Source itself is left where it is. A per-session one belongs to
-                    // the session and is reclaimed with it (releaseSessionSources); if the
+                    // the session and is reclaimed with it (releaseSessionSources). If the
                     // scope is raised again it is what the visitor continues from.
                     node->disableRemoting(current);
                     if (fronted) {
@@ -2258,10 +2255,8 @@ void WebEdge::hostConnection(QWebSocket *socket)
         if (--m_activePerIp[ip] <= 0) {
             m_activePerIp.remove(ip);
         }
-        if (!liveSession->isEmpty()) {
-            m_sessionSockets.remove(*liveSession, transport);
-            releaseSessionSources(*liveSession);
-        }
+        m_sessionSockets.remove(*liveSession, transport);
+        releaseSessionSources(*liveSession);
         // Takes the node, the Sources, the Callers and the device with it, and the device
         // in turn puts the socket down on whichever thread the socket is on.
         connection->deleteLater();
