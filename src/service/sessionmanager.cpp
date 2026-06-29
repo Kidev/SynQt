@@ -310,6 +310,19 @@ void SessionManager::revoke(const QByteArray &id)
     }
 }
 
+void SessionManager::revokeByKey(const QString &key)
+{
+    if (key.isEmpty()) {
+        return;
+    }
+    for (auto it{m_sessions.constBegin()}; it != m_sessions.constEnd(); ++it) {
+        if (keyFor(it.key()) == key) {
+            revoke(it.key());
+            return;
+        }
+    }
+}
+
 void SessionManager::attachRemote(QObject *sessionReplica)
 {
     m_remote = sessionReplica;

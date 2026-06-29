@@ -922,6 +922,13 @@
       "defended_by": "The tracer measures a list, a map or a blob by what it serializes to and replaces one over the attribute ceiling with a note saying how much was dropped, so a record is bounded whatever type its values arrived as.",
       "file": "tests/monitor/tst_pipeline.cpp",
       "test": "aValueThatIsNotTextIsBoundedByWhatItSerializesTo"
+    },
+    {
+      "id": "the-device-store-is-a-copy-of-every-live-session",
+      "what": "The device table on the edge outlives the process, as a SQLite file or a shared database, and it bound each session to its family by the session id, which is the credential itself: a backup of the file, a reader of the database, or a misplaced file permission handed out every live session the table named, for as long as the sessions lasted.",
+      "defended_by": "The registry stores the session's key (SessionManager::keyFor, the same handle a downstream entity gets) and never the id; lookups derive the key from the id held in memory, and reuse detection revokes by key, so nothing on disk buys anyone a session.",
+      "file": "tests/m8-auth/tst_device.cpp",
+      "test": "theStoreHoldsTheSessionKeyAndNeverTheCredential"
     }
   ]
 }

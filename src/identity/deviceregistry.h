@@ -9,6 +9,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 
 #include <memory>
@@ -17,29 +18,18 @@ namespace SynQt {
 
 class IPersistenceProvider;
 
-/// The durable half of staying signed in on the desktop. One row per enrolled device,
-/// holding what it takes to mint that visitor a fresh session and nothing that is itself a
-/// session.
-///
-/// Three properties are the whole design, and each one exists because the obvious
-/// alternative (persist the session id) fails at it:
+/// The durable half of staying signed in on the desktop: one row per enrolled device, holding
+/// what it takes to mint a fresh session and nothing that is itself a session.
 ///
 ///  1. **Single use with rotation.** Every redemption issues the next generation and retires
-///     the one presented, so a credential read off a disk is only good until the machine it
-///     was taken from next starts up.
+///     the one presented.
 ///  2. **Reuse detection.** A retired generation presented past the overlap window means two
-///     copies of it exist, so the family and every session descended from it are revoked.
-///     This is the property no file permission gives. Theft stops being silent and becomes
-///     an event the edge sees. (RFC 6819 s.5.2.2.3, applied to SynQt's own credential rather
-///     than to the provider's refresh token.)
-///  3. **A short session at the end of it.** What a redemption buys is a session of exactly
-///     the length a browser gets, so "stay signed in for a month" never becomes "a stolen
-///     file is good for a month".
+///     copies exist, so the family and every session descended from it are revoked (RFC 6819
+///     s.5.2.2.3).
+///  3. **A short session at the end.** A redemption buys a session of the browser's length.
 ///
-/// The secret is never stored, here or anywhere on the edge. What a row holds is a SHA-256
-/// of it. A single hash rather than a password KDF, because there is no low-entropy secret
-/// to stretch (the credential is 256 random bits) and a KDF would only add latency to every
-/// relaunch.
+/// A row holds a SHA-256 of the secret, never the secret; the credential is 256 random bits,
+/// so no KDF is needed.
 class DeviceRegistry : public QObject
 {
     Q_OBJECT
@@ -90,27 +80,22 @@ public:
     /// Delete a family outright (logging out, or the owner retiring a device). Idempotent.
     void forget(const QString &family);
 
-    /// Remember which family a session was minted from, so signing that session out ends
-    /// the credential too.
-    ///
-    /// It lives in the store rather than in the edge's memory because a session can now
-    /// outlive the process that minted it: the session table is shared as soon as identity
-    /// is promoted to its own entity, and the edge is replicable as soon as it is. A
-    /// visitor enrolling through one process and signing out against another would
-    /// otherwise keep the credential the sign-out was meant to end, with nothing about the
-    /// sign-out looking wrong. Rebinding a session replaces its row, because a session id
-    /// rotates on elevation and the old id must not go on naming the family.
-    ///
-    /// Nothing authorizes off this: it is a back-reference, and the authority for what a
-    /// credential can do is the family row itself.
+    /// Remember which family a session was minted from, so signing that session out ends the
+    /// credential too. Stored rather than kept in memory, since another edge process or the auth
+    /// entity may handle the sign-out. Rebinding replaces the row, because the session id rotates
+    /// on elevation. A back-reference only, authorizing nothing. It holds the session's key
+    /// (SessionManager::keyFor), never the id.
     void bindSession(const QByteArray &sessionId, const QString &family);
     QString familyOf(const QByteArray &sessionId) const;
     void unbindSession(const QByteArray &sessionId);
+    /// The same, for a key read out of the table rather than an id held in memory.
+    void unbindSessionKey(const QString &sessionKey);
 
-    /// Every session minted from one family. What reuse detection revokes: two copies of a
-    /// credential are in play and there is no telling which holder is the visitor, so
-    /// everything the family opened goes, wherever it was opened from.
-    QList<QByteArray> sessionsOfFamily(const QString &family) const;
+    /// Every session minted from one family, as session keys. What reuse detection
+    /// revokes. Two copies of a credential are in play and there is no telling which
+    /// holder is the visitor, so everything the family opened goes, wherever it was
+    /// opened from (SessionManager::revokeByKey).
+    QStringList sessionsOfFamily(const QString &family) const;
 
     /// Delete every family belonging to a visitor. This is what signing out means for
     /// somebody who signed in on more than one machine.

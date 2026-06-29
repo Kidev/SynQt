@@ -131,6 +131,13 @@ public:
 
     void revoke(const QByteArray &id);
 
+    /// Revoke the session a key names (see keyFor), or nothing when no live session has
+    /// that key. For the one place that holds keys and not ids. The device store, whose
+    /// rows outlive the process and so must not carry the credential. A walk over the
+    /// table, which is fine for what calls it (a detected credential reuse) and would not
+    /// be for anything on a request path.
+    void revokeByKey(const QString &key);
+
     QString defaultScope() const;
 
     /// Promote this manager to a dedicated auth entity: writes here (create/setScope/revoke)

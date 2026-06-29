@@ -7,6 +7,7 @@
 #include "ipersistenceprovider.h"
 #include "persistencefactory.h"
 #include "secrets.h"
+#include "sessionmanager.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -19,8 +20,8 @@ namespace SynQt {
 
 namespace {
 
-// The label a device carries for a future "your devices" list. Bounded and stripped of
-// control characters on the way in, because it arrives from a client and is stored.
+// A device label for a future device list. Bounded and stripped of control characters,
+// since the client supplies it.
 QString sanitizedLabel(const QString &label)
 {
     constexpr qsizetype kMaxLabel{64};
@@ -74,14 +75,12 @@ bool DeviceRegistry::open(QString *error)
         return false;
     }
 
-    // CREATE TABLE IF NOT EXISTS rather than migrate(): the forward-only migration counter is
-    // one number per database, and this table is expected to share a database with an app
-    // whose own schema owns that counter. Going through migrate() would mean the table is
-    // silently never created on any store the app has already migrated further than one step.
+    // CREATE TABLE IF NOT EXISTS, not migrate(): the forward-only migration counter is one
+    // number per database, and this table may share a database whose counter belongs to the
+    // app.
     //
-    // Portable types (TEXT for the hex digests rather than BLOB/BYTEA), because the same
-    // statement has to be accepted by every persistence provider a deployment might point
-    // this at, and a multi-edge deployment has to point it at a shared one.
+    // Portable types (TEXT for the hex digests, not BLOB/BYTEA), so every persistence
+    // provider accepts the statement; a multi-edge deployment needs a shared store.
     const QString schema{QStringLiteral(
         "CREATE TABLE IF NOT EXISTS synqt_devices ("
         "  family TEXT PRIMARY KEY,"
@@ -106,11 +105,10 @@ bool DeviceRegistry::open(QString *error)
         return false;
     }
 
-    // Which family a session came from. Here rather than in the edge's memory for the
-    // reason bindSession() gives: a session outlives the process that minted it as soon as
-    // the session table is shared, and the sign-out that must end the credential can land
-    // on a process that never saw the enrolment. Same portable types, same reasoning about
-    // CREATE TABLE IF NOT EXISTS against a database whose migration counter is the app's.
+    // Which family a session came from, stored here rather than in the edge's memory: with
+    // a shared session table, the sign-out that must end the credential can reach a process
+    // that never saw the enrolment (see bindSession()). Same portable types and CREATE
+    // TABLE IF NOT EXISTS as above.
     const QString sessions{QStringLiteral(
         "CREATE TABLE IF NOT EXISTS synqt_session_family ("
         "  session_id TEXT PRIMARY KEY,"
@@ -147,10 +145,9 @@ DeviceRegistry::Credential DeviceRegistry::enrol(const QString &sub, const QVari
     if (!isOpen() || sub.isEmpty()) {
         return Credential{};
     }
-    // The floor, applied here and not at build time. Which level a machine can reach is a
-    // property of that machine, and a project may ship all three platforms under a policy
-    // only two of them meet. Refusing to enrol leaves the visitor signed in with the session
-    // they claimed and nothing on disk, which is precisely `desktop_session: memory`.
+    // The floor, applied here, not at build time: the level a machine reaches depends on
+    // the machine. Refusing to enrol leaves the visitor signed in with nothing on disk, as
+    // with `desktop_session: memory`.
     if (binding < m_config.minBinding) {
         return Credential{};
     }
@@ -185,10 +182,10 @@ DeviceRegistry::Credential DeviceRegistry::issue(const QString &family,
                                                  bool retireCurrent)
 {
     const QByteArray secret{randomSecret()};
-    // Two callers, one statement. Redeeming the live generation retires it into prev_hash and
-    // starts the overlap window. Redeeming an already-retired one inside that window leaves
-    // prev_hash and its timestamp alone, so a client that keeps crashing between the answer
-    // and its store keeps working without extending the window a single time.
+    // One statement for two cases. Redeeming the live generation retires it into prev_hash
+    // and starts the overlap window. Redeeming the retired one inside the window leaves
+    // prev_hash and its timestamp alone, so a client that crashes between the answer and
+    // its store keeps working without extending the window.
     const QString sql{retireCurrent
         ? QStringLiteral("UPDATE synqt_devices SET current_hash = ?, current_gen = ?, "
                          "prev_hash = ?, prev_issued_ms = ?, last_used_ms = ? WHERE family = ?")
@@ -233,9 +230,8 @@ DeviceRegistry::Redemption DeviceRegistry::redeem(const QString &family,
     if (row.value(QStringLiteral("revoked")).toInt() != 0) {
         return outcome;
     }
-    // A credential enrolled against one edge origin is not a credential for another. This is
-    // what keeps a deployment that fronts two origins from being one pool of devices, and it
-    // costs nothing.
+    // A credential enrolled for one edge origin is not valid for another, so a deployment
+    // serving two origins keeps two separate device pools.
     if (row.value(QStringLiteral("edge_origin")).toString() != edgeOrigin) {
         return outcome;
     }
@@ -256,23 +252,21 @@ DeviceRegistry::Redemption DeviceRegistry::redeem(const QString &family,
     bool retireCurrent{true};
     if (!constantTimeEquals(presented, currentHash)) {
         if (prevHash.isEmpty() || !constantTimeEquals(presented, prevHash)) {
-            // Not this family's, at any generation. Refused, and nothing else: revoking here
-            // would let anyone holding a family id sign its owner out by guessing at secrets.
+            // Not this family's at any generation: refused, nothing more. Revoking here
+            // would let anyone with a family id sign its owner out by guessing.
             return outcome;
         }
         const qint64 retiredMs{row.value(QStringLiteral("prev_issued_ms")).toLongLong()};
         if (now - retiredMs > static_cast<qint64>(m_config.overlapSeconds) * 1000) {
-            // Past the window, so this is the case the whole design exists for: the live
-            // generation was collected by somebody, and this presentation came from a second
-            // copy of the retired one. Which of the two is the visitor is unknowable, so both
-            // lose the family and every session descended from it.
+            // Past the window: the live generation was collected by someone, and this is a
+            // second copy of the retired one. The visitor cannot be told apart, so the
+            // family and every session from it are revoked.
             forget(family);
             emit reuseDetected(family);
             return outcome;
         }
-        // Inside the window. The client never got the answer that retired this. It gets the
-        // next generation instead of the one it missed (which nothing holds and nothing can
-        // now present), and the window it is inside is not extended.
+        // Inside the window: the client missed the answer that retired this. It gets the
+        // next generation, and the window is not extended.
         retireCurrent = false;
     }
 
@@ -295,10 +289,8 @@ void DeviceRegistry::forget(const QString &family)
     if (!isOpen() || family.isEmpty()) {
         return;
     }
-    // The rows naming it are left where they are. Reuse detection forgets the
-    // family and then asks sessionsOfFamily() which sessions it opened, so deleting them
-    // here would answer "none" at the one moment the answer matters. They are reclaimed by
-    // purgeExpired() instead, which is where an orphan belongs.
+    // The rows naming it stay: reuse detection forgets the family and then asks
+    // sessionsOfFamily() which sessions it opened. purgeExpired() reclaims the orphans.
     m_store->exec(QStringLiteral("DELETE FROM synqt_devices WHERE family = ?"), {family});
 }
 
@@ -307,8 +299,7 @@ void DeviceRegistry::forgetSub(const QString &sub)
     if (!isOpen() || sub.isEmpty()) {
         return;
     }
-    // As in forget(): the rows naming these families are reclaimed by purgeExpired(), not
-    // here, so nothing that wants to walk them loses them out from under it.
+    // As in forget(): purgeExpired() reclaims the rows naming these families.
     m_store->exec(QStringLiteral("DELETE FROM synqt_devices WHERE sub = ?"), {sub});
 }
 
@@ -317,9 +308,13 @@ void DeviceRegistry::bindSession(const QByteArray &sessionId, const QString &fam
     if (!isOpen() || sessionId.isEmpty() || family.isEmpty()) {
         return;
     }
-    // Delete then insert rather than an upsert: the two engines behind this interface
-    // spell an upsert differently, and this table is small and written once per sign-in.
-    const QString token{QString::fromLatin1(sessionId)};
+    // Delete then insert instead of an upsert, which the two engines spell differently; the
+    // table is small and written once per sign-in.
+    //
+    // The key, never the id. This table outlives the process as a file or a shared
+    // database, and a backup holding ids would hold every live session. The key names a
+    // session everywhere else (SessionManager::keyFor) and buys nobody a session.
+    const QString token{SessionManager::keyFor(sessionId)};
     m_store->exec(QStringLiteral("DELETE FROM synqt_session_family WHERE session_id = ?"),
                   {token});
     m_store->exec(QStringLiteral("INSERT INTO synqt_session_family "
@@ -334,7 +329,7 @@ QString DeviceRegistry::familyOf(const QByteArray &sessionId) const
     }
     const DbResult found{m_store->query(
         QStringLiteral("SELECT family FROM synqt_session_family WHERE session_id = ?"),
-        {QString::fromLatin1(sessionId)})};
+        {SessionManager::keyFor(sessionId)})};
     if (!found.ok || found.rows.isEmpty()) {
         return QString{};
     }
@@ -343,16 +338,24 @@ QString DeviceRegistry::familyOf(const QByteArray &sessionId) const
 
 void DeviceRegistry::unbindSession(const QByteArray &sessionId)
 {
-    if (!isOpen() || sessionId.isEmpty()) {
+    if (sessionId.isEmpty()) {
+        return;
+    }
+    unbindSessionKey(SessionManager::keyFor(sessionId));
+}
+
+void DeviceRegistry::unbindSessionKey(const QString &sessionKey)
+{
+    if (!isOpen() || sessionKey.isEmpty()) {
         return;
     }
     m_store->exec(QStringLiteral("DELETE FROM synqt_session_family WHERE session_id = ?"),
-                  {QString::fromLatin1(sessionId)});
+                  {sessionKey});
 }
 
-QList<QByteArray> DeviceRegistry::sessionsOfFamily(const QString &family) const
+QStringList DeviceRegistry::sessionsOfFamily(const QString &family) const
 {
-    QList<QByteArray> sessions;
+    QStringList sessions;
     if (!isOpen() || family.isEmpty()) {
         return sessions;
     }
@@ -364,8 +367,7 @@ QList<QByteArray> DeviceRegistry::sessionsOfFamily(const QString &family) const
     }
     sessions.reserve(found.rows.size());
     for (const QVariant &row : found.rows) {
-        sessions.append(
-            row.toMap().value(QStringLiteral("session_id")).toString().toLatin1());
+        sessions.append(row.toMap().value(QStringLiteral("session_id")).toString());
     }
     return sessions;
 }
@@ -375,27 +377,23 @@ void DeviceRegistry::purgeExpired()
     if (m_store == nullptr) {
         return;
     }
-    // Both clocks at once, and on the way in to the rare operations (opening, enrolling)
-    // rather than on every redemption. A row past either one is refused inline anyway, so
-    // this is about not keeping a visitor's sub and identity on disk for years after the
-    // credential naming them stopped working.
+    // Both clocks at once, on the rare operations (opening, enrolling) rather than every
+    // redemption. Expired rows are refused inline anyway; this keeps a visitor's sub and
+    // identity from staying on disk for years.
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
     const qint64 idleBefore{now - daysToMs(m_config.inactivityDays)};
     m_store->exec(QStringLiteral("DELETE FROM synqt_devices WHERE expires_ms <= ? "
                                  "OR last_used_ms < ?"),
                   {now, idleBefore});
-    // Then whatever is left pointing at a family that is no longer there. A row here is
-    // written once per stored sign-in and deleted by a sign-out or a session expiring, so
-    // the ones that survive are the sign-ins nobody ever ended, which, on a store shared
-    // by a replicated edge, is most of them. Without this the table grows for the life of
-    // the store, and it is the table a sign-out reads to find the family it must end.
+    // Then rows pointing at a family that is gone. A row is written per stored sign-in and
+    // deleted by sign-out or session expiry, so the survivors are sign-ins nobody ended,
+    // most of them on a store shared by a replicated edge. Without this the table, which
+    // sign-out reads, grows forever.
     //
-    // Only rows old enough that nothing can still be writing them, and that is not
-    // fastidiousness. Reuse detection forgets a family and then asks which sessions it
-    // opened, and a caller may bind a session a moment after the family it names was
-    // created. A day is far past either, and a row that waits one more day to be reclaimed
-    // costs nothing. Written as NOT IN rather than a join, because the same statement has
-    // to be accepted by every persistence provider a deployment may point this at.
+    // Only rows old enough that nothing still writes them: reuse detection forgets a family
+    // and then reads its sessions, and a session may be bound just after its family is
+    // created. A day is far past both. NOT IN rather than a join, so every persistence
+    // provider accepts it.
     m_store->exec(QStringLiteral(
         "DELETE FROM synqt_session_family WHERE created_ms < ? AND family NOT IN "
         "(SELECT family FROM synqt_devices)"), {now - daysToMs(1)});

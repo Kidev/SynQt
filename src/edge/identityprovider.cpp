@@ -1053,10 +1053,10 @@ void IdentityProvider::onReuseDetected(const QString &family)
     if (m_devices == nullptr) {
         return;
     }
-    const QList<QByteArray> sessions{m_devices->sessionsOfFamily(family)};
-    for (const QByteArray &sessionId : sessions) {
-        m_devices->unbindSession(sessionId);
-        m_sessions->revoke(sessionId);
+    const QStringList sessions{m_devices->sessionsOfFamily(family)};
+    for (const QString &sessionKey : sessions) {
+        m_devices->unbindSessionKey(sessionKey);
+        m_sessions->revokeByKey(sessionKey);
     }
 }
 
