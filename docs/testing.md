@@ -3,14 +3,14 @@
 
 # Testing your app
 
-A connect point's slot is where authorization lives. It is the piece of an application
-most worth a test and the piece hardest to check by clicking around, because the
-interesting cases are the ones the UI does not offer, the bid that is too low, the caller
-who is signed out, the entity that is not the edge.
+Authorization lives in a connect point's slots. They are the part of an application most
+worth testing and the hardest to check by clicking around, because the interesting cases
+are the ones the UI does not offer: a bid too low, a signed-out caller, an entity that is
+not the edge.
 
-So SynQt tests slots the way you write them, in QML. A test file names the Source it
-drives and says who is calling, and `synqt test` builds and runs it. There is no C++, no
-database to start, no certificates to issue, and no browser.
+So SynQt tests slots in QML, the language you write them in. A test file names the Source it
+drives and says who is calling, and `synqt test` builds and runs it. You need no C++, no
+database, no certificates and no browser.
 
 ```cli
 synqt test
@@ -18,8 +18,8 @@ synqt test
 
 ## The shape of a test
 
-Tests live in `tests/`, one file per thing under test, named `tst_<Something>.qml`. Qt
-Quick Test finds them by directory, so adding a file needs no registration anywhere.
+Tests live in `tests/`, one file per subject, named `tst_<Something>.qml`. Qt Quick Test
+finds them by directory, so a new file needs no registration.
 
 Given this edge Source:
 
@@ -97,9 +97,9 @@ TestCase {
 }
 ```
 
-`TestCase`, `SignalSpy`, `compare` and `verify` are [Qt Quick
-Test](https://doc.qt.io/qt-6/qtquicktest-index.html) and behave exactly as they do
-anywhere else. The only SynQt-specific type is `EntityTest`.
+`TestCase`, `SignalSpy`, `compare` and `verify` come from
+[Qt Quick Test](https://doc.qt.io/qt-6/qtquicktest-index.html) and behave as they do
+anywhere. The only SynQt type is `EntityTest`.
 
 ## `EntityTest`
 
@@ -121,22 +121,22 @@ anywhere else. The only SynQt-specific type is `EntityTest`.
 
 ## What is real and what is substituted
 
-The line between the two is what a test here can be trusted to prove.
+This line decides what a test here can prove.
 
-**Real**: the Source, compiled from your QML through the same generated type the
-entity uses (`Edge` for an `edge` entity). `Caller`, minted through the same factory the
-mesh and the web edge mint it through, including the typed `emit<Signal>` methods and
-hierarchical `hasScope`. The entity type helpers, `Db`, `Cache`, `Docs` and `Jobs`, are the
-same classes an entity gets, and so is `Log`, which every entity has.
+**Real:** the Source, compiled from your QML through the same generated type the entity
+uses (`Edge` for an `edge` entity); `Caller`, created by the same factory the mesh and the
+web edge use, with the typed `emit<Signal>` methods and hierarchical `hasScope`; and the
+type helpers `Db`, `Cache`, `Docs` and `Jobs`, the same classes an entity gets, as is
+`Log`.
 
-**Substituted**: only the engine behind a helper. `Db` runs on SQLite in memory, `Cache`
-and `Docs` on the memory providers. Nothing else is faked, and there is no test-only
-door in `Caller` for the harness to use. It reaches it the same way a transport does.
+**Substituted:** only the engine behind a helper. `Db` runs on in-memory SQLite, `Cache` and
+`Docs` on the memory providers. Nothing else is faked, and `Caller` has no test-only entry
+point: the harness reaches it the same way a transport does.
 
 ### Asserting on what an entity said
 
-`Log.info("bid accepted", { amount: amount })` in an entity's QML is a fact about how it
-behaves, so `recorded()` hands it back:
+`Log.info("bid accepted", { amount: amount })` in an entity's QML describes how it behaves,
+so `recorded()` returns it:
 
 ```qml
     function test_an_accepted_bid_is_recorded() {
@@ -150,32 +150,35 @@ behaves, so `recorded()` hands it back:
     }
 ```
 
-The list is the real pipeline's, drained on every `load()`, so one test never reads what an
-earlier one said. It holds the framework's own events too, which is why the example filters
-rather than counting: a signed-in caller means a session, and a session being created is
-something the framework records.
+The list comes from the real pipeline, drained on every `load()`, so a test never sees what
+an earlier one logged. It also holds the framework's own events, so the example filters
+instead of counting: a signed-in caller means a session, and the framework records session
+creation.
 
-What follows from that: a slot cannot pass here and fail in production because the test
-stubbed the authorization. It can still fail for a reason the harness does not
-model, and there are four:
+So a slot cannot pass here and fail in production because the test stubbed the
+authorization. It can still fail for five reasons the harness does not model:
 
-- **The transport.** The harness calls slots directly, so nothing here proves a contract
-  replicates, a model reaches a browser, or a link comes up. Those are the framework's
-  own guarantees, tested in SynQt's suite, not yours.
-- **The topology.** Whether an entity is even allowed to reach a connect point is decided
-  by the consumer allowlist, not by a slot, and `synqt check` is what answers it.
-- **The engine.** A statement that works on SQLite may not on PostgreSQL. Testing the
-  slot's logic is not testing your SQL against the engine you deploy.
-- **The entity next door.** One Source is loaded on its own, so the accessors for
-  consumed entities are absent. A slot that calls `Books.recordWinner(...)`
-  fails with `Books is not defined`.
+- **The transport.** The harness calls slots directly, so nothing here proves that a
+  contract replicates, a model reaches a browser, or a link comes up. SynQt's own suite
+  tests those guarantees.
+- **The contract's own checks.** `harness.subject.placeBid(...)` calls your QML function
+  directly, not the generated slot in front of it, so a `<admin>` gate or a `string[64]`
+  bound in the `export:` block does not refuse the call here. Those run on the wire, and
+  SynQt's suite tests them. A test here proves the authorization your function writes:
+  `Caller.hasScope` and the rest.
+- **The topology.** The consumer allowlist decides whether an entity may reach a connect
+  point at all; `synqt check` covers it.
+- **The engine.** A statement that works on SQLite may fail on PostgreSQL. Testing the
+  slot's logic does not test your SQL against the engine you deploy.
+- **Neighboring entities.** The harness loads one Source alone, so accessors for consumed
+  entities are absent: a slot that calls `Books.recordWinner(...)` fails with
+  `Books is not defined`.
 
-The accessor is absent rather than stubbed for a reason. A stub would have to invent what
-the other entity returns, and a test that passes against an invented answer is worse than
-no test. So the harness stays out of
-it and the missing name reports itself. What to do instead: test the callee's slot in its
-own file, where its rules are real, and leave the call between them to `synqt check` (which
-decides whether it is allowed at all) and to a running system.
+The accessor is absent, not stubbed, on purpose: a stub would have to invent the other
+entity's answers, and a test that passes against invented answers is worse than none. So
+the missing name reports itself. Instead, test the other entity's slot in its own file,
+where its rules are real, and leave the call between them to `synqt check` (which decides
+whether it is allowed) and to a running system.
 
 Split a slot that both decides and delegates, and both halves become testable:
 
@@ -189,16 +192,15 @@ function closeLot(nextItem) {
 }
 ```
 
-A test that drives `closeLot` as an under-scoped caller never reaches the second half and
-passes. One that drives it as an admin does reach it, and needs the branch left out of the
-test, or the slot split so the decision is a function of its own.
+A test that calls `closeLot` as a caller below the scope never reaches the second half, and
+passes. A test that calls it as an admin reaches it, so either avoid that branch in the
+test or split the slot so the decision is its own function.
 
 ## Running them
 
-`synqt test` builds the test target and runs it under CTest. The project has to have been
-built once first, because that is what configures the build directory. Run `synqt test`
-against a project that never has been and it says so rather than reporting a passing run
-over nothing.
+`synqt test` builds the test target and runs it under CTest. Build the project once first,
+which configures the build directory. Against a project never built, `synqt test` says so
+instead of reporting a pass over nothing.
 
 ```cli
 synqt test
@@ -212,20 +214,20 @@ Test project /home/you/gavel/build/host
 100% tests passed out of 1
 ```
 
-Run one file or one function during development by invoking the binary, which takes the
+During development, run one file or one function by calling the binary, which takes the
 usual Qt Test arguments:
 
 ```cli
 ./build/host/app_tests -platform offscreen Auction::test_a_lower_bid_is_refused
 ```
 
-A project with no `tests/tst_*.qml` has nothing to run, and `synqt test` says so rather
-than reporting a passing run over zero tests.
+With no `tests/tst_*.qml`, there is nothing to run, and `synqt test` says so instead of
+reporting a pass over zero tests.
 
 ## Testing an entity that is not the edge
 
-Nothing changes. A database Source authorizes an entity rather than a person, so the test
-says which entity is calling:
+It works the same way. A database Source authorizes an entity instead of a person, so the
+test names the calling entity:
 
 ```qml
 function test_only_the_edge_may_record() {
@@ -239,7 +241,7 @@ function test_only_the_edge_may_record() {
 }
 ```
 
-A slot backed by `Db` needs its tables, so point `schema` at the same file the entity
+A slot that uses `Db` needs its tables, so point `schema` at the file the entity
 applies:
 
 ```qml
@@ -252,12 +254,12 @@ EntityTest {
 ```
 
 Each `load()` reopens the in-memory database and reapplies the schema, so every test
-function starts from an empty one.
+function starts empty.
 
 ## Where this fits
 
-`synqt check` and `synqt test` answer different questions and neither replaces the other.
-`synqt check` reads the configuration. It catches a client consuming a connect
-point the browser cannot reach, an `env:` value that would ship to a browser, or a mesh
-link that dropped mutual TLS. `synqt test` runs your code. It catches a slot that
-forgot to check `Caller`. Both are worth having in the same command in CI.
+`synqt check` and `synqt test` answer different questions; neither replaces the other.
+`synqt check` reads the configuration: it catches a client consuming a connect point the
+browser cannot reach, an `env:` value that would ship to a browser, or a mesh link without
+mutual TLS. `synqt test` runs your code: it catches a slot that forgot to check `Caller`.
+Run both in CI.
