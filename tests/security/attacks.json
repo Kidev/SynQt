@@ -929,6 +929,27 @@
       "defended_by": "The registry stores the session's key (SessionManager::keyFor, the same handle a downstream entity gets) and never the id; lookups derive the key from the id held in memory, and reuse detection revokes by key, so nothing on disk buys anyone a session.",
       "file": "tests/m8-auth/tst_device.cpp",
       "test": "theStoreHoldsTheSessionKeyAndNeverTheCredential"
+    },
+    {
+      "id": "a-trace-identifier-a-peer-chose-the-shape-of",
+      "what": "The trace a call belongs to travels beside the session a calling entity is acting for, and was read off the wire as whatever string arrived. The two values are then stamped on every record the call writes, kept on the Caller, and forwarded again under this entity's name, so one peer sending a megabyte where a trace identifier goes filled the ring, the link to the monitor and the monitor's store on every call, and every entity further down the chain repeated it. A shorter arbitrary string is the quieter half: the console asks for a trace by `string[32]`, so a record joined to an identifier that is not one is in the history and cannot be found in it.",
+      "defended_by": "Both identifiers are read only in the shape the tracer mints (32 and 16 lower-case hex characters, neither all zeroes) and only both together, or neither is taken and the call starts a trace of its own. The same rule is applied where a reported record arrives at the monitor, so a compromised reporting entity cannot store one either. A browser is refused outright, as it is for the session: a user Caller reads no assertion out of a call.",
+      "file": "tests/monitor/tst_pipeline.cpp",
+      "test": "aPeerNamesATraceOnlyInTheShapeTheTracerMints"
+    },
+    {
+      "id": "a-record-reported-under-an-identifier-that-is-not-one",
+      "what": "Severity and category are checked against the vocabulary where a reported record arrives, because a value outside it is recorded and then matches no filter. The trace identifiers on the same record were not checked at all: a reporting entity could put a string of any length and any content into the traceId, spanId and parentSpanId columns of the history, into every export and in front of the operator, and no console question could ever reach the record again.",
+      "defended_by": "TraceEvent::fromVariant reads a trace identifier only in the shape the tracer mints and drops one that is not, keeping the record itself: what was wrong with it was the identifier, and a record is never swallowed. Dropped rather than truncated, because a shortened identifier would join the record to a story it does not belong to.",
+      "file": "tests/monitor/tst_pipeline.cpp",
+      "test": "aReportedTraceIdentifierIsOneOrIsNotStoredAsOne"
+    },
+    {
+      "id": "a-session-forwarded-as-a-person-with-no-name",
+      "what": "A forwarded session was taken whenever the map it arrives in was not empty. Once the trace travels in that same map, a call made by an entity acting for nobody carries the trace and no key, and the old rule read it as a session: the entity downstream answered `Caller.hasSession` true for a person with an empty key, an empty scope and no identity, which is a caller that authorizes as nobody but reads as somebody.",
+      "defended_by": "A session is one with a key. The map is read as a session only when the key is there, so a call carrying a trace and nothing else is what it is: an entity acting on its own behalf.",
+      "file": "tests/monitor/tst_pipeline.cpp",
+      "test": "aPeerNamesATraceOnlyInTheShapeTheTracerMints"
     }
   ]
 }

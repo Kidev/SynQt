@@ -3,28 +3,24 @@
 
 #include "traceevent.h"
 
+#include "tracecontext.h"
+
 namespace SynQt {
 
-// Field by field, both ways, and no loop over a table of names. A field added to the
-// struct without a line added here should fail to compile or fail a test, not silently
-// stop crossing the link. A monitoring record that quietly loses half of itself is worse
-// than one that never arrives, because the operator reading it cannot tell.
+// Field by field, both ways, with no loop over a name table, so a new struct field without
+// a line here fails to compile or fails a test instead of silently not crossing the link.
 
 namespace {
 
 /// One of the enumerators, or `fallback`.
 ///
-/// `fromVariant` reads a record off the wire, and the two enums cross as their numbers, so
-/// a static_cast alone means a number this build has no enumerator for becomes a value of
-/// the enum type anyway. Nothing crashes on one today (`severityName` and `categoryName`
-/// answer with a default, and the store writes the number down), but the event it is on is
-/// then invisible to every category filter the console offers, and to the severity floor
-/// too. An event nobody can find is worse than one that was never sent, so a number outside
-/// the vocabulary is read as the ordinary value rather than kept as an unfilterable one.
+/// `fromVariant` reads a record from the wire, where both enums are numbers; a bare
+/// static_cast would keep an unknown number as an enum value. Such an event would be
+/// invisible to every console category filter and to the severity floor, so an unknown
+/// number reads as the ordinary value.
 ///
-/// It also keeps the enums to what `Tracer::isEnabled` assumes, which is an unchecked index
-/// into a six-element array. Nothing routes a wire event through it, and this is what makes
-/// that a fact about the boundary rather than about the current call graph.
+/// It also keeps the enums within what `Tracer::isEnabled` assumes: an unchecked index into
+/// a six-element array.
 template <typename Enum>
 Enum enumeratorOr(const QVariant &value, Enum last, Enum fallback)
 {
@@ -65,9 +61,15 @@ TraceEvent TraceEvent::fromVariant(const QVariantMap &value)
     event.category = enumeratorOr(value.value(QStringLiteral("category")),
                                   Category::Application, Category::Lifecycle);
     event.entity = value.value(QStringLiteral("entity")).toString();
-    event.traceId = value.value(QStringLiteral("traceId")).toString();
-    event.spanId = value.value(QStringLiteral("spanId")).toString();
-    event.parentSpanId = value.value(QStringLiteral("parentSpanId")).toString();
+    // The same rule for trace identifiers. One that is not the shape the tracer mints can
+    // be stored but never followed: the console asks by `string[32]`, and an unbounded one
+    // lets an entity choose a column size. Dropped, not truncated, since a truncated
+    // identifier could join this record to an unrelated trace. The event itself is kept.
+    const TraceContext named{TraceContext::readFrom(value)};
+    event.traceId = named.traceId;
+    event.spanId = named.spanId;
+    const QString parent{value.value(QStringLiteral("parentSpanId")).toString()};
+    event.parentSpanId = TraceContext::isSpanId(parent) ? parent : QString{};
     event.durationUs = value.value(QStringLiteral("durationUs"), -1).toLongLong();
     event.ok = value.value(QStringLiteral("ok"), true).toBool();
     event.message = value.value(QStringLiteral("message")).toString();

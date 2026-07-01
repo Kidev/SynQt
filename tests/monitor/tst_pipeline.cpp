@@ -7,11 +7,13 @@
 // they assert the shape of the losses (bounded, counted, newest kept) rather than only
 // the happy path.
 
+#include "actingfor.h"
 #include "caller.h"
 #include "eventring.h"
 #include "tracecontext.h"
 #include "tracer.h"
 #include "traceevent.h"
+#include "tracescope.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -368,9 +370,26 @@ private slots:
         entity->assumeSession(forwarded);
         QCOMPARE(entity->traceContext().traceId, edgeSpan.traceId);
         QCOMPARE(entity->traceContext().spanId, edgeSpan.spanId);
-        // And it keeps travelling, or the chain stops at the first hop.
-        QCOMPARE(entity->forwardedSession().value(QStringLiteral("traceId")).toString(),
-                 edgeSpan.traceId);
+
+        // And it keeps travelling, or the chain stops at the first hop. What travels is
+        // the span this entity opens under the one it was sent, as the generated slot body
+        // does, and not the parent again. A call made further on is a child of this
+        // call, which is what makes the console draw a chain and not a fan.
+        const TraceContext own{tracer.startSpan(entity->traceContext(), QStringLiteral("insert"))};
+        {
+            const TraceScope scope{own};
+            const ActingFor acting{entity};
+            const QVariantMap onward{ActingFor::current()};
+            QCOMPARE(onward.value(QStringLiteral("traceId")).toString(), edgeSpan.traceId);
+            QCOMPARE(onward.value(QStringLiteral("spanId")).toString(), own.spanId);
+            QCOMPARE(onward.value(QStringLiteral("key")).toString(), QStringLiteral("k"));
+        }
+        // Outside any span the map carries the session and no trace. Nothing is left on
+        // the thread by a call that ended.
+        {
+            const ActingFor acting{entity};
+            QVERIFY(!ActingFor::current().contains(QStringLiteral("traceId")));
+        }
 
         // A browser could put the same fields in a call. It is the one caller whose
         // assertions are never read, and a trace id is no different from a session key.
@@ -379,9 +398,122 @@ private slots:
         QVERIFY(!user->traceContext().isValid());
     }
 
+    /// A peer's trace identifiers are read as far as their shape, and no further.
+    ///
+    /// The session a mesh caller forwards is that entity's word, worth the certificate
+    /// that got it through the handshake, and the trace rides in the same map. What the
+    /// shape rule adds is a bound on what that word can do. The two fields are stored on
+    /// this entity's Caller, stamped onto every record the call writes, and forwarded on
+    /// under this entity's name, so a peer that could put any string there could fill the
+    /// monitor with it and have every entity further down repeat it. Both identifiers have
+    /// to be exactly what the tracer would mint, or neither is taken and the call starts
+    /// a trace of its own.
+    void aPeerNamesATraceOnlyInTheShapeTheTracerMints()
+    {
+        QObject owner;
+        Caller *entity{Caller::forEntity(QString{}, QStringLiteral("web"), true, nullptr, &owner)};
+        const QString goodTrace{QStringLiteral("0af7651916cd43dd8448eb211c80319c")};
+        const QString goodSpan{QStringLiteral("b7ad6b7169203331")};
+
+        auto sent = [](const QString &traceId, const QString &spanId) {
+            QVariantMap forwarded;
+            forwarded.insert(QStringLiteral("key"), QStringLiteral("k"));
+            forwarded.insert(QStringLiteral("traceId"), traceId);
+            forwarded.insert(QStringLiteral("spanId"), spanId);
+            return forwarded;
+        };
+
+        entity->assumeSession(sent(goodTrace, goodSpan));
+        QCOMPARE(entity->traceContext().traceId, goodTrace);
+        QCOMPARE(entity->traceContext().spanId, goodSpan);
+
+        const QList<QPair<QString, QString>> refused{
+            {QString{QStringLiteral("a")}.repeated(1 << 20), goodSpan},  // unbounded
+            {goodTrace.left(31), goodSpan},                             // short
+            {goodTrace + QLatin1Char('0'), goodSpan},                   // long
+            {goodTrace.toUpper(), goodSpan},                            // not the alphabet
+            {QStringLiteral("0af7651916cd43dd8448eb211c80319g"), goodSpan},
+            {QString{32, QLatin1Char('0')}, goodSpan},                  // all zeroes
+            {goodTrace, QString{16, QLatin1Char('0')}},
+            {goodTrace, goodSpan.left(15)},
+            {goodTrace, QStringLiteral("<script>alert(1)")},            // 16 chars, still no
+            {goodTrace, QString{}},                                     // one of the two
+            {QString{}, goodSpan},
+        };
+        for (const QPair<QString, QString> &pair : refused) {
+            entity->assumeSession(sent(pair.first, pair.second));
+            QVERIFY2(!entity->traceContext().isValid(),
+                     qPrintable(QStringLiteral("taken: '%1' / '%2'")
+                                    .arg(pair.first.left(40), pair.second)));
+            QVERIFY(entity->traceContext().traceId.isEmpty());
+            QVERIFY(entity->traceContext().spanId.isEmpty());
+        }
+
+        // A map that holds a trace and no key is a call by an entity acting for nobody;
+        // it is not a person with an empty name.
+        QVariantMap traceOnly;
+        traceOnly.insert(QStringLiteral("traceId"), goodTrace);
+        traceOnly.insert(QStringLiteral("spanId"), goodSpan);
+        entity->assumeSession(traceOnly);
+        QVERIFY(!entity->hasSession());
+        QCOMPARE(entity->traceContext().traceId, goodTrace);
+        QVariantMap emptyKey;
+        emptyKey.insert(QStringLiteral("key"), QString{});
+        emptyKey.insert(QStringLiteral("scope"), QStringLiteral("admin"));
+        entity->assumeSession(emptyKey);
+        QVERIFY(!entity->hasSession());
+        QVERIFY(entity->scope().isEmpty());
+    }
+
+    /// A reported identifier is a trace identifier, or it is not stored as one.
+    ///
+    /// The severities and the categories above cross the ingest link as numbers and are
+    /// checked against the vocabulary here. The trace identifiers cross as strings and
+    /// were not checked at all. A reporting entity is authenticated by its certificate,
+    /// which says who it is and not that everything it sends is well formed, and one of
+    /// them sending an arbitrary string put a value of its choosing, of a length of its
+    /// choosing, into a column in the history, into every export, and in front of the
+    /// operator. The console asks for a trace by `string[32]`, so a longer one could never
+    /// be followed either: recorded, and unfindable, which is the defect next door.
+    void aReportedTraceIdentifierIsOneOrIsNotStoredAsOne()
+    {
+        const QString goodTrace{QStringLiteral("0af7651916cd43dd8448eb211c80319c")};
+        const QString goodSpan{QStringLiteral("b7ad6b7169203331")};
+
+        QVariantMap wire;
+        wire.insert(QStringLiteral("traceId"), goodTrace);
+        wire.insert(QStringLiteral("spanId"), goodSpan);
+        wire.insert(QStringLiteral("parentSpanId"), QStringLiteral("00f067aa0ba902b7"));
+        const TraceEvent kept{TraceEvent::fromVariant(wire)};
+        QCOMPARE(kept.traceId, goodTrace);
+        QCOMPARE(kept.spanId, goodSpan);
+        QCOMPARE(kept.parentSpanId, QStringLiteral("00f067aa0ba902b7"));
+
+        QVariantMap forged;
+        forged.insert(QStringLiteral("traceId"), QString{QStringLiteral("a")}.repeated(1 << 16));
+        forged.insert(QStringLiteral("spanId"), QStringLiteral("'; DROP TABLE"));
+        forged.insert(QStringLiteral("parentSpanId"), goodTrace);  // right alphabet, wrong length
+        forged.insert(QStringLiteral("message"), QStringLiteral("still a record"));
+        const TraceEvent cleaned{TraceEvent::fromVariant(forged)};
+        QVERIFY(cleaned.traceId.isEmpty());
+        QVERIFY(cleaned.spanId.isEmpty());
+        QVERIFY(cleaned.parentSpanId.isEmpty());
+        // The record is kept. What was wrong with it was the identifiers, not the event,
+        // and an operator reading a quiet period must not be reading a hole.
+        QCOMPARE(cleaned.message, QStringLiteral("still a record"));
+
+        // A root span carries no parent, which is not the same as a malformed one.
+        QVariantMap root;
+        root.insert(QStringLiteral("traceId"), goodTrace);
+        root.insert(QStringLiteral("spanId"), goodSpan);
+        const TraceEvent rooted{TraceEvent::fromVariant(root)};
+        QCOMPARE(rooted.traceId, goodTrace);
+        QVERIFY(rooted.parentSpanId.isEmpty());
+    }
+
     /// A credential handed to a trace call is not what gets recorded.
     ///
-    /// The framework's own call sites record handles, and that is the property; this is
+    /// The framework's own call sites record handles, and that is the property. This is
     /// the backstop under it, for an application's `Log` and for a call site added later.
     void aValueUnderASecretNameIsNeverWhatIsRecorded()
     {
