@@ -51,15 +51,32 @@ CallSpan::CallSpan(const char *contract, const char *member, QObject *caller,
     , m_argumentCount{argumentCount}
 {
     // Warning and not Info, because a refusal must still be recorded when an operator has
-    // turned ordinary call tracing down; the destructor asks again for the severity this
-    // call actually ended up at.
-    if (!Tracer::instance()->isEnabled(Category::Call, Severity::Warning)) {
+    // turned ordinary call tracing down. The destructor asks again for the severity this
+    // call ended up at.
+    Tracer *tracer{Tracer::instance()};
+    if (!tracer->isEnabled(Category::Call, Severity::Warning)) {
         return;
     }
     m_active = true;
     m_startedUs = nowUs();
+    // The span a mesh caller says this call continues, read after the generated body has
+    // taken the session it arrived with; otherwise whatever the thread is doing, which is
+    // nothing for a call arriving over a link and the enclosing span for a call made in
+    // process.
     if (const Caller *typed{qobject_cast<Caller *>(caller)}) {
         m_parent = typed->traceContext();
+    }
+    if (!m_parent.isValid()) {
+        m_parent = TraceScope::current();
+    }
+    // Opened now when it is going to be recorded, or when there is a story to continue:
+    // a refusal downstream of this call must still land in the trace of the click even
+    // when ordinary calls are not being kept. Otherwise the two random identifiers wait
+    // for the destructor, so a call nobody records pays for none.
+    if (tracer->isEnabled(Category::Call, Severity::Info) || m_parent.isValid()) {
+        m_span = tracer->startSpan(m_parent, QString::fromLatin1(m_member));
+        m_span.startedUs = m_startedUs;
+        m_scope.emplace(m_span);
     }
 }
 
@@ -95,10 +112,13 @@ CallSpan::~CallSpan()
         return;
     }
 
-    // Minted here and not in the constructor: generating two random identifiers per call
-    // would be paid by every call, including the ones nobody records.
-    TraceContext span{tracer->startSpan(m_parent, QString::fromLatin1(m_member))};
-    span.startedUs = m_startedUs;
+    // Minted here only for a call that opened no span on the way in, which is one that
+    // was going to be recorded only if it was refused, and was.
+    if (!m_span.isValid()) {
+        m_span = tracer->startSpan(m_parent, QString::fromLatin1(m_member));
+        m_span.startedUs = m_startedUs;
+    }
+    const TraceContext span{m_span};
 
     QVariantMap attributes;
     attributes = m_captured;  // '=' not '{}': brace-init would wrap it in a map

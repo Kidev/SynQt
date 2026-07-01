@@ -3,6 +3,8 @@
 
 #include "actingfor.h"
 
+#include "tracescope.h"
+
 #include <QMetaObject>
 
 namespace SynQt {
@@ -11,15 +13,13 @@ namespace {
 
 QPointer<QObject> &acting()
 {
-    // Per thread, though one entity is one event loop and every slot runs on it. The cost
-    // is a thread-local lookup on a path that already crosses the network, and what it buys
-    // is that "whose session does an outbound call carry" stops being a fact about how the
-    // runtime happens to be scheduled today. A plain static holding that answer is right
-    // until the first slot runs somewhere else, and wrong in the direction where one
-    // caller's session travels under another caller's call.
+    // Per thread, although one entity runs its slots on one event loop: the cost is a
+    // thread-local lookup on a path that already crosses the network, and it keeps the
+    // answer correct if a slot ever runs elsewhere. A plain static would let one caller's
+    // session travel under another's call.
     //
-    // Not a QObject, so none of the caveat in WebSocketTransport's thread_local applies: a
-    // QPointer whose target is gone is already null and destroying it does nothing.
+    // Not a QObject, so WebSocketTransport's thread_local caveat does not apply: a QPointer
+    // to a destroyed target is already null.
     static thread_local QPointer<QObject> caller;
     return caller;
 }
@@ -41,16 +41,27 @@ QVariantMap ActingFor::current()
 {
     QObject *caller{acting().data()};
     if (!caller) {
-        return QVariantMap{};
+        QVariantMap session;
+        withTrace(session);
+        return session;
     }
-    // Asked for here rather than on the way in, so an inbound slot that calls nothing out
-    // pays nothing for this: the lookup happens only when there is an outbound call to
-    // carry the answer. By name, because the generated code that opens an ActingFor has no
-    // way to include caller.h, and a Caller is the only thing that answers to this.
+    // Looked up here, only when there is an outbound call, so a slot that calls nothing out
+    // pays nothing. By name, because the generated code that opens an ActingFor cannot
+    // include caller.h.
     QVariantMap session;
     QMetaObject::invokeMethod(caller, "forwardedSession", Qt::DirectConnection,
                               Q_RETURN_ARG(QVariantMap, session));
+    withTrace(session);
     return session;
+}
+
+void ActingFor::withTrace(QVariantMap &session)
+{
+    // The trace rides with the session, which already travels down the chain. It is not
+    // part of the session: nothing authorizes by it, and a Caller that ignores the map (a
+    // browser's) ignores it too. Taken from the thread, not the caller, because a
+    // continuation acts for nobody and still belongs to the click that started it.
+    TraceScope::current().writeTo(session);
 }
 
 } // namespace SynQt

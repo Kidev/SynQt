@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// A contract a service consumes (compiled with FORWARDS_SESSION), so its slots carry the
+// session and the trace the calling entity is acting in. The shape of the second hop of
+// a click, where the trace has to be continued rather than started.
+contract Ledger {
+    slot post(string[32] item)
+}

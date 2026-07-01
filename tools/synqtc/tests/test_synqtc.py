@@ -3,7 +3,7 @@
 
 """Unit tests for the synqtc contract generator.
 
-Run with. Python3 -m unittest discover -s tools/synqtc
+Run with: python3 -m unittest discover -s tools/synqtc
 """
 
 import os
@@ -79,12 +79,7 @@ class RepLoweringTest(unittest.TestCase):
 
 
 class ModelRoleTypeTest(unittest.TestCase):
-    """A role is typed like everything else a contract declares.
-
-    The type is what lets the boundary check a row before it serializes, and what
-    lets a reader of the contract know what a consumer will get. `var` stays legal
-    for a role that carries anything.
-    """
+    """A role is typed; `var` is allowed for a role that carries anything."""
 
     def roles(self, text):
         return parse_text(text, stem="C").contracts[0].models[0].roles
@@ -145,16 +140,13 @@ class SourceHelperTest(unittest.TestCase):
         self.assertIn('QByteArrayLiteral("text")', source)
         self.assertIn('QByteArrayLiteral("author")', source)
         self.assertIn('QByteArrayLiteral("done")', source)
-        # Registered under the contract's own name. The server file's location already says
-        # which side of the link it is, and an entity never consumes a contract it owns, so
-        # the bare name is free in every binary that has this helper in it.
+        # Registered under the contract's own name; an entity never consumes a contract it
+        # owns.
         self.assertIn('qmlRegisterType<TodoSourceHelper>("SynQt", 1, 0, "Todo")', source)
 
     def test_registering_sources_installs_the_qtquick_re_export(self):
-        # `import SynQt` brings QtQuick with it only once someone has said so, and the one
-        # thing every host of a Source does is register the contract. A host that had to know
-        # to make a second call got "Timer is not a type" (tests/m1-contract/tst_qmlimport.cpp
-        # is the same claim against a real engine).
+        # Registering the contract installs the QtQuick re-export (see
+        # tests/m1-contract/tst_qmlimport.cpp).
         syn = parse_text(TODO, stem="Todo")
         source = emit_source_helper_source(syn, "todo")
         self.assertIn("#if __has_include(<moduleimports.h>)", source)
@@ -170,10 +162,8 @@ class SourceHelperTest(unittest.TestCase):
         self.assertIn("bool clear() override;", header)
 
     def test_contract_with_signals_emits_typed_caller_sugar(self):
-        # A contract with a signal gets a <Contract>Caller whose emit<Signal>(...) forwards
-        # to emitSignal, giving owner QML Caller.emit<Signal>(...). It is guarded on the
-        # service runtime's caller.h so a rep-only target still compiles, and a factory is
-        # registered so forUser/forEntity mint it.
+        # A contract with a signal gets a <Contract>Caller with emit<Signal>(...), guarded
+        # on caller.h, and a registered factory.
         syn = parse_text(TODO, stem="Todo")
         header = emit_source_helper_header(syn, "todo")
         source = emit_source_helper_source(syn, "todo")
@@ -186,8 +176,7 @@ class SourceHelperTest(unittest.TestCase):
         self.assertIn('SynQt::Caller::registerCallerFactory(QStringLiteral("Todo")', source)
 
     def test_contract_without_signals_has_no_caller_subclass(self):
-        # A signal-less contract gets no <Contract>Caller and no factory (the base Caller,
-        # with emitSignal, remains available).
+        # A signal-less contract gets no <Contract>Caller and no factory.
         syn = parse_text("contract Catalog { prop int count slot pick(int index) }",
                          stem="Catalog")
         header = emit_source_helper_header(syn, "catalog")
@@ -204,8 +193,8 @@ class ConsumerFacadeTest(unittest.TestCase):
         return emit_consumer_source(parse_text(text, stem=stem), lstem)
 
     def test_facade_forwards_property_model_and_slots(self):
-        # The <Contract>Consumer facade exposes each push property and model as a Q_PROPERTY,
-        # a void slot as a plain Q_INVOKABLE, and a returning slot as a Promise-returning one.
+        # The facade exposes push properties and models as Q_PROPERTY, void slots as
+        # Q_INVOKABLE, and returning slots as Promise-returning ones.
         header = self.header()
         self.assertIn("class TodoConsumer : public SynQt::ConsumerBase", header)
         self.assertIn("Q_PROPERTY(int count READ count NOTIFY countChanged)", header)
@@ -222,9 +211,8 @@ class ConsumerFacadeTest(unittest.TestCase):
         self.assertIn("return new SynQt::Promise{reply, engine, this};", source)
 
     def test_one_qml_name_is_the_facade_itself(self):
-        # `Todo.add(...)`, a binding on `Todo.count` and `Todo.onRejected:` are all the same
-        # object. The facade is its own attached type, and the attaching function hands back
-        # the live one the runtime installed rather than making another.
+        # `Todo.add(...)`, `Todo.count` and `Todo.onRejected:` are one object: the attaching
+        # function returns the live facade.
         header = self.header()
         source = self.source()
         self.assertIn("QML_ATTACHED(TodoConsumer)", header)
@@ -239,14 +227,12 @@ class ConsumerFacadeTest(unittest.TestCase):
                       source)
         self.assertIn('qmlRegisterType<TodoConsumer>("SynQt", 1, 0, "Todo");', source)
         self.assertIn('SynQt::registerConsumerFactory(QStringLiteral("Todo")', source)
-        # Same reason as the Source side. A consumer's view is a window, so registering the
-        # contract has to be enough for `import SynQt` to carry QtQuick.
+        # The consumer side installs the QtQuick re-export too.
         registration = source.split("void synqtRegisterTodoConsumers()", 1)[1]
         self.assertIn("SynQt::registerModuleImports();", registration)
 
     def test_everything_is_guarded_on_the_runtime_header(self):
-        # A Replica-only target (no consumer runtime) compiles the file away to the
-        # registration stub, so it still links.
+        # A Replica-only target compiles to the registration stub.
         header = self.header()
         source = self.source()
         self.assertIn("#if __has_include(<consumerbase.h>)", header)
@@ -317,15 +303,14 @@ class ValueTypeTest(unittest.TestCase):
                 self.assertIn(f"PROP({ctype} {name} READPUSH)", self.rep)
 
     def test_the_rep_includes_the_headers_its_types_need(self):
-        # repc copies single-line directives into its output. Its own includes stop at
-        # qvariant.h, so a date or a URL would otherwise compile only by luck.
+        # repc's own includes stop at qvariant.h, so the needed headers are emitted.
         for header in ("QDateTime", "QUrl", "QString", "QVariantList", "QVariant"):
             with self.subTest(header=header):
                 self.assertIn(f"#include <{header}>", self.rep)
 
 
 class BoundedTypeTest(unittest.TestCase):
-    """A bound written in a contract is a rule the boundary keeps, not a comment on it."""
+    """The boundary enforces every bound written in a contract."""
 
     SYN = """
         contract Players {
@@ -388,8 +373,7 @@ class BoundedTypeTest(unittest.TestCase):
 
 
 class ForwardedSessionTest(unittest.TestCase):
-    """A contract a service consumes carries the session the calling entity is acting for,
-    so the chain keeps its person past the edge."""
+    """A contract a service consumes carries the session the calling entity acts for."""
 
     SYN = """
         contract Ledger {
@@ -424,6 +408,14 @@ class ForwardedSessionTest(unittest.TestCase):
         dispatch = slot.index("synqtQmlSlotIndex")
         self.assertLess(taken, dispatch)
 
+    def test_the_span_opens_after_the_session_it_continues_is_taken(self):
+        # The session is taken before the span opens, so the span continues the right trace.
+        source = emit_source_helper_source(self.parse(True), "ledger")
+        slot = source[source.index("void LedgerSourceHelper::note"):]
+        taken = slot.index('"assumeSession"')
+        opened = slot.index("SynqtCallSpan synqtSpan{")
+        self.assertLess(taken, opened)
+
     def test_the_owner_does_not_hand_the_session_to_the_owners_qml(self):
         # The QML implementation takes the arguments the contract declares and no others.
         source = emit_source_helper_source(self.parse(True), "ledger")
@@ -432,8 +424,7 @@ class ForwardedSessionTest(unittest.TestCase):
         self.assertNotIn("QVariant::fromValue(synqtSession)", slot)
 
     def test_every_slot_names_the_caller_it_is_answering(self):
-        # Whether or not the contract forwards. This is where a chain starts, on the edge's
-        # browser-facing point, as much as where it continues.
+        # Also on a browser-facing point, where a chain starts.
         for forwards in (True, False):
             with self.subTest(forwards=forwards):
                 source = emit_source_helper_source(self.parse(forwards), "ledger")
@@ -448,8 +439,7 @@ class ForwardedSessionTest(unittest.TestCase):
 
 
 class SharedSourceTest(unittest.TestCase):
-    """A shared entity answers everyone from one Source. Each caller reaches it through a
-    mirror carrying their own Caller."""
+    """A shared entity answers everyone from one Source, through a mirror per caller."""
 
     SYN = """
         contract Board {
@@ -487,12 +477,8 @@ class SharedSourceTest(unittest.TestCase):
 
 
 class CallSpanTest(unittest.TestCase):
-    """Every slot crossing a link is timed, and the record says which check refused it.
-
-    The span is opened by a declaration at the top of the body and closed by its
-    destructor, which is what makes a return added to the body later stay traced. What it
-    must not do is drag the service runtime into a contract-only target, so the whole thing
-    is behind `__has_include`, exactly as the acting-for shim is.
+    """Every slot crossing a link is timed, and the record names the check that refused it. The
+    span is a declaration closed by its destructor, behind `__has_include`.
     """
 
     SYN = """
@@ -516,7 +502,7 @@ class CallSpanTest(unittest.TestCase):
     def test_the_span_is_told_how_many_arguments_there_were_and_never_their_values(self):
         self.assertIn("m_synqtCaller.data(), 1};", self.source)
         self.assertIn("m_synqtCaller.data(), 0};", self.source)
-        # The shape, not the contents. Nothing hands an argument to the span.
+        # Only the count reaches the span. Nothing hands it an argument.
         self.assertNotIn("synqtSpan.capture(", self.source)
 
     def test_a_member_that_asks_for_its_values_gets_them_and_the_others_do_not(self):
@@ -532,8 +518,7 @@ class CallSpanTest(unittest.TestCase):
         asked = parse_text("contract Hall { slot capture enter(string[32] name) }",
                            path="hall.syn", stem="hall")
         source = emit_source_helper_source(asked, "hall")
-        # Otherwise an argument refused for being too large would still be copied into the
-        # record, which is the one place a bound is there to keep it out of.
+        # Capture runs after the bounds, so an oversized argument is not recorded.
         self.assertLess(source.index("if (nameSize > 32) {"),
                         source.index("synqtSpan.capture("))
 

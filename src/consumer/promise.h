@@ -4,6 +4,8 @@
 #ifndef SYNQT_PROMISE_H
 #define SYNQT_PROMISE_H
 
+#include "tracecontext.h"
+
 #include <QJSValue>
 #include <QList>
 #include <QObject>
@@ -25,16 +27,15 @@ namespace SynQt {
 /// failed or the connect point was not live. Both return a new Promise resolved with the
 /// callback's return value, so `.then(...).catchError(...)` chains in the usual way.
 ///
-/// A promise lives until the turn after it settles, and no longer. It is created as a
-/// child of the facade, which lives as long as the connection does, so without a
-/// disposal rule every returning-slot call an app ever makes would still be on that
-/// facade at shutdown. A page polling a slot leaks one object per call, forever. Settling
-/// is the end of what a promise can do (it delivers to the handlers attached to it, then
-/// there is nothing left to deliver), so it is disposed one event-loop turn later, which
-/// is after every handler chained onto it in the ordinary way (`slot().then(...)`,
-/// `.then(...).catchError(...)`) has been attached and run. What that rules out is
-/// storing a promise and attaching to it later, in a different turn: attach where the
-/// call is made, not to a promise kept in a property.
+/// A promise is a child of the facade and is disposed one event-loop turn after it settles,
+/// after every handler chained onto it in the same turn has run. Attach handlers where the
+/// call is made, not later to a promise kept in a property.
+///
+/// A handler runs in the trace of the call that made the promise: the promise keeps the
+/// context current at its creation and restores it around each handler, so
+/// `Db.read().then(rows => Cache.put(rows))` reaches the second entity as the same click. The
+/// session is not kept, because a continuation acts for nobody (see ActingFor), and a trace
+/// authorizes nothing.
 class Promise : public QObject
 {
     Q_OBJECT
@@ -55,10 +56,9 @@ public:
 
     /// Settle a promise whose answer is now known never to arrive, with `reason`.
     ///
-    /// A remote call is answered on the connection it was sent on, so when that connection
-    /// is gone the reply has nowhere to land, and nothing else would ever settle this. The
-    /// facade calls it for every promise it still holds when its Replica is replaced,
-    /// which is what a reconnect does. A promise already settled is left alone.
+    /// A remote call is answered on the connection it was sent on. The facade calls this for
+    /// every promise it still holds when its Replica is replaced on a reconnect. A promise already
+    /// settled is left alone.
     void abandon(const QString &reason);
 
 private:
@@ -82,6 +82,7 @@ private:
     void scheduleDisposal();
 
     QJSEngine *m_engine{nullptr};
+    TraceContext m_trace;
     State m_state{State::Pending};
     QVariant m_value;
     QString m_reason;

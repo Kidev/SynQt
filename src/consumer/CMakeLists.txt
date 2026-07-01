@@ -8,12 +8,7 @@
 # facades derive from ConsumerBase and register themselves through this library. Qt Core +
 # Qml (QJSValue) + RemoteObjects (the pending call) here; nothing service- or client-specific.
 
-# GLOBAL so the imported Qt targets this library PUBLIC-links (notably Qt6::Qml, used in the
-# public promise/facade headers via QJSValue) are visible when a consuming executable is
-# finalized, even if that executable's own find_package did not list the component. Without
-# it, Qt's link-interface walk warns "the Qml target is mentioned as a dependency but not
-# declared" for every such consumer. This library is pulled in via add_subdirectory, so the
-# promotion is the leaf's responsibility, not each consumer's.
+# GLOBAL: see the note in src/service/CMakeLists.txt.
 find_package(Qt6 6.12 REQUIRED COMPONENTS Core Qml RemoteObjects GLOBAL)
 
 qt_add_library(SynQtConsumer STATIC
@@ -33,6 +28,10 @@ qt_add_library(SynQtConsumer STATIC
     promise.h
     readonlymodel.cpp
     readonlymodel.h
+    tracecontext.cpp
+    tracecontext.h
+    tracescope.cpp
+    tracescope.h
 )
 
 set_target_properties(SynQtConsumer PROPERTIES AUTOMOC ON)

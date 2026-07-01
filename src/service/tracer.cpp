@@ -3,6 +3,8 @@
 
 #include "tracer.h"
 
+#include "tracescope.h"
+
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -310,6 +312,17 @@ void Tracer::record(TraceEvent event)
     if (event.entity.isEmpty()) {
         QMutexLocker locker{&m_mutex};
         event.entity = m_entity;
+    }
+    // A record written while a span is open belongs to it. `Log.info` in a slot, a
+    // provider query, a gate's refusal. The span's own closing event names itself, and an
+    // event recorded from a thread that has no span current, the ingest side included,
+    // stays where it was.
+    if (event.traceId.isEmpty()) {
+        const TraceContext current{TraceScope::current()};
+        if (current.isValid()) {
+            event.traceId = current.traceId;
+            event.spanId = current.spanId;
+        }
     }
     // Before the bound, so a credential long enough to be truncated is replaced rather
     // than recorded as its first 512 characters.

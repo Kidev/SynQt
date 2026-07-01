@@ -6,18 +6,11 @@
 # connect-point host (topology resolution, deny by default), sessions and the Caller
 # accessor.
 #
-# What is deliberately NOT here: anything that speaks HTTP or OAuth. Qt HTTP Server and Qt
-# Network Authorization are GPLv3-only, and linking one makes its entity GPLv3, so the web
-# edge lives in ../edge (SynQtEdge) and the login stack in ../identity (SynQtIdentity). A
-# relational, cache, document, jobs or plain service entity links this library and nothing
-# else of the three, which is what makes the LGPLv3 line in its generated
-# THIRD-PARTY-LICENSES true rather than aspirational (docs/licensing.md).
+# HTTP and OAuth live in ../edge and ../identity, because those Qt modules are GPLv3 only
+# (docs/licensing.md).
 
-# GLOBAL, as in src/client and src/consumer: this library is pulled in with add_subdirectory and
-# publicly links these modules, but find_package's imported targets are directory-scoped by
-# default. Without it the consumer's executable is finalized in a scope where Qt6::RemoteObjects
-# and friends do not exist, and Qt warns "The RemoteObjects target is mentioned as a dependency
-# for SynQtService, but not declared. The linking might be incomplete." once per target.
+# GLOBAL: the executable that links this library is finalized in another directory scope,
+# where the Qt targets it links publicly must still resolve.
 find_package(Qt6 6.12 REQUIRED COMPONENTS Core Network Qml RemoteObjects WebSockets GLOBAL)
 find_package(OpenSSL REQUIRED)
 
@@ -49,7 +42,6 @@ qt_add_library(SynQtService STATIC
     meshclient.h
     topology.cpp
     topology.h
-    tracecontext.h
     tracer.cpp
     tracer.h
     clientaddress.cpp

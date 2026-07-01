@@ -5,9 +5,12 @@
 #define SYNQT_CALLSPAN_H
 
 #include "tracecontext.h"
+#include "tracescope.h"
 
 #include <QString>
 #include <QVariantMap>
+
+#include <optional>
 
 QT_BEGIN_NAMESPACE
 class QObject;
@@ -28,8 +31,13 @@ namespace SynQt {
 /// member that genuinely needs them says so in its contract (see `capture`).
 ///
 /// Nothing is minted while tracing is off. The constructor reads one atomic, and if the
-/// answer is no it stores a start time and does nothing else; identifiers are generated in
-/// the destructor, only for a call that is actually going to be recorded.
+/// answer is no it does nothing else. When the call will be recorded, or when it continues
+/// a trace that arrived with the caller, the span is opened here and now and made the
+/// current one for as long as the slot runs (TraceScope): a call the slot makes on
+/// another entity carries it, a record written meanwhile joins it, and a promise the slot
+/// creates keeps it for its continuation. That is what makes a click one trace rather
+/// than one root per entity. A call that is only ever going to be recorded if it is
+/// refused mints nothing until the destructor knows.
 class CallSpan
 {
 public:
@@ -56,6 +64,8 @@ private:
     const char *m_reason{nullptr};
     QObject *m_caller{nullptr};
     TraceContext m_parent;
+    TraceContext m_span;
+    std::optional<TraceScope> m_scope;
     QVariantMap m_captured;
     qint64 m_startedUs{0};
     int m_argumentCount{0};

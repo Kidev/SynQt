@@ -1305,17 +1305,14 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     where = f"{class_name}.{slot.name}"
     refuse = ["return;"] if is_void else [f"return {ret}{{}};"]
 
-    # Opened before anything else and closed by its destructor, so every way out of this
-    # body is timed: the two refusals below, the relay, the shared Source, the owner's QML.
-    lines: List[str] = [
-        f'    SynqtCallSpan synqtSpan{{"{class_name}", "{slot.name}",',
-        f"                            m_synqtCaller.data(), {len(slot.params)}}};",
-    ]
+    lines: List[str] = []
     if syn.forwards_session:
         # Who the calling entity says it is acting for, taken before anything else so that
-        # every check below already sees the right Caller. Sent on every call, an empty one
+        # every check below already sees the right Caller, and before the span opens so
+        # the span continues the trace that arrived with this call rather than the one the
+        # previous call left on a reused Caller. Sent on every call, an empty one
         # included, so a Caller reused by the next call never keeps the last one's session.
-        # A browser's Caller ignores it outright; see SynQt::Caller::assumeSession.
+        # A browser's Caller ignores it outright. See SynQt::Caller::assumeSession.
         lines += [
             "    if (m_synqtCaller) {",
             '        QMetaObject::invokeMethod(m_synqtCaller.data(), "assumeSession",',
@@ -1323,6 +1320,13 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
             f"                                  Q_ARG(QVariantMap, {SESSION_ARG}));",
             "    }",
         ]
+    # Opened before any way out and closed by its destructor, so every one of them is
+    # timed: the two refusals below, the relay, the shared Source, the owner's QML. Taking
+    # the session above is not a way out. It is what tells the span which story it is in.
+    lines += [
+        f'    SynqtCallSpan synqtSpan{{"{class_name}", "{slot.name}",',
+        f"                            m_synqtCaller.data(), {len(slot.params)}}};",
+    ]
     gate = _gate(slot)
     if gate:
         # After the session a mesh caller is acting for is taken above, so the scope this

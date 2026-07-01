@@ -12,22 +12,18 @@ namespace SynQt {
 
 /// Who the entity is acting for while one slot of its own runs.
 ///
-/// A system is a chain: a browser reaches the web edge, the edge reaches a service, that
-/// service reaches another. The edge is authenticated to the service by its certificate,
-/// but the person the edge is answering is known only to the edge, and a service two links
-/// from the browser would otherwise see a call from "edge" and nothing else.
+/// A browser reaches the web edge, the edge reaches a service, that service reaches another.
+/// The edge is authenticated to the service by its certificate, but only the edge knows the
+/// person it is answering.
 ///
-/// So a slot call on a connect point that is reached over the mesh carries one extra value:
-/// the session the calling entity is acting for. This class is where that value waits. The
-/// generated Source helper opens one of these around the owner's implementation of a slot,
-/// naming the Caller that slot is answering; any outbound call the implementation then
-/// makes reads current() and carries it on. Work that finishes later, in a timer or a
-/// continuation, is outside the object's life and carries nothing, which is right: by then
-/// the entity is acting on its own behalf.
+/// So a slot call on a connect point reached over the mesh carries the session the calling
+/// entity is acting for. The generated Source helper opens one of these around the owner's
+/// implementation of a slot, naming the Caller that slot is answering, and any outbound call
+/// the implementation makes reads current() and carries it on. Work that finishes later, in a
+/// timer or a continuation, carries no session: the entity is then acting on its own behalf.
+/// It still carries the trace, which is the thread's (see TraceScope).
 ///
-/// One entity is one event loop, so nothing here is contended; the storage is per thread
-/// anyway, so that stays true of a runtime that one day runs a slot somewhere else. It
-/// nests: the object restores whatever it displaced.
+/// The storage is per thread, and it nests: the object restores whatever it displaced.
 ///
 /// \sa SynQt::Caller::forwardedSession, SynQt::Caller::assumeSession
 class ActingFor
@@ -35,19 +31,21 @@ class ActingFor
 public:
     /// Answer for `caller` for as long as this object lives.
     ///
-    /// Only the Caller is remembered here. What it is acting for is asked of it when an
-    /// outbound call happens, so an inbound slot that calls nothing out pays
-    /// nothing. A null caller means the entity is acting on its own behalf.
+    /// Only the Caller is remembered; what it acts for is asked when an outbound call happens. A
+    /// null caller means the entity is acting on its own behalf.
     explicit ActingFor(QObject *caller);
     ~ActingFor();
 
     ActingFor(const ActingFor &) = delete;
     ActingFor &operator=(const ActingFor &) = delete;
 
-    /// The session to carry on an outbound call made right now, empty when there is none.
+    /// The session to carry on an outbound call made right now, with the trace the work
+    /// belongs to (see TraceScope). Empty when there is neither.
     static QVariantMap current();
 
 private:
+    static void withTrace(QVariantMap &session);
+
     QPointer<QObject> m_displaced;
 };
 

@@ -4,6 +4,7 @@
 #include "promise.h"
 
 #include "deletesoon.h"
+#include "tracescope.h"
 
 #include <QJSEngine>
 #include <QTimer>
@@ -15,12 +16,14 @@ namespace SynQt {
 Promise::Promise(QJSEngine *engine, QObject *parent)
     : QObject{parent}
     , m_engine{engine}
+    , m_trace{TraceScope::current()}
 {
 }
 
 Promise::Promise(const QRemoteObjectPendingCall &call, QJSEngine *engine, QObject *parent)
     : QObject{parent}
     , m_engine{engine}
+    , m_trace{TraceScope::current()}
 {
     if (call.isFinished()) {
         settleFromCall(call);
@@ -176,6 +179,9 @@ void Promise::dispatch(const Handler &handler)
                           ? (m_state == State::Fulfilled ? m_engine->toScriptValue(m_value)
                                                          : m_engine->toScriptValue(m_reason))
                           : QJSValue{}};
+    // The handler runs where the call was made, as far as the trace is concerned: a call
+    // it makes on carries the click's context, a record it writes joins it.
+    const TraceScope scope{m_trace};
     const QJSValue result{callback.call(QJSValueList{argument})};
     if (result.isError()) {
         handler.next->settleRejected(result.toString());

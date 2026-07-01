@@ -33,12 +33,9 @@ namespace SynQt {
 class Caller : public QObject
 {
     Q_OBJECT
-    // All nine notify on one signal, and none of them is CONSTANT. A Caller is one
-    // call's answer, but the object outlives the call. `adopt` re-points it at whoever is
-    // calling now, and an elevation rotates the session under it. A binding that read
-    // `Caller.scope` once and was never told would go on showing the first caller's
-    // answer while the entity served the next one, which is the wrong person's identity
-    // on the screen rather than merely a stale one.
+    // All nine notify on one signal, and none is CONSTANT: `adopt` re-points a Caller at the
+    // current caller and an elevation rotates its session, so a binding on `Caller.scope` must
+    // be told.
     Q_PROPERTY(bool isUser READ isUser NOTIFY callerChanged)
     Q_PROPERTY(bool isEntity READ isEntity NOTIFY callerChanged)
     Q_PROPERTY(bool isEntityVerified READ isEntityVerified NOTIFY callerChanged)
@@ -88,7 +85,7 @@ public:
 
     /// The number of arguments a contract signal may carry to one caller. Bounded because
     /// each one is a defaulted parameter of the Q_INVOKABLE below and QMetaObject::invokeMethod
-    /// takes a fixed argument pack. Synqtc refuses a longer signal by name, rather than
+    /// takes a fixed argument pack. synqtc refuses a longer signal by name, rather than
     /// letting it become an unreadable template error in generated code.
     static constexpr int MaxSignalArgs{8};
 
@@ -109,49 +106,30 @@ public:
 
     /// Become `other`: whoever it identifies, and the Source it answers through.
     ///
-    /// A shared entity answers everyone from one Source, so the Caller its QML names cannot
-    /// be minted with that Source and left alone. It is made to be the caller of the slot
-    /// currently running, just before the mirror hands the call over. Invokable because the
-    /// generated helper reaches it by name, having no way to include this header.
-    ///
-    /// It follows that on a shared entity `Caller` means "whoever is calling right now".
-    /// Read it in the slot, and keep what you need from it in a local if the work finishes
-    /// later. The object itself will have moved on. An entity that is not shared has a
-    /// Source per caller and a Caller that never changes, which is why this is only ever
-    /// called on the shared one.
+    /// A shared entity answers everyone from one Source, so its Caller is re-pointed at the
+    /// caller of the slot about to run. On a shared entity `Caller` therefore means "whoever is
+    /// calling right now": read it in the slot and keep what later work needs in a local.
+    /// Invokable because the generated helper reaches it by name.
     Q_INVOKABLE void adopt(QObject *other);
 
-    /// The session to hand a downstream entity, empty when there is none.
-    ///
-    /// A system is a chain, and only the first link authenticates a person: the browser
-    /// reaches the web edge, the edge reaches a service, that service reaches another. So
-    /// a slot call on a connect point reached over the mesh carries the session the calling
-    /// entity is acting for, and this is what it carries: the session's key, its scope, and
-    /// the identity behind it. Never the browser's credential, which stays at the edge and
-    /// is the one thing that could be replayed there.
-    ///
-    /// Reached by name from SynQt::ActingFor, which is in a library that knows nothing
-    /// about Caller.
+    /// The session to hand a downstream entity, empty when there is none: the session's key, its
+    /// scope and its identity, never the browser's credential, which stays at the edge. A mesh
+    /// slot call carries it so every entity down the chain knows whom the call is for. Reached by
+    /// name from SynQt::ActingFor.
     Q_INVOKABLE QVariantMap forwardedSession() const;
 
     /// Take the session the calling entity says it is acting for.
     ///
-    /// Honored only for an entity caller. A browser's Caller ignores this outright: a
-    /// session arrives at the edge as a credential the edge looks up, and a value the
-    /// browser could put in a call is not that. Between entities it is an assertion, trusted
-    /// exactly as far as the certificate that authenticated the peer, and no further. The
-    /// caller stays the entity (\ref isUser is still false) with a session attached.
-    ///
-    /// Called on every mesh slot call, an empty map included, so a Caller reused by the next
-    /// call never keeps the last one's session.
+    /// Honored only for an entity caller; a browser's Caller ignores it. Between entities it is
+    /// trusted exactly as far as the peer's certificate. The caller stays an entity (\ref isUser
+    /// is still false). Called on every mesh slot call, an empty map included, so a reused Caller
+    /// never keeps the last call's session.
     Q_INVOKABLE void assumeSession(const QVariantMap &session);
 
-    /// Where this call sits in the story a click tells, empty when nothing told us.
-    ///
-    /// Set by whichever transport minted the Caller: at the edge the span opened when the
-    /// browser's call arrived, on a mesh link the span the calling entity says its call
-    /// continues. The entity's own spans hang off it, which is what makes one click one
-    /// trace across three entities instead of three unrelated ones.
+    /// The span the calling entity says its call continues, invalid when it said nothing. Taken
+    /// by \ref assumeSession on a mesh link only, when both identifiers have the tracer's shape
+    /// (TraceContext::fromWire), so one click is one trace across entities. A browser's Caller
+    /// never holds one.
     TraceContext traceContext() const;
     void setTraceContext(const TraceContext &context);
 
@@ -163,21 +141,12 @@ public:
     void setSource(QObject *source);
 
 Q_SIGNALS:
-    /// What this caller is authorized for has changed.
-    ///
-    /// Raised when the session behind it is rotated by a scope change, whoever made the
-    /// change. A generated Source listens for it to publish its `\<scope\>` gated members
-    /// again, so a member that comes into reach appears without the visitor reconnecting
-    /// and one that goes out of reach is withdrawn.
+    /// What this caller is authorized for has changed, because a scope change rotated its
+    /// session. A generated Source republishes its `\<scope\>` gated members on it.
     void scopeChanged();
 
-    /// Every property above may now answer differently.
-    ///
-    /// Two things cause it. An elevation, which rotates the session this Caller names
-    /// and is also a scopeChanged, and `adopt`, where one Source's Caller becomes the
-    /// caller of the slot about to run. The second is the one that matters for a binding.
-    /// It is emitted only when something an accessor reads moved, so a run of
-    /// calls from the same session costs nothing.
+    /// Every property above may now answer differently: after an elevation, or after `adopt`
+    /// re-points the Caller. Emitted only when something an accessor reads moved.
     void callerChanged();
 
 protected:
@@ -192,9 +161,6 @@ private:
 
     const SessionRecord *record() const;
 
-    /// Adds this call's trace identifiers to a session about to travel downstream.
-    void withTrace(QVariantMap &session) const;
-
     QPointer<SessionManager> m_sessions;
     QByteArray m_sessionId;
     /// The session a calling entity said it was acting for, empty when it said nothing.
@@ -202,7 +168,8 @@ private:
     /// own over any assertion, so a user caller can never be talked into being someone else.
     QVariantMap m_forwarded;
     /// The trace this call continues. Kept beside the forwarded session rather than in
-    /// it, so that map stays exactly the three keys a session is made of.
+    /// it, so that map stays exactly the three keys a session is made of. What travels
+    /// on from here is not this but the span opened for the call. See SynQt::ActingFor.
     TraceContext m_trace;
     QString m_entity;
     QPointer<QObject> m_source;

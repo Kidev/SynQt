@@ -11,14 +11,19 @@
 // refused every visitor of every SynQt application for months without one test going red
 // (tests/m5-webedge). The accepted case is what says the gate still opens.
 
+#include "actingfor.h"
 #include "caller.h"
+#include "promise.h"
 #include "sessionmanager.h"
 #include "tracer.h"
+#include "tracescope.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
 
 #include "hall_sourcehelper.h"
+#include "ledger_sourcehelper.h"
 
+#include <QJSValue>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QJsonDocument>
@@ -138,6 +143,77 @@ QByteArray sessionCookie(QNetworkReply *reply)
     const QByteArray raw{reply->rawHeader("Set-Cookie")};
     return raw.left(raw.indexOf(';'));
 }
+
+/// The trace a continuation ran in, and what an outbound call from it would have carried.
+///
+/// Handed to a JS handler as an object it can call, because a promise's handler is a JS
+/// value and the only way to see what the framework put back around it is to look from
+/// inside.
+class Probe : public QObject
+{
+    Q_OBJECT
+
+public:
+    Q_INVOKABLE void note()
+    {
+        outbound = ActingFor::current();
+        trace(Category::Application, Severity::Info, QStringLiteral("continued"));
+        ++ran;
+    }
+
+    QVariantMap outbound;
+    int ran{0};
+};
+
+/// What an owner's QML does inside a slot, written where the test can watch it: it says
+/// something, it looks at what a call it makes would carry, and it chains work onto an
+/// answer that will come later. The generated body finds a slot of this name beyond the
+/// helper's own methods, exactly as it finds the QML function.
+class Ledger : public LedgerSourceHelper
+{
+    Q_OBJECT
+
+public:
+    QVariantMap outbound;
+    Probe probe;
+    Promise *pending{nullptr};
+    QJSEngine *engine{nullptr};
+
+    using LedgerSourceHelper::post;
+
+public slots:
+    void post(QVariant item)
+    {
+        Q_UNUSED(item)
+        trace(Category::Application, Severity::Info, QStringLiteral("posting"));
+        outbound = ActingFor::current();
+        if (engine != nullptr) {
+            // A call whose answer arrives in a later turn, as every call over a link does.
+            pending = new Promise{QRemoteObjectPendingCall{}, engine, this};
+            const QJSValue factory{engine->evaluate(QStringLiteral(
+                "(function (probe) { return function () { probe.note(); }; })"))};
+            pending->catchError(factory.call(QJSValueList{engine->newQObject(&probe)}));
+        }
+    }
+};
+
+/// Same, for the contract the browser reaches. The first hop, where a trace begins.
+class Hall : public HallSourceHelper
+{
+    Q_OBJECT
+
+public:
+    QVariantMap outbound;
+
+    using HallSourceHelper::enter;
+
+public slots:
+    void enter(QVariant name)
+    {
+        Q_UNUSED(name)
+        outbound = ActingFor::current();
+    }
+};
 
 } // namespace
 
@@ -372,10 +448,158 @@ private slots:
                  QStringLiteral("entity"));
     }
 
+    /// One click, one trace, and it starts at the edge.
+    ///
+    /// The browser's call is where the story begins. Nothing upstream of it names a trace
+    /// (a visitor cannot), so the span the edge opens is the root, and it has to be the
+    /// root of what the edge's own QML then does, or a click reaches the console as one
+    /// trace per entity it touched. The call the edge makes on a service carries that
+    /// span, as the parent of whatever the service records.
+    void theEdgeStartsTheTraceItsOutboundCallCarries()
+    {
+        Recorded recorded;
+        QObject owner;
+        SessionManager sessions{QStringLiteral("anonymous"), 60};
+        const QByteArray token{sessions.createSession(QStringLiteral("user"))};
+        Hall hall;
+        Caller *caller{Caller::forUser(QStringLiteral("Hall"), &sessions, token, &hall, &owner)};
+        hall.synqtSetCaller(caller);
+
+        hall.enter(QStringLiteral("ada"));
+
+        const QList<TraceEvent> calls{recorded.withMessage(QStringLiteral("enter"))};
+        QCOMPARE(calls.size(), 1);
+        QVERIFY(calls.first().parentSpanId.isEmpty());
+        QCOMPARE(hall.outbound.value(QStringLiteral("traceId")).toString(),
+                 calls.first().traceId);
+        QCOMPARE(hall.outbound.value(QStringLiteral("spanId")).toString(),
+                 calls.first().spanId);
+        // The session went with it, and the browser's credential did not.
+        QCOMPARE(hall.outbound.value(QStringLiteral("key")).toString(),
+                 SessionManager::keyFor(token));
+        QVERIFY(!hall.outbound.values().contains(QVariant{QString::fromUtf8(token)}));
+
+        // And the thread is left in nothing. A call that ended is not the trace of the
+        // next thing this entity does.
+        QVERIFY(!TraceScope::current().isValid());
+    }
+
+    /// A service continues the trace that arrived with the call, on a reused Caller.
+    ///
+    /// The parent span travels in the session map, so it is known only once the map has
+    /// been taken. A span opened before that hangs off whatever the previous call left on
+    /// the Caller, which is one Caller per link and answers every call the edge relays.
+    /// Two calls from two clicks, and the second must not be filed under the first.
+    void aServiceContinuesTheTraceEachCallArrivedWith()
+    {
+        Recorded recorded;
+        QObject owner;
+        Ledger ledger;
+        Caller *caller{Caller::forEntity(QStringLiteral("Ledger"), QStringLiteral("web"), true,
+                                         &ledger, &owner)};
+        ledger.synqtSetCaller(caller);
+
+        const TraceContext firstClick{
+            Tracer::instance()->startSpan(TraceContext{}, QStringLiteral("add"))};
+        const TraceContext secondClick{
+            Tracer::instance()->startSpan(TraceContext{}, QStringLiteral("add"))};
+        auto sessionIn = [](const TraceContext &click) {
+            QVariantMap session;
+            session.insert(QStringLiteral("key"), QStringLiteral("k"));
+            session.insert(QStringLiteral("scope"), QStringLiteral("user"));
+            session.insert(QStringLiteral("traceId"), click.traceId);
+            session.insert(QStringLiteral("spanId"), click.spanId);
+            return session;
+        };
+
+        ledger.post(sessionIn(firstClick), QStringLiteral("bread"));
+        ledger.post(sessionIn(secondClick), QStringLiteral("milk"));
+
+        const QList<TraceEvent> calls{recorded.withMessage(QStringLiteral("post"))};
+        QCOMPARE(calls.size(), 2);
+        QCOMPARE(calls.first().traceId, firstClick.traceId);
+        QCOMPARE(calls.first().parentSpanId, firstClick.spanId);
+        QCOMPARE(calls.last().traceId, secondClick.traceId);
+        QCOMPARE(calls.last().parentSpanId, secondClick.spanId);
+
+        // What the service passes further on is its own span, under the click's.
+        QCOMPARE(ledger.outbound.value(QStringLiteral("traceId")).toString(),
+                 secondClick.traceId);
+        QCOMPARE(ledger.outbound.value(QStringLiteral("spanId")).toString(),
+                 calls.last().spanId);
+    }
+
+    /// What an entity says while answering a call is part of the call.
+    ///
+    /// `Log.info` in a slot, a provider's query, a gate's refusal. Each is a record, and
+    /// a record with no trace on it is a line in a log file, findable only by reading
+    /// around it. One inside a span belongs to the span.
+    void aRecordWrittenInsideACallBelongsToItsTrace()
+    {
+        Recorded recorded;
+        QObject owner;
+        Ledger ledger;
+        Caller *caller{Caller::forEntity(QStringLiteral("Ledger"), QStringLiteral("web"), true,
+                                         &ledger, &owner)};
+        ledger.synqtSetCaller(caller);
+
+        ledger.post(QVariantMap{}, QStringLiteral("bread"));
+
+        const QList<TraceEvent> calls{recorded.withMessage(QStringLiteral("post"))};
+        QCOMPARE(calls.size(), 1);
+        const QList<TraceEvent> said{recorded.withMessage(QStringLiteral("posting"))};
+        QCOMPARE(said.size(), 1);
+        QCOMPARE(said.first().traceId, calls.first().traceId);
+        QCOMPARE(said.first().spanId, calls.first().spanId);
+        // A record, not a span. It has no duration and closes nothing.
+        QCOMPARE(said.first().durationUs, static_cast<qint64>(-1));
+        QVERIFY(said.first().parentSpanId.isEmpty());
+    }
+
+    /// The answer to a call arrives turns later, and what runs then is still the click.
+    ///
+    /// `Db.read().then(rows => Cache.put(rows))` is the ordinary shape of an edge slot,
+    /// and the second call is made when the slot and its span are long closed and the
+    /// thread is in nothing. The continuation runs in the trace of the call that made the
+    /// promise, or every click's second hop starts a trace of its own.
+    void aContinuationRunsInTheTraceOfTheCallThatMadeIt()
+    {
+        Recorded recorded;
+        QQmlEngine engine;
+        QObject owner;
+        Ledger ledger;
+        ledger.engine = &engine;
+        Caller *caller{Caller::forEntity(QStringLiteral("Ledger"), QStringLiteral("web"), true,
+                                         &ledger, &owner)};
+        ledger.synqtSetCaller(caller);
+
+        ledger.post(QVariantMap{}, QStringLiteral("bread"));
+        QVERIFY(ledger.pending != nullptr);
+        QVERIFY(!TraceScope::current().isValid());
+
+        // The answer comes back, in a turn of its own.
+        ledger.pending->abandon(QStringLiteral("the link went away"));
+        QTRY_COMPARE(ledger.probe.ran, 1);
+
+        const QList<TraceEvent> calls{recorded.withMessage(QStringLiteral("post"))};
+        QCOMPARE(calls.size(), 1);
+        QCOMPARE(ledger.probe.outbound.value(QStringLiteral("traceId")).toString(),
+                 calls.first().traceId);
+        QCOMPARE(ledger.probe.outbound.value(QStringLiteral("spanId")).toString(),
+                 calls.first().spanId);
+        // The session does not follow. A continuation acts for nobody.
+        QVERIFY(!ledger.probe.outbound.contains(QStringLiteral("key")));
+        const QList<TraceEvent> said{recorded.withMessage(QStringLiteral("continued"))};
+        QCOMPARE(said.size(), 1);
+        QCOMPARE(said.first().traceId, calls.first().traceId);
+        // And the handler left the thread as it found it.
+        QVERIFY(!TraceScope::current().isValid());
+    }
+
     /// The gate has a budget, because the answer behind it is expensive to give.
     ///
-    /// A sign-in derives PBKDF2 at the operator store's round count, on purpose
-    /// hundreds of milliseconds, on the edge's own event loop, and the route is open to
+    /// A sign-in derives PBKDF2 at the operator store's round count, which is
+    /// hundreds of milliseconds by design, on the edge's own event loop, and the route is open to
     /// anybody who can reach the port. So an unauthenticated POST was both a password guess
     /// and the cheapest way there is to stop the edge answering anybody else: a handful a
     /// second is enough to keep the loop busy, and nothing counted them.

@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M7 acceptance. The three-entity todo authorization matrix, proven end to end.
+// The three-entity todo authorization matrix, proven end to end.
 //   database (owner of `items`)  authorizes the calling ENTITY (Caller.entity)
-//   web edge (owner of `todo`)    authorizes the USER (Caller.hasScope/identity)
-//   client  (browser)                        presents a session, no secret, no cert
+//   web edge (owner of `todo`)   authorizes the USER (Caller.hasScope/identity)
+//   client (browser)             presents a session, no secret, no cert
 // Verifies: anonymous cannot participate (scope-gated), a user removes only their own
 // items, a moderator removes any, the database refuses any caller other than the edge,
 // ownerSub never reaches the browser, a forged-session client is refused at the upgrade,
@@ -16,6 +16,8 @@
 #include "sessionmanager.h"
 #include "sourcefactory.h"
 #include "topology.h"
+#include "traceevent.h"
+#include "tracer.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
 
@@ -33,6 +35,8 @@
 #include "backoffice_sourcehelper.h"  // the slice an entity behind the front answers
 
 #include <QHostAddress>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QQmlEngine>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
@@ -85,6 +89,47 @@ QVariantMap identityFor(const QString &sub)
                        {QStringLiteral("name"), sub},
                        {QStringLiteral("email"), sub + QStringLiteral("@example.com")}};
 }
+
+/// Everything the process tracer recorded while this was alive.
+///
+/// Both entities run in this one process, so both report to one tracer. What says which
+/// hop a record came from is the contract it names, which is what a chain is made of.
+class Recorded
+{
+public:
+    Recorded()
+    {
+        Tracer::instance()->setEnabled(true);
+        Tracer::instance()->setBatch(1, 20);
+        Tracer::instance()->setSink([this](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&m_mutex};
+            m_events.append(batch);
+        });
+    }
+
+    ~Recorded()
+    {
+        Tracer::instance()->setSink(Tracer::Sink{});
+        Tracer::instance()->setEnabled(false);
+    }
+
+    QList<TraceEvent> withMessage(const QString &message)
+    {
+        Tracer::instance()->flush();
+        QMutexLocker locker{&m_mutex};
+        QList<TraceEvent> matching;
+        for (const TraceEvent &event : std::as_const(m_events)) {
+            if (event.message == message) {
+                matching.append(event);
+            }
+        }
+        return matching;
+    }
+
+private:
+    QMutex m_mutex;
+    QList<TraceEvent> m_events;
+};
 
 SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
 {
@@ -256,10 +301,10 @@ private slots:
         m_dbEngine.reset();
     }
 
-    // `instance:` is a promise about how many Sources a connect point mints, and it used
-    // to be one the runtime did not keep. Every value minted a Source per connection, so a
-    // user's second tab always started blank. Both answers are checked here, on one Source
-    // file hosted twice, because the whole difference between them is the setting.
+    // `instance:` is a promise about how many Sources a connect point mints. Both answers
+    // are checked here on one Source file hosted twice, because the setting is the whole
+    // difference between them: minting a Source per connection for both would start a
+    // user's second tab blank.
     void instanceDecidesWhatASecondTabContinues()
     {
         const QByteArray aliceToken{
@@ -496,15 +541,53 @@ private slots:
                      QStringLiteral("carol"));
     }
 
+    /// One click, one trace, across two entities and a mesh link.
+    ///
+    /// The unit tests next door prove each hop in isolation. This is the hop itself, over
+    /// mutual TLS, with the edge's QML calling the database through the generated facade.
+    /// What an operator asks of a monitor is "what did that click do", and the answer is
+    /// only a story if the database's work is a child of the edge's rather than a second
+    /// trace beginning at the second entity.
+    void oneClickIsOneTraceAcrossBothEntities()
+    {
+        Recorded recorded;
+        const QByteArray danToken{
+            m_edge->sessionManager()->createSession(QStringLiteral("user"),
+                                                    identityFor(QStringLiteral("dan")))};
+        QQmlEngine clientEngine;
+        SynClient dan{clientConfig(m_edgePort, cookieFor(danToken)), &clientEngine};
+        dan.start();
+        QTRY_COMPARE_WITH_TIMEOUT(dan.session()->state(), QStringLiteral("connected"), 8000);
+        QRemoteObjectDynamicReplica *danTodo{
+            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&dan))};
+        QVERIFY(danTodo != nullptr);
+        QTRY_VERIFY(danTodo->isReplicaValid());
+
+        QVERIFY(QMetaObject::invokeMethod(danTodo, "add",
+                                          Q_ARG(QString, QStringLiteral("olives"))));
+        QTRY_COMPARE(databaseView()->property("actingFor").toString(), QStringLiteral("dan"));
+        QTRY_COMPARE(recorded.withMessage(QStringLiteral("insert")).size(), 1);
+
+        const QList<TraceEvent> edgeCalls{recorded.withMessage(QStringLiteral("add"))};
+        const QList<TraceEvent> dbCalls{recorded.withMessage(QStringLiteral("insert"))};
+        QCOMPARE(edgeCalls.size(), 1);
+        QCOMPARE(dbCalls.size(), 1);
+        // The browser named no trace, so the edge's span is the root of the story.
+        QVERIFY(edgeCalls.first().parentSpanId.isEmpty());
+        QVERIFY(!edgeCalls.first().traceId.isEmpty());
+        QCOMPARE(dbCalls.first().traceId, edgeCalls.first().traceId);
+        QCOMPARE(dbCalls.first().parentSpanId, edgeCalls.first().spanId);
+        QVERIFY(dbCalls.first().spanId != edgeCalls.first().spanId);
+    }
+
     // What a connection hosts follows the session's scope, in both directions, while the
     // connection is up. The edge decides which scope-gated connect points to host when it
-    // accepts the upgrade, from the scope the session holds then; `Caller.setScope` in a
-    // slot moves that scope under the live connection without any reconnect. Raised, the
-    // visitor is entitled to a point the connection was not hosting, and the runtime API
-    // says it is acquired. Lowered, the connection went on hosting a point the session no
-    // longer meets the scope of. Every property and model on it kept replicating to a
-    // browser that had been demoted, and only a new call was refused, which is read
-    // access outliving the credential.
+    // accepts the upgrade, from the scope the session holds then, and `Caller.setScope` in
+    // a slot moves that scope under the live connection. Raised, the visitor is entitled to
+    // a point the connection was not hosting, and the runtime API says it is acquired.
+    // Lowered, the connection must stop hosting a point the session no longer qualifies
+    // for; refusing only new calls would let every property and model on it keep
+    // replicating to a demoted browser.
     void aScopeChangeUnderALiveConnectionMovesWhatItHosts()
     {
         const QByteArray anonToken{m_edge->sessionManager()->createSession()};
@@ -543,13 +626,13 @@ private slots:
         QCOMPARE(visitor.session()->state(), QStringLiteral("connected"));
     }
 
-    // Which entity answers a front is a function of the caller's scope, and the scope
-    // moves under a live connection. Deciding it once, when the connection is
-    // accepted, leaves a hole. A fronted point carries no `scope:` of its own (its `behind:` block is the
-    // gate), so a rotation handler that skips it lets a caller demoted from admin go on
-    // relaying to the backoffice entity, which by the documented contract of a front
-    // authorizes on Caller and never asks about scope. Read access, and write access,
-    // would outlive the scope that granted them.
+    // Which entity answers a front depends on the caller's scope, and the scope moves under
+    // a live connection, so deciding it once at accept leaves a hole. A fronted point
+    // carries no `scope:` of its own (its `behind:` block is the gate), so a rotation
+    // handler that skipped it would let a caller demoted from admin keep relaying to the
+    // backoffice entity, which by the documented contract of a front authorizes on Caller
+    // and never asks about scope. Read and write access would outlive the scope that
+    // granted them.
     void aScopeChangeUnderALiveConnectionRePointsAFront()
     {
         const QByteArray anonToken{m_edge->sessionManager()->createSession()};

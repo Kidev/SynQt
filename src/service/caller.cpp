@@ -12,17 +12,14 @@ namespace SynQt {
 
 namespace {
 
-// The keys a forwarded session is made of. Nothing else is read off one, so a peer that
-// puts anything more in the map is handing over something nobody looks at.
+// The keys a forwarded session consists of. Nothing else in the map is read.
 const QLatin1StringView kKey{"key"};
 const QLatin1StringView kScope{"scope"};
 const QLatin1StringView kIdentity{"identity"};
-const QLatin1StringView kTraceId{"traceId"};
-const QLatin1StringView kSpanId{"spanId"};
 
-// The per-contract Caller factories the generated synqtRegister<Contract>Sources() install,
-// so forUser/forEntity can mint the typed <Contract>Caller that carries the emit<Signal>
-// sugar. A contract with no registered factory falls back to the base Caller.
+// The per-contract Caller factories that generated synqtRegister<Contract>Sources()
+// install, so forUser/forEntity mint the typed <Contract>Caller with the emit<Signal>
+// helpers. Without a factory the base Caller is used.
 QHash<QString, Caller::CallerFactory> &callerFactories()
 {
     static QHash<QString, Caller::CallerFactory> factories;
@@ -61,19 +58,17 @@ Caller *Caller::forUser(const QString &contract, SessionManager *sessions,
     caller->m_sessionId = sessionId;
     caller->m_source = source;
     if (sessions) {
-        // A scope change rotates the credential, and it is one Caller that makes it: on a
-        // shared entity the slot runs on the shared Source's Caller, while the Caller that
-        // outlives the call, and that the next call adopts from, is the mirror's. Following
-        // the rotation here is what keeps every Caller on a session naming the same session
-        // afterwards, rather than the id setScope erased.
+        // A scope change rotates the credential, and one Caller makes it. On a shared
+        // entity the slot runs on the shared Source's Caller, while the mirror's Caller
+        // outlives the call and is adopted next. Following the rotation keeps every Caller
+        // of the session on the same id.
         connect(sessions, &SessionManager::sessionRotated, caller,
                 [caller](const QByteArray &from, const QByteArray &to) {
                     if (caller->m_sessionId == from) {
                         caller->m_sessionId = to;
-                        // A rotation is a privilege change. That is the only thing that
-                        // causes one. Whoever gates on this caller's scope is told, and
-                        // so is anything bound to the rest of it: the scope, the
-                        // identity and the id all moved together.
+                        // A rotation means a privilege change. Everything gated on this
+                        // caller's scope, and everything bound to its scope, identity and
+                        // id, is notified.
                         Q_EMIT caller->scopeChanged();
                         Q_EMIT caller->callerChanged();
                     }
@@ -124,11 +119,10 @@ bool Caller::hasSession() const
 QString Caller::id() const
 {
     if (m_isUser) {
-        // The session's name, never its credential. The id in m_sessionId is the cookie:
-        // anything holding a copy of it is that visitor, and QML is where an owner writes
-        // `ownerId: Client.id` into a row, logs it, or declares it a model role and ships
-        // it to every browser. The key names the same session everywhere in the system
-        // (SessionManager::keyFor) and buys nobody a session.
+        // The session's name, never its credential. The id in m_sessionId is the cookie,
+        // and QML may write `ownerId: Client.id` into a row, log it, or publish it as a
+        // model role. The key names the session everywhere (SessionManager::keyFor) and
+        // buys nobody a session.
         return SessionManager::keyFor(m_sessionId);
     }
     return m_entity;
@@ -138,13 +132,12 @@ QVariant Caller::session() const
 {
     const SessionRecord *rec{record()};
     if (!rec) {
-        // A calling entity's assertion, or nothing. It is already in the shape a session
-        // takes here, minus the credential, which a downstream entity has no business
-        // holding and is never sent one.
+        // A calling entity's assertion, or nothing, already in session shape minus the
+        // credential, which a downstream entity never receives.
         return m_forwarded.isEmpty() ? QVariant{} : QVariant{m_forwarded};
     }
-    // The same three keys a forwarded session carries, and not the credential: a session
-    // reached on the edge and one reached down the chain read the same way.
+    // The same three keys a forwarded session carries, without the credential, so a session
+    // reads the same on the edge and down the chain.
     QVariantMap map;
     map.insert(QStringLiteral("key"), SessionManager::keyFor(rec->id));
     map.insert(QStringLiteral("scope"), rec->scope);
@@ -178,9 +171,9 @@ QString Caller::entity() const
 
 bool Caller::hasScope(const QString &scope) const
 {
-    // An entity caller with no session behind it is not scoped. Gate it on Caller.entity.
-    // One that is acting for a session is checked against that session's scope, which the
-    // calling entity asserted and its certificate is the warrant for.
+    // An entity caller acting for no session has no scope; gate it on Caller.entity. One
+    // acting for a session is checked against that session's scope, as asserted by the
+    // calling entity and warranted by its certificate.
     const QString granted{Caller::scope()};
     if (granted.isEmpty() && !hasSession()) {
         return false;
@@ -214,8 +207,8 @@ void Caller::emitSignal(const QString &signalName, const QVariant &arg0, const Q
     if (m_source.isNull() || signalName.isEmpty()) {
         return;
     }
-    // Invoke the Source helper's generated emit<Signal> method (emit + capitalized name).
-    // The Source is one caller's, so the signal reaches this caller alone.
+    // Invoke the Source helper's generated emit<Signal> method. The Source belongs to one
+    // caller, so only this caller receives the signal.
     const QByteArray method{"emit" + signalName.left(1).toUpper().toUtf8()
                             + signalName.mid(1).toUtf8()};
     QVariantList callArgs;
@@ -238,31 +231,16 @@ QVariantMap Caller::forwardedSession() const
 {
     const SessionRecord *rec{record()};
     if (!rec) {
-        // Either this caller is already acting for someone, and the chain continues past
-        // this entity unchanged, or it is not, and there is nothing to pass on. The trace
-        // is added either way: an entity with no session of its own is still a hop.
-        QVariantMap session{m_forwarded};
-        withTrace(session);
-        return session;
+        // Either this caller already acts for someone and the chain continues unchanged, or
+        // there is nothing to pass on. SynQt::ActingFor stamps the trace on the current
+        // span.
+        return m_forwarded;
     }
     QVariantMap session;
     session.insert(kKey, SessionManager::keyFor(rec->id));
     session.insert(kScope, rec->scope);
     session.insert(kIdentity, rec->identity.isEmpty() ? QVariant{} : QVariant{rec->identity});
-    withTrace(session);
     return session;
-}
-
-void Caller::withTrace(QVariantMap &session) const
-{
-    // The trace rides along with the session because the session is already the thing that
-    // travels down the chain, and a second channel for it would be a second thing to
-    // forget. It is not part of the session: nothing authorizes anything by it.
-    if (!m_trace.isValid()) {
-        return;
-    }
-    session.insert(kTraceId, m_trace.traceId);
-    session.insert(kSpanId, m_trace.spanId);
 }
 
 TraceContext Caller::traceContext() const
@@ -278,29 +256,29 @@ void Caller::setTraceContext(const TraceContext &context)
 void Caller::assumeSession(const QVariantMap &session)
 {
     if (m_isUser) {
-        // The browser is the one place a caller could put this on the wire itself, so it is
-        // the one place it is not read. A user's session is the credential the edge looked
-        // up when the connection was accepted. Nothing in a call can change who that is.
-        // The trace identifiers travel in the same map and are refused on the same ground:
-        // a visitor who could name the trace could stitch their call into someone else's.
+        // A browser could put this on the wire itself, so it is never read from one: a
+        // user's session is what the edge looked up when the connection was accepted. The
+        // trace identifiers travel in the same map and are refused too, so a visitor cannot
+        // attach a call to someone else's trace.
         return;
     }
-    if (session.isEmpty()) {
+    // Both identifiers in exactly the shape the tracer mints, or neither: a peer's trace is
+    // accepted only as far as its shape.
+    m_trace = TraceContext::readFrom(session);
+
+    // A session is one with a key, not a non-empty map: a call from an entity acting for
+    // nobody still carries its trace.
+    const QString key{session.value(kKey).toString()};
+    if (key.isEmpty()) {
         m_forwarded.clear();
-        m_trace = TraceContext{};
         return;
     }
-    // Only the three keys a session is made of, so nothing else a peer sent is carried
-    // further or read by anything downstream.
+    // Only the three session keys, so nothing else a peer sent is carried on or read.
     QVariantMap taken;
-    taken.insert(kKey, session.value(kKey).toString());
+    taken.insert(kKey, key);
     taken.insert(kScope, session.value(kScope).toString());
     taken.insert(kIdentity, session.value(kIdentity));
     m_forwarded = taken;
-
-    m_trace = TraceContext{};
-    m_trace.traceId = session.value(kTraceId).toString();
-    m_trace.spanId = session.value(kSpanId).toString();
 }
 
 void Caller::setScopeOrder(const QStringList &order, bool hierarchical)
@@ -320,21 +298,17 @@ void Caller::adopt(QObject *other)
     if (!from || from == this) {
         return;
     }
-    // Everything, including the Source: a signal this Caller sends has to leave through the
-    // mirror the adopted caller acquired, or it would reach the wrong browser.
+    // Copy everything, including the Source, so a signal leaves through the mirror the
+    // adopted caller acquired.
     //
-    // And including the trace, which was the one field left out. A shared entity runs its
-    // slots on the shared Source's Caller, adopted from the mirror's, and `CallSpan` reads
-    // the parent span off whichever Caller the slot is holding. Without this the chain
-    // starts again at every shared entity, so a request that crosses one arrives in the
-    // console as two unrelated traces instead of one story. A shared entity is exactly the
-    // shape a busy edge has.
+    // And the trace: a shared entity runs slots on the shared Source's Caller, and
+    // `CallSpan` reads the parent span from that Caller. Without it every shared entity
+    // would split a request into two unrelated traces.
     //
-    // Measured before it is assigned, over exactly the fields the accessors read, so a
-    // run of calls from one session emits nothing. A shared entity adopts on every call,
-    // and telling QML the caller changed when it did not would re-evaluate every binding
-    // on it for each one. The Source, the trace and the scope vocabulary are left out of
-    // the comparison, because no property is built from them.
+    // Compared before assigning, over the fields the accessors read, so repeated calls from
+    // one session emit nothing; otherwise every binding would re-evaluate on each call. The
+    // Source, the trace and the scope vocabulary are excluded from the comparison, since no
+    // property derives from them.
     const bool changed{m_sessions != from->m_sessions || m_sessionId != from->m_sessionId
                        || m_forwarded != from->m_forwarded || m_entity != from->m_entity
                        || m_isUser != from->m_isUser

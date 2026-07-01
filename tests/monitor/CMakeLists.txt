@@ -1,14 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Monitoring acceptance: the event pipeline every entity carries. The record, the bounded
-# ring that drops rather than blocks, the tracer and its per-category levels, and the
-# writer thread that batches off the caller's thread.
-#
-# Two executables, and the split is required. `tst_pipeline` links Qt Core and Qt Test and
-# nothing else, which is what proves the pipeline stayed inside SynQtService and never grew
-# a GPLv3 dependency. `tst_instrumentation` drives a real web edge and a real session store
-# to prove the choke points actually record what they promise, and links what that needs.
+# Monitoring acceptance: the record, the bounded ring, the tracer and its levels, and the
+# writer thread. `tst_pipeline` links only Qt Core and Qt Test, keeping the pipeline free
+# of GPLv3 modules; `tst_instrumentation` drives a real web edge and session store.
 
 cmake_minimum_required(VERSION 3.21)
 project(synqt_monitor LANGUAGES CXX)
@@ -50,10 +45,12 @@ add_test(NAME monitor-pipeline COMMAND tst_pipeline)
 
 qt_add_executable(tst_instrumentation tst_instrumentation.cpp)
 
-# ROLE source: the test drives the generated Source helper directly, which is where the
-# call span the contract compiler emits actually lives. No transport is involved, because
-# what is under test is the generated body and not the link it would be reached over.
+# ROLE source: the test drives the generated Source helper, where the call span lives.
 synqt_add_contract(tst_instrumentation ROLE source SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Hall.syn")
+# And one a service would own: its slots take the session the calling entity is acting for,
+# and with it the span that call continues.
+synqt_add_contract(tst_instrumentation ROLE source FORWARDS_SESSION
+    SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Ledger.syn")
 
 target_compile_definitions(tst_instrumentation PRIVATE
     MONITOR_CERT_DIR="${MONITOR_CERTS}"
@@ -73,9 +70,7 @@ target_link_libraries(tst_instrumentation PRIVATE
 
 add_test(NAME monitor-instrumentation COMMAND tst_instrumentation)
 
-# The reporting half, on its own: no transport, no monitor entity, a stand-in for the
-# Replica. What it is about is what happens when the monitor is NOT there, so standing a
-# real one up would be testing the wrong thing.
+# The reporting half, with no monitor present: a stand-in for the Replica.
 qt_add_executable(tst_ingest tst_ingest.cpp)
 
 target_link_libraries(tst_ingest PRIVATE
@@ -98,8 +93,8 @@ target_link_libraries(tst_store PRIVATE
 
 add_test(NAME monitor-store COMMAND tst_store)
 
-# Who may read the console: the monitor's own identity system, which is deliberately not
-# the application's.
+# Who may read the console: the monitor's own identity system, kept separate from the
+# application's.
 qt_add_executable(tst_operator tst_operator.cpp)
 
 target_link_libraries(tst_operator PRIVATE
@@ -110,9 +105,7 @@ target_link_libraries(tst_operator PRIVATE
 
 add_test(NAME monitor-operator COMMAND tst_operator)
 
-# The cold tier: the encoding a third-party collector reads, and what happens when there is
-# nothing at the other end. No collector is stood up, because what is under test is the
-# serialization and the refusal to block, and a running collector would hide both.
+# The cold tier: the encoding, and not blocking when no collector answers.
 qt_add_executable(tst_export tst_export.cpp)
 
 target_link_libraries(tst_export PRIVATE
