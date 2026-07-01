@@ -70,6 +70,40 @@ happened to be logged today:
 
 Six severities, `trace` through `fatal`, on the OpenTelemetry ladder.
 
+## How one click becomes one trace
+
+A trace is one story, and a span is one piece of work in it. The piece of work SynQt opens
+a span for is a slot call crossing a link, so a click that reaches the edge, has the edge
+call a service, and has that service call another, is one trace with a span per hop, each
+the child of the one before it.
+
+What makes it one story is that the identifiers travel. They travel with the session,
+because the session is already the thing that goes down the chain and a second channel for
+it would be a second thing to forget, and they are not part of it: nothing authorizes
+anything by a trace identifier. Concretely:
+
+* **The browser's call is where a trace starts.** A visitor cannot name one. The edge opens
+  the first span itself, and a `traceparent` a client puts in a request is not read, for
+  the same reason a session it claims is not: a value a visitor controls could stitch their
+  call into somebody else's story.
+* **An outbound call carries the span the work is in**, not the one that reached it, so the
+  service's work is a child of the edge's rather than a sibling.
+* **Everything the entity says while answering joins the span.** `Log.info` in a slot, a
+  provider's query, a refusal by a scope gate: a record written inside a call belongs to
+  the call, so following a trace shows what happened and not only who called whom.
+* **A continuation is still the click.** `Store.recent().then(rows => Cache.put(rows))`
+  runs turns later, when the slot is long finished, and the second call carries the first
+  one's trace. The session does not follow it: by then the entity is acting on its own
+  behalf, which is an authorization question and a separate one.
+* **What arrives is read only in the shape SynQt mints**, 32 and 16 lower-case hex
+  characters, on the mesh where the peer is certificate-authenticated and again where a
+  record reaches the monitor. Anything else is dropped and the call starts a trace of its
+  own. An identifier is repeated by every entity downstream and written into the history,
+  so what a peer can put there is bounded by shape rather than by trust.
+
+A service reached by two clicks answers both on one link and one Caller; each call
+continues the trace it arrived with, so the second is never filed under the first.
+
 ## What is not recorded, and why
 
 **No credential, ever.** A session is named in the record by a handle, half of its
