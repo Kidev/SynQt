@@ -12,7 +12,7 @@
 
 import { behindOf, entityType, scopesOf } from "./rules.js";
 import { ROLE_HELP, accessorName, codeLine, codeParts, codeWord, contractSvg,
-         glyphSvg, linkTitleNode, memberCode, memberMarkSvg,
+         glyphSvg, linkTitleNode, linksAreDerived, memberCode, memberMarkSvg,
          roleOf } from "./canvas.js";
 import { linkTitle } from "./project.js";
 import { baseType, declarations } from "./source.js";
@@ -1169,7 +1169,13 @@ function contractPanel(design, link, actions) {
 
     // Nothing to name. An entity has one connect point, so the owner names it: consumers
     // reach it as the owner capitalised, and the contract carries that same name.
-    const names = (design.entities || []).map((entity) => entity.name);
+    // Every entity that can be either end of a drawn line. A monitor is neither: what
+    // reaches it and what it reaches come from `monitoring.entity` and from the console
+    // client's own `console: true`, so offering it here would offer a line that is never
+    // built. Same rule as the canvas, from the same function.
+    const names = (design.entities || [])
+        .filter((entity) => !linksAreDerived(entity))
+        .map((entity) => entity.name);
     const taken = new Set((design.links || [])
         .filter((one) => one !== link)
         .map((one) => one.owner));

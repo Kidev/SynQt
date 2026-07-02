@@ -22,11 +22,7 @@ from . import (addentity, appmodel, clientcache, config as configmod, contractge
 
 
 def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[str]:
-    """One message per name declared more than once.
-
-    Both maps are keyed by name, so a repeat is not a conflict anyone is told about: the
-    later entry replaces the earlier one and the file reads as though both are in force.
-    """
+    """One message per name declared more than once. A later entry replaces the earlier one."""
     seen: List[str] = [str(name) for name in names if name]
     return [f"error: {what} '{name}' is declared more than once; {consequence}"
             for name in sorted({n for n in seen if seen.count(n) > 1})]
@@ -35,11 +31,8 @@ def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[s
 def _named_point_messages(config: Dict[str, Any]) -> List[str]:
     """Refuse a `name:` on a connect point.
 
-    An entity has one connect point, so the owner already names it. The accessor a consumer
-    reads is `Books`, the contract is `Books`, and the file that implements it is
-    `Books.qml`. A leftover `name:` from the older form is not harmless, because everything
-    derived from it moves: a project that keeps writing `name: ledger` gets a build looking
-    for `Ledger.qml` on one side and `Books` on the other.
+    The owner names its one connect point: accessor, contract and Source file all derive from
+    the owner name, so a `name:` would split them.
     """
     messages: List[str] = []
     for point in config.get("connect_points") or []:
@@ -57,12 +50,8 @@ def _named_point_messages(config: Dict[str, Any]) -> List[str]:
 def _entity_name_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a name that cannot be used everywhere an entity name is used.
 
-    Nothing checked this, and an entity name is not a label. It becomes the directory the
-    entity's files live in, a CMake target, the QML accessor other entities reach it through,
-    and the subject and file name of its mesh certificate. A name with a separator in it is
-    the sharp end, since `synqt mesh cert` writes `<name>.key` into the mesh directory. The
-    quiet ones cost more time. A space or a dot produces a build failure or an unresolvable
-    QML name a long way from the line that caused it.
+    The name becomes a directory, a CMake target, a QML accessor, and the subject and file name
+    of a mesh certificate (`synqt mesh cert` writes `<name>.key`).
     """
     messages: List[str] = []
     for entity in declared:
@@ -87,16 +76,8 @@ def _entity_name_messages(declared: List[Dict[str, Any]]) -> List[str]:
 def _qml_uri_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse two client entities whose names fold to one QML module URI.
 
-    A project with more than one client gives each client's QML module a URI of its own,
-    because both would otherwise claim `qrc:/qt/qml/<Uri>/Main.qml` and whichever
-    registered last would answer for every route in the other. Nothing reports that. The
-    wrong page loads.
-
-    The URI is the entity name folded into identifier shape, since a name may carry
-    hyphens and a URI may not. Folding is many-to-one: `admin-ui` and `admin_ui` are two
-    entities and one URI, which puts the collision back exactly where the per-client URI
-    was introduced to remove it. Rare, and silent when it happens, which is the pair of
-    properties that earns a check.
+    Each client gets its own module URI so two `Main.qml` files do not collide. The URI folds
+    hyphens away, so `admin-ui` and `admin_ui` would share one.
     """
     seen: Dict[str, str] = {}
     messages: List[str] = []
@@ -117,12 +98,7 @@ def _qml_uri_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) ->
 
 
 def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
-    """Refuse a `type:` that is not one of the eight.
-
-    `type: relational` misspelled is an entity with no `Db`, whose files go to `service/`,
-    and whose provider block nothing reads. Every symptom points somewhere other than the
-    typo, so the typo is named here.
-    """
+    """Refuse a `type:` that is not one of the eight."""
     messages: List[str] = []
     for entity in declared:
         name = str(entity.get("name") or "?")
@@ -134,18 +110,13 @@ def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
     return messages
 
 
-#: Header names an outbound entry must not set. The transport derives each of them from the
-#: request, and a value written over one is either ignored or corrupts the message.
+#: Header names an outbound entry must not set. The transport derives them from the request.
 _TRANSPORT_HEADERS = frozenset({"host", "content-length", "connection", "keep-alive",
                                 "transfer-encoding", "te", "trailer", "upgrade"})
 
-#: Header names that carry a credential. Anything under one of these has to be an `env:`
-#: reference, for the same reason an identity provider's client secret does: synqt.yaml is
-#: committed, copied and pasted into issues.
-#:
-#: A bare `key` is not on the list. It would catch `X-Idempotency-Key`, which
-#: is a request identifier and not a secret, and a rule that refuses a correct config is
-#: one people learn to route around. `x-api-key` is still caught, by `api-key`.
+#: Header names that carry a credential. A value under one must be an `env:` reference.
+#: A bare `key` is not listed because it would catch `X-Idempotency-Key`; `api-key` catches
+#: `x-api-key`.
 _CREDENTIAL_HEADERS = ("authorization", "api-key", "apikey", "token", "secret",
                        "cookie", "password")
 
@@ -198,11 +169,7 @@ def _outbound_entry_messages(name: str, entry: Any) -> List[str]:
 def _network_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """The `network:` block: what an entity may call, and who may call it.
 
-    Absent is the default and is closed, so everything here is about an entity somebody
-    opened. The refusals are all the same shape, a surface that looks
-    configured and is not, or one that is open wider than whoever wrote it meant. An
-    inbound API with no key and no `public: true` is the one worth naming twice, because
-    leaving a line out is exactly how an internal API ends up answering the internet.
+    Absent means closed. An inbound API with no key and no `public: true` is refused.
     """
     messages: List[str] = []
     for entity in declared:
@@ -315,9 +282,7 @@ def _inbound_messages(name: str, entity: Dict[str, Any],
                 f"error: entity '{name}' has network.inbound.{key} {value}; a limit of "
                 "zero or less would refuse every request rather than disable the limit")
 
-    # The socket ceilings, where zero is a word. It disables that ceiling, and the
-    # per-address one is disabled by the runtime anyway behind a proxy, since every
-    # socket is then the proxy's.
+    # Zero disables a socket ceiling. The per-address ceiling is off behind a proxy anyway.
     for key in ("max_connections", "max_connections_per_ip"):
         value = inbound.get(key)
         if value is None:
@@ -343,11 +308,7 @@ def _inbound_messages(name: str, entity: Dict[str, Any],
 
 
 def _proxies_quietly(reader, entity: Dict[str, Any]) -> List[str]:
-    """One of the two proxy readers, with a malformed block reported as empty.
-
-    The malformed block already has its own error above. This is for the rules that only
-    want to know whether a list was named.
-    """
+    """One of the two proxy readers, with a malformed block read as empty (reported elsewhere)."""
     try:
         return reader(entity)
     except appmodel.AppGenError:
@@ -357,12 +318,7 @@ def _proxies_quietly(reader, entity: Dict[str, Any]) -> List[str]:
 def _proxy_entry_is_readable(entry: str) -> bool:
     """Would `QHostAddress::parseSubnet` make an address or a range of this?
 
-    Written against what Qt accepts rather than against what Python's `ipaddress` accepts,
-    because the two disagree: Qt takes an abbreviated IPv4 form (`10/8`) and a netmask
-    written out (`10.0.0.0/255.255.255.0`), and a check that refused those would refuse a
-    list the runtime honours. What both refuse is the mistake this is here for: a host
-    name. `trusted_proxies: [nginx]` reads like it says something, and to the runtime it
-    says nothing at all.
+    Follows Qt, which also takes `10/8` and `10.0.0.0/255.255.255.0`. A host name is refused.
     """
     address, _, mask = entry.partition("/")
     if ":" in address:
@@ -392,13 +348,8 @@ def _proxy_entry_is_readable(entry: str) -> bool:
 def _trusted_proxy_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """`trusted_proxies`, on both surfaces that have one.
 
-    The list is what turns a forwarding header from a field the client filled in into the
-    address every per-IP limit counts. An entry the runtime cannot read is dropped there
-    rather than refused, which is right in the runtime (a live entity should not fail to
-    start over a list it can mostly read) and wrong to leave unsaid: a deployment that
-    wrote a host name would run with a list that trusts nobody, count the proxy as every
-    caller, and have nothing to read about it. So the entry is checked here, where saying
-    so costs a line of output instead of a restart.
+    The runtime drops an entry it cannot read, which would leave a list that trusts nobody, so
+    each entry is checked here.
     """
     messages: List[str] = []
     for entity in declared:
@@ -421,10 +372,7 @@ def _trusted_proxy_messages(declared: List[Dict[str, Any]]) -> List[str]:
                     "nobody at the point this is read, so the entry would be dropped and "
                     "every caller would count as the proxy")
 
-        # Two listeners, two lists, and neither is read for the other. A word is due when
-        # one is configured and the other is not. An entity that has both surfaces is
-        # behind the same infrastructure for both often enough that leaving the second
-        # list out is more likely to be an oversight than a decision.
+        # Two listeners, two lists. Warn when one is configured and the other is not.
         if (appmodel.serves_inbound(entity)
                 and _proxies_quietly(appmodel.trusted_proxies, entity)
                 and not _proxies_quietly(appmodel.inbound_trusted_proxies, entity)):
@@ -438,12 +386,7 @@ def _trusted_proxy_messages(declared: List[Dict[str, Any]]) -> List[str]:
 
 
 def _is_literal_address(value: str) -> bool:
-    """Would `QHostAddress(QString)` make an address of this?
-
-    `ipaddress` and Qt agree on the plain forms, which is all that is written here: a
-    dotted IPv4 quad or an IPv6 address, with the brackets a URL puts round the second one
-    stripped first, because a configuration file is not a URL and both spellings are typed.
-    """
+    """Would `QHostAddress(QString)` make an address of this? Brackets around IPv6 are stripped."""
     text = value.strip()
     if text.startswith("[") and text.endswith("]"):
         text = text[1:-1]
@@ -456,18 +399,10 @@ def _is_literal_address(value: str) -> bool:
 
 def _bind_address_messages(declared: List[Dict[str, Any]],
                            connect_points: List[Dict[str, Any]]) -> List[str]:
-    """Every address a listener binds or a mesh link dials has to be an address.
+    """Every address a listener binds or a mesh link dials has to be a literal address.
 
-    Each of these reaches the runtime as a `QHostAddress`, which holds an address and
-    resolves nothing. A name goes in and a null address comes out. What follows is an owner
-    that cannot bind and a consumer that dials an empty string and retries forever, and the
-    reason is several files away from the line that caused it. `localhost` is the one that
-    stings, because it is the natural thing to write and it is a name like any other.
-
-    The same rule `trusted_proxies` is already held to, applied to the other three places a
-    literal address is required. Refused rather than resolved. Resolving would pick one of
-    a name's addresses at build time and bake it in, which is a different deployment from
-    the one that was written down.
+    `QHostAddress` resolves nothing, so a name such as `localhost` becomes a null address. A
+    name is refused rather than resolved at build time.
     """
     messages: List[str] = []
     for entity in declared:
@@ -503,12 +438,7 @@ def _bind_address_messages(declared: List[Dict[str, Any]],
 
 
 def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
-    """Refuse a `shared:` that is not a yes-or-no, and one written on a client.
-
-    A client is one browser. There is nobody for it to be shared with, so `shared: true`
-    there says nothing at all, rather than saying something with a surprising effect, and
-    reading it in a project would teach the wrong thing about what the word is for.
-    """
+    """Refuse a `shared:` that is not a boolean, and any `shared:` on a client."""
     messages: List[str] = []
     for entity in declared:
         if "shared" not in entity:
@@ -529,12 +459,9 @@ def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
 
 
 def _orphan_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> List[str]:
-    """Note an entity that owns nothing and consumes nothing.
+    """Warn about an entity that owns nothing and consumes nothing.
 
-    A warning and not an error. It is the state every entity passes through between being
-    added and being wired, and refusing it would mean `synqt add entity` produced a project
-    that no longer checks. What it is not is a state to ship, because such an entity is a
-    process that starts, talks to nobody, and is never noticed again.
+    A warning, because `synqt add entity` produces this state before the entity is wired.
     """
     messages: List[str] = []
     for entity in declared:
@@ -557,16 +484,12 @@ def validate(config: Dict[str, Any], *, release: bool = False,
              starting: bool = False) -> Tuple[bool, List[str]]:
     """Return (ok, messages). Messages prefixed 'error:' fail the build; 'warn:' do not.
 
-    ``release`` selects the rules that only bind a production artifact: plaintext to the
-    browser, a cross-host mesh link without mutual TLS, and a desktop client pointed at a
-    plaintext edge are all legitimate on a developer's localhost and none of them may
-    reach a deployment. ``project_dir`` enables the rules that have to look at the disk;
-    without it those are skipped rather than guessed at. ``starting`` marks the moment an
-    entity is about to run, which is the only point where a missing mesh
-    certificate is a failure rather than a note. Certificates are deployment artifacts
-    issued from the CA, and the CA private key is not on the machine that
-    builds (docs/security.md), so a release build that demanded one would be demanding
-    the one thing CI must never hold."""
+    ``release`` enables the rules that bind only a production artifact (plaintext to the
+    browser, a cross-host mesh link without mutual TLS, a desktop client on a plaintext edge).
+    ``project_dir`` enables the rules that read the disk. ``starting`` makes a missing mesh
+    certificate an error; a release build does not require one, because the CA key is never on
+    the build machine (docs/security.md).
+    """
     messages: List[str] = []
     declared = [e for e in config.get("entities", []) if isinstance(e, dict)]
     entities = {e.get("name"): e for e in declared}
@@ -586,31 +509,23 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         "point, and use per-member scope where they are for different audiences")
     messages += _named_point_messages(config)
 
-    # Validate the topology the build will wire, which includes the two links
-    # `identity.provider_entity` implies. Checked before the expansion, because a collision
-    # with a declared connect point is exactly what the expansion silently steps around.
+    # Validate the topology the build wires, including the links `identity.provider_entity`
+    # implies, before expanding it, so a collision with a declared connect point is caught.
     messages += _provider_entity_messages(config, entities)
     messages += _monitor_entity_messages(config, entities, release)
+    messages += _monitor_as_consumer_messages(config, entities)
     messages += _console_delivery_messages(config)
     config = appmodel.with_auth_connect_points(config)
     config = appmodel.with_monitoring_connect_points(config)
 
     web_edges = {name for name, e in entities.items() if _is_web_edge(e)}
-    # Every entity a browser can reach directly, which is the web edges plus a monitor: it
-    # serves its own operator console on its own port. Kept apart from `web_edges`, which
-    # is about the application's edge and is what the identity and origin rules read.
+    # Every entity a browser reaches directly: the web edges, plus a monitor for its console.
+    # `web_edges` stays the application edges, which the identity and origin rules read.
     browser_facing = {name for name, e in entities.items() if appmodel.serves_browser(e)}
     clients = {name for name, e in entities.items() if appmodel.is_client(e)}
 
-    # A browser reaches a web edge or it reaches nothing. It holds no mesh certificate and
-    # the mesh is not routable from it. A client in a project with no web_edge entity has
-    # nowhere to connect, so it is a client that cannot run rather than one not wired yet.
-    #
-    # A desktop-only client is the one exception, and it is not a loophole. It is not served
-    # by an edge, it dials the one `build.desktop.edge_url` names, and that edge can be
-    # deployed from another project entirely. Requiring one here would refuse a shape the
-    # framework supports (docs/desktop.md), and `_desktop_client_messages` already holds a
-    # desktop client to naming an edge at all.
+    # A client needs a web_edge in the project to connect to. A desktop-only client is exempt:
+    # it dials `build.desktop.edge_url`, which `_desktop_client_messages` requires.
     if not browser_facing:
         for name in sorted(clients):
             if "wasm" not in (entities[name].get("targets") or ["wasm"]):
@@ -630,28 +545,16 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _replica_messages(config, entities)
     messages += _thread_messages(entities)
 
-    # The endpoints the build will write, not the keys as spelled: a link's
-    # transport and host can come from the owner entity's `mesh:` block as easily as from
-    # the connect point, and a rule that read only one of the two would pass a topology
-    # the generator then wires the other way (see topologywriter.mesh_settings).
+    # The endpoints the build writes. Transport and host can come from the owner `mesh:` block
+    # or the connect point (see topologywriter.mesh_settings).
     project_name = (config.get("project") or {}).get("name", "app")
     endpoints = topologywriter.resolve_endpoints(config, project_name)
     scope_order = _scope_order(config)
 
-    # An entity that signs anybody in must have declared what the project's scopes are.
-    # Without this the empty list is ambiguous. It means both "this project has no sign-in"
-    # and "this project has a sign-in and forgot to say what its scopes are", and every
-    # scope rule downstream reads it as the first and turns itself off. A project could
-    # carry a login, a mapping hook returning scope names nobody declared, connect points
-    # gated on scopes nobody can hold, and a clean `synqt check`.
-    #
-    # `identity_enabled` is the predicate rather than a second one written here: it is what
-    # maingen asks before emitting the login routes at all, so what this refuses and what
-    # the build would have served cannot drift apart. The monitor is not
-    # included. Its console gate declares its own two scopes in the generated main and
-    # never consults `scopes.order` (maingen.render_monitor_main). `identity_enabled`
-    # answers for a web edge and is asked nothing else, which is why `is_edge` comes first:
-    # it does not test the entity's type, so on its own it would say yes for the client.
+    # An entity that signs users in must declare the project scopes; an empty list would turn
+    # every scope rule off. `identity_enabled` is the same predicate maingen uses for the login
+    # routes. The monitor declares its own scopes. `is_edge` comes first because
+    # `identity_enabled` does not test the entity type.
     if not scope_order:
         for entity in appmodel.entities(config):
             if not appmodel.is_edge(entity) or not appmodel.identity_enabled(config, entity):
@@ -661,11 +564,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"declares no scopes; add scopes.order to synqt.yaml, because the scope a "
                 f"session ends up holding has to be one of them")
 
-    # And it must name the hook that picks one. The hook is what turns a provider's identity
-    # into a scope. Without it the edge has nothing to ask and refuses every login (see
-    # IdentityProvider::mapScope, which never guesses).
-    # That refusal is correct and it is also invisible until somebody signs in, so the same
-    # missing piece is an error while the project is being written.
+    # It must also name the mapping hook. Without one the edge refuses every login
+    # (IdentityProvider::mapScope never guesses).
     if not appmodel.identity_mapping_hook(config):
         for entity in appmodel.entities(config):
             if not appmodel.is_edge(entity) or not appmodel.identity_enabled(config, entity):
@@ -683,38 +583,30 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         if owner not in entities:
             messages.append(f"error: connect point '{name}' has unknown owner '{owner}'")
 
-        # The owner holds the Source. Listing it among the consumers asks the entity to
-        # open a mesh link to itself and acquire a replica of the object it already has,
-        # and it reads as an authorization. An owner needs no permission to reach its own
-        # state, so the entry only widens what the consumer list appears to say.
+        # An owner listed among its own consumers would open a mesh link to itself. Refused.
         if owner in consumers:
             messages.append(
                 f"error: connect point '{name}' lists its owner '{owner}' as a consumer; an "
                 "entity holds its own Source and does not acquire a replica of it")
 
-        # An owner hosts the Source and listens for consumers to acquire it. A browser cannot
-        # listen: QWebSocketServer is not supported under WebAssembly, and the client is
-        # always the connector. A client that owns a connect point is a project that builds
-        # and then has nothing on the other end of the link, so it is refused here rather
-        # than discovered at run time.
+        # A browser cannot listen (no QWebSocketServer under WebAssembly), so a client cannot own a
+        # connect point.
         if owner in clients:
             messages.append(
                 f"error: connect point '{name}' is owned by the client entity '{owner}'; an "
                 "owner listens for consumers and a browser cannot listen, so a connect point "
                 "the client takes part in must be owned by a web_edge entity")
 
-        # How many Sources a point mints is not the point's to say any more: it follows
-        # from `shared:` on the entity that owns it. Left on a point it would read like a
-        # setting and do nothing, so it is refused where it is written.
+        # The Source count follows `shared:` on the owner entity; an `instance:` on a point is
+        # refused.
         if "instance" in connect_point:
             messages.append(
                 f"error: connect point '{name}' sets 'instance'; how many Sources there are "
                 f"is the owning entity's answer now, so write 'shared: false' on '{owner}' "
                 "to give each caller their own")
 
-        # A contract has no name of its own to give. The owner names it, and what crosses
-        # it is written on the point, in `export:`. Read from what the file says rather
-        # than from the resolved point, which carries the name the framework derived.
+        # The owner names the contract and `export:` defines it. Read from the file, not the
+        # resolved point, which carries the derived name.
         if "contract" in connect_point and not appmodel.is_framework_point(connect_point):
             messages.append(
                 f"error: connect point '{name}' names a 'contract'; what crosses a point is "
@@ -738,14 +630,10 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                     f"error: client '{consumer}' consumes '{name}', owned by '{owner}', "
                     "which is not a web_edge entity (the browser can only reach a web edge)")
 
-        # A scope names the authority a caller needs to acquire this connect point. One
-        # that is not in scopes.order is not a scope at all: hasScope() would never match
-        # it, so the connect point is silently unreachable rather than protected.
+        # A scope that is not in scopes.order never matches, so the point would be unreachable.
         scope = connect_point.get("scope")
-        # A framework point the monitor owns is gated on the monitor's own vocabulary, not
-        # the project's. The two vocabularies stay apart because an operator is not a user
-        # of the application, and putting `operator` in the application's `scopes.order`
-        # would make one login reach the other's surface.
+        # A monitor point is gated on the monitor scopes, which stay apart from the application
+        # scopes so one login cannot reach the other surface.
         if appmodel.is_framework_point(connect_point) \
                 and appmodel.entity_type(entities.get(owner) or {}) == "monitor":
             scope = None
@@ -756,11 +644,9 @@ def validate(config: Dict[str, Any], *, release: bool = False,
 
         endpoint = endpoints.get(name, {})
 
-        # A local-socket link must be opted into explicitly (never picked implicitly), and
-        # every local link is surfaced. Its Caller.entity is colocation-trusted, not
-        # certificate-authenticated, so any same-user process can present that entity name
-        # (pitfall 7). Owners that gate a privileged action on entity identity must require
-        # Caller.isEntityVerified on such a link.
+        # A local-socket link must be explicit, and every one is reported. Its Caller.entity is
+        # trusted by colocation, not authenticated (pitfall 7); a privileged owner must require
+        # Caller.isEntityVerified.
         if endpoint.get("transport") == "local":
             if not connect_point.get("transport_local_explicit", True):
                 messages.append(f"error: connect point '{name}' uses transport local implicitly")
@@ -769,11 +655,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                     f"warn: connect point '{name}' uses transport local: its caller entity is "
                     "colocation-trusted, not certificate-authenticated (gate privileged "
                     "actions on Caller.isEntityVerified)")
-            # A local socket carries no identity at all. The owner names every caller
-            # after the one consumer the point lists, because that is all it has to go
-            # on. With two, the second would be reported as the first on every call,
-            # and a slot that reads Caller.entity would be answering the wrong entity
-            # without anything having been forged.
+            # A local socket carries no identity, so the owner names every caller after the
+            # one listed consumer. A second consumer would be reported as the first.
             if len(consumers) > 1:
                 messages.append(
                     f"error: connect point '{name}' uses transport local with "
@@ -797,9 +680,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
             messages.append(f"error: client '{name}' must not carry a provider/secret block")
         messages += _client_env_messages(name, entity)
 
-    # The client build mode and the cross-origin-isolation it requires must pair up
-    # (pitfall 13), a multi-threaded WASM client needs SharedArrayBuffer, which the browser
-    # grants only to a cross-origin-isolated page.
+    # A multi-threaded WASM client needs SharedArrayBuffer, so it needs cross-origin isolation
+    # (pitfall 13).
     threads = str((config.get("build") or {}).get("client_threads", "single")).lower()
     if threads not in ("single", "multi"):
         messages.append(
@@ -810,9 +692,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
             "warn: build.client_threads is 'multi', which forces cross-origin isolation on; "
             "security.cross_origin_isolation: false is overridden to true")
 
-    # Asyncify is a link-time choice with a real download cost, so say so rather than let it
-    # be turned on and forgotten. It is a boolean. A string is the mistake worth catching,
-    # because "false" is truthy in Python and would silently link the expensive build.
+    # Asyncify must be a real boolean: the string "false" is truthy.
     asyncify = (config.get("build") or {}).get("client_asyncify")
     if asyncify is not None and not isinstance(asyncify, bool):
         messages.append(
@@ -824,19 +704,15 @@ def validate(config: Dict[str, Any], *, release: bool = False,
             "suspend. SynQt does not need it (see "
             "https://synqt.org/project-layout-and-config/)")
 
-    # Where the client sends diagnostic output (build.client_logging). Unset is fine: the
-    # client defaults to console in a debug build and drops debug output in a release build.
+    # build.client_logging. Unset: console in debug, debug output dropped in release.
     logging_mode = (config.get("build") or {}).get("client_logging")
     if logging_mode is not None and str(logging_mode).lower() not in ("console", "qt", "none"):
         messages.append(
             f"error: build.client_logging must be 'console', 'qt', or 'none', not "
             f"'{logging_mode}'")
 
-    # Scope checks are hierarchical (a higher scope satisfies a lower one) by default, or
-    # set-based when scopes.hierarchical is false. Both mains read it as a boolean. A string
-    # like "false" is truthy in Python, so it would silently stay hierarchical. The exact
-    # authorization surprise (a lower scope granted to a higher-ranked holder) the setter
-    # meant to turn off. Insist on a real boolean rather than misread one.
+    # scopes.hierarchical must be a real boolean: the string "false" is truthy and would keep
+    # hierarchical checks on.
     scopes = config.get("scopes")
     if isinstance(scopes, dict) and "hierarchical" in scopes:
         if not isinstance(scopes["hierarchical"], bool):
@@ -855,8 +731,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         messages += _provider_messages(name, entities[name])
         messages += _provider_secret_messages(name, entities[name])
 
-    # How a repeat visitor gets the client back (build.client_cache). Unset is fine: it
-    # defaults to the service worker.
+    # build.client_cache. Unset: the service worker.
     cache_mode = (config.get("build") or {}).get("client_cache")
     if cache_mode is not None and str(cache_mode).lower() not in clientcache.MODES:
         messages.append(
@@ -870,8 +745,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
 
 
 def _scope_order(config: Dict[str, Any]) -> List[str]:
-    """The declared scope names, lowest authority first. Empty when none are declared,
-    which turns the scope rules off rather than rejecting every scope in the file."""
+    """The declared scope names, lowest authority first. Empty turns the scope rules off."""
     scopes = config.get("scopes")
     if not isinstance(scopes, dict):
         return []
@@ -883,20 +757,11 @@ def _scope_order(config: Dict[str, Any]) -> List[str]:
 
 def _mesh_policy_messages(config: Dict[str, Any], endpoints: Dict[str, Dict[str, Any]],
                           release: bool) -> List[str]:
-    """The mesh-wide TLS policy. `mesh.require_mtls_cross_host`, and the links it governs.
+    """The mesh-wide TLS policy: `mesh.require_mtls_cross_host` and the links it governs.
 
-    A cross-host link is one whose resolved host is not this machine. It carries entity
-    identity over a wire someone else can reach, so mutual TLS is the only thing standing
-    between the mesh and anyone who can route a packet to that port.
-
-    Which is why the guarantee is mostly structural rather than checked link by link: the
-    two transports are mutual TLS and a local socket, and a local socket is a file on one
-    machine, so a link that leaves the machine is mutual TLS because there is nothing else
-    for it to be. The two rules here are the ways that could stop being true. A local
-    socket with a remote host is a configuration that reads as a cross-host link and is
-    not one, and the consumer would dial a socket path resolving to some other process on
-    its own host. And `require_mtls_cross_host: false` is the switch that would let a
-    future plaintext mesh transport through, which a lab may want and a release may not.
+    A link that leaves the machine is mutual TLS because the only other transport is a local
+    socket. Two rules keep that true: a local socket may not name a remote host, and a release
+    may not set `require_mtls_cross_host: false`.
     """
     messages: List[str] = []
     policy = config.get("mesh")
@@ -912,10 +777,7 @@ def _mesh_policy_messages(config: Dict[str, Any], endpoints: Dict[str, Dict[str,
     for name, endpoint in sorted(endpoints.items()):
         if endpoint.get("transport") != "local":
             continue
-        # A local socket is a file on one machine. Naming a remote host next to it does not
-        # make the link cross-host, it makes the configuration a lie about where the owner
-        # is, and the consumer would dial a socket path that resolves to a different
-        # process (or nothing) on its own host.
+        # A local socket with a remote host would dial a local path while claiming a remote owner.
         host = str((_link_host(config, name) or "")).strip().lower()
         if host and host not in topologywriter.LOOPBACK_HOSTS:
             messages.append(
@@ -938,19 +800,9 @@ def _edge_tls_messages(entities: Dict[str, Any], web_edges: Set[str],
                        release: bool) -> List[str]:
     """A release web edge reaches the browser over TLS, and says which end terminates it.
 
-    Everything the browser link protects rests on that. The session cookie is `Secure`,
-    the upgrade carries the credential, and the client sets no QSslConfiguration of its
-    own because the browser terminates wss. Plaintext is a localhost convenience
-    (`dev.tls: false`), never a deployment, so this reads the entity's own `tls:` block
-    and not the `dev:` section that only ever describes a developer machine.
-
-    There are two right answers and this asks for one of them, rather than assuming the
-    first. The edge terminates TLS itself, with `tls.cert_file` and `tls.key_file`. Or a
-    reverse proxy in front of it does, which docs/security.md recommends for putting the
-    bundle and the sync path on one origin, and then the edge legitimately listens on
-    plaintext loopback and the project says so with `public.tls_terminated_upstream`.
-    What is rejected is neither: an edge that will be reached over `http://` with nobody
-    named as the one who was supposed to stop that.
+    Either the edge terminates TLS itself (`tls.cert_file` and `tls.key_file`), or a reverse
+    proxy does and the project sets `public.tls_terminated_upstream`. Reads the entity `tls:`
+    block, never `dev:`.
     """
     if not release:
         return []
@@ -977,14 +829,10 @@ def _edge_tls_messages(entities: Dict[str, Any], web_edges: Set[str],
 
 def _desktop_client_messages(config: Dict[str, Any], entities: Dict[str, Any],
                              clients: Set[str], release: bool) -> List[str]:
-    """A native client is not served by an edge, so it has to be told where its edge is.
+    """A desktop client needs `build.desktop.edge_url`, the build bakes it in.
 
-    The browser client reads its edge from the page it was served by. A desktop build has
-    no serving origin and reads `build.desktop.edge_url`, which the build bakes in
-    (build.py `_desktop_edge_url`). Missing, it connects to nothing and the failure lands
-    on a user's machine rather than here. Plaintext is allowed only against a dev edge on
-    localhost, because a desktop client terminates its own TLS and a `ws://` URL in a
-    shipped binary is a downgrade nobody can see.
+    Plaintext is allowed only against a localhost dev edge; a desktop client terminates its own
+    TLS.
     """
     messages: List[str] = []
     desktop = ((config.get("build") or {}).get("desktop") or {})
@@ -1006,13 +854,7 @@ def _desktop_client_messages(config: Dict[str, Any], entities: Dict[str, Any],
 
 
 def _identity_messages(config: Dict[str, Any], release: bool = False) -> List[str]:
-    """Every configured identity provider needs a client secret before the edge starts.
-
-    Left to the first login this is a bad failure: the edge comes up, serves the app, and
-    the OAuth exchange fails for the first person who tries to sign in. The secret is
-    always an `env:` reference (the value lives in the entity env, never in synqt.yaml),
-    so what is checked here is that the reference exists and is one.
-    """
+    """Every configured identity provider needs a client secret, as an `env:` reference."""
     identity = config.get("identity")
     if not isinstance(identity, dict):
         return []
@@ -1042,13 +884,8 @@ def _identity_messages(config: Dict[str, Any], release: bool = False) -> List[st
 
 
 def _dev_stub_messages(config: Dict[str, Any], release: bool) -> List[str]:
-    """`identity.dev_stub`: the development sign-in, and what it may say.
-
-    Everything about the entry it produces is written by the framework, so the only
-    things a project can get wrong here are the port and the people. A user with no
-    `sub` is the one worth refusing outright: `sub` is what an identity is keyed on
-    everywhere downstream, so a hook that maps by it would answer the default scope for
-    every dev user and the sign-in would look broken rather than misconfigured.
+    """`identity.dev_stub`: the development sign-in. Checks its port and users; a user needs a
+    `sub`, the key every identity is looked up by.
     """
     if not appmodel.has_dev_stub(config):
         return []
@@ -1097,9 +934,7 @@ def _dev_stub_messages(config: Dict[str, Any], release: bool) -> List[str]:
                     "identity is keyed on, so a mapping hook would answer the default "
                     "scope for this one and the sign-in would look broken")
 
-    # A port clash is the failure this one is written to catch. The edge would start, the
-    # dev sign-in would refuse to listen, and the whole run would end on a message about
-    # a port rather than about a login.
+    # The dev sign-in port must not clash with the edge port.
     dev_port = appmodel.dev_stub_port(config)
     for entity in appmodel.entities(config):
         declared = appmodel.public_settings(entity).get("port")
@@ -1122,36 +957,27 @@ def _dev_stub_messages(config: Dict[str, Any], release: bool) -> List[str]:
     return messages
 
 
-# Who reaches each binding level. Only the first is something every desktop platform gives;
-# above it the answer depends on the machine and not on the build, which is why raising the
-# floor is reported here and decided at enrolment.
+# Who reaches each binding level. Only the first is guaranteed on every desktop platform;
+# the higher ones depend on the machine and are settled at enrolment.
 _DEVICE_BINDING_REACH = {
     "user": "",
     "application": ("only a signed macOS build reaches it, so a Windows or Linux client "
                     "persists nothing"),
 }
 
-# The level the vocabulary reserves and no store reports yet. It is refused rather than
-# warned about, because a warning would be describing machines that do not exist: raising the
-# floor to it today turns persistence off for every client on every platform, which is the
-# third way of configuring this feature into doing nothing at all.
+# The reserved level no store reports yet. A floor at this level would turn persistence off
+# everywhere, so it is refused.
 _DEVICE_BINDING_UNBUILT = "hardware"
 
 
-# Persistence providers whose store belongs to one process on one machine. A device
-# credential kept in one of these cannot be redeemed by a second replica, because the
-# second replica is not looking at that file.
+# Persistence providers whose store belongs to one process on one machine. A second replica
+# cannot redeem a device credential kept there.
 _EMBEDDED_STORES = ("sqlite", "memory")
 
 
 def _replica_messages(config: Dict[str, Any],
                       entities: Dict[str, Any]) -> List[str]:
-    """What running N of an entity requires, checked only where N is written.
-
-    Every rule here is dormant at `replicas: 1` and with the key absent. That is the
-    governing constraint of the feature and not an implementation detail: a project that
-    never asks to be replicated must not gain a single message it did not have before.
-    """
+    """What running N of an entity requires. Silent at `replicas: 1` and with the key absent."""
     messages: List[str] = []
     for name, entity in entities.items():
         try:
@@ -1172,13 +998,8 @@ def _replica_messages(config: Dict[str, Any],
 
 
 def _thread_messages(entities: Dict[str, Any]) -> List[str]:
-    """Where `threads:` may be written, and what it has to say.
-
-    One rule, against `replicas:`'s four, and the asymmetry is earned. Replicating an
-    edge is a promise about state that the project has to keep. Threading one is a promise
-    about nothing, because the only thing that moves is the socket. So all that is left to
-    check is that the key is on the entity it means something to, since a `threads:` that
-    quietly does nothing is worse than one that is refused.
+    """Where `threads:` may be written. Only the socket moves to a thread, so the one rule is that
+    the key sits on an entity where it has an effect.
     """
     messages: List[str] = []
     for name, entity in entities.items():
@@ -1260,20 +1081,10 @@ def _replicated_device_store_messages(config: Dict[str, Any], where: str) -> Lis
 
 
 def _device_session_messages(config: Dict[str, Any]) -> List[str]:
-    """`identity.desktop_session: device` writes something to a visitor's disk, so the three
-    ways of configuring it into doing nothing at all are refused rather than tolerated.
+    """`identity.desktop_session: device`, refused where it could never work.
 
-    Two are about the project and not about the platform. A project with no desktop client has
-    nothing that could ever enrol, and one with no durable store has nowhere to keep what it
-    enrolled. The third is a floor no store can meet. None of them degrades quietly, because
-    the symptom of all three is the same as the feature working perfectly and nobody ever
-    staying signed in.
-
-    A floor that some machines do meet is reported instead of refused. Which level a machine
-    reaches is a property of that machine, so the edge settles it at enrolment. What is worth
-    saying at build time is which whole platforms in `targets` cannot reach the configured
-    level, so raising the bar is not a silent way to turn persistence off for a third of your
-    users.
+    Refused: no desktop client in the project, no durable store, or a floor no store can meet.
+    Reported: whole platforms in `targets` that cannot reach the configured floor.
     """
     try:
         session = appmodel.desktop_session(config)
@@ -1322,12 +1133,8 @@ _IDENTITY_ENDPOINTS = (
 
 
 def _insecure_endpoint_messages(name: str, provider: Dict[str, Any]) -> List[str]:
-    """Identity endpoints are https, except a loopback host (the dev stub).
-
-    The runtime refuses these too (identityconfig.h, isSecureIdentityEndpoint), which is
-    the check that protects a login. This one exists so the answer arrives while
-    the config is being written rather than at the first sign-in attempt, which is the
-    one moment nobody is watching a log.
+    """Identity endpoints are https, except a loopback host (the dev stub). The runtime enforces
+    the same rule (identityconfig.h, isSecureIdentityEndpoint).
     """
     messages: List[str] = []
     for key, why in _IDENTITY_ENDPOINTS:
@@ -1344,14 +1151,10 @@ def _insecure_endpoint_messages(name: str, provider: Dict[str, Any]) -> List[str
 
 
 def _id_token_messages(name: str, provider: Dict[str, Any]) -> List[str]:
-    """A provider whose identity comes from an ID token names what it will be checked against.
+    """A provider that takes identity from an ID token names `issuer` and `jwks_url`.
 
-    The verifier compares the token's `iss` claim against `issuer`, and skips the
-    comparison entirely when nothing is configured to compare it with. That is not a
-    setting anybody chooses on purpose, so the edge refuses such a login outright
-    (oauthbackend.cpp) and this says so while the config is being written rather than at
-    the first sign-in. `jwks_url` is the other half. Without it there is no key set and
-    no signature to verify.
+    Without `issuer` the verifier skips the `iss` comparison and the edge refuses the login
+    (oauthbackend.cpp); without `jwks_url` there is no key set.
     """
     if not provider.get("use_id_token"):
         return []
@@ -1372,12 +1175,9 @@ def _provider_entity_messages(config: Dict[str, Any],
                               entities: Dict[str, Any]) -> List[str]:
     """`identity.provider_entity` names a real service entity, and only implies links.
 
-    Promoting identity is one line, so the two connect points it implies are synthesized
-    rather than declared (see appmodel.with_auth_connect_points). Everything that could go
-    wrong with a synthesized link is therefore something the project cannot see, which is
-    why it is said here. An entity name that does not exist, a name that is the edge or the
-    client rather than an entity of its own, and a declared connect point already holding
-    one of the two names, which would leave the promotion half-wired around it.
+    The two implied connect points are synthesized (see appmodel.with_auth_connect_points).
+    Refused: an unknown name, the edge or the client, and a declared connect point that already
+    holds one of the two names.
     """
     owner = appmodel.provider_entity(config)
     if not owner:
@@ -1414,21 +1214,11 @@ def _provider_entity_messages(config: Dict[str, Any],
 
 
 def _console_delivery_messages(config: Dict[str, Any]) -> List[str]:
-    """Who is handed the operator console, on whichever port it is served from.
+    """Who receives the operator console bundle, on whichever port it is served.
 
-    `lint_bundles` validates a web edge's block and stops at the edge, because the rest of
-    what it checks is about the application's scope vocabulary and the application's login,
-    and a monitor has neither. `operator` is not in a project's scopes, and the
-    monitor signs its own operators in. So the console's own delivery went unchecked, and
-    the one thing a bundle map can get wrong here is the one thing that matters. A monitor
-    with `bundles: {anonymous: ops-console}` serves every request the system has ever
-    handled to whoever finds the port, and it built and ran and said nothing.
-
-    Two rules, and both are about who receives a bundle rather than about what a bundle is:
-    a console is addressable to an operator and to nobody else, and a monitor's default
-    scope is handed a static page rather than any client at all. The second is what covers
-    a monitor with no block, which resolves to the project's first client served to
-    everybody.
+    `lint_bundles` stops at the web edge, so the monitor is checked here. A console is
+    addressable to an operator only, and the monitor default scope gets a static page, never a
+    client.
     """
     findings: List[str] = []
     default = appmodel.default_scope(config) or "anonymous"
@@ -1465,16 +1255,36 @@ def _console_delivery_messages(config: Dict[str, Any]) -> List[str]:
     return findings
 
 
+def _monitor_as_consumer_messages(config: Dict[str, Any],
+                                  entities: Dict[str, Any]) -> List[str]:
+    """Refuse a declared connect point that a monitor consumes.
+
+    A monitor owns its ingest and console points and consumes nothing. Owning a declared point is
+    checked by :func:`_monitor_consumer_messages`.
+    """
+    monitors = {name for name, entity in entities.items()
+                if appmodel.entity_type(entity) == "monitor"}
+    if not monitors:
+        return []
+    found: List[str] = []
+    for connect_point in appmodel.connect_points(config):
+        name = appmodel.point_name(connect_point) or "<unnamed>"
+        for consumer in (connect_point.get("consumers") or []):
+            if str(consumer) not in monitors:
+                continue
+            found.append(
+                f"error: connect point '{name}' lists '{consumer}' as a consumer, and it "
+                f"is a monitor. Entities report to a monitor and a monitor reaches none of "
+                f"them, so nothing would open this link; what it asks for is application "
+                f"data in the operations record, which keeps the shape of what happened "
+                f"rather than the substance. Take the consumer out")
+    return found
+
+
 def _unreported_monitor_messages(owner: str,
                                  entities: Dict[str, Any]) -> List[str]:
-    """A `type: monitor` entity that `monitoring.entity` does not name.
-
-    One line is what makes every service report, and it is the line easiest to leave out:
-    the entity builds, starts, hosts its ingest point and serves its console, and the
-    history stays empty because nothing ever opened a link to it. That reads as a system
-    where nothing is happening, which is the reading an operator is least able to argue
-    with. A second monitor beside a wired one has the same shape and the same silence, so
-    both are said the same way.
+    """Warn about a `type: monitor` entity that `monitoring.entity` does not name. Nothing reports
+    to it.
     """
     found: List[str] = []
     for name, entity in entities.items():
@@ -1491,12 +1301,8 @@ def _unreported_monitor_messages(owner: str,
 
 def _monitor_entity_messages(config: Dict[str, Any], entities: Dict[str, Any],
                              release: bool = False) -> List[str]:
-    """`monitoring.entity` names a real monitor entity, and only implies one link.
-
-    Adding a monitor is one line, so the link every service consumes is synthesized rather
-    than declared (see appmodel.with_monitoring_connect_points). Everything that could go
-    wrong with it is therefore invisible in the project's own configuration, which is why
-    it is said here.
+    """`monitoring.entity` names a real monitor entity. The link every service consumes is
+    synthesized (see appmodel.with_monitoring_connect_points).
     """
     monitoring = config.get("monitoring")
     if monitoring is not None and not isinstance(monitoring, dict):
@@ -1539,18 +1345,10 @@ def _monitor_entity_messages(config: Dict[str, Any], entities: Dict[str, Any],
 
 
 def _public_port_messages(entities: Dict[str, Any]) -> List[str]:
-    """Two browser-facing entities cannot both have the port.
+    """Two browser-facing entities cannot share a port.
 
-    A project gains a second one the moment it gains a monitor. The edge serves the
-    application and the monitor serves its console, each on its own server. Both default to
-    8443, because neither scaffolder knows the other ran, so the first `synqt dev` after
-    adding a monitor fails to bind and the entity that lost the race is missing.
-    Said here, where the whole topology is in view, rather than left to a bind error naming
-    one process.
-
-    The default counts. Skipping any entity that has not written `public.port`
-    reads as caution and is the opposite. Two entities that have both left it out are
-    the collision, and they would be the one pair this could not see.
+    The edge and the monitor both default to 8443, and an unset `public.port` counts as that
+    default.
     """
     seen: Dict[Tuple[str, int], str] = {}
     messages: List[str] = []
@@ -1574,17 +1372,10 @@ def _public_port_messages(entities: Dict[str, Any]) -> List[str]:
 
 def _monitor_reach_messages(config: Dict[str, Any], owner: str,
                             entity: Dict[str, Any]) -> List[str]:
-    """A monitor on a public interface, which has to be said out loud to be allowed.
+    """A monitor on a public interface must be acknowledged.
 
-    The console shows every request the system has served, every refusal, and the shape of
-    every entity in it. That is a thing to reach by first reaching the machine: a VPN, an
-    SSH tunnel, or being on the host. Loopback is the default, and this is what keeps it
-    from being changed by somebody copying an edge's `public:` block without noticing what
-    it means here.
-
-    Acknowledged rather than refused outright, because a deployment behind its own
-    authenticating proxy is a real shape and this framework does not get to decide it is
-    wrong. What it does get to do is make it explicit.
+    Loopback is the default. A public bind is allowed with the acknowledgement, for a deployment
+    behind its own authenticating proxy.
     """
     host = str(appmodel.public_settings(entity).get("host") or "127.0.0.1").strip()
     if host in ("127.0.0.1", "localhost", "::1"):
@@ -1603,13 +1394,8 @@ def _monitor_reach_messages(config: Dict[str, Any], owner: str,
 
 def _monitor_consumer_messages(config: Dict[str, Any], owner: str,
                                entities: Dict[str, Any]) -> List[str]:
-    """Only the console may consume what the monitor owns.
-
-    A monitor holds every entity's record. A point of its own consumed by the application's
-    client would put that record behind the application's scope vocabulary and deliver it
-    to the application's visitors, which is the whole picture handed to whoever can sign in
-    to the app. The console is the one client that reads a monitor, it is marked
-    `console: true`, and it is delivered by the monitor itself behind the operator gate.
+    """Only the console may consume a point the monitor owns. The console is marked
+    `console: true` and served by the monitor behind the operator gate.
     """
     messages: List[str] = []
     for connect_point in appmodel.connect_points(config):
@@ -1634,15 +1420,9 @@ def _rate_limit_behind_a_balancer_messages(config: Dict[str, Any],
                                            security: Dict[str, Any]) -> List[str]:
     """Refuse `security.max_requests_per_second` on an edge that names a balancer.
 
-    Qt counts the address it is connected to and has never heard of `X-Forwarded-For`, so
-    the limit is per peer and not per visitor. That is the right thing on an edge facing the
-    internet and exactly the wrong thing behind a balancer, where every visitor arrives from
-    one address. A limit meant to slow down one client throttles the whole site at once, and
-    it does it under load, which is when nobody is reading configuration files.
-
-    The edge's own per-IP connection cap does not have this problem, because it counts the
-    address `public.trusted_proxies` resolves rather than the peer. This is refused instead
-    of taught the same trick because the counting happens inside Qt.
+    Qt rate-limits per connected peer and ignores `X-Forwarded-For`, so behind a balancer every
+    visitor shares one limit. The per-IP connection cap is unaffected: it counts the address
+    `public.trusted_proxies` resolves.
     """
     rate = security.get("max_requests_per_second")
     if not isinstance(rate, int) or isinstance(rate, bool) or rate <= 0:
@@ -1668,12 +1448,8 @@ def _rate_limit_behind_a_balancer_messages(config: Dict[str, Any],
 
 
 def _trace_level_messages(levels: Any) -> List[str]:
-    """`monitoring.levels`: how much each category records.
-
-    Every word here is checked because every one of them fails as silence. A category
-    nobody spelled right keeps its default, and an operator who turned `call` up during an
-    incident and typed `calls` would be reading an empty console while believing they had
-    already looked.
+    """`monitoring.levels`: how much each category records. A misspelled category would silently
+    keep its default.
     """
     if levels is None:
         return []
@@ -1695,13 +1471,8 @@ def _trace_level_messages(levels: Any) -> List[str]:
 
 def _monitor_export_messages(owner: str, entity: Dict[str, Any],
                              release: bool = False) -> List[str]:
-    """The monitor's `export:` block: where the events also go.
-
-    Off unless it is written, so everything here is about a block somebody wrote on
-    purpose. What it has to catch is the settings that fail as silence. An exporter with no
-    destination sends nothing and says nothing, a file exporter with no cap grows until the
-    monitor has filled the disk of the machine it is watching, and a collector reached over
-    plaintext is refused by the runtime, so a release build that names one exports nothing.
+    """The monitor `export:` block. Refused: an exporter with no destination, a file exporter
+    with no cap, and a plaintext remote collector in a release build.
     """
     settings = entity.get("export")
     if settings is None:
@@ -1734,13 +1505,8 @@ def _monitor_export_messages(owner: str, entity: Dict[str, Any],
                     "http(s) URL; OTLP over HTTP is what this exports, and the endpoint is "
                     "the collector's base URL with no signal path on it")
             elif endpoint.startswith("http://") and not _is_loopback_url(endpoint):
-                # A batch is the record of everything the system did and refused, and the
-                # request carrying it carries the collector's API key. The runtime refuses
-                # this endpoint outright (SynQt::isExportableCollector), so a release build
-                # that configured it would export nothing. Said here as an error rather than
-                # discovered as silence. Outside a release build it stays a warning, because
-                # a lab pointed at a collector on the next desk is worth being told about
-                # once and is not a reason to stop mid-edit.
+                # The runtime refuses a plaintext remote collector
+                # (SynQt::isExportableCollector). An error in release, a warning otherwise.
                 severity = "error" if release else "warn"
                 messages.append(
                     f"{severity}: entity '{owner}': export.otlp.endpoint "
@@ -1772,23 +1538,18 @@ def _monitor_export_messages(owner: str, entity: Dict[str, Any],
 
 
 def _is_loopback_url(url: str) -> bool:
-    """Whether a URL names this machine. Plaintext to a collector on the same host never
-    leaves it, which is the ordinary deployment and not something to warn about."""
-    # urlsplit rather than a split on ':', which reads the first colon of an IPv6 literal
-    # as the port separator and decides that `http://[::1]:4318` is remote.
+    """Whether a URL names this machine. Plaintext to a local collector is not reported."""
+    # urlsplit, because a split on ':' misreads `http://[::1]:4318`.
     host = (urllib.parse.urlsplit(url).hostname or "").lower()
     return host in ("127.0.0.1", "localhost", "::1")
 
 
 def _public_origin_messages(config: Dict[str, Any], release: bool = False) -> List[str]:
-    """`public.origin` has to be an origin, because that is what it is compared against.
+    """`public.origin` must be a bare origin.
 
-    Three things are built out of it and every one of them is matched whole: the OAuth
-    `redirect_uri` the provider checks character for character, what `self` expands to in
-    `security.allowed_origins` when the upgrade compares the browser's `Origin` header, and
-    the sync endpoint in the CSP. A value carrying a path, or naming http where the edge
-    terminates TLS, is not a near miss in any of the three. It refuses every visitor, and
-    it does it at the moment somebody tries to sign in rather than at startup.
+    It is matched whole in the OAuth `redirect_uri`, in `self` for `security.allowed_origins`,
+    and in the CSP sync endpoint. A path, or http where the edge terminates TLS, refuses every
+    visitor.
     """
     messages: List[str] = []
     for entity in appmodel.web_edges(config):
@@ -1818,20 +1579,14 @@ def _public_origin_messages(config: Dict[str, Any], release: bool = False) -> Li
 
 
 def _derived_origin_messages(config: Dict[str, Any], release: bool) -> List[str]:
-    """A release edge that signs people in and never says where it is reached.
+    """Warn about a release edge that signs users in without `public.origin`.
 
-    Derived, the origin comes out as localhost, which is right for a development run and
-    for nothing a deployment does. It would then be the `redirect_uri` handed to the
-    identity provider, and a provider compares that whole. The browser is sent to an
-    address it cannot come back from, and the app sits on its sign-in screen. A warning
-    rather than an error, because the same file is what `synqt serve` runs on this machine.
+    The derived origin is localhost, which would become the `redirect_uri`. A warning, because
+    `synqt serve` runs the same file locally.
     """
     if not release:
         return []
-    # A project whose only provider is the development sign-in has no third party to tell
-    # anything to. That provider is refused in a build, and the redirect_uri this is about
-    # is never sent anywhere. Saying it anyway would be advice about a provider that does
-    # not exist, on the one build where the sign-in cannot run at all.
+    # Skipped when the only provider is the development sign-in, which a build refuses.
     real = [one for one in appmodel.identity_providers(config) if not one.get("dev_stub")]
     if not real:
         return []
@@ -1852,15 +1607,10 @@ def _derived_origin_messages(config: Dict[str, Any], release: bool) -> List[str]
 
 
 def _cdn_delivery_messages(config: Dict[str, Any]) -> List[str]:
-    """`public.serve_client: false` hands delivery to a CDN, which needs three things said.
+    """`public.serve_client: false` hands delivery to a CDN, which needs three settings.
 
-    Each of the three fails as a running app that never connects rather than as anything
-    resembling a configuration problem, which is why they are errors here. The bundle then
-    loads from an origin the edge knows nothing about, so. The origin model has to say so
-    (it decides the cookie's SameSite, and a Lax cookie is not sent on a cross-site
-    upgrade), the client origin has to be an allowed origin (the upgrade's origin check
-    refuses everything else), and the edge has to name its own public origin (the page
-    cannot read it from `window.location` any more, because that names the CDN).
+    The origin model must be split (a Lax cookie is not sent on a cross-site upgrade), the
+    client origin must be allowed, and the edge must name its own public origin.
     """
     edges = [entity for entity in appmodel.web_edges(config)
              if appmodel.public_settings(entity).get("serve_client") is False]
@@ -1890,28 +1640,13 @@ def _cdn_delivery_messages(config: Dict[str, Any]) -> List[str]:
 
 def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str],
                              release: bool) -> List[str]:
-    """The `security:` block and the two enumerated choices next to it.
-
-    Every value here is carried into the generated edge, so a key this framework cannot
-    honor is reported as the error it is rather than dropped. That matters most for the
-    two enumerations. A project that asks for a session transport or an authorization
-    flow this version does not implement would otherwise get an edge that quietly runs
-    the one it does, and believe it configured something else.
+    """The `security:` block and the two enumerations next to it. A value the framework cannot
+    honour is an error, never dropped.
     """
     messages: List[str] = []
     security = appmodel.security_settings(config)
 
-    # Deprecated, and said out loud rather than left for the reader to discover in a browser
-    # release note. A split-origin session cookie is a third-party cookie: measured on
-    # 2026-07-28 (tests/split-origin) it works in Chromium and Firefox today and stops working
-    # entirely the moment third-party cookies are restricted, which Safari already does by
-    # default. The repair everyone reaches for does not repair it: Partitioned (CHIPS) rescues
-    # the bootstrap and the upgrade, and breaks login, because the OAuth callback is a
-    # top-level navigation onto the edge and the cookie is filed under the edge's partition.
-    # Handing the session back through the client context would fix that half in Chromium, and
-    # would still not restore the mode, because Firefox stored the Partitioned cookie with no
-    # partition key at all, meaning it did not apply CHIPS. So the redesign buys one engine.
-    # A warning rather than an error. A project already running this way must keep building.
+    # Deprecated: the session cookie is third party (tests/split-origin). A warning.
     if appmodel.origin_model(config) == "split_origin":
         messages.append(
             "warn: project.origin_model 'split_origin' is deprecated. Its session cookie is a "
@@ -1935,9 +1670,8 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str],
         messages.append(
             f"error: security.allowed_origins must be a list of origins, not {origins!r}")
 
-    # The upgrade-path limits are all whole numbers of milliseconds, connections or bytes.
-    # A quoted or fractional one reaches the generated edge as C++ that does not compile,
-    # which reports the typo as a compiler error in generated code.
+    # The upgrade-path limits are integers. Anything else would generate C++ that does not
+    # compile.
     for key in ("handshake_timeout_ms", "max_connections_per_ip", "max_connections_global",
                 "max_message_bytes", "keep_alive_timeout_s", "max_body_bytes"):
         value = security.get(key)
@@ -1950,8 +1684,7 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str],
                 f"error: security.{key} is {value}; a limit of zero or less would refuse "
                 "every connection rather than disable the limit")
 
-    # The session ceiling is the one where zero is a word. It disables the ceiling, which
-    # a lab may want and a deployment facing the internet may not.
+    # Zero disables the session ceiling.
     sessions = security.get("max_sessions")
     if sessions is not None:
         if isinstance(sessions, bool) or not isinstance(sessions, int):
@@ -1965,8 +1698,7 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str],
                 "warn: security.max_sessions is 0, so the session table has no ceiling: "
                 "anyone who can load the page can grow it for as long as the TTL lasts")
 
-    # The one limit where zero is a word rather than a number, because Qt's rate limiting is
-    # off until something turns it on.
+    # Zero disables rate limiting.
     rate = security.get("max_requests_per_second")
     if rate is not None:
         if isinstance(rate, bool) or not isinstance(rate, int):
@@ -1986,8 +1718,7 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str],
         messages.append(
             f"error: identity.session.ttl_minutes must be a whole number, not {ttl!r}")
 
-    # The starting scope has to be one of the declared scopes, or every new session begins
-    # holding a scope that satisfies nothing and the app is unusable before login.
+    # The starting scope must be a declared scope.
     default = appmodel.default_scope(config)
     if default and scope_order and default not in scope_order:
         messages.append(
@@ -1998,21 +1729,13 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str],
 
 
 def _privacy_messages(config: Dict[str, Any]) -> List[str]:
-    """The `privacy:` block: its shape, and the one thing about it that is a refusal.
-
-    Everything here is information a visitor is entitled to under Articles 13 and 14, so a
-    malformed value is a page that tells them the wrong thing. The refusal is `erasure: true`
-    with nothing to erase through. The component sends the request no further than the app,
-    so a project that offers the button without a signed-in visitor to attach it to has
-    published a promise nobody can keep.
+    """The `privacy:` block. `erasure: true` is refused without a signed-in visitor to attach the
+    request to.
     """
     messages: List[str] = []
     privacy = config.get("privacy")
     if privacy is None:
-        # A note rather than a refusal. Whether an app owes anybody a privacy policy depends
-        # on where its visitors are and what it collects, which is not something a config
-        # file can answer, so this says where the block is and moves on. It fires once, on a
-        # project that serves a browser at all.
+        # A note, once, on any project that serves a browser.
         if any(appmodel.is_client(entity) for entity in config.get("entities") or []):
             messages.append(
                 "warn: this project declares no `privacy:` block, so its client has no "
@@ -2030,10 +1753,7 @@ def _privacy_messages(config: Dict[str, Any]) -> List[str]:
             messages.append(f"error: privacy.{key} must be text, not {value!r}")
         elif not (value or "").strip():
             blank.append(key)
-    # `synqt new` writes these three empty, so the keys are in front of whoever opens the
-    # file. This is what asks about them again later. A note rather than a refusal: an app
-    # served to one office does not need a public legal notice, and no config file knows
-    # which app this is.
+    # `synqt new` writes these three empty. A note, since not every app needs them.
     if blank and any(appmodel.is_client(entity) for entity in config.get("entities") or []):
         messages.append(
             "warn: privacy." + ", privacy.".join(blank) + " "
@@ -2083,10 +1803,7 @@ def _mesh_certificate_messages(config: Dict[str, Any], entities: Dict[str, Any],
                                starting: bool) -> List[str]:
     """Every entity on a mutual-TLS link needs its issued certificate before it starts.
 
-    `synqt dev` issues throwaway development certificates automatically, so this is a
-    warning while you are editing or building and names the command that fixes it. It
-    becomes an error only at the point of starting the entities, which is where a missing
-    certificate stops being a note and becomes a handshake that will fail.
+    A warning while editing or building, an error when ``starting``.
     """
     mesh_dir = Path(project_dir) / "synqt" / "mesh"
     needs_certificate: Set[str] = set()
@@ -2098,8 +1815,7 @@ def _mesh_certificate_messages(config: Dict[str, Any], entities: Dict[str, Any],
                     or appmodel.point_name(connect_point) != name):
                 continue
             for party in [connect_point.get("owner"), *(connect_point.get("consumers") or [])]:
-                # The client holds no mesh certificate by design. It reaches the edge over
-                # wss and never joins the mesh.
+                # The client holds no mesh certificate.
                 if party in entities and appmodel.is_service(entities[party]):
                     needs_certificate.add(str(party))
 
@@ -2110,10 +1826,7 @@ def _mesh_certificate_messages(config: Dict[str, Any], entities: Dict[str, Any],
     for name in sorted(needs_certificate):
         if (mesh_dir / f"{name}.crt").exists():
             continue
-        # `synqt dev` issues its throwaway certificates into synqt/mesh/dev/, so an entity
-        # holding one of those is ready to start under dev and should not be reported as
-        # missing. It is not ready to be served as a deployment, which is what `starting`
-        # marks, and a dev certificate does not count there.
+        # A dev certificate (synqt/mesh/dev/) is enough under `synqt dev`, not when ``starting``.
         if not starting and (mesh_dir / "dev" / f"{name}.crt").exists():
             continue
         prefix = "error" if starting else "warn"
@@ -2125,13 +1838,8 @@ def _mesh_certificate_messages(config: Dict[str, Any], entities: Dict[str, Any],
 
 
 def _client_env_messages(name: str, entity: Dict[str, Any]) -> List[str]:
-    """No `env:` reference may be reachable from a client target.
-
-    An `env:` reference is a promise that a value is resolved from the entity environment
-    at run time. A client has no such environment worth the name. A WASM bundle is served
-    to every visitor and a desktop binary is handed to them, so anything the build could
-    resolve there is a value shipped in the artifact. The whole subtree is walked rather
-    than a list of known keys, because there is no safe key.
+    """No `env:` reference may be reachable from a client target. The whole subtree is walked,
+    because nothing resolved there is secret.
     """
     hits = sorted(_env_references(entity))
     if not hits:
@@ -2154,19 +1862,14 @@ def _env_references(node: Any, path: str = "") -> Set[str]:
     return found
 
 
-# Provider keys that carry a credential. `uri` and `connection_string` are on the list
-# because a Mongo or Redis URI embeds user and password in the authority component, so a
-# literal one leaks the password exactly as a literal `password` does.
+# Provider keys that carry a credential. A Mongo or Redis URI can embed a user and
+# password.
 _PROVIDER_SECRET_KEYS = ("password", "uri", "connection_string")
 
 
 def _provider_secret_messages(name: str, entity: Dict[str, Any]) -> List[str]:
-    """A provider credential is an `env:` reference or it is a committed secret.
-
-    synqt.yaml is a file people read in review, paste into an issue, and commit. The
-    credential belongs in the entity environment, and the config carries only the name of
-    the variable that holds it (topologywriter passes the name through verbatim, never the
-    value). A literal here discloses the password.
+    """A provider credential must be an `env:` reference. topologywriter passes the variable
+    name through, never the value.
     """
     provider = entity.get("provider")
     if not isinstance(provider, dict):
@@ -2178,8 +1881,7 @@ def _provider_secret_messages(name: str, entity: Dict[str, Any]) -> List[str]:
             continue
         if value.startswith("env:"):
             continue
-        # A URI is only a credential when it carries one. A bare host:port is not a secret
-        # and demanding an env. Reference for it would be noise.
+        # A URI with no userinfo is not a credential.
         if key != "password" and "@" not in value:
             continue
         messages.append(
@@ -2190,12 +1892,8 @@ def _provider_secret_messages(name: str, entity: Dict[str, Any]) -> List[str]:
 
 
 def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
-    """A `provider.name` must select something for the entity's blueprint family.
-
-    Left to the runtime this is a poor failure. The name misses, the entity refuses to
-    start, and you find out on the next deploy rather than on the next `synqt check`. The
-    bundled names come from addentity.PROVIDERS, so the list offered by `synqt add entity`,
-    the list accepted by the C++ factories, and the list checked here cannot drift apart.
+    """A `provider.name` must select something for the entity family. The bundled names come
+    from addentity.PROVIDERS, as for `synqt add entity` and the C++ factories.
     """
     provider = entity.get("provider")
     if not isinstance(provider, dict):
@@ -2208,8 +1906,7 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
     entity_type = appmodel.entity_type(entity)
     family = addentity.TYPES.get(entity_type)
     if family is None:
-        # api and jobs carry a provider block for their own settings but select no
-        # engine. A bare service entity has no family at all.
+        # api and jobs have a provider block but select no engine. A service has no family.
         return [f"error: entity '{name}' sets provider.name '{selected}' but its type "
                 f"('{entity_type}') takes no data provider"]
 
@@ -2218,8 +1915,7 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
         if not custom:
             return [f"error: entity '{name}' has a malformed provider.name 'custom:': "
                     "custom: must be followed by the name the provider is registered under"]
-        # A registered name is only knowable at run time, so the shape is all that can be
-        # checked here. The factory names the registered providers if the lookup misses.
+        # A registered name is only known at run time; only its shape is checked.
         return []
 
     if selected not in addentity.PROVIDERS[family]:
@@ -2231,21 +1927,11 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
 
 
 def _is_route_parameter_name(name: str) -> bool:
-    """Is `name` (the part after the ':' in a ":campaign" segment) bindable?
+    """Is `name` (the part after ':' in a ":campaign" segment) bindable?
 
-    This mirrors RoutePattern::isIdentifier in src/transport/routepattern.cpp, which tests
-    QChar::isLetter and QChar::isLetterOrNumber, so a Unicode letter from the basic
-    multilingual plane is legal at runtime. Rejecting a route that the router would
-    happily serve is the worse of the two errors here, so the check accepts every name
-    the runtime accepts, and no more than that.
-
-    Above the BMP the equivalence stops, which is why the plane is named. isIdentifier
-    iterates QChar, so a code point above U+FFFF reaches it as a surrogate pair,
-    QChar::isLetter is false on a surrogate, the pattern is invalid, and the route
-    silently never matches. Accepting it here would bless a dead route, so it is
-    rejected instead. Widening the runtime to iterate code points was the alternative,
-    and it is the worse trade. It would leave every already-deployed client rejecting a
-    table this check had called clean.
+    Mirrors RoutePattern::isIdentifier (src/transport/routepattern.cpp): QChar::isLetter and
+    isLetterOrNumber, so any BMP letter is accepted. Code points above U+FFFF are refused,
+    because the runtime sees a surrogate pair and never matches the route.
     """
     if not name:
         return False
@@ -2257,17 +1943,14 @@ def _is_route_parameter_name(name: str) -> bool:
 
 
 def _normalized_route_path(path: str) -> str:
-    """A route path as the runtime matcher sees it: "/c", "/c/" and "/c//" are one route,
-    and so are "/a//b" and "/a/b". The generator writes a router.fallback through the same
-    rule, so a fallback this check accepts is one the client can match. Two copies
-    of the spelling would drift and disagree."""
+    """A route path as the runtime matcher sees it: "/c", "/c/" and "/c//" are one route, as are
+    "/a//b" and "/a/b". The generator writes router.fallback through the same function.
+    """
     return appmodel.normalize_route_path(path)
 
 
-# The OAuth routes' yaml keys and their defaults (docs/project-layout-and-config.md,
-# "identity"), and the fixed defaults src/identity/identityconfig.h ships when a project
-# has no `identity` section at all yet. Kept in sync with those defaults. If either
-# drifts, update both.
+# The OAuth route keys and their defaults (docs/project-layout-and-config.md, "identity"),
+# matching src/identity/identityconfig.h. Keep both in sync.
 _IDENTITY_ROUTE_KEYS = {
     "login": "/auth/login",
     "callback": "/auth/callback",
@@ -2276,37 +1959,24 @@ _IDENTITY_ROUTE_KEYS = {
 
 
 def _is_web_edge(entity: Dict[str, Any]) -> bool:
-    """The one test for "is this entity a web edge", called from `validate()` too, so
-    the two checks cannot disagree about which entity's `public` section is
-    authoritative."""
+    """The one test for "is this entity a web edge", shared with `validate()`."""
     return appmodel.is_edge(entity)
 
 
 def _reserved_edge_paths(config: Dict[str, Any]) -> Set[str]:
-    """Paths a client route must not claim, because the browser would never route on
-    them: the WebSocket sync endpoint, and, when `identity` is configured, the OAuth
-    login/callback/logout routes.
+    """Paths a client route must not claim: the sync endpoint and, when `identity` is
+    configured, the login, callback and logout routes.
 
-    The two are reserved for different reasons. The login/callback/logout routes are
-    registered on QHttpServer (src/edge/webedge.cpp), so the edge answers them
-    itself and a client route there is shadowed outright. `/sync` is not an HTTP route
-    at all. The upgrade verifier runs on any path, and a plain GET of it falls through
-    to the shell like any other deep link. It is reserved because it is the URL the
-    client opens its wss link on, so a client route sharing it is a trap either way.
-
-    Both are read from the resolved config rather than hard coded, because both are
-    user configurable (`public.sync_route`, `identity.login/callback/logout`). A
-    project that moved its login route off the default must still have the new path
-    guarded, not a default nobody uses anymore.
+    The edge registers the OAuth routes on QHttpServer (src/edge/webedge.cpp), so they shadow a
+    client route. The client opens its wss link on the sync path. Both come from the resolved
+    config (`public.sync_route`, `identity.login/callback/logout`).
     """
     entities = [e for e in (config.get("entities") or []) if isinstance(e, dict)]
     web_edges = [e for e in entities if _is_web_edge(e)]
     sync_routes = {(e.get("public") or {}).get("sync_route", "/sync") for e in web_edges}
     reserved = sync_routes or {"/sync"}
 
-    # The login/callback/logout routes exist on the edge only once `identity` is
-    # configured (webedge.cpp registers them behind `if (m_config.identity.enabled)`);
-    # with no `identity` section a route at "/auth/login" is a perfectly ordinary route.
+    # The OAuth routes exist only when `identity` is configured (webedge.cpp).
     identity = config.get("identity")
     if isinstance(identity, dict):
         for key, default in _IDENTITY_ROUTE_KEYS.items():
@@ -2315,35 +1985,27 @@ def _reserved_edge_paths(config: Dict[str, Any]) -> Set[str]:
 
 
 def _client_folder(config: Dict[str, Any]) -> Optional[str]:
-    """The directory the client entity's QML lives in, relative to the project root.
-
-    The same answer `appmodel.entity_dir` gives the generator, so a view this rule
-    accepts is a view the build will find. None means there is no client entity at all,
-    and then no view is compiled anywhere.
+    """The client QML directory relative to the project root, as `appmodel.entity_dir` gives it.
+    None when there is no client entity.
     """
     client = appmodel.client_entity(config)
     return appmodel.entity_dir(client) if client else None
 
 
 def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) -> List[str]:
-    """Check that a route's `view` names a QML file that is there.
-
-    `synqt build` puts every route's view into the client's QML module, so a view that
-    is not on disk stops the build inside CMake, on a generated file the project does
-    not own. Caught here it names the route and the file instead.
+    """Check that a route `view` names a QML file that exists. Otherwise the build fails inside
+    CMake on a generated file.
     """
     if not isinstance(view, str) or not view.strip():
         return [f"error: route {path!r} declares no view; there is nothing for the "
                 "router to show there"]
-    # The escape rule and the spelling both come from the generator, which is what
-    # writes the resource alias and the qrc URL: a second copy here would drift
-    # and start disagreeing with the build about which file a route means.
+    # The escape rule and the spelling come from the generator, which writes the resource alias
+    # and the qrc URL.
     if appmodel.view_escapes_client_directory(view):
         return [f"error: route {path!r} names view '{view}': a view is named relative "
                 f"to the client entity's directory ('{client}/'), so it cannot be an "
                 "absolute or parent path"]
-    # The spelling the generator compiles in, so './About.qml' and 'About.qml' are read
-    # as the one file they are, here and there alike.
+    # The spelling the generator compiles in: './About.qml' and 'About.qml' are one file.
     name = appmodel.view_file_name(view)
     if (client_dir / name).is_file():
         return []
@@ -2358,17 +2020,11 @@ def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) ->
 
 def lint_bundles(config: Dict[str, Any],
                  project_dir: os.PathLike[str] | str | None = None) -> List[str]:
-    """Validate every web edge's `bundles:` block (check.bundles_valid).
+    """Validate every web edge `bundles:` block (check.bundles_valid).
 
-    This is a security rule wearing a configuration rule's clothes. A bundle is what a
-    caller may download, so a mistake here is not a broken page. It is either an
-    application nobody can load or an operator console handed to the public. Anything that
-    could be read two ways is refused rather than resolved.
-
-    Without `project_dir` the rules that need the filesystem (a static directory being
-    there, holding an index, staying inside the entity folder, and the ambiguity that only
-    exists when both readings resolve) are skipped, so a caller holding nothing but a
-    parsed config still gets every rule that does not need files.
+    A bundle is what a caller may download, so anything ambiguous is refused. Without
+    `project_dir` the rules that read the disk are skipped (the static directory, its index,
+    staying inside the entity folder, and the two-readings ambiguity).
     """
     findings: List[str] = []
     scopes = set(appmodel.scope_vocab(config))
@@ -2452,13 +2108,8 @@ def lint_bundles(config: Dict[str, Any],
 
 
 def lint_client_routes(config: Dict[str, Any]) -> List[str]:
-    """Refuse a project where the top-level `routes:` shorthand names no one client.
-
-    The shorthand exists so that a project with one client writes its table where it always
-    has. With two clients it stops being a shorthand and becomes a coin toss: whichever
-    entity the generator happened to render first would take the table and the other would
-    silently compile with nothing in it. Naming both entities in the message is the whole
-    fix, so the reader can see which two are competing for it.
+    """Refuse a top-level `routes:` shorthand in a project with more than one client. The
+    message names the competing clients.
     """
     clients = [entity for entity in appmodel.entities(config)
                if appmodel.is_client(entity)]
@@ -2491,18 +2142,9 @@ def lint_routes(config: Dict[str, Any],
     """Validate the top-level `routes` and `router` blocks (check.routes_valid /
     check.router_base_valid). Returns findings, empty when the table is clean.
 
-    Both are top level in synqt.yaml (docs/project-layout-and-config.md), and that is
-    where maingen.render_client_main reads them to compile the table into the client, so
-    it is where they are read here. A rule looking anywhere else would pass everything.
-
-    Left to the router this is a production only bug. Two routes racing for the same
-    path, a parameter nobody can bind to, or a fallback pointing nowhere all build and
-    load fine and only misbehave the moment a visitor's browser hits them.
-
-    Given `project_dir` (the whole-project entry point always has one), each route's
-    view is also checked against the filesystem. Without it the config-only rules run
-    and the view rule is skipped, so a caller holding nothing but a parsed config still
-    gets every rule that does not need files.
+    Read where maingen.render_client_main reads them (docs/project-layout-and-config.md).
+    Refused: two routes on one path, an unbindable parameter, a fallback that matches nothing.
+    With `project_dir`, each route view is also checked on disk.
     """
     findings: List[str] = []
     routes = appmodel.routes_for(config, entity)
@@ -2520,18 +2162,13 @@ def lint_routes(config: Dict[str, Any],
             continue
         path = route.get("path")
         if not isinstance(path, str):
-            # A bare "- path:" reads as null, which is the common typo here. Every
-            # other value is a mistyped path. Neither must take the check down.
-            # This runs before the view rule so that typo reports the one thing that
-            # is wrong. A route with no path has no name to report a view against.
+            # A bare "- path:" reads as null. Report the path before the view rule, which needs it.
             findings.append(f"error: route path {path!r} must be a string starting "
                             "with '/'")
             continue
         if client_dir is not None and not appmodel.is_remote_route(route):
-            # A remote route (`remote:`, no `view:`) has no compiled-in view to check
-            # against the client directory at all. It is delivered by the edge, not
-            # carried by the client bundle, and its file is validated by
-            # lint_remote_pages under `<edge>/pages` instead.
+            # A remote route has no compiled-in view. lint_remote_pages checks its file under
+            # `<edge>/pages`.
             findings += _route_view_findings(path, route.get("view"), client, client_dir)
         if not path.startswith("/"):
             findings.append(f"error: route path {path!r} must be absolute (start with '/')")
@@ -2576,8 +2213,7 @@ def lint_routes(config: Dict[str, Any],
     if not str(base).startswith("/"):
         findings.append(f"error: router.base {base!r} must start with '/'")
 
-    # `history` is the only mode there is, and an unknown one is silently ignored rather
-    # than refused, so a project that asked for something else would never be told.
+    # `history` is the only mode, and the runtime ignores an unknown one.
     mode = router.get("mode", "history")
     if str(mode) != "history":
         findings.append(f"warn: router.mode {mode!r} is not a mode SynQt has; the router "
@@ -2587,11 +2223,8 @@ def lint_routes(config: Dict[str, Any],
 
 
 def _edge_folder(config: Dict[str, Any]) -> str:
-    """The folder the edge's delivered pages live under, or "" when there is no edge.
-
-    Found by the name :func:`_edge_entity_name` resolves rather than by
-    `appmodel.web_edges`, because that one also recognises a bare `kind: web_edge`, and a
-    project spelling its edge that way still has its pages checked.
+    """The folder the edge-delivered pages live under, or "" when there is no edge. Uses
+    :func:`_edge_entity_name`, which also recognises a bare `kind: web_edge`.
     """
     name = _edge_entity_name(config)
     for entity in appmodel.entities(config):
@@ -2601,14 +2234,11 @@ def _edge_folder(config: Dict[str, Any]) -> str:
 
 
 def _edge_entity_name(config: Dict[str, Any]) -> Optional[str]:
-    """The name of the project's web_edge entity, also the directory its edge-delivered
-    pages live under (`<edge>/pages`, flat under the project root. There is no
-    `entities/` prefix).
+    """The name of the project web_edge entity, also the directory of its pages
+    (`<edge>/pages`, directly under the project root).
 
-    Recognized the same way `_is_web_edge` recognizes one (`capability: web_edge` or a
-    truthy `web_edge` flag, the shape `synqt new` scaffolds and examples/gavel uses), and
-    also a bare `kind: web_edge` for a project that spells its edge entity that way
-    directly. None means the project declares no web_edge entity at all.
+    Recognised as `_is_web_edge` does, plus a bare `kind: web_edge`. None when the project has no
+    web_edge entity.
     """
     for entity in config.get("entities") or []:
         if not isinstance(entity, dict):
@@ -2618,36 +2248,20 @@ def _edge_entity_name(config: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-# A convenience scan for the module a QML import names. `import QtQuick 2.15` yields
-# 'QtQuick' (the version, if any, is whitespace-separated and dropped). A quoted
-# `import "helpers.js"` starts with a quote right after the keyword and never matches,
-# so a relative script or directory import is not mistaken for a module import.
+# The module a QML import names: `import QtQuick 2.15` yields 'QtQuick'. A quoted import
+# never matches.
 _REMOTE_PAGE_IMPORT = re.compile(r"^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)")
 
 
 def _imports_of(qml_file: os.PathLike[str] | str) -> List[str]:
     """The modules `qml_file` imports, in file order.
 
-    This is a build-time convenience gate. Its authoritative counterpart is the
-    client-side C++ `QmlPalette` (Task 4), which is what enforces the palette
-    on a delivered page at run time, and this scan does not attempt to match it byte
-    for byte. `QmlPalette` strips comments first and rejects any quoted import outright
-    (a path import is never allowed, regardless of palette). This scan is a plain
-    per-line regex with neither behavior. Two kinds of import this scan misses that
-    `QmlPalette` still refuses at run time: a quoted import (`import "helpers.js"`,
-    read as not a module import here, with nothing to check against the
-    palette) and an unquoted import an inline comment obscures from the regex
-    (`import /* x */ EvilModule`; `QmlPalette` strips the comment first and still
-    sees `EvilModule`. The anchored regex here does not strip it and never matches the
-    line at all). Both are missed builds, never a security hole. A page this lint
-    waves through on either count is still refused by `QmlPalette` at run time, just
-    later than a developer would like. Every import this scan does flag as
-    palette-violating is one `QmlPalette` would refuse too.
+    A build-time convenience. The run-time check is the client `QmlPalette`, which also strips
+    comments and refuses quoted imports. This per-line scan misses `import "helpers.js"` and
+    `import /* x */ Module`; QmlPalette still refuses both at run time. Every import flagged
+    here, QmlPalette refuses too.
     """
-    # utf-8-sig, not utf-8: a page saved with a byte order mark keeps it as the first
-    # character of the first line, and the regex below would not match through it. The
-    # QML lexer skips the mark and imports what follows, so this scan must not be the
-    # one place where a page's first import goes unread.
+    # utf-8-sig, so a byte order mark does not hide the first import from the regex.
     text = Path(qml_file).read_text(encoding="utf-8-sig", errors="replace")
     modules: List[str] = []
     for line in text.splitlines():
@@ -2660,30 +2274,14 @@ def _imports_of(qml_file: os.PathLike[str] | str) -> List[str]:
 def lint_remote_pages(config: Dict[str, Any],
                       project_dir: os.PathLike[str] | str | None = None,
                       entity: Optional[Dict[str, Any]] = None) -> List[str]:
-    """Validate every route's `remote:` (check.remote_pages_valid). Returns findings,
-    empty when clean.
+    """Validate every route `remote:` (check.remote_pages_valid). Returns findings, empty when
+    clean.
 
-    `routes` and `router` are top level (docs/project-layout-and-config.md), the same
-    place `maingen.render_client_main` reads them to compile the palette and the route
-    table into the client, so it is where they are read here.
-
-    Left unchecked this is the worst kind of defect. A bad remote route builds and
-    serves fine, and only fails a visitor who navigates to it, either as a blank page
-    (a missing file), a refused delivery (an import outside the palette), or a page
-    that quietly shadows one the client bundle already carries.
-
-    A route's optional `seed:` (the page seed hook the edge calls after the scope check)
-    is validated here too: it belongs only to a route that is edge-delivered, and it must
-    name a file that is there.
-
-    Given `project_dir`, a page's existence and its imports are also checked against
-    the filesystem, under `<edge>/pages` (the edge entity's directory directly under
-    the project root, per Task 7's corrected entity layout, not `entities/<edge>`).
-    A `seed:` is resolved project-root relative instead (like `identity.mapping`),
-    because a hook is edge code rather than a delivered page.
-    Without it, only the config-shape rules run (mutual exclusion, the palette being
-    non-empty, shadowing), which is everything a caller holding nothing but a parsed
-    config can be told.
+    Read from the top-level `routes` and `router`, where maingen.render_client_main reads the
+    palette and the route table. A route `seed:` is allowed only on an edge-delivered route and
+    must name an existing file. With `project_dir`, each page and its imports are checked under
+    `<edge>/pages`, and a `seed:` is resolved from the project root (like `identity.mapping`).
+    Without it, only the config rules run: mutual exclusion, a non-empty palette, shadowing.
     """
     findings: List[str] = []
     routes = appmodel.routes_for(config, entity)
@@ -2692,19 +2290,14 @@ def lint_remote_pages(config: Dict[str, Any],
         router = {}
     palette = router.get("palette") or []
 
-    # A page seed hook runs on the edge, after the page's scope check, to build the data
-    # the delivered page paints with on its first frame. A compiled-in route never passes
-    # through the edge at all, so a `seed:` there would silently never run. Checked before
-    # the "no remote routes at all" exit below, which is exactly the case that hides it.
+    # A seed hook runs on the edge, so a `seed:` on a compiled-in route would never run.
+    # Checked before the "no remote routes" exit below.
     for route in routes:
         seed = route.get("seed")
         if not seed:
             continue
         if not isinstance(seed, str):
-            # A bare "seed:" reads as null and is no declaration at all (caught above);
-            # every other non-string is a typo that would otherwise reach the
-            # generator and be emitted as a path that can never exist, with
-            # nothing said here.
+            # A bare "seed:" is null (caught above); any other non-string is a typo.
             findings.append(
                 f"error: route {route.get('path', '')!r} 'seed:' must be a string path "
                 f"to the hook QML, not {seed!r}")
@@ -2729,8 +2322,8 @@ def lint_remote_pages(config: Dict[str, Any],
             "error: a route declares 'remote:' but router.palette is empty; a "
             "delivered page may only import declared modules")
 
-    # A route that sets both is its own "sets both" finding below, not a shadow of
-    # itself. Only a *separate* view route at the same path is a real shadow.
+    # A route that sets both is reported below. Only a separate view route at the same path
+    # shadows.
     compiled_paths = {r.get("path") for r in routes if r.get("view") and not r.get("remote")}
     pages_dir = os.path.join(str(project_dir), _edge_folder(config), "pages") \
         if project_dir is not None else None
@@ -2744,8 +2337,7 @@ def lint_remote_pages(config: Dict[str, Any],
                 f"error: remote route {path!r} shadows a compiled-in route of the "
                 "same path")
 
-        # The seed hook is project-root relative (like `identity.mapping`), not relative
-        # to the pages directory. It is edge code, not a delivered page.
+        # The seed hook is relative to the project root, like `identity.mapping`.
         seed = route.get("seed")
         if project_dir is not None and isinstance(seed, str) and seed.strip():
             if not os.path.isfile(os.path.join(str(project_dir), seed)):
@@ -2777,8 +2369,7 @@ _LOADING_HOOKS = ("synqt-loading", "synqt-bar", "synqt-status", "screen")
 
 
 def _loading_messages(config: Dict[str, Any]) -> List[str]:
-    """Shape of build.loading. Every message carries the error:/warn: prefix validate()
-    derives its result from. An unprefixed one would never fail anything."""
+    """Shape of build.loading. Every message carries the error:/warn: prefix validate() reads."""
     loading = (config.get("build") or {}).get("loading")
     if loading is None:
         return []
@@ -2803,12 +2394,8 @@ def _loading_messages(config: Dict[str, Any]) -> List[str]:
 def lint_graphics(config: Dict[str, Any],
                   project_dir: os.PathLike[str] | str,
                   entity: Optional[Dict[str, Any]] = None) -> List[str]:
-    """Report what the graphics scan concluded for each route.
-
-    The scan decides for a route that declares nothing, so it has to say so: a page hidden
-    from part of the audience by a decision the author never wrote down is worse than the
-    blank area it replaces. A declaration that disagrees with the scan is followed and
-    reported, since one of the two is wrong and only the author knows which.
+    """Report what the graphics scan concluded for each route. A declaration that disagrees with
+    the scan is followed and reported.
     """
     client_dir, edge_dir = graphics.route_dirs(config, project_dir)
     if entity is not None and project_dir is not None:
@@ -2818,8 +2405,7 @@ def lint_graphics(config: Dict[str, Any],
         _, findings = graphics.route_requirement(route, client_dir, edge_dir)
         messages += [f"warn: {finding}" for finding in findings]
 
-    # A named notice that is not there means the one case it exists for shows nothing at
-    # all, and only a browser without WebGL would ever reveal that.
+    # A named notice file must exist.
     notice = ((config.get("client") or {}).get("graphics_notice") or "")
     notice = notice.strip() if isinstance(notice, str) else ""
     if notice and not (client_dir is not None
@@ -2831,12 +2417,8 @@ def lint_graphics(config: Dict[str, Any],
 
 
 def lint_loading(project_dir: os.PathLike[str] | str) -> List[str]:
-    """Check that build.loading's files exist and that an html override keeps its
-    contract with the boot script.
-
-    Separate from validate() because it needs the project directory: a logo naming a
-    file that is not there, or an override missing the ids the boot script drives, both
-    produce a bundle that builds and then fails in the browser.
+    """Check that build.loading files exist and that an html override keeps the ids the boot
+    script drives. Separate from validate() because it needs the project directory.
     """
     root = Path(project_dir)
     config_path = root / "synqt.yaml"
@@ -2866,18 +2448,14 @@ def lint_loading(project_dir: os.PathLike[str] | str) -> List[str]:
     return messages
 
 
-# QQmlApplicationEngine shows a root object only if it is a window. Anything else loads
-# without error and renders nothing. Qt Quick's window types, plus the Controls one.
+# QQmlApplicationEngine shows a root object only if it is a window: Qt Quick window types
+# plus the Controls one.
 _WINDOW_ROOTS = ("ApplicationWindow", "Window")
 
 
 def _qml_root_type(source: str) -> Optional[str]:
-    """The root object's type name, ignoring comments, imports, and pragmas.
-
-    Read with the shared scanner rather than line by line. A root object announced after a
-    `\\r`-terminated import, or a type named inside a comment, are exactly the cases a
-    line-based reading gets wrong, and both lints below turn what this returns into an
-    error.
+    """The root object type name, ignoring comments, imports and pragmas. Uses the shared
+    scanner, which handles `\\r` line ends and type names inside comments.
     """
     return qmlscan.root_type(source)
 
@@ -2886,20 +2464,9 @@ def lint_mapping_hook(config: Dict[str, Any],
                       project_dir: os.PathLike[str] | str) -> List[str]:
     """Every `Scope.X` in the identity mapping hook names a member the build emits.
 
-    The hook returns a member of the generated Scope enum and the edge resolves it as an
-    index into `scopes.order`, so a member the generator never wrote is an answer no index
-    can be found for and a login that fails closed. That failure is correct and it is also
-    late: the project is deployed, somebody signs in, and the message is in the edge's log.
-    Here the same mistake is one character from the fix.
-
-    Both spellings are read, because QML gives an enum member two of them: `Scope.Admin` is
-    what SynQt writes and what its docs show, and `Scope.Value.Admin` names the enum in the
-    middle and is the same member. A project that writes the long form is not wrong, so it
-    is checked rather than refused.
-
-    Tokenized rather than pattern-matched, because `Scope.Admin` written in a comment or
-    inside a string is not a reference, and refusing it would make a comment fail a build.
-    `qmlscan` is the lexer every other QML rule here reads with.
+    The edge resolves the member as an index into `scopes.order`, so an unknown member fails
+    the login closed. Both spellings are read (`Scope.Admin` and `Scope.Value.Admin`). Tokenized
+    with `qmlscan`, so comments and strings are ignored.
     """
     hook = appmodel.identity_mapping_hook(config)
     if not hook:
@@ -2910,14 +2477,12 @@ def lint_mapping_hook(config: Dict[str, Any],
     try:
         declared = {member for _, member in scopegen.members(appmodel.scope_vocab(config))}
     except ValueError as error:
-        # A vocabulary that cannot be turned into an enum at all. Reported here rather than
-        # left to fail inside the generator, where the file it names is one nobody wrote.
+        # A vocabulary that cannot become an enum at all.
         return [f"error: scopes.order cannot be generated: {error}"]
 
     messages: List[str] = []
     tokens = qmlscan.tokenize(path.read_text(encoding="utf-8", errors="replace"))
-    # Three tokens: Scope . Member. qmlscan emits each `.` as its own punct token, so the
-    # member sits at a fixed offset rather than needing the text re-split.
+    # Three tokens: Scope . Member. qmlscan emits each `.` as its own token.
     for index in range(len(tokens) - 2):
         run = tokens[index:index + 3]
         if [token.kind for token in run] != ["ident", "punct", "ident"]:
@@ -2927,8 +2492,7 @@ def lint_mapping_hook(config: Dict[str, Any],
         named = run[2]
         spelling = "Scope"
         if named.text == "Value":
-            # The long spelling, or the enum named on its own. Either way the member is two
-            # tokens further on, and `Value` is the enum and never a scope.
+            # The long spelling, or the enum on its own. `Value` is the enum, never a scope.
             tail = tokens[index + 3:index + 5]
             if [token.kind for token in tail] != ["punct", "ident"] or tail[0].text != ".":
                 continue
@@ -2943,12 +2507,10 @@ def lint_mapping_hook(config: Dict[str, Any],
 
 
 def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
-    """Check that every client entity's Main.qml root is a window.
+    """Check that every client Main.qml root is a window.
 
-    The generated client main.cpp does engine.loadFromModule(uri, "Main"), so Main.qml is
-    the root object. A Page or Item root there is the worst kind of defect: it builds, it
-    loads, it logs nothing, and the browser shows a blank page. Only a real browser
-    catches it otherwise, so it is an error here.
+    The generated main.cpp loads Main as the root object. A Page or Item root builds, loads,
+    logs nothing and shows a blank page.
     """
     root = Path(project_dir)
     config_path = root / "synqt.yaml"
@@ -2974,14 +2536,10 @@ def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
 
 def lint_connect_point_sources(config: Dict[str, Any],
                                project_dir: os.PathLike[str] | str) -> List[str]:
-    """Check that every connect point has an owner-side Source, rooted at its contract.
+    """Check that every connect point has an owner-side Source rooted at its contract.
 
-    A connect point is two halves. The contract that says what may cross it, and the QML on
-    the owner that implements it. The runtime loads the Source from the owner's folder
-    unless the point names another file, and a point whose file is missing, or whose root
-    object is something other than the contract, is a point the owner cannot host. Both
-    fail at start-up rather than at build time, which is the same shape of defect
-    :func:`lint_client_root` exists to catch, so both are errors here.
+    The runtime loads the Source from the owner folder unless the point names another file. A
+    missing file or a wrong root fails at start-up, so both are errors.
     """
     root = Path(project_dir)
     owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
@@ -2998,20 +2556,15 @@ def lint_connect_point_sources(config: Dict[str, Any],
         if owning is None:
             continue   # validate() reports an unknown owner in its own words
         if appmodel.is_front(point):
-            # A front owns this point and implements none of it. The calls belong to the
-            # entities behind it, and the Source the browser acquires is built from the
-            # generated helper and relays. There is nothing for a server file to say, and
-            # asking for one would be asking for a file whose every member is dead code.
+            # A front relays to the entities behind it and implements nothing, so it has no Source
+            # file.
             continue
         if appmodel.is_framework_point(point):
-            # The framework writes this one (the auth entity's two bridges, the monitor's
-            # two). Reporting it missing would be telling the author to write a file they
-            # must never edit, and it is written by the same command that would read this.
+            # A framework-written Source (the auth bridges, the monitor points). Never reported.
             continue
         relative = appmodel.authored_source_path(owning, point)
-        # A project written against an older layout may still carry the two derived names.
-        # Say which file becomes which, because whatever else is
-        # wrong with it, that is the edit, and the other messages would describe symptoms.
+        # A project on the older layout may carry the two derived names. Say which file becomes
+        # which.
         older = root / f"{appmodel.entity_dir(owning)}/{contract}Contract.qml"
         if older.is_file():
             messages.append(
@@ -3038,12 +2591,8 @@ _CONTRACT_MEMBERS = ("prop", "model", "slot", "signal")
 
 
 def lint_contracts(config: Dict[str, Any]) -> List[str]:
-    """Structural lint of every connect point's `export:` block.
-
-    The shape of a link is declared on the point that carries it, so this reads the
-    configuration rather than the tree. There is no `.syn` in a project to find, only the
-    generated one that this block is turned into. (synqtc does the full parse at build
-    time. This is the reading that gives a plain sentence first.)
+    """Structural lint of every connect point `export:` block. synqtc does the full parse at
+    build time.
     """
     messages: List[str] = []
     for point in appmodel.app_points(appmodel.connect_points(config)):
@@ -3056,8 +2605,7 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
         text = contractgen.export_text(point)
         code = "\n".join(line.split("//", 1)[0] for line in text.splitlines())
         for line in code.splitlines():
-            # The gate is taken off first. `<admin> slot restock(...)` declares a slot,
-            # and who may reach it is a separate question, asked in lint_member_scopes.
+            # Strip the gate first. `<admin>` is checked in lint_member_scopes.
             statement = contractgen.split_gate(line.strip())[1].strip()
             if not statement or contractgen.bare_name(line):
                 continue   # a name on its own: lint_exports resolves it against the owner
@@ -3074,23 +2622,16 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
 
 
 
-#: Field and parameter names that carry who somebody is. A monitoring record is an
-#: operations record. It is read by people who are not the people whose data it holds, kept
-#: for longer than a session, and exported to whatever collector an operator points it at.
-#: Putting an identity in it turns it into a second copy of the identity store, in a place
-#: nobody chose it to be.
+#: Field and parameter names that identify a person. Monitoring records are read by
+#: operators, kept past the session and exported, so they must not hold identities.
 _IDENTITY_FIELDS = ("sub", "email", "login")
 
 
 def lint_capture(config: Dict[str, Any]) -> List[str]:
     """Refuse `capture` where it would copy an identity into the monitoring record.
 
-    `capture` on a member asks for that call's argument values to be recorded, which is a
-    real need. An operator chasing a refused bid wants to know what the bid was. What it
-    must not become is a way for the record of an operation to accumulate the people behind
-    it. So a captured member whose arguments carry an identity is refused, and the refusal
-    can be answered in one place, explicitly, by writing
-    `monitoring.capture_identity: acknowledged` rather than by editing the rule.
+    `capture` records a call's argument values. A captured member whose arguments carry an
+    identity is refused unless `monitoring.capture_identity: acknowledged` is set.
     """
     messages: List[str] = []
     monitoring = config.get("monitoring")
@@ -3126,11 +2667,8 @@ def lint_capture(config: Dict[str, Any]) -> List[str]:
 
 
 def _asks_for_capture(statement: str) -> bool:
-    """`slot capture <name>(...)`, read the way the contract compiler reads it.
-
-    `slot capture(...)` is a slot *named* capture and asks for nothing, which is settled
-    here by what follows the word, exactly as :meth:`synqtc.parser.Parser._parse_capture`
-    settles it by what follows the token.
+    """`slot capture <name>(...)`, read as the contract compiler reads it. `slot capture(...)` is
+    a slot named capture (see :meth:`synqtc.parser.Parser._parse_capture`).
     """
     if not statement.startswith("slot "):
         return False
@@ -3180,10 +2718,8 @@ def _record_fields(code: List[str]) -> Dict[str, List[str]]:
 def lint_member_scopes(config: Dict[str, Any]) -> List[str]:
     """Hold every `<scope>` gate in an `export:` block to the vocabulary and to its point.
 
-    A gate is checked against the caller's session, which only a browser caller has, and
-    against the scope the point itself requires, which every caller reaching the point
-    already holds. Both are ways for a gate to say something it cannot do, and both look
-    like protection until somebody reads the runtime.
+    A gate is checked against the caller session, which only a browser caller has, and a gate
+    at or below the point scope refuses nobody.
     """
     order = _scope_order(config)
     scopes = config.get("scopes")
@@ -3218,9 +2754,7 @@ def lint_member_scopes(config: Dict[str, Any]) -> List[str]:
             if not point_scope or not order:
                 continue
             if hierarchical:
-                # Only a scope that is in the vocabulary ranks against another. One that is
-                # not has already been reported, and saying it also refuses nobody is true
-                # and useless.
+                # A scope outside the vocabulary is already reported and does not rank.
                 scope = named[0]
                 if _rank(order, scope) >= 0 and _rank(order, scope) < _rank(order, point_scope):
                     messages.append(
@@ -3237,13 +2771,11 @@ def lint_member_scopes(config: Dict[str, Any]) -> List[str]:
 
 
 def lint_fronts(config: Dict[str, Any]) -> List[str]:
-    """Hold a `behind:` block to the thing it claims to be.
+    """Hold a `behind:` block to what a front is.
 
-    A front is a web edge that owns a point it does not implement and hands each caller to
-    the entity that serves people of their scope. What makes it safe is that a caller only
-    ever reaches the one entity their scope names, so that entity can authorize on `Caller`
-    and never ask about scope. That only holds if the front and the entities behind it agree
-    about what crosses, which is what most of this checks.
+    A front owns a point it does not implement and hands each caller to the entity for its
+    scope, so that entity can authorize on `Caller` alone. The front and the entities behind it
+    must agree on what crosses.
     """
     order = _scope_order(config)
     entities = {str(entity.get("name") or ""): entity for entity in appmodel.entities(config)}
@@ -3274,10 +2806,8 @@ def lint_fronts(config: Dict[str, Any]) -> List[str]:
                 "exists to split browser callers by scope; between entities there is no "
                 "session to split on")
         for member in _front_members(point) or []:
-            # A returning slot resolves on the caller when the owner's slot returns, and a
-            # front's does not have the answer then. The entity behind it is reached over
-            # the mesh and replies later. Refused rather than answered with a default, which
-            # is what relaying one would do.
+            # A front cannot relay a returning slot: the entity behind answers later, over
+            # the mesh.
             if member["kind"] == "slot" and member["type"]:
                 messages.append(
                     f"error: {where}: slot '{member['name']}' returns {member['type']}, and "
@@ -3335,14 +2865,10 @@ def _tier_messages(config: Dict[str, Any], point: Dict[str, Any], where: str,
 def _surface_messages(config: Dict[str, Any], point: Dict[str, Any], where: str,
                       tiers: Dict[str, str], order: List[str],
                       owned: Dict[str, List[Dict[str, Any]]]) -> List[str]:
-    """What each entity behind the front carries, against what the front promises its callers.
+    """Compare what each entity behind the front carries with what the front exports.
 
-    Grouped by the entity rather than by the scope, because the runtime routes a scope with
-    no line of its own to the highest tier it satisfies. With `anonymous` and `admin`
-    written, a moderator lands on the anonymous one, and that entity has to answer what a
-    moderator can reach. The front's contract is the whole surface and a tier answers the
-    slice of it its own callers reach. Anything more is a member no caller could ever ask
-    for, anything less is one the front carries and nobody behind it answers.
+    Grouped by entity, because the runtime routes an unnamed scope to the highest tier it
+    satisfies. An extra member is unreachable; a missing one is unanswered.
     """
     front = _front_members(point)
     if front is None or not tiers:
@@ -3380,12 +2906,10 @@ def _surface_messages(config: Dict[str, Any], point: Dict[str, Any], where: str,
 
 def _tier_for(held: str, tiers: Dict[str, str], order: List[str],
               hierarchical: bool) -> str:
-    """Which entity a caller holding `held` is handed to, the rule the runtime uses.
+    """The entity a caller holding `held` is handed to, by the runtime rule.
 
-    Their own scope where the block names it. Otherwise, under hierarchical scopes, the
-    highest tier at or below what they hold, so a scope nobody wrote a line for still lands
-    somewhere sensible. Under set-based scopes there is no ordering to fall back on and an
-    unnamed scope is handed nowhere, which is the fail-closed answer.
+    Their own scope if named; otherwise, with hierarchical scopes, the highest tier at or below
+    it. With set-based scopes an unnamed scope goes nowhere.
     """
     if held in tiers:
         return tiers[held]
@@ -3402,11 +2926,8 @@ def _tier_for(held: str, tiers: Dict[str, str], order: List[str],
 
 
 def _front_members(point: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    """A point's members, or None when its block will not read.
-
-    Gates are as written, without the point's own `scope:` filled in, which is what
-    :func:`_reaches` is handed separately. The two points being compared have scopes of
-    their own and inheriting each into its own members would compare two different things.
+    """A point members, or None when its block does not parse. Gates as written, without the
+    point `scope:` (passed to :func:`_reaches` separately).
     """
     if not appmodel.contract_of(point):
         return None
@@ -3440,18 +2961,12 @@ def _member_name(line: str) -> str:
 
 def lint_exports(config: Dict[str, Any],
                  project_dir: os.PathLike[str] | str) -> List[str]:
-    """Hold every exported member to the owner that has to answer for it.
+    """Hold every exported member to the owner Source that implements it.
 
-    A contract is a promise the owner keeps, and the owner is QML in the same project, so
-    the promise is checkable. A slot nothing implements is a call that silently returns a
-    default. A member exported as one kind and written as another is a boundary that
-    compiles and then does nothing. Both are read from what the owner's Source
-    does (:func:`synqt.infer.owner_members`), which is a shape match over QML and not a
-    compile, so this speaks up only where the owner plainly has the name and plainly means
-    something else by it.
-
-    It is also what makes a line that is nothing but a name work at all: the name resolves
-    against the owner, or it is refused here with the line written out to paste.
+    A slot nothing implements returns a default; a member written as another kind does nothing.
+    Read with :func:`synqt.infer.owner_members`, a shape match, so only clear mismatches are
+    reported. A bare-name line resolves against the owner, or is refused with the full line to
+    paste.
     """
     root = Path(project_dir)
     messages: List[str] = []
@@ -3461,9 +2976,7 @@ def lint_exports(config: Dict[str, Any],
         where = f"connect point '{point.get('name')}'"
         implemented = infer.owner_members(root, config, point)
         if not implemented:
-            # No Source, or one that is not rooted at its own type. Both are
-            # lint_connect_point_sources' to report, and a file it has refused says
-            # nothing about the members here.
+            # No Source, or a wrong root: lint_connect_point_sources reports it.
             continue
         server = infer.server_path(config, point)
         for line in contractgen.export_text(point).splitlines():
@@ -3518,11 +3031,8 @@ def _bare_name_messages(named: str, where: str, server: str,
 
 
 def _declared_member(line: str) -> Optional[Tuple[str, str, str]]:
-    """The (kind, name, written type) a whole member line declares, or None.
-
-    The type is a prop's, which is the only kind whose declaration is one word the owner
-    can be compared against. A slot's parameters and a model's roles are the call sites'
-    to answer, and `lint_contract_drift` is where those are held to anything.
+    """The (kind, name, written type) a whole member line declares, or None. Only a prop type is
+    compared; lint_contract_drift handles slot parameters and model roles.
     """
     code = contractgen.split_gate(line.split("//", 1)[0].strip())[1].strip()
     head = code.split("(", 1)[0]
@@ -3538,11 +3048,8 @@ def _base_type(written: str) -> str:
     return written.split("[", 1)[0]
 
 
-# What a value of one type can be handed to. The three families are what QML converts
-# within and not across. A number reaches an int parameter and a real one alike (JavaScript
-# keeps one numeric type, so which of the two a value is was never a promise the language
-# made), and a string handed to an int is a defect wherever it was written. A declared type
-# outside these, a record or a `var`, takes whatever it is given and is not judged here.
+# What a value of one type can be passed to. QML converts within these families, not across
+# them; int and real are one family. A record or `var` accepts anything.
 _TYPE_FAMILIES = {
     "int": "number", "real": "number", "double": "number",
     "string": "text", "url": "text", "date": "text",
@@ -3560,11 +3067,8 @@ def _converts(inferred: str, declared: str) -> bool:
 
 def _declared_members(contract: str, point: Dict[str, Any],
                       owner: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    """The members a connect point exports, or None when it declares none yet.
-
-    A point with nothing written on it yet is not a point this project has drifted from,
-    and one whose block does not parse is reported by :func:`lint_contracts` and by the
-    build in their own words rather than a second time here.
+    """The members a connect point exports, or None when it declares none or does not parse
+    (:func:`lint_contracts` reports that).
     """
     if not contract or not contractgen.has_export(point):
         return None
@@ -3577,38 +3081,23 @@ def _declared_members(contract: str, point: Dict[str, Any],
 
 def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | str, *,
                         types: str = "auto") -> List[str]:
-    """A contract and the QML on both ends of it, compared.
+    """Compare each contract with the QML on both ends.
 
-    A contract is written once and the QML around it keeps moving, so the two drift apart
-    quietly: the call that names a member nobody declared fails in a browser, and the
-    member nobody calls stays in the file long after the code that wanted it went.
+    * A **consumer** naming an undeclared member is an error. The owner Source own state is
+      not judged.
+    * A declared member neither end mentions is a note. Points reached by a computed name are
+      skipped.
+    * An argument whose type the backend is **certain** of and that does not convert to the
+      declared parameter is an error. Only calls across a connect point are checked.
 
-    Three rules, and each is narrow, because a lint that cries wolf about
-    correct code is one people learn to run with their eyes closed:
-
-    * a **consumer** naming a member the contract does not declare is an error. It is the
-      one drift that always breaks. The replica it holds has no such member. What the
-      owner's own file holds is not judged, because a Source is an ordinary QML object and
-      the state it keeps for itself (`property var store: []`) crosses nothing;
-    * a declared member neither end mentions is a note. It costs nothing at run time, so
-      it is worth seeing and not worth failing a build over, and a point some QML reached
-      by a computed name is skipped entirely. The scan cannot follow that, so "nobody uses
-      this" would be a claim about what it failed to read;
-    * an argument whose type the backend is **certain** of and which does not convert to
-      the declared parameter's is an error. An uncertain answer says nothing at all, so
-      the heuristic backend never invents one of these, and only a call that crosses a
-      connect point is looked at. What a project's own QML hands its own functions is
-      between it and qmllint.
-
-    `types` names who answers what an expression's type is (`typebackend.MODES`).
+    `types` names who answers an expression type (`typebackend.MODES`).
     """
     root = Path(project_dir)
     backend = typebackend.resolve(types, root)
     try:
         found = infer.survey(root, config, backend=backend)
     except (infer.InferError, typebackend.TypeBackendError, OSError) as error:
-        # A lint, not a gate. A project whose types could not be read is still checked for
-        # everything else, and the reason is on the screen rather than in a traceback.
+        # Unreadable types skip this rule only; the reason is printed.
         return ["note: the contracts could not be compared with the QML that uses them: "
                 f"{error}"]
 
@@ -3632,8 +3121,8 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
 def _use_messages(use: "infer.Use", points: Dict[str, Any],
                   declared: Dict[str, List[Dict[str, Any]]]) -> List[str]:
     """What one reach across a connect point says about the contract it crosses."""
-    # A use the scan reached through a computed name carries no point (`Server[whichever]`
-    # names none), so there is no contract to hold it to and `members` is None for it.
+    # A use reached through a computed name (`Server[whichever]`) has no point, so `members` is
+    # None.
     members = declared.get(use.point)
     if members is None:
         return []
@@ -3655,11 +3144,8 @@ def _use_messages(use: "infer.Use", points: Dict[str, Any],
 
 def _argument_messages(use: "infer.Use", contract: str, match: Dict[str, Any],
                        where: str) -> List[str]:
-    """Every argument of one call whose type the contract says it cannot be.
-
-    Only what the backend was sure of is compared, and `certain` is exactly "not var": both
-    backends answer a type when they have one and `var` when nothing proved anything, so a
-    call whose arguments nobody could type produces silence rather than a guess.
+    """Every argument of one call whose type the contract rejects. Only certain types (anything
+    but `var`) are compared.
     """
     messages: List[str] = []
     for param, expected in zip(use.member.params, match.get("params") or []):
@@ -3686,40 +3172,20 @@ def _unused_messages(edge: "infer.Edge", points: Dict[str, Any],
             for member in members if member["name"] not in seen]
 
 
-# Categories qmllint reports as warnings that are fatal at run time, elevated so
-# they fail the check. `property-override`: shadowing a FINAL member (the classic case is a
-# delegate taking a model role named x or y as a required property, against the x/y every
-# Item already declares FINAL) makes the whole component fail to load with "Cannot override
-# FINAL property": a blank page, not a style nit.
-# `type-instantiated-recursively` (new in Qt 6.12) is not here, and the reason
-# matters because the category sounds exactly right. A component that
-# instantiates itself recurses until the engine gives up, which is a blank page. It reports
-# every SynQt owner file. `web/edge/Edge.qml` is rooted at `Edge`, and that resolves to the
-# generated contract type because `import SynQt` beats the containing directory
-# (tests/m1-contract/tst_qmlrules.cpp measures that rule). Qmllint runs here without the
-# generated module on its import path, cannot see it, falls back to the directory, and
-# concludes the file builds itself. All four examples fail on their edge and their database
-# entity. The hazard it names is real and is already closed elsewhere: `synqt.qmlrewrite`
-# retypes a self-named root to QtObject in the generated mirror every engine
-# loads from, and leaves contract-rooted roots alone.
+# qmllint warning categories that are fatal at run time, elevated to errors.
+# `property-override`: shadowing a FINAL member (a delegate's required `x` or `y`) fails the
+# component load. `type-instantiated-recursively` is not elevated: without the generated module
+# on its path qmllint flags every owner file rooted at its contract type. `synqt.qmlrewrite`
+# closes the real hazard by retyping a self-named root in the generated mirror.
 _QML_FATAL_CATEGORIES = ("property-override",)
 
 
 def qt_tool_path(tool: str) -> Optional[str]:
-    """A Qt tool (qmllint, qmlformat), from the resolved Qt kit or, failing that, from PATH.
+    """A Qt tool (qmllint, qmlformat) from the resolved Qt kit, else from PATH.
 
-    The kit first, and that order is the whole point. These tools live in the Qt kit's bin,
-    which is usually NOT on PATH, so PATH alone silently skips the check on most machines;
-    but a machine with *another* Qt on PATH is worse than one with none, because the check
-    then runs a linter from a version that is not the pin and answers about a language
-    version this project does not target. That is not hypothetical: a developer with
-    several kits installed has one of them on PATH, and it is rarely the newest.
-
-    The executable suffix is resolved rather than assumed. Only Windows adds one, and
-    shutil.which() applies PATHEXT while a hand-built path does not. Naming the
-    bare tool there finds nothing, and this function's contract is that None means "no
-    linter installed", so an unresolved suffix would quietly downgrade `synqt check`
-    to skipping the QML lint on every Windows machine.
+    The kit comes first because another Qt on PATH would lint against the wrong version. The
+    executable suffix is resolved, since only shutil.which() applies PATHEXT on Windows. None
+    means no tool is installed.
     """
     kit = toolchain.resolve(Path.cwd()).get("host_qt")
     if kit:
@@ -3738,8 +3204,7 @@ def qmlformat_path() -> Optional[str]:
     return qt_tool_path("qmlformat")
 
 
-#: `Caller` and the edge's alias for it. `Client` is the same object under the name edge
-#: code uses for a browser caller, so both are in scope only in a Source.
+#: `Caller` and `Client`, its edge alias. Both exist only in a Source.
 _CALLER_USE = re.compile(r"\b(Caller|Client)\s*\.")
 
 
@@ -3747,17 +3212,9 @@ def lint_caller_use(config: Dict[str, Any],
                     project_dir: os.PathLike[str] | str) -> List[str]:
     """Refuse `Caller` in a file that is not a connect point Source.
 
-    `Caller` is a context property, and the runtime installs it on the context of a Source
-    and nowhere else (`connectpointhost.cpp`, `webedge.cpp`). Anywhere else the name does
-    not resolve: an entity's own singleton, a helper component, a delivered page. What
-    makes that worth an error rather than a shrug is how it fails. `Caller.hasScope("admin")`
-    in a singleton is a ReferenceError at run time, which in QML means the function stops
-    there, but read by a human it is an authorization check, and in review it passes for
-    one. A rule that cannot run is worse than no rule, because everyone believes it is
-    there.
-
-    So the check is, which files may say it. A Source may (that is where a caller
-    arrives). Everything else may not, and is told where the check belongs.
+    The runtime sets `Caller` only on a Source context (`connectpointhost.cpp`, `webedge.cpp`).
+    Elsewhere `Caller.hasScope("admin")` is a ReferenceError that reads like an authorization
+    check.
     """
     root = Path(project_dir)
     sources: Set[str] = set()
@@ -3792,31 +3249,23 @@ def lint_caller_use(config: Dict[str, Any],
 
 
 def project_qml_files(project_dir: os.PathLike[str] | str) -> List[Path]:
-    """The project's own QML: not build output, not generated, not vendored dependencies.
+    """The project's own QML, without build output, generated files or vendored code.
 
-    `generated/` holds a mirror of every entity's QML, which is what the engines
-    load (:mod:`synqt.qmlrewrite`). Every file in it is a copy of one this scan has already
-    read, so linting it says everything twice, and says the second copy against a path whose
-    author is `synqt build`: a reader told to fix `generated/web/edge/Edge.qml` would edit a
-    file the next build overwrites.
+    `generated/` mirrors every entity QML (:mod:`synqt.qmlrewrite`) and is overwritten by the
+    build, so it is skipped.
     """
     root = Path(project_dir)
-    # Relative to the project. A directory named `build` inside it is output, and one the
-    # project itself happens to sit under is not this scan's business.
+    # Relative to the project, so only a `build` directory inside it is skipped.
     skipped = {"build", "node_modules", appmodel.GENERATED_DIR}
     return [qml for qml in sorted(root.rglob("*.qml"))
             if not (skipped & set(qml.relative_to(root).parts))]
 
 
 def wants_qml_format_check(config: Dict[str, Any]) -> bool:
-    """Whether the project opted into the qmlformat check (`check.qml_format: true`).
+    """Whether the project enabled the qmlformat check (`check.qml_format: true`).
 
-    Off unless asked, which is not timidity. qmlformat reflows expressions and no setting
-    stops it, so a project that wraps a long binding at the meaningful break
-    would be told it is wrong on every run, forever. A warning that is always there is a
-    warning nobody reads, and this project already shipped a blank page past a check whose
-    output people had learned to skim. `synqt new` turns it on, because the QML it
-    scaffolds is format-clean from the first commit.
+    Off by default, because qmlformat reflows expressions with no setting to stop it. `synqt
+    new` turns it on.
     """
     return bool((config.get("check") or {}).get("qml_format", False))
 
@@ -3824,13 +3273,8 @@ def wants_qml_format_check(config: Dict[str, Any]) -> bool:
 def check_qml_format(project_dir: os.PathLike[str] | str) -> List[str]:
     """Report QML that qmlformat would reformat, as a warning.
 
-    qmlformat has no --check mode in 6.12: it writes in place or prints to stdout, so the
-    check is to format to stdout and compare. A warning, never an error: formatting is not
-    correctness, and `synqt check` still does not format anything, it only says what differs.
-
-    Needs the project's own .qmlformat.ini and says so when there is none. Without -s,
-    qmlformat falls back to a PER-USER settings file (~/.config/.qmlformat.ini), so the same
-    QML would get a different answer on each machine and a third in CI.
+    qmlformat 6.12 has no --check mode, so this formats to stdout and compares. Needs the
+    project .qmlformat.ini: without -s, qmlformat reads a per-user settings file.
     """
     qmlformat = qmlformat_path()
     if qmlformat is None:
@@ -3856,13 +3300,10 @@ def check_qml_format(project_dir: os.PathLike[str] | str) -> List[str]:
 
 
 def lint_qml(project_dir: os.PathLike[str] | str) -> List[str]:
-    """Lint the project's QML with qmllint.
+    """Lint the project QML with qmllint.
 
-    Reads qmllint's output rather than its exit status. qmllint exits 0 for warnings, so a check
-    that tests the status alone reports nothing no matter what it found. The fatal
-    categories are elevated to errors and fail the check. Everything else stays a warning,
-    because qmllint cannot resolve the generated SynQt module here and would otherwise
-    drown the real findings in import noise.
+    Parses the output, because qmllint exits 0 on warnings. The fatal categories become errors;
+    the rest stay warnings, since the generated SynQt module is not on the import path here.
     """
     qmllint = qmllint_path()
     if qmllint is None:
@@ -3875,11 +3316,8 @@ def lint_qml(project_dir: os.PathLike[str] | str) -> List[str]:
         result = subprocess.run([qmllint, *elevate, str(qml)],
                                 capture_output=True, text=True)
         output = (result.stderr or "") + (result.stdout or "")
-        # A qmllint that does not know one of the categories above prints a usage error and
-        # exits without linting anything, and every line it printed fails the test below. A
-        # lint that ran and found nothing and a lint that never ran look identical from here,
-        # so this says which. It is the same shape as an accept path tested only by refusals:
-        # silence is not evidence.
+        # A qmllint that does not know a category above prints a usage error and lints nothing.
+        # Report that, instead of reporting a clean run.
         if "Unknown option" in output or "Unknown options" in output:
             return [f"error: qmllint at {qmllint} does not know one of the categories "
                     f"`synqt check` elevates ({', '.join(_QML_FATAL_CATEGORIES)}), so it "
@@ -3896,31 +3334,20 @@ def lint_qml(project_dir: os.PathLike[str] | str) -> List[str]:
 def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
                   starting: bool = False, types: str = "auto",
                   profile: Optional[str] = None) -> Tuple[bool, List[str]]:
-    """The full `synqt check`: topology validation + contract lint + loading lint + QML lint.
+    """The full `synqt check`: topology validation, contract lint, loading lint, QML lint.
 
-    `types` is who answers what an expression's type is when the contracts are compared
-    with the QML that uses them (`typebackend.MODES`). The default asks TypeScript where
-    it is installed and reads literals where it is not.
-
-    `release` turns on the rules that bind only a production artifact. `synqt check` with
-    no argument answers "is this project sound", which is the question a developer asks
-    mid-edit on a localhost topology. `synqt build --release` asks the stricter question
-    and passes release=True.
-
-    Everything is checked against the *resolved* configuration, so a profile file and the
-    `SYNQT_...` layer are held to the same rules as `synqt.yaml`. Which layers were applied
-    is reported. A check that passes on a laptop and fails on CI is nearly always a layer
-    the reader did not know was in play."""
+    `types` picks who answers expression types (`typebackend.MODES`); the default uses
+    TypeScript when installed and literals otherwise. `release` enables the production-only
+    rules (`synqt build --release` passes it). Everything is checked against the resolved
+    configuration, profile and `SYNQT_...` layers included, and the applied layers are
+    reported.
+    """
     resolved = configmod.resolve(project_dir, profile=profile)
     config = resolved.config
     ok, messages = validate(config, release=release, project_dir=project_dir,
                             starting=starting)
-    # The lints below read the topology the way the runtime will see it, framework links
-    # included. `validate` above reads it as written, because a collision between a declared
-    # point and an implied one is exactly what the expansion steps around. Without this a
-    # lint that resolves a client's accessor from the points it consumes resolves the
-    # console client to the application's edge, and then reports every member of the console
-    # contract as one the application never declared.
+    # The lints below read the expanded topology, framework links included; `validate` reads it
+    # as written. Without this, the console client would resolve to the application edge.
     config = appmodel.with_monitoring_connect_points(config)
     messages = [f"note: {source} applied" for source in resolved.sources] + messages
     contract_messages = lint_contracts(config)
@@ -3931,10 +3358,8 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     source_messages = lint_connect_point_sources(config, project_dir)
     source_messages += lint_mapping_hook(config, project_dir)
     caller_messages = lint_caller_use(config, project_dir)
-    # Once per client entity, because a client may hold its own route table and a table
-    # nobody validates is a table that fails in a visitor's browser. Two clients falling
-    # back to the same shorthand produce the same findings twice, so the three lists are
-    # deduplicated rather than concatenated.
+    # Once per client entity, each with its own route table. Findings are deduplicated, since
+    # two clients on the shorthand report the same ones.
     clients = [entity for entity in appmodel.entities(config)
                if appmodel.is_client(entity)] or [None]
     route_messages = _unique(
@@ -3968,7 +3393,6 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
         + graphics_messages
         + drift_messages + qml_messages)
     if not ok:
-        # validate() adds its "ok: topology valid" before the lints have run, and printing it
-        # above a list of errors reads as a pass. The lints get the last word.
+        # Print validate()'s "ok: topology valid" after the lint findings, not above them.
         messages = [m for m in messages if not m.startswith("ok:")]
     return ok, messages

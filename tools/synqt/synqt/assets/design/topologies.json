@@ -703,6 +703,41 @@
           }
         ]
       }
+    },
+    {
+      "id": "a-monitor-as-a-consumer",
+      "rule": "monitor-as-consumer",
+      "level": "error",
+      "why": "Entities report to a monitor and it reaches none of them, so a point naming one as a consumer is a link nothing would open, asking for application data in the store that keeps the shape of what happened rather than the substance.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "ops",
+            "type": "monitor"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "contract": "Web",
+            "owner": "web",
+            "consumers": [
+              "client",
+              "ops"
+            ]
+          }
+        ]
+      }
     }
   ]
 }

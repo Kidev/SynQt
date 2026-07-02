@@ -1,49 +1,35 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// What the editor paints while you are drawing, so a line that cannot work says so as you
-// move it rather than after you apply it.
+// What the editor paints while you draw, so a line that cannot work says so as you draw it,
+// not after you apply it.
 //
-// This is a subset of `synqt check` and never a second opinion on it. Every rule here has a
-// topology in topologies.json, the Python suite asserts `synqt check` reaches the same
-// verdict at the same level for each one, and the node checker asserts this file does. What
-// the build reads is synqt.yaml, and the page never gets to disagree with the command line
-// about what is in it.
+// A subset of `synqt check`, never a second opinion on it. Every rule here has a topology in
+// topologies.json; the Python suite asserts `synqt check` reaches the same verdict at the
+// same level for each one, and the node checker asserts this file does.
 //
-// Pure functions over the document, no DOM: the node checker imports this file directly, and
-// a rule that reached for the page could not be checked outside a browser.
+// Pure functions over the document, no DOM, so the node checker can import this file.
 
-// How many of an entity there are. One for everybody, or one per caller. It is the
-// entity's answer and not a link's, because an entity is one thing everybody reaches or
-// one thing per caller, and it cannot be both at once for two of its own surfaces.
-// A client is never shared. It is one browser.
-
-// One field says what an entity is, the same answer appmodel.entity_type gives. Defined
-// here because this is the file with no DOM and no imports, so every other module can
-// reach it and the node checker can run it outside a browser.
+// One field says what an entity is, the same answer appmodel.entity_type gives. Defined here
+// because this file has no DOM and no imports, so every other module can reach it.
 export function entityType(entity) {
     return String((entity && entity.type) || "") || "service";
 }
 
 // The scope vocabulary a scaffolded project starts with, in the order project.renderYaml
-// writes it. Lowest authority first, which is the order a front's scope dots are stacked in
-// and the order the member gate reads against.
+// writes it: lowest authority first, the order a front's scope seats are stacked in.
 export const SCOPES = ["anonymous", "user", "moderator", "admin"];
 
-// The scopes one design names, which is the four above for a project that never said
-// otherwise and the project's own where it did. A project may name its own (the arena
-// tutorial gates its whole connect point on `player`), and a picker offering four words
-// none of which the project uses is a picker that can only make the file wrong.
+// The scopes one design names: the project's own where it declares them (the arena tutorial
+// gates its connect point on `player`), the four above otherwise.
 export function scopesOf(design) {
     const declared = design && design.scopes;
     const named = Array.isArray(declared) ? declared.map(String).filter(Boolean) : [];
     return named.length ? named : SCOPES;
 }
 
-// The scope a caller with no session holds. The one the project named, where it named one
-// that is not the first of its order, and the first otherwise. Read the same way
-// designdoc.scope_default_of writes it, so the pane and the disk agree about a default
-// nobody typed.
+// The scope a caller with no session holds: the one the project named, else the first of
+// its order. Read as designdoc.scope_default_of writes it, so the pane and the disk agree.
 export function scopeDefaultOf(design) {
     const scopes = scopesOf(design);
     const named = design && design.scopeDefault ? String(design.scopeDefault) : "";
@@ -74,15 +60,12 @@ export function behindOf(link) {
 export function frontsOf(design) {
     const found = new Map();
     for (const link of linksOf(design)) {
-        // The key is the declaration, the way `network:` works: writing `behind:` says this
-        // point is answered by entities behind it, and what is under it says which. One with
-        // nothing under it yet is a front nobody has wired, which is a state to draw rather
-        // than a state to hide.
+        // The key is the declaration, as with `network:`: writing `behind:` says entities
+        // behind this point answer it, and what is under it says which. One with nothing
+        // under it yet is a front nobody has wired, and it is drawn.
         if (isFront(link)) {
-            // The project's own scopes travel with the front, because the seats on its back
-            // are one per scope and a seat for a word the project does not use is a seat
-            // that can only write a `behind:` line `synqt check` refuses. `seatsOfFront` is
-            // read from three files and takes only the front, so this is where they arrive.
+            // The project's scopes travel with the front, one seat per scope, so no seat
+            // names a scope `synqt check` would refuse. `seatsOfFront` takes only the front.
             found.set(String(link.owner || ""),
                       {link, tiers: behindOf(link), scopes: scopesOf(design)});
         }
@@ -90,14 +73,10 @@ export function frontsOf(design) {
     return found;
 }
 
-// Every client an edge hands to a session that has signed in as nobody, keyed by the client
-// and naming the edge that serves it. That client is the gate. It is what every visitor
-// downloads before they are anybody, and the bundle behind it is a file their session cannot
-// fetch at all. The drawing says so with a shape of its own, because a gate drawn as one more
-// client disc is the one thing on the canvas whose whole job is invisible.
-//
-// Read from the edge's `bundles:`, which is where the fact is written, so an entity cannot be
-// a gate by being named one.
+// Every client an edge hands to an anonymous session, keyed by the client and naming the edge
+// that serves it. That client is the gate: every visitor downloads it before signing in, and
+// their session cannot fetch the bundle behind it. The canvas draws it with a shape of its
+// own. Read from the edge's `bundles:`, so an entity cannot be a gate by its name.
 export function gatesOf(design) {
     const found = new Map();
     for (const entity of entitiesOf(design)) {
@@ -109,8 +88,8 @@ export function gatesOf(design) {
             continue;
         }
         const served = String(bundles.anonymous || "");
-        // One bundle for everybody is the ordinary case and no gate at all. A gate is a
-        // bundle that exists *because* a signed-in session gets a different one.
+        // One bundle for everybody is no gate. A gate is the anonymous bundle of an edge that
+        // gives a signed-in session a different one.
         if (served && Object.keys(bundles).length > 1) {
             found.set(served, nameOf(entity));
         }
@@ -120,12 +99,9 @@ export function gatesOf(design) {
 
 // Does this entity run the sign-in flow? A web edge that says so, and nothing else can.
 //
-// It is the one switch in a project that decides whether anybody is ever anything but
-// anonymous: the login, callback and logout routes are served by the edges that carry it,
-// so `Session.login()` in a client reaches a route that exists only where this is on, and
-// every scope, member gate and bundle mapping in the project hangs off that. The canvas
-// draws a mark for it, the panel switches it, and the card says what it means. All three
-// read it here, so they cannot disagree about which edge signs people in.
+// The login, callback and logout routes are served only by the edges that carry it, so
+// without it nobody is ever anything but anonymous. The canvas mark, the panel switch and the
+// card all read it here.
 export function runsSignIn(entity) {
     return isWebEdge(entity || {}) && Boolean(entity && entity.identity);
 }
@@ -156,9 +132,8 @@ function isWebEdge(entity) {
     return entityType(entity || {}) === "web_edge";
 }
 
-// The names declared more than once, in the order they were first declared. Both maps are
-// keyed by name, so a repeat is not a collision anyone is told about: the later entry wins
-// and the earlier one is never built.
+// The names declared more than once, in the order they were first declared. The build keys
+// both lists by name, so the later entry wins and the earlier one is never built.
 function repeats(names) {
     const seen = new Set();
     const twice = [];
@@ -195,9 +170,8 @@ function duplicateLinks(design) {
         }));
 }
 
-// A desktop-only client is left alone here, exactly as `synqt check` leaves it alone: it is
-// not served by an edge, it dials the one build.desktop.edge_url names, and that edge can
-// belong to another project. Drawing one is not a mistake to paint red.
+// A desktop-only client is left alone, as `synqt check` leaves it: no edge serves it, it
+// dials the one build.desktop.edge_url names, and that edge can belong to another project.
 function inBrowser(entity) {
     const targets = entity.targets && entity.targets.length ? entity.targets : ["wasm"];
     return targets.includes("wasm");
@@ -240,10 +214,8 @@ function linkFindings(design, link) {
         });
     }
     if (clients.has(owner)) {
-        // An owner hosts the Source and listens for consumers to acquire it. A browser cannot
-        // listen. There is no WebSocket server under WebAssembly, and the client is always the
-        // one that connects out. Easy to draw by mistake now that a link can be pulled off any
-        // side of a node, and impossible to build.
+        // An owner hosts the Source and listens for consumers. A browser cannot listen: there
+        // is no WebSocket server under WebAssembly, and the client always connects out.
         found.push({
             rule: "client-owns-connect-point",
             level: "error",
@@ -286,9 +258,8 @@ function linkFindings(design, link) {
         }
     }
 
-    // A scope belongs to a user's session, and only a browser caller has one. Gating a
-    // member of a point no client consumes would refuse every caller that could ever reach
-    // it, which looks like protection and is a member nobody can use.
+    // A scope belongs to a user's session, and only a browser caller has one, so a gated
+    // member on a point no client consumes refuses every caller that can reach it.
     const gated = (Array.isArray(link && link.members) ? link.members : [])
         .filter((member) => String((member && member.scope) || ""));
     if (gated.length && !consumers.some((consumer) => clients.has(consumer))) {
@@ -302,9 +273,8 @@ function linkFindings(design, link) {
         });
     }
 
-    // Not a mistake, and not silent either. On a local socket the operating system
-    // identifies the connecting user, not the entity, so any process running as that user
-    // can present any entity name.
+    // A warning: on a local socket the operating system identifies the connecting user, not
+    // the entity, so any process running as that user can present any entity name.
     if (String((link && link.transport) || "") === "local") {
         found.push({
             rule: "local-transport-declared",
@@ -318,12 +288,10 @@ function linkFindings(design, link) {
     return found;
 }
 
-// An entity nothing reaches and that reaches nothing. A warning, not an error: it is the
-// state every entity passes through between being dropped on the canvas and being wired,
-// and painting it red would mean the editor scolds you for the gesture it performed.
-// The client and the edge are left out. Both have a browser to serve. So is a monitor: the
-// link every service opens to it is derived from `monitoring.entity` rather than drawn, so
-// an unwired-looking monitor is the wired state and not a missing line.
+// An entity nothing reaches and that reaches nothing. A warning, since every entity is in this
+// state between being dropped on the canvas and being wired. The client and the edge serve
+// a browser, so they are left out, and so is a monitor: the link every service opens to it
+// comes from `monitoring.entity`, not from a drawn line.
 function orphanEntities(design) {
     return entitiesOf(design)
         .filter((entity) => entityType(entity) !== "client" && !isWebEdge(entity)
@@ -341,10 +309,9 @@ function orphanEntities(design) {
         }));
 }
 
-// A project has one monitor. `monitoring.entity` names a single entity, and it is that line
-// rather than any drawn link that makes every service report, so a second monitor beside it
-// builds, starts, serves its console and stays empty. The first one on the canvas is the one
-// the project wires. Every one after it is this.
+// A project has one monitor. `monitoring.entity` names a single entity and makes every service
+// report to it, so a second monitor builds, starts, serves its console and stays empty. The
+// first one on the canvas is the one the project wires.
 function extraMonitors(design) {
     const monitors = entitiesOf(design).filter(
         (entity) => entityType(entity) === "monitor");
@@ -358,19 +325,46 @@ function extraMonitors(design) {
     }));
 }
 
+// A link a monitor consumes, which the editor will not draw and a hand-written `synqt.yaml`
+// can still hold. Reported, not dropped on opening, so opening a project never changes it.
+//
+// Only the consuming half, the half `synqt check` refuses too: entities report to a monitor
+// and a monitor reaches none of them. A point the monitor owns is left alone here as the CLI
+// leaves it. Neither can be drawn; see canvas.linkRefusal.
+function monitorAsConsumer(design) {
+    const monitors = new Set(entitiesOf(design)
+        .filter((entity) => entityType(entity) === "monitor")
+        .map((entity) => nameOf(entity)));
+    if (monitors.size === 0) {
+        return [];
+    }
+    const found = [];
+    for (const link of linksOf(design)) {
+        for (const consumer of link.consumers || []) {
+            if (!monitors.has(consumer)) {
+                continue;
+            }
+            found.push({
+                rule: "monitor-as-consumer",
+                level: "error",
+                link: link.name,
+                message: `'${consumer}' is a monitor, and a monitor consumes nothing: `
+                    + `entities report to it, and the one link it has comes from `
+                    + `monitoring.entity. Take it off this point's consumers.`,
+            });
+        }
+    }
+    return found;
+}
+
 // What turning an edge into a front does to everything already drawn.
 //
-// The switch is one click and it changes what the point means: the edge stops answering its
-// own connect point, and each caller is served by whichever entity sits behind their scope
-// instead. Everything below is a consequence of that click, painted the moment it happens
-// rather than waiting for `synqt check` to say it after the project is downloaded. Each one
-// mirrors a rule in synqt/check.py (`lint_fronts`), so the canvas and the command line
-// never disagree about what a front is.
+// The switch changes what the point means: the edge stops answering its own connect point,
+// and each caller is served by the entity behind their scope. Each finding below mirrors a
+// rule in synqt/check.py (`lint_fronts`) and is painted as soon as the switch is flipped.
 //
-// Every one of them is marked on the connect point (`scope: "contract"`) and on the entity,
-// not on the lines out of the point. A front that hands nobody anywhere is a fact about the
-// point, and painting each consumer's line red said the lines were wrong when they are the
-// only part of the picture that is right.
+// Every one is marked on the connect point (`scope: "contract"`) and on the entity, not on the
+// lines out of the point, which are not what is wrong.
 function frontFindings(design) {
     const found = [];
     const entities = entitiesOf(design);
@@ -406,10 +400,9 @@ function frontFindings(design) {
                     + `session to split on.`,
             });
         }
-        // The one that catches an existing contract the moment the switch goes on: a slot
-        // that answers a value resolves on the caller when the owner's slot returns, and a
-        // front has no answer then. What it handed the call to is reached over the mesh and
-        // replies later.
+        // A slot that returns a value resolves on the caller when the owner's slot returns,
+        // and a front has no answer then: the entity it hands the call to replies later, over
+        // the mesh.
         for (const member of (link.members || [])) {
             if (member && member.kind === "slot" && member.type) {
                 found.push({
@@ -448,8 +441,7 @@ function frontFindings(design) {
                 });
             }
         }
-        // A warning and not an error. It is the state a front is in between the switch and
-        // the first line drawn, the same way an entity is an orphan until it is wired.
+        // A warning: a front is in this state between the switch and the first line drawn.
         if (!wired.length) {
             found.push({
                 rule: "front-hands-nobody",
@@ -467,9 +459,7 @@ function frontFindings(design) {
     return found;
 }
 
-// A client is one browser. There is nobody for it to be shared with, so the word says
-// nothing there, and reading it in a project would teach the wrong thing about what it is
-// for.
+// A client is one browser and shares with nobody, so `shared` says nothing there.
 function sharedOnAClient(design) {
     return entitiesOf(design)
         .filter((entity) => entityType(entity) === "client" && entity.shared === true)
@@ -478,14 +468,13 @@ function sharedOnAClient(design) {
             level: "error",
             entity: nameOf(entity),
             message: `'${nameOf(entity)}' is the client and is marked shared. A client is `
-                + `one browser and shares with nobody. Mark the edge instead if what you `
-                + `meant is a Source per session.`,
+                + `one browser and shares with nobody. Write 'shared: false' on the edge if `
+                + `what you meant is a Source per session.`,
         }));
 }
 
-// Every rule the page paints, over one design document. Entity-level findings first, then
-// each link in the order it was drawn, so the list is stable between two runs on the same
-// document and a reader can follow it down the canvas.
+// Every rule the page paints, over one design document: entity findings first, then each
+// link in the order it was drawn, so the list is stable between runs.
 export function findings(design) {
     const found = [
         ...duplicateEntities(design),
@@ -495,6 +484,7 @@ export function findings(design) {
         ...frontFindings(design),
         ...orphanEntities(design),
         ...extraMonitors(design),
+        ...monitorAsConsumer(design),
     ];
     for (const link of linksOf(design)) {
         found.push(...linkFindings(design, link));

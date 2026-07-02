@@ -20,9 +20,9 @@
 // becomes a download of the project it would have written.
 
 import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
-import { NODE_RADIUS, ROLE_HELP, draw, element, entityAt, extent, glyphSvg, linkTitleNode,
-         memberCode, nearestFreeSlot, roleOf, seatAt, seatsOfFront, slotIndex,
-         turnsToward } from "./canvas.js";
+import { NODE_RADIUS, ROLE_HELP, draw, element, entityAt, extent, glyphSvg, linkRefusal,
+         linkTitleNode, linksAreDerived, memberCode, nearestFreeSlot, roleOf, seatAt,
+         seatsOfFront, slotIndex, turnsToward } from "./canvas.js";
 import { inspect, openWhenDrawn } from "./inspector.js";
 import { clearHighlight as unlight, highlight as applyHighlight, hoverKey,
          litSelection } from "./light.js";
@@ -2310,7 +2310,11 @@ function offerSeat(from, target, at, {consuming} = {}) {
 // so the entity that was being reached for is made and connected in one gesture rather than
 // dragged from the rail and joined up afterwards.
 function offerEntity(owner, spot, at) {
-    openMenu(at, `Consumer for '${owner.name}'`, PALETTE.map((item) => ({
+    // Every row but the monitor. The menu is "what should consume this", and a monitor
+    // consumes nothing anybody draws. Offering it and then refusing the link it asked for
+    // would be the editor arguing with itself.
+    const offered = PALETTE.filter((item) => !linksAreDerived(item.make()));
+    openMenu(at, `Consumer for '${owner.name}'`, offered.map((item) => ({
         label: item.label,
         act: () => {
             addLink(owner, addEntity(item, spot), spot, at);
@@ -2741,8 +2745,15 @@ function onUp(event) {
         const at = pointAt(event);
         const target = entityAt(state.design, at.local);
         if (target && target !== finished.from) {
+            // Before anything is built. A monitor's links come from a line of configuration
+            // rather than from this gesture, so there is nothing here to make.
+            const refused = linkRefusal(finished.from, target);
+            if (refused) {
+                say(refused);
+                return;
+            }
             // A line let go on one of a front's scope seats is that scope handed to this
-            // entity, said the way anybody would say it: point at the word. Anywhere else on
+            // entity, said the way anybody would say it. Point at the word. Anywhere else on
             // the front is the entity without a scope named, which is a question, so that
             // one opens the menu.
             if (droppedOnSeat(finished.from, target, at.local)) {

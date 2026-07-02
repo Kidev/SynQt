@@ -60,23 +60,30 @@ one arrives, so an entity is always somewhere you chose rather than somewhere a 
 room.
 
 Every entity arrives with its own file, before it owns or consumes anything. A client's is its
-window, `client/app/Main.qml`; every other entity's is named after it, `web/edge/Edge.qml`. That
-one file is the entity: what it exports and the state behind it. An entity that mints a Source
+window, `client/app/Main.qml`. Every other entity's is named after it, `web/edge/Edge.qml`. That
+one file is the entity, what it exports and the state behind it. An entity that mints a Source
 per caller and still needs something shared between them writes a `pragma Shared` file of its
 own beside it, under a name it chooses.
 
-The monitor is the row where one node is worth four things: the entity that keeps the
+The monitor is the row where one node is worth four things, the entity that keeps the
 history, a console client, the sign-in page an anonymous visitor is handed instead of that
 console, and the `monitoring.entity` line that makes every other entity report at all.
 Three of those are files, and the console's is three hundred lines of QML, so drawing one
-here writes all of them: the copy on this site carries the same
+here writes all of them. The copy on this site carries the same
 templates [`synqt add entity ops --type monitor`](monitoring.md) uses, and the project you
 export runs without being finished by hand.
 
 A monitor is drawn like any other entity, and the canvas leaves it
-unwired on purpose: the link every service opens to it comes from the one `monitoring.entity`
+unwired on purpose, because the link every service opens to it comes from the one `monitoring.entity`
 line rather than from a line anybody draws. A second monitor beside it is marked, because
 that line names one entity and nothing would ever report to the other.
+
+For the same reason you cannot draw a line to one or from one. The editor says so where the
+gesture is made, rather than drawing a line it would have to report a moment later, and it
+leaves the monitor out of the consumer menu and the panel's own lists. A project that
+arrives with one already written is not quietly edited. A point naming a monitor as a
+consumer is marked, and `synqt check` refuses it too, because entities report to a monitor
+and it reaches none of them.
 
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
 entity is rather than from where it sits: CLIENTS, FACES THE INTERNET, and MESH. Hovering a

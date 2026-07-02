@@ -35,7 +35,13 @@ because the templates it needs are published to it from the scaffolder that owns
 than kept as a second copy that drifts. A monitor without its console is not a monitor, so
 neither copy can draw one and leave it to be finished by hand.
 
-`monitoring.entity` is one line, which is what makes it worth checking: a `type: monitor`
+What you cannot do, in the editor or in `synqt.yaml`, is make a monitor consume a connect
+point. Entities report to a monitor and it reaches none of them, so such a link is one
+nothing would ever open, and what it asks for is the opposite of what the record is for,
+which is application data in the store that keeps the shape of what happened rather than
+the substance of it.
+
+`monitoring.entity` is one line, which is what makes it worth checking. A `type: monitor`
 entity nothing names still builds, starts and serves its console with an empty history, so
 `synqt check` warns about one, and about a second monitor beside a wired one.
 

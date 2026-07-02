@@ -236,6 +236,36 @@ export function roleOf(entity) {
     return GLYPHS[type] ? type : "service";
 }
 
+// A monitor's links are derived, never drawn.
+//
+// Every service opens its link to the monitor because `monitoring.entity` names it, and the
+// console client consumes the monitor's console point because it is marked `console: true`.
+// Both come from a line of configuration rather than from a line on the canvas, which is
+// also why `rules.js` leaves a monitor out of the unwired-entity warning: unwired is the
+// wired state. So a line somebody draws to or from one is not a link that would be built.
+// It is worse than nothing. A monitor made to own a drawn point would own two connect
+// points, its own and that one, and a monitor made to consume somebody else's would start
+// pulling application data into the operations record, which is the one store that is
+// meant to hold the shape of what happened and not the substance of it.
+export function linksAreDerived(entity) {
+    return entityType(entity) === "monitor";
+}
+
+// Why a line was refused, in the words somebody drawing it needs, or "" when it is fine.
+// One function for the three places a link can be made (the canvas, the menu a line dropped
+// on empty canvas opens, and the panel's own lists), so all three refuse the same thing for
+// the same stated reason.
+export function linkRefusal(from, to) {
+    const monitor = [from, to].find((entity) => entity && linksAreDerived(entity));
+    if (!monitor) {
+        return "";
+    }
+    return `'${monitor.name}' is a monitor, and a monitor's links are not drawn. Every `
+        + `service reports to it because 'monitoring.entity' names it, and its console `
+        + `reaches it because that client is marked 'console: true'. Both are configuration, `
+        + `so there is no line here to draw.`;
+}
+
 function glyph(entity, front, gate) {
     // A front's glyph rides in its nose at a smaller size: the scope column holds the rest of
     // the shape, and at a disc's size the glyph reached out through the sloped edges.

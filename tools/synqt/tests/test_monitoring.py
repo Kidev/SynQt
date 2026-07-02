@@ -32,8 +32,7 @@ def test_the_monitor_owns_one_point_every_service_consumes():
 
 
 def test_a_client_never_consumes_it():
-    # A browser cannot reach the mesh, and a client reporting events as an entity would be
-    # putting a value a visitor controls where an authenticated entity name belongs.
+    # A client never consumes the ingest point: its entity name would be visitor-controlled.
     point = appmodel.monitoring_connect_points(_config())[0]
     assert set(point["consumers"]) == {"web", "db"}
     assert "app" not in point["consumers"]
@@ -78,8 +77,7 @@ def test_monitor_is_a_type_the_config_accepts():
     assert not any("unknown type 'monitor'" in message for message in messages), messages
 
 
-# What the project cannot see for itself. The link is synthesized, so everything that could
-# be wrong with it has to be said here or it is not said anywhere.
+# The link is synthesized, so its errors are reported here.
 
 
 def _messages(config):
@@ -129,10 +127,7 @@ def test_a_project_with_no_monitor_at_all_says_nothing():
     assert _messages(config) == []
 
 
-# The line that makes every service report is one line, and it is the one easiest to leave
-# out. Without it the monitor still builds, still starts, still serves its console, and the
-# history stays empty. That reads as a system where nothing is happening, which is the
-# reading an operator is least able to argue with.
+# A monitor that `monitoring.entity` does not name receives nothing.
 
 
 def test_a_monitor_nobody_reports_to_is_reported():
@@ -161,12 +156,10 @@ def _topology(name, config=None):
 
 
 def test_a_reporting_entity_is_told_where_it_may_spool():
-    # Inside the project. A spool is a copy of the record, and a copy of the record living
-    # somewhere the project does not own is a copy nobody is watching.
+    # The spool is inside the project.
     spool = _topology("web")["monitoring"]["spool_dir"]
-    # Forward slashes whatever the host, which is topologywriter._path's whole job, so the
-    # separator is spelled out here. The root is not, because Path("/p") picks up the
-    # current drive on Windows and the claim is about the shape, not the letter.
+    # Forward slashes on every host (topologywriter._path). The root is not asserted:
+    # Path("/p") gains a drive on Windows.
     assert spool == f"{Path('/p').resolve().as_posix()}/build/web/state"
 
 
@@ -175,14 +168,7 @@ def test_a_reporting_entity_is_told_where_it_may_spool():
 
 
 def test_the_editors_monitor_asset_is_the_scaffolders_own_answer():
-    """The committed asset and the module that owns it, byte for byte.
-
-    The editor writes a console client, a sign-in page and a bundle map into a downloaded
-    project. Those belong to monitorscaffold, and the only reason a static page can write
-    them is that the scaffolder publishes them. A second copy maintained by hand is the
-    failure this guards, because it fails silently and ships a console nobody has looked
-    at since it drifted.
-    """
+    """The committed editor asset matches monitorscaffold's output byte for byte."""
     import importlib.util
 
     repo = Path(__file__).resolve().parents[3]
@@ -236,8 +222,7 @@ def test_the_monitor_reports_the_modules_it_actually_links():
     # It serves the console over HTTP and keeps a history.
     assert "Qt HTTP Server" in modules
     assert "Qt Sql" in modules
-    # Which makes it GPLv3, like the edge. That is a fact about an operations tool, not
-    # about anything a project conveys to its visitors.
+    # GPLv3, like the edge.
     assert licenses.effective_license(modules) == "GPL-3.0-only"
 
 
@@ -260,9 +245,7 @@ def test_the_console_gets_its_own_point_gated_on_operator():
 
 
 def test_an_ordinary_client_is_not_offered_the_console():
-    # `console: true` is what marks one, because the difference is not a shade of
-    # configuration. A console is delivered by the monitor and reaches the application not
-    # at all.
+    # `console: true` marks a console client.
     points = {point["name"]: point for point
               in appmodel.monitoring_connect_points(_console_config())}
     assert "app" not in points["console"]["consumers"]
@@ -274,8 +257,7 @@ def test_a_project_with_no_console_client_gets_no_console_point():
 
 
 def test_a_browser_may_reach_a_monitor():
-    # A monitor serves its own console on its own port, so it is browser-facing the way an
-    # edge is. Kept apart from is_edge, which is about the application's edge.
+    # A monitor is browser-facing; is_edge still means the application edge.
     assert appmodel.serves_browser({"name": "ops", "type": "monitor"})
     assert appmodel.serves_browser({"name": "web", "type": "web_edge"})
     assert not appmodel.serves_browser({"name": "db", "type": "relational"})
@@ -283,9 +265,7 @@ def test_a_browser_may_reach_a_monitor():
 
 
 def test_a_second_client_still_has_no_session_field_to_forge():
-    # The real one. A `forwards_session` that compares against the first client alone
-    # lets a project with two of them put the session field on a link whose only consumer is a
-    # browser, which is the one property it exists to provide.
+    # `forwards_session` considers every client, not only the first.
     config = _console_config()
     console_point = {"owner": "ops", "consumers": ["console"]}
     assert not appmodel.forwards_session(config, console_point)
@@ -325,8 +305,7 @@ def test_the_console_listens_on_loopback_by_default(tmp_path):
     addentity.scaffold(tmp_path, "ops", "monitor")
     config = yaml.safe_load((tmp_path / "synqt.yaml").read_text())
     monitor = next(e for e in config["entities"] if e["name"] == "ops")
-    # A console that shows every request a system has served is not something to put on a
-    # public interface because nobody thought about it.
+    # The console binds loopback by default.
     assert monitor["public"]["host"] == "127.0.0.1"
 
 
@@ -348,9 +327,7 @@ def test_how_much_each_category_records_is_a_deployment_setting():
     config = _config()
     config["monitoring"]["levels"] = {"call": "debug", "data": "off"}
     assert _findings(config) == []
-    # It reaches the entity through the resolved topology, so an operator turns a category
-    # up by changing configuration rather than by rebuilding. A monitoring system you must
-    # rebuild to switch on is useless during the incident you needed it for.
+    # Levels reach the entity through the resolved topology, changed without a rebuild.
     assert appmodel.trace_levels(config) == {"call": "debug", "data": "off"}
 
 
@@ -388,8 +365,8 @@ def test_a_monitor_on_a_public_interface_has_to_say_so():
     monitor["public"] = {"host": "0.0.0.0", "port": 8444}
     findings = _findings(config)
     assert len(findings) == 1
-    # Reaching the console should mean reaching the machine first. Acknowledged rather than
-    # refused, because a deployment behind its own authenticating proxy is a real shape.
+    # A public bind must be acknowledged; not refused, for deployments behind an
+    # authenticating proxy.
     assert "reachable from off this machine" in findings[0]
 
     config["monitoring"]["public"] = "acknowledged"
@@ -402,9 +379,32 @@ def test_the_application_client_cannot_consume_what_the_monitor_owns():
                                  "export": "prop string headline\n"}]
     findings = _findings(config)
     assert len(findings) == 1
-    # The whole record, behind the application's own scope vocabulary, delivered to whoever
-    # can sign in to the application.
+    # The application client may not consume a monitor point.
     assert "only client that may read one is its console" in findings[0]
+
+
+def test_a_monitor_is_refused_as_a_consumer():
+    # A monitor may not consume a declared point.
+    config = _config()
+    config["connect_points"] = [{"owner": "web", "consumers": ["db", "ops"],
+                                 "export": "prop string headline\n"}]
+    entities = {entity["name"]: entity for entity in config["entities"]}
+    findings = check._monitor_as_consumer_messages(config, entities)
+    assert len(findings) == 1
+    assert findings[0].startswith("error:")
+    assert "'ops'" in findings[0]
+    # Only the monitor is refused, not the other consumers.
+    assert "'db'" not in findings[0]
+
+
+def test_a_point_the_monitor_owns_is_not_refused_by_that_rule():
+    # Owning a point is checked by _monitor_consumer_messages, not refused here.
+    config = _config(extra=[{"name": "ops-console", "type": "client", "console": True,
+                             "edge": "ops"}])
+    config["connect_points"] = [{"owner": "ops", "consumers": ["ops-console"],
+                                 "export": "prop string headline\n"}]
+    entities = {entity["name"]: entity for entity in config["entities"]}
+    assert check._monitor_as_consumer_messages(config, entities) == []
 
 
 def test_the_console_client_may():
@@ -423,8 +423,7 @@ def test_two_browser_facing_entities_cannot_share_a_port():
                 "public": {"host": "127.0.0.1", "port": 8443}},
     }
     findings = check._public_port_messages(entities)
-    # Only one of them binds it, so the other is missing from the first `synqt dev`
-    # after a monitor was added, with nothing but a bind error naming one process.
+    # Two browser-facing entities on one port.
     assert len(findings) == 1
     assert "both serve browsers on 127.0.0.1:8443" in findings[0]
 
@@ -433,12 +432,8 @@ def test_two_browser_facing_entities_cannot_share_a_port():
 
 
 def test_a_port_nobody_wrote_down_is_still_a_port_both_of_them_bind():
-    """The commonest collision there is, and the one this check could not see.
-
-    An edge has no reason to write `public.port`, so most do not, and the entity resolves
-    the default at runtime like every other reader of a topology does. Skipping an entity
-    that had not written the line read as caution and was the opposite. It made the pair
-    that had both left it out the one pair that passed.
+    """An unset `public.port` counts as the default, so an edge and a monitor that both omit it
+    collide.
     """
     entities = {
         "web": {"name": "web", "type": "web_edge"},
@@ -499,12 +494,10 @@ def test_the_monitor_is_told_where_the_bundles_are_and_not_what_they_are_called(
         ],
     }
     source = maingen.render_monitor_main(config, config["entities"][0])
-    # `bundles:` names a folder or a client entity. Only the build knows where either
-    # landed. A main that baked those names would be a console nothing could deliver.
+    # `bundles:` resolves to where the build put each bundle.
     assert '"anonymous=monitor/ops/signin"' in source
     assert '"operator=build/client-ops-console"' in source
-    # And they are the option's defaults, not the map, so a deployment that puts its files
-    # elsewhere passes --bundle rather than fighting a compiled-in path.
+    # As option defaults, so a deployment can pass --bundle.
     assert "bundleWithDefaults.setDefaultValues" in source
     assert 'parser.values(bundleWithDefaults)' in source
 
@@ -512,10 +505,8 @@ def test_the_monitor_is_told_where_the_bundles_are_and_not_what_they_are_called(
 def test_a_monitor_behind_a_proxy_is_told_which_peer_is_not_an_operator():
     from synqt import maingen
 
-    # The monitor is the entity with a password gate on it, rationed per client address.
-    # `public.trusted_proxies` is read by `synqt check` either way, so leaving it out of
-    # this main is the worst of the two. The project sets it, the check honours it, and
-    # the running console counts its proxy as every operator.
+    # The console sign-in is rate-limited per address, so the monitor main carries
+    # `public.trusted_proxies`.
     config = {
         "project": {"name": "demo"},
         "monitoring": {"entity": "ops"},
@@ -547,8 +538,7 @@ def test_synqt_dev_launches_a_monitor_with_its_own_port_and_its_bundles():
         ],
     }
     command = run.dev_command(Path("/p"), config["entities"][0], config, 8080)
-    # Its own port, from `public:`. The 8080 above is the edge's, and handing it to a
-    # second browser-facing server is the collision this rule exists to avoid.
+    # Its own port from `public:`, not the edge's 8080.
     assert "--port" in command and command[command.index("--port") + 1] == "8444"
     assert f"anonymous={Path('/p') / 'monitor' / 'ops' / 'signin'}" in command
     assert f"operator={Path('/p') / 'build' / 'client-ops-console'}" in command

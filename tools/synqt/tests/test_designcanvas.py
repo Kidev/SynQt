@@ -273,3 +273,35 @@ def test_the_inspector_shows_which_scope_gets_which_bundle():
     source = (Path(__file__).resolve().parents[1]
               / "synqt/assets/design/inspector.js").read_text()
     assert "Bundles" in source
+
+
+def _refusal(from_entity, to_entity):
+    """`linkRefusal` as the browser runs it, as the message or "" ."""
+    return _node(f"""
+        import {{ linkRefusal }} from {_module('canvas.js')};
+        process.stdout.write(JSON.stringify(
+            linkRefusal({json.dumps(from_entity)}, {json.dumps(to_entity)})));
+    """)
+
+
+def test_a_line_to_or_from_a_monitor_is_refused_before_it_is_made():
+    """A monitor's links are configuration, not drawing.
+
+    Every service reports to it because `monitoring.entity` names it, and its console
+    reaches it because that client is marked `console: true`. Neither is a line anybody
+    draws, so a gesture that would make one is refused where it is made rather than drawn
+    and then reported. The canvas already leaves a monitor unwired by design, and a line
+    somebody could draw to it would contradict that in the same picture.
+    """
+    ops = {"name": "ops", "type": "monitor"}
+    web = {"name": "web", "type": "web_edge"}
+    db = {"name": "db", "type": "relational"}
+    # Both directions, because either end of the gesture is the same non-link.
+    assert "monitor" in _refusal(web, ops)
+    assert "'ops'" in _refusal(web, ops)
+    assert "monitor" in _refusal(ops, web)
+    # And the message names the monitor rather than whichever end was dragged first.
+    assert "'ops'" in _refusal(ops, web)
+    # Every other pair is untouched: this refuses one entity type, not drawing in general.
+    assert _refusal(web, db) == ""
+    assert _refusal(db, web) == ""
