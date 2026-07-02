@@ -22,16 +22,18 @@ synqt add entity ops --type monitor
 That writes four things, and it writes all four because any three of them leave something
 that does not work or is not safe:
 
-* the **monitor entity**, which keeps the history and serves the console on its own port;
-* a **console client**, marked `console: true`, delivered only to an operator;
-* the **sign-in gate**, a static page an anonymous visitor gets instead of the console;
+* the monitor entity, which keeps the history and serves the console on its own port,
+* a console client, marked `console: true`, delivered only to an operator,
+* the sign-in gate, a static page an anonymous visitor gets instead of the console,
 * `monitoring.entity`, the one line that makes every service report.
 
-You can also draw it. `synqt design` has a monitor on its palette; dropping one and
+You can also draw it. `synqt design` has a monitor on its palette. Dropping one and
 applying runs the same scaffolder, and the change set names all four files before anything
-is written. The copy of the designer [on this site](visual-editor.md) shows the row and says
-to use the command instead, because it has no scaffolder behind it and a monitor without its
-console is not a monitor.
+is written. The copy of the designer [on this site](visual-editor.md) writes the same four,
+because the templates it needs are published to it from the scaffolder that owns them
+(`tools/gen-design-assets.py`, guarded by `tools/synqt/tests/test_monitoring.py`) rather
+than kept as a second copy that drifts. A monitor without its console is not a monitor, so
+neither copy can draw one and leave it to be finished by hand.
 
 `monitoring.entity` is one line, which is what makes it worth checking: a `type: monitor`
 entity nothing names still builds, starts and serves its console with an empty history, so
