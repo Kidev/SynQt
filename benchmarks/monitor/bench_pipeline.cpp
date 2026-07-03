@@ -25,6 +25,7 @@
 
 #include "eventring.h"
 #include "tracer.h"
+#include "tracescope.h"
 #include "traceevent.h"
 
 #include <QCommandLineOption>
@@ -38,13 +39,19 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QList>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QSysInfo>
 #include <QTextStream>
 
 #include <algorithm>
+#include <atomic>
+#include <thread>
+#include <vector>
 
 using SynQt::Category;
 using SynQt::Severity;
+using SynQt::TraceContext;
 using SynQt::TraceEvent;
 using SynQt::Tracer;
 
@@ -138,6 +145,86 @@ Distribution measure(Tracer &tracer, const QString &name, int batches, int batch
     return distribution;
 }
 
+/// What one span costs to open, on `threads` threads at once.
+///
+/// A span is two random identifiers, and every instrumented call opens one, so this is on
+/// the request path of every entity that is being watched. It is swept over thread count
+/// rather than measured once because the number on its own says nothing: a generator
+/// behind a process-wide lock and one that is not are within noise of each other on one
+/// thread, and only the shape of the curve tells them apart. A `threads: N` edge mints on
+/// N threads at once, so a line that climbs with N is that edge losing its threading to
+/// the tracer.
+Distribution measureSpans(const QString &name, int threadCount, int batches, int batchSize)
+{
+    Distribution distribution;
+    distribution.name = name;
+    distribution.unit = QStringLiteral("ns");
+    distribution.samples.reserve(batches);
+
+    Tracer *tracer{Tracer::instance()};
+    const TraceContext parent;
+
+    // Warm up on every thread that will run. The first mint on a thread seeds its
+    // generator, which is once-per-thread work and not what is being measured.
+    std::atomic<bool> go{false};
+    std::atomic<int> warmed{0};
+    QList<double> perBatch;
+    QMutex guard;
+
+    auto worker = [&](int) {
+        for (int index{0}; index < batchSize; ++index) {
+            const TraceContext span{tracer->startSpan(parent, QStringLiteral("placeBid"))};
+            Q_UNUSED(span)
+        }
+        warmed.fetch_add(1, std::memory_order_release);
+        while (!go.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        QElapsedTimer clock;
+        for (int batch{0}; batch < batches; ++batch) {
+            clock.start();
+            for (int index{0}; index < batchSize; ++index) {
+                const TraceContext span{tracer->startSpan(parent,
+                                                          QStringLiteral("placeBid"))};
+                Q_UNUSED(span)
+            }
+            const double perSpan{static_cast<double>(clock.nsecsElapsed()) / batchSize};
+            QMutexLocker locker{&guard};
+            perBatch.append(perSpan);
+        }
+    };
+
+    std::vector<std::thread> pool;
+    pool.reserve(threadCount);
+    for (int thread{0}; thread < threadCount; ++thread) {
+        pool.emplace_back(worker, thread);
+    }
+    while (warmed.load(std::memory_order_acquire) < threadCount) {
+        std::this_thread::yield();
+    }
+    go.store(true, std::memory_order_release);
+    for (std::thread &one : pool) {
+        one.join();
+    }
+    distribution.samples = perBatch;
+    return distribution;
+}
+
+/// The same, with a span current on the thread.
+///
+/// `Log.info` inside a slot, a provider's query, a gate's refusal: a record written while a
+/// call is running names no trace of its own, so `record` reads the one the thread is in
+/// and stamps it. That is the ordinary case for everything an entity says while answering,
+/// and it is a different path from the one above, which measures a record written by a
+/// thread that is in nothing.
+Distribution measureInSpan(Tracer &tracer, const QString &name, int batches, int batchSize)
+{
+    const TraceContext span{Tracer::instance()->startSpan(TraceContext{},
+                                                          QStringLiteral("placeBid"))};
+    const SynQt::TraceScope scope{span};
+    return measure(tracer, name, batches, batchSize);
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -221,7 +308,27 @@ int main(int argc, char *argv[])
             << " ns  p99=" << QString::number(enabled.at(0.99), 'f', 2) << " ns" << Qt::endl;
     }
 
-    // Enabled and dropping: no sink at all, so nothing ever drains and every record after
+    // Enabled, with a call in progress. What `Log.info` in a slot costs, which is the
+    // ordinary case for everything an entity says while it is answering somebody.
+    // Configured exactly like `record_enabled` above, so the pair is the one comparison
+    // worth making. The same record, written by a thread that is in a call and by one that
+    // is not. The difference is what stamping the trace costs.
+    {
+        qint64 alsoDelivered{0};
+        Tracer tracer;
+        tracer.setBatch(1024, 50);
+        tracer.setSink([&alsoDelivered](const QList<TraceEvent> &batch) {
+            alsoDelivered += batch.size();
+        });
+        const Distribution inSpan{measureInSpan(tracer, QStringLiteral("record_in_span"),
+                                                batches, batchSize)};
+        tracer.flush();
+        latency.append(inSpan.toJson());
+        out << "record_in_span   p50=" << QString::number(inSpan.at(0.50), 'f', 2)
+            << " ns  p99=" << QString::number(inSpan.at(0.99), 'f', 2) << " ns" << Qt::endl;
+    }
+
+    // Enabled and dropping. No sink at all, so nothing ever drains and every record after
     // the first ring-full evicts. The point is that this stays a constant cost.
     qint64 droppedUnderPressure{0};
     {
@@ -233,6 +340,21 @@ int main(int argc, char *argv[])
         latency.append(dropping.toJson());
         out << "record_dropping  p50=" << QString::number(dropping.at(0.50), 'f', 2)
             << " ns  p99=" << QString::number(dropping.at(0.99), 'f', 2) << " ns" << Qt::endl;
+    }
+
+    // Opening a span, swept over thread count. Every instrumented call opens one, and a
+    // `threads: N` edge opens them on N threads at once, so what matters is whether the
+    // cost stays flat as N grows. A line that climbs is the tracer taking the edge's
+    // threading away from it on the request path.
+    out << Qt::endl;
+    for (const int threadCount : {1, 2, 4, 8}) {
+        const QString name{QStringLiteral("open_span_threads_%1").arg(threadCount)};
+        const Distribution spans{measureSpans(name, threadCount, batches,
+                                              qMax(1, batchSize / 8))};
+        latency.append(spans.toJson());
+        out << name.leftJustified(22) << " p50="
+            << QString::number(spans.at(0.50), 'f', 2) << " ns  p99="
+            << QString::number(spans.at(0.99), 'f', 2) << " ns" << Qt::endl;
     }
 
     out << Qt::endl << "delivered=" << delivered << " dropped=" << dropped

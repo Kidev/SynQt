@@ -20,7 +20,11 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QRegularExpression>
+#include <QSet>
 #include <QTest>
+
+#include <thread>
+#include <vector>
 #include <QThread>
 
 using namespace SynQt;
@@ -465,16 +469,63 @@ private slots:
         QVERIFY(entity->scope().isEmpty());
     }
 
+    /// Two threads minting spans at once mint different ones.
+    ///
+    /// Every instrumented call opens a span, and a `threads: N` edge opens them on N
+    /// threads at once, so the generator behind them is on the request path of a threaded
+    /// entity. A process-wide one puts every thread through one mutex there, which is what
+    /// the `open_span_threads_*` sweep in benchmarks/monitor measures. A per-thread one
+    /// costs nothing and has a failure mode of its own, and this is that failure mode. A
+    /// generator seeded per thread from anything but real entropy gives every thread the
+    /// same stream, so two entities' spans, or two threads' of one entity, collide and the
+    /// console shows one trace made of unrelated work. Silent, and worse than slow.
+    void twoThreadsMintingAtOnceMintDifferentIdentifiers()
+    {
+        constexpr int kThreads{4};
+        constexpr int kSpansPerThread{2000};
+        QMutex guard;
+        QStringList minted;
+        minted.reserve(kThreads * kSpansPerThread * 2);
+
+        std::vector<std::thread> pool;
+        pool.reserve(kThreads);
+        for (int thread{0}; thread < kThreads; ++thread) {
+            pool.emplace_back([&guard, &minted]() {
+                QStringList mine;
+                mine.reserve(kSpansPerThread * 2);
+                for (int index{0}; index < kSpansPerThread; ++index) {
+                    const TraceContext span{
+                        Tracer::instance()->startSpan(TraceContext{},
+                                                      QStringLiteral("placeBid"))};
+                    mine.append(span.traceId);
+                    mine.append(span.spanId);
+                }
+                QMutexLocker locker{&guard};
+                minted.append(mine);
+            });
+        }
+        for (std::thread &one : pool) {
+            one.join();
+        }
+
+        QCOMPARE(minted.size(), kThreads * kSpansPerThread * 2);
+        for (const QString &identifier : std::as_const(minted)) {
+            QVERIFY2(TraceContext::isTraceId(identifier) || TraceContext::isSpanId(identifier),
+                     qPrintable(QStringLiteral("not an identifier: '%1'").arg(identifier)));
+        }
+        const QSet<QString> distinct{minted.cbegin(), minted.cend()};
+        QCOMPARE(distinct.size(), minted.size());
+    }
+
     /// A reported identifier is a trace identifier, or it is not stored as one.
     ///
-    /// The severities and the categories above cross the ingest link as numbers and are
-    /// checked against the vocabulary here. The trace identifiers cross as strings and
-    /// were not checked at all. A reporting entity is authenticated by its certificate,
-    /// which says who it is and not that everything it sends is well formed, and one of
-    /// them sending an arbitrary string put a value of its choosing, of a length of its
-    /// choosing, into a column in the history, into every export, and in front of the
-    /// operator. The console asks for a trace by `string[32]`, so a longer one could never
-    /// be followed either: recorded, and unfindable, which is the defect next door.
+    /// Severities and categories cross the ingest link as numbers and are checked against
+    /// the vocabulary; trace identifiers cross as strings and are checked here. A reporting
+    /// entity's certificate says who it is, not that everything it sends is well formed,
+    /// and an unchecked string would put a value and length of its choosing into a history
+    /// column, every export, and the operator's console. The console asks for a trace by
+    /// `string[32]`, so a longer one could never be followed either: recorded and
+    /// unfindable.
     void aReportedTraceIdentifierIsOneOrIsNotStoredAsOne()
     {
         const QString goodTrace{QStringLiteral("0af7651916cd43dd8448eb211c80319c")};
@@ -641,7 +692,7 @@ private slots:
         QVERIFY2(serialized <= Tracer::MaxAttributes * Tracer::MaxAttributeChars,
                  qPrintable(QStringLiteral("%1 bytes of attributes reached the ring")
                                 .arg(serialized)));
-        // What was too large is said to have been, not silently emptied. What fit is kept.
+        // What was too large is marked as dropped. What fit is kept.
         QVERIFY(attributes.value(QStringLiteral("rows")).toString().contains(
             QStringLiteral("dropped")));
         QCOMPARE(attributes.value(QStringLiteral("count")).toInt(), 3);

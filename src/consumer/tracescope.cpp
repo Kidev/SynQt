@@ -9,10 +9,8 @@ namespace {
 
 TraceContext &installed()
 {
-    // Per thread for the same reason ActingFor's caller is. One entity is one event loop
-    // today, and "which trace is this work part of" must not become a fact about how the
-    // runtime happens to be scheduled. A plain value, so a thread ending destroys a
-    // QString and nothing else.
+    // Per thread, like ActingFor's caller, so the current trace does not depend on how the
+    // runtime is scheduled. A plain value, so thread exit only destroys a QString.
     static thread_local TraceContext context;
     return context;
 }
@@ -33,6 +31,17 @@ TraceScope::~TraceScope()
 TraceContext TraceScope::current()
 {
     return installed();
+}
+
+bool TraceScope::stampCurrent(QString &traceId, QString &spanId)
+{
+    const TraceContext &context{installed()};
+    if (!context.isValid()) {
+        return false;
+    }
+    traceId = context.traceId;
+    spanId = context.spanId;
+    return true;
 }
 
 } // namespace SynQt

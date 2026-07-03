@@ -24,19 +24,16 @@ namespace SynQt {
 
 namespace {
 
-/// Big enough that a burst survives a slow sink, small enough to be a rounding error
-/// against an entity's own working set: 8192 events at roughly 200 bytes each.
+/// Large enough for a burst to survive a slow sink, small against an entity's working set:
+/// 8192 events of roughly 200 bytes.
 constexpr int kRingCapacity{8192};
 
 /// The letters of `text`, as one bit per letter of the alphabet.
 ///
-/// A necessary condition for a substring. A needle cannot be inside a key whose set of
-/// letters does not contain the needle's. Non-letters are ignored on both sides, which
-/// keeps the condition necessary (never sufficient) and lets one mask stand for
-/// `api_key`, `api-key` and `apiKey` at once. What it buys is that the ordinary case,
-/// an attribute called `member` or `peer` or `origin`, is decided by one pass over a
-/// short string and a handful of integer ands, with no case-folded copy allocated and
-/// no substring search run.
+/// A necessary condition for a substring: a needle cannot be inside a key that lacks one of
+/// its letters. Non-letters are ignored on both sides, so one mask covers `api_key`,
+/// `api-key` and `apiKey`. An ordinary attribute (`member`, `peer`, `origin`) is decided
+/// with one pass and a few integer ands, without a case-folded copy or a substring search.
 quint32 letterMask(QStringView text)
 {
     quint32 mask{0};
@@ -52,10 +49,8 @@ quint32 letterMask(QStringView text)
     return mask;
 }
 
-/// The masks of the needles, in the order `Tracer::secretAttributeNames` lists them, and
-/// contiguous so the loop that reads them touches one cache line and no QString at all.
-/// The names themselves are reached only for a needle whose mask passed, which for an
-/// ordinary attribute is none of them.
+/// The needles' masks, in `Tracer::secretAttributeNames` order and contiguous, so the loop
+/// touches one cache line and no QString. A name is read only when its mask passes.
 const QList<quint32> &secretMasks()
 {
     static const QList<quint32> masks{[]() {
@@ -70,20 +65,32 @@ const QList<quint32> &secretMasks()
     return masks;
 }
 
-/// Lower-case hex of a fixed width, which is what W3C trace context asks for, with the
-/// all-zero value the specification forbids replaced rather than retried: a collector
-/// drops a traceparent carrying it, and one bit does not justify a loop.
+/// The generator for span identifiers: one per thread, seeded from the system generator.
 ///
-/// The all-zero test is a scan and not a regular expression. Two of these are minted for
-/// every span, so a `QRegularExpression` built here is a pattern compiled per span, on a
-/// path whose whole enabled cost is measured in hundreds of nanoseconds; the answer to "is
-/// any character not a zero" does not need a pattern at all.
+/// Not `QRandomGenerator::global()`, whose process-wide mutex would be on the request path
+/// of a `threads: N` edge, where every call opens a span on N threads at once (see
+/// `open_span_threads_*` in benchmarks/monitor).
+///
+/// Seeded from `QRandomGenerator::system()`, as `securelySeeded` does, so threads do not
+/// share a stream and mint the same identifiers. Identifiers only name things (nothing is
+/// authorized by one), so all they need is to not repeat.
+QRandomGenerator &spanGenerator()
+{
+    static thread_local QRandomGenerator generator{QRandomGenerator::securelySeeded()};
+    return generator;
+}
+
+/// Lower-case fixed-width hex, as W3C trace context requires. The all-zero value, which the
+/// specification forbids and collectors drop, is replaced rather than retried.
+///
+/// The all-zero test is a scan, not a regular expression, since two identifiers are minted
+/// per span on a hot path.
 QString randomHex(int characters)
 {
     QString value;
     value.reserve(characters);
     while (value.size() < characters) {
-        value += QString::number(QRandomGenerator::global()->generate64(), 16)
+        value += QString::number(spanGenerator().generate64(), 16)
                      .rightJustified(16, QLatin1Char('0'));
     }
     value.truncate(characters);
@@ -94,14 +101,12 @@ QString randomHex(int characters)
     return value;
 }
 
-/// How much of the record one attribute value takes, for a value whose size is not a
-/// property of its type.
+/// How much of the record one attribute value takes, for a value whose size is not fixed by
+/// its type.
 ///
-/// Text is its length. A list, a map or a blob is measured by what it serializes to,
-/// which is what a store writes and what a caller who found a `capture` member taking a
-/// `var` or a `list` would grow: their argument arrives as a list or a map, not as text,
-/// and a bound that read only strings let it through whole. Numbers, booleans and dates
-/// are the size they are and answer zero.
+/// Text counts its length. A list, a map or a blob counts its serialized size, as a store
+/// writes it: a `capture` member taking `var` or `list` receives a list or a map, not text.
+/// Numbers, booleans and dates count zero.
 qsizetype attributeSpan(const QVariant &value)
 {
     switch (value.typeId()) {
@@ -145,8 +150,7 @@ Tracer::Tracer(QObject *parent)
 
     m_thread = new QThread{};
     m_thread->setObjectName(QStringLiteral("SynQtTracer"));
-    // A plain QObject rather than a subclass. It exists to give the timer and the queued calls
-    // an affinity, and it has no behaviour of its own that needs a class.
+    // A plain QObject: it only gives the timer and the queued calls a thread affinity.
     m_worker = new QObject{};
     m_worker->moveToThread(m_thread);
 
@@ -165,16 +169,13 @@ Tracer::Tracer(QObject *parent)
 Tracer::~Tracer()
 {
     flush();
-    // The worker and its timer were created on the writer thread, and a QObject holding
-    // timers may only be destroyed there. Deleting it from here is undefined, and Qt says
-    // so on stderr. Deferred deletion as the thread finishes is the documented way, and
-    // it is set up here rather than in the constructor so nothing else can ever trigger
-    // it while the tracer is still in use.
+    // The worker and its timer live on the writer thread, and a QObject with timers may
+    // only be destroyed there. Deferred deletion as the thread finishes is the documented
+    // way; it is set up here so nothing triggers it while the tracer is in use.
     QObject::connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     m_thread->quit();
-    // Bounded, because a destructor that can hang is worse than one that leaks: if the
-    // sink is wedged, give up on it rather than on the process shutting down. The worker
-    // is then leaked, since there is no thread left that could safely free it.
+    // Bounded: if the sink is wedged, give up on it rather than on shutdown. The worker
+    // then leaks, since no thread remains that could free it.
     if (!m_thread->wait(5000)) {
         m_thread->terminate();
         m_thread->wait();
@@ -184,15 +185,11 @@ Tracer::~Tracer()
 
 Tracer *Tracer::instance()
 {
-    // Parented to nothing and never deleted. Call sites in destructors run
-    // during static teardown, and a tracer destroyed before them would turn a shutdown
-    // trace into a crash.
+    // Never deleted: call sites in destructors run during static teardown.
     //
-    // Switched off until something asks for it, which a directly constructed Tracer is
-    // not. They differ because this one is process state that the entity runtime
-    // configures from the topology, so an application that never asked for monitoring pays
-    // nothing even if nothing ever configures it. A Tracer somebody constructed is one
-    // they constructed on purpose, and making that silent by default would be a trap.
+    // Off until something enables it, unlike a directly constructed Tracer. This instance
+    // is process state the entity runtime configures from the topology, so an application
+    // without monitoring pays nothing. A Tracer someone constructs explicitly is on.
     static Tracer *tracer{[]() {
         Tracer *made{new Tracer{}};
         made->setEnabled(false);
@@ -245,9 +242,8 @@ void Tracer::setCategoryOff(Category category)
 
 void Tracer::applyLevels()
 {
-    // The switch and the per-category levels are folded into the one value the hot path
-    // reads, so turning tracing off and back on restores the operator's filters rather
-    // than the defaults.
+    // The switch and the per-category levels fold into the one value the hot path reads, so
+    // turning tracing off and on keeps the operator's filters.
     const bool enabled{m_enabled.load(std::memory_order_relaxed)};
     QMutexLocker locker{&m_mutex};
     for (int category{0}; category < CategoryCount; ++category) {
@@ -271,8 +267,7 @@ void Tracer::setBatch(int events, int milliseconds)
         m_batchMilliseconds = std::max(1, milliseconds);
         interval = m_batchMilliseconds;
     }
-    // The timer belongs to the writer thread. Restarting it from here would be a cross
-    // thread touch of a QObject, so ask that thread to do it.
+    // The timer belongs to the writer thread, so that thread restarts it.
     QMetaObject::invokeMethod(m_worker, [this, interval]() {
         QTimer *timer{m_worker->findChild<QTimer *>(QStringLiteral("SynQtTracerBatch"))};
         if (timer != nullptr) {
@@ -313,19 +308,14 @@ void Tracer::record(TraceEvent event)
         QMutexLocker locker{&m_mutex};
         event.entity = m_entity;
     }
-    // A record written while a span is open belongs to it. `Log.info` in a slot, a
-    // provider query, a gate's refusal. The span's own closing event names itself, and an
-    // event recorded from a thread that has no span current, the ingest side included,
-    // stays where it was.
+    // A record written while a span is open belongs to it (`Log.info` in a slot, a provider
+    // query, a gate's refusal). The span's own closing event names itself; events from a
+    // thread with no current span, the ingest side included, are unchanged.
     if (event.traceId.isEmpty()) {
-        const TraceContext current{TraceScope::current()};
-        if (current.isValid()) {
-            event.traceId = current.traceId;
-            event.spanId = current.spanId;
-        }
+        TraceScope::stampCurrent(event.traceId, event.spanId);
     }
-    // Before the bound, so a credential long enough to be truncated is replaced rather
-    // than recorded as its first 512 characters.
+    // Before the bound, so a long credential is replaced, not recorded as its first 512
+    // characters.
     redact(event);
     bound(event);
     m_ring.push(std::move(event));
@@ -337,11 +327,10 @@ void Tracer::record(TraceEvent event)
 
 const QStringList &Tracer::secretAttributeNames()
 {
-    // Short. Every entry is a word that means "this is the credential
-    // itself" wherever it appears in a name, which is what makes matching it as a
-    // substring safe. `key` and `id` are not here, because `session.key` is a handle and
-    // `client_id` is public, and redacting either would take an operator's own evidence
-    // away while teaching them that a redaction marker means nothing much.
+    // Short on purpose: each entry means "the credential itself" wherever it appears in a
+    // name, which makes substring matching safe. `key` and `id` are absent: `session.key`
+    // is a handle and `client_id` is public, and redacting them would remove an operator's
+    // evidence.
     static const QStringList names{QStringLiteral("password"),
                                    QStringLiteral("passphrase"),
                                    QStringLiteral("secret"),
@@ -382,10 +371,8 @@ QString Tracer::redacted()
 
 void Tracer::redact(TraceEvent &event)
 {
-    // Measured before anything is rewritten, the same way `bound` is and for the same
-    // reason: `QVariantMap::begin` detaches, and the overwhelmingly common event carries
-    // nothing to redact. The scan reads keys only, so it costs one pass over each of at
-    // most a handful of short strings.
+    // Checked before anything is rewritten, like `bound`: `QVariantMap::begin` detaches,
+    // and almost no event carries anything to redact. The scan reads keys only.
     bool found{false};
     for (auto it{event.attributes.cbegin()}; it != event.attributes.cend(); ++it) {
         if (isSecretAttributeName(it.key())) {
@@ -406,15 +393,13 @@ void Tracer::redact(TraceEvent &event)
 
 void Tracer::bound(TraceEvent &event)
 {
-    // Every one of these values can be chosen by whoever is being watched: an Origin
-    // header, a path, a member name off the wire. Bounding them here, once, is what keeps
-    // a hostile caller from turning the record of their own request into the thing that
-    // exhausts the entity's memory.
+    // Every one of these values may be chosen by the caller being recorded (an Origin
+    // header, a path, a member name). Bounding them here keeps a hostile caller from
+    // exhausting the entity's memory through its own record.
     //
-    // Measured first, rewritten only if something is over: rebuilding the map
-    // unconditionally cost ten times the whole rest of `record` (benchmarks/monitor put
-    // the enabled path at 414 ns against 42), and an event that is already within its
-    // bounds is the overwhelmingly common case.
+    // Checked first and rewritten only if something is over the bound: rebuilding the map
+    // every time dominated `record` (benchmarks/monitor), and most events are within
+    // bounds.
     if (event.message.size() > MaxMessageChars) {
         event.message.truncate(MaxMessageChars);
     }
@@ -449,8 +434,8 @@ void Tracer::bound(TraceEvent &event)
         }
         const qsizetype span{attributeSpan(it.value())};
         if (span > MaxAttributeChars) {
-            // A list or a map has no meaningful first half, so it is replaced rather than
-            // cut, and the record says what it lost.
+            // A list or a map has no meaningful first half, so it is replaced, and the
+            // record says what was lost.
             bounded.insert(it.key().left(MaxAttributeChars),
                            QStringLiteral("[value of %1 bytes dropped: over %2]")
                                .arg(span).arg(MaxAttributeChars));
@@ -459,9 +444,7 @@ void Tracer::bound(TraceEvent &event)
         bounded.insert(it.key().left(MaxAttributeChars), it.value());
     }
     if (skipped > 0) {
-        // The same rule the ring follows. An event may lose part of itself, but never
-        // quietly. A record that silently shed half its attributes reads exactly like one
-        // that never had them.
+        // As in the ring: an event may lose part of itself, but never silently.
         bounded.insert(QStringLiteral("attributesDropped"), skipped);
     }
     event.attributes = bounded;
@@ -506,9 +489,8 @@ void Tracer::endSpan(const TraceContext &span, Category category, SpanOutcome ou
 
 void Tracer::wake()
 {
-    // One post per batch rather than one per event. The writer clears the flag when it
-    // starts draining, so a burst of ten thousand events costs a handful of queued calls
-    // instead of ten thousand.
+    // One post per batch, not per event: the writer clears the flag when it starts
+    // draining, so a burst costs a few queued calls.
     bool posted{false};
     if (!m_wakePosted.compare_exchange_strong(posted, true, std::memory_order_acq_rel)) {
         return;
@@ -538,8 +520,8 @@ void Tracer::deliver()
             sink(batch);
         }
     }
-    // What is left is what arrived while this ran, and the timer or the next record will
-    // pick it up. Recomputing rather than zeroing keeps the trigger accurate under load.
+    // What remains arrived during this run; the timer or the next record picks it up.
+    // Recomputed, not zeroed, so the trigger stays accurate under load.
     m_pending.store(m_ring.size(), std::memory_order_relaxed);
 }
 
