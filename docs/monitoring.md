@@ -112,6 +112,15 @@ anything by a trace identifier. Concretely:
 A service reached by two clicks answers both on one link and one Caller; each call
 continues the trace it arrived with, so the second is never filed under the first.
 
+Turning `call` down does not turn this off. A span is opened for every call the category
+lets through at all, including the ordinary ones that `monitoring.levels.call: warning`
+then declines to record, because what hangs off that span happens while the call is still
+running: the outbound call carries it, and the refusal two entities further on names it as
+its parent. Deciding at the end of a call whether it was worth a span would leave the head
+of every chain without one, which is where a chain starts, and the refusals an operator
+turned the level down to keep would be records with no story behind them. A category set
+to `off` is the switch that costs nothing, and it is the one that records nothing.
+
 ## What is not recorded, and why
 
 **No credential, ever.** A session is named in the record by a handle, half of its

@@ -950,6 +950,13 @@
       "defended_by": "A session is one with a key. The map is read as a session only when the key is there, so a call carrying a trace and nothing else is what it is: an entity acting on its own behalf.",
       "file": "tests/monitor/tst_pipeline.cpp",
       "test": "aPeerNamesATraceOnlyInTheShapeTheTracerMints"
+    },
+    {
+      "id": "a-refusal-with-no-story-behind-it",
+      "what": "A refusal is the record an operator most needs to follow back: it says a gate said no, and the question is who was asking and what else they did. The span a call hangs from was opened only when the call was going to be recorded, so under `monitoring.levels.call: warning` (the documented way to keep what went wrong and drop the chatter, and what a busy system runs) the entity at the head of the chain opened none. The click named no trace, every entity downstream started one of its own, and the refusal an operator turned the level down to keep was a record whose trace identifier led to exactly itself: `follow` answers one row, and what caused it is not in the history at all. Turning the volume down took away the evidence rather than the noise.",
+      "defended_by": "A span is opened for every call the category lets through at all, not only for the ones that will be recorded, because everything that hangs off it happens while the call is still running: the outbound call carries it, a record written meanwhile joins it, and a refusal further down names it as its parent. A category set to `off` remains the switch that costs nothing and records nothing.",
+      "file": "tests/monitor/tst_instrumentation.cpp",
+      "test": "aRefusedCallIsInTheClicksTraceWhenOrdinaryCallsAreNotKept"
     }
   ]
 }

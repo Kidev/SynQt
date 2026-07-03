@@ -22,22 +22,22 @@ namespace SynQt {
 ///
 /// Generated Source helpers declare one of these at the top of every slot body. A slot has
 /// several ways out (a scope gate, a bound on an argument, a relay to the entity behind a
-/// front, the owner's own QML), so the record is closed by the destructor rather than by a
-/// line before each `return`, which is how a return added later stays traced.
+/// front, the owner's own QML), so the destructor closes the record.
 ///
-/// What it records is the **shape** of the call and not its contents: the contract, the
-/// member, whether a person or an entity is calling, and how many arguments there were.
-/// Argument values are what a user typed, and a monitor is not the place they end up; a
-/// member that genuinely needs them says so in its contract (see `capture`).
+/// It records the **shape** of the call, not its contents: the contract, the member, whether a
+/// person or an entity is calling, and the argument count. A member that needs its argument
+/// values says so in its contract (see `capture`).
 ///
-/// Nothing is minted while tracing is off. The constructor reads one atomic, and if the
-/// answer is no it does nothing else. When the call will be recorded, or when it continues
-/// a trace that arrived with the caller, the span is opened here and now and made the
-/// current one for as long as the slot runs (TraceScope): a call the slot makes on
-/// another entity carries it, a record written meanwhile joins it, and a promise the slot
-/// creates keeps it for its continuation. That is what makes a click one trace rather
-/// than one root per entity. A call that is only ever going to be recorded if it is
-/// refused mints nothing until the destructor knows.
+/// While tracing is off the constructor reads one atomic and does nothing else. Otherwise the
+/// span is opened here and made current for as long as the slot runs (TraceScope): a call the
+/// slot makes on another entity carries it, a record written meanwhile joins it, and a promise
+/// the slot creates keeps it for its continuation. The span opens before anyone knows whether
+/// the call will be recorded, because everything that hangs off it happens while the call runs.
+///
+/// **A slot must not spin a nested event loop.** The span is the thread's while the slot runs,
+/// so work resumed inside such a loop would be recorded under this call's trace. Identity waits
+/// are reached from a route handler or a timer, never from a slot (see
+/// `OAuthBackend::exchangeAsync`).
 class CallSpan
 {
 public:

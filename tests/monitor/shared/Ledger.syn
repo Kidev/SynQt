@@ -6,4 +6,9 @@
 // a click, where the trace has to be continued rather than started.
 contract Ledger {
     slot post(string[32] item)
+
+    // Gated, so the second hop has a way to refuse. A refusal is the one thing a monitor
+    // keeps when ordinary calls are turned down, which is what makes it the case that has
+    // to stay joined to the click that caused it.
+    <moderator> slot audit(string[32] item)
 }

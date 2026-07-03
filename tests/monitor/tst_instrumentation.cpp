@@ -23,6 +23,7 @@
 #include "hall_sourcehelper.h"
 #include "ledger_sourcehelper.h"
 
+#include <QJSEngine>
 #include <QJSValue>
 #include <QMutex>
 #include <QMutexLocker>
@@ -31,6 +32,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QQmlEngine>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QSslConfiguration>
 #include <QSslSocket>
@@ -192,6 +194,13 @@ public slots:
             pending = new Promise{QRemoteObjectPendingCall{}, engine, this};
             const QJSValue factory{engine->evaluate(QStringLiteral(
                 "(function (probe) { return function () { probe.note(); }; })"))};
+            // `newQObject` hands the engine JavaScriptOwnership, and the engine deletes
+            // what it owns once no script references it and it has no QObject parent.
+            // This one is a member subobject with neither, so the collector, or the
+            // engine's own destructor, would call delete on a pointer that was never
+            // new'd. Said here rather than given a parent, because what is wrong is the
+            // ownership and not the shape of the test.
+            QJSEngine::setObjectOwnership(&probe, QJSEngine::CppOwnership);
             pending->catchError(factory.call(QJSValueList{engine->newQObject(&probe)}));
         }
     }
@@ -554,6 +563,63 @@ private slots:
         // A record, not a span. It has no duration and closes nothing.
         QCOMPARE(said.first().durationUs, static_cast<qint64>(-1));
         QVERIFY(said.first().parentSpanId.isEmpty());
+    }
+
+    /// Turning ordinary calls down must not take the refusals' story with them.
+    ///
+    /// `monitoring.levels.call: warning` is the documented way to keep what went wrong and
+    /// drop the chatter, and it is what a busy system runs. The span at the head of a chain
+    /// was opened only when the call was going to be recorded, so under that setting the
+    /// edge opened none, the click named no trace, and every entity downstream started one
+    /// of its own. The refusal an operator turned the level down to keep is then a record
+    /// with a trace identifier that leads to exactly itself. `follow` answers one row, and
+    /// what caused it is not in the history at all.
+    ///
+    /// Two hops, both turned down, and the second one refuses.
+    void aRefusedCallIsInTheClicksTraceWhenOrdinaryCallsAreNotKept()
+    {
+        Recorded recorded;
+        Tracer::instance()->setLevel(Category::Call, Severity::Warning);
+        const auto restore{qScopeGuard([]() {
+            Tracer::instance()->setLevel(Category::Call, Severity::Trace);
+        })};
+
+        QObject owner;
+        SessionManager sessions{QStringLiteral("anonymous"), 60};
+        const QByteArray token{sessions.createSession(QStringLiteral("user"))};
+        Hall hall;
+        Caller *edgeCaller{
+            Caller::forUser(QStringLiteral("Hall"), &sessions, token, &hall, &owner)};
+        hall.synqtSetCaller(edgeCaller);
+
+        // The first hop. An ordinary call, which at this level is not recorded at all.
+        hall.enter(QStringLiteral("ada"));
+        QVERIFY(recorded.withMessage(QStringLiteral("enter")).isEmpty());
+
+        // It still has to name the story, because the next hop can only continue one that
+        // exists. This is the whole defect. Nothing was minted here.
+        const QVariantMap onward{hall.outbound};
+        QVERIFY2(TraceContext::isTraceId(onward.value(QStringLiteral("traceId")).toString()),
+                 "the click named no trace, so nothing downstream can be found by it");
+        QVERIFY(TraceContext::isSpanId(onward.value(QStringLiteral("spanId")).toString()));
+
+        // The second hop, reached with what the first one sent, refuses. The session it is
+        // acting for holds `user` and the member wants `moderator`.
+        Ledger ledger;
+        Caller *serviceCaller{Caller::forEntity(QStringLiteral("Ledger"),
+                                                QStringLiteral("web"), true, &ledger, &owner)};
+        ledger.synqtSetCaller(serviceCaller);
+        ledger.audit(onward, QStringLiteral("bread"));
+
+        const QList<TraceEvent> refusals{recorded.withMessage(QStringLiteral("audit"))};
+        QCOMPARE(refusals.size(), 1);
+        QVERIFY(!refusals.first().ok);
+        QCOMPARE(refusals.first().attributes.value(QStringLiteral("refusedBy")).toString(),
+                 QStringLiteral("scope"));
+        QCOMPARE(refusals.first().traceId,
+                 onward.value(QStringLiteral("traceId")).toString());
+        QCOMPARE(refusals.first().parentSpanId,
+                 onward.value(QStringLiteral("spanId")).toString());
     }
 
     /// The answer to a call arrives turns later, and what runs then is still the click.

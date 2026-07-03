@@ -69,15 +69,25 @@ CallSpan::CallSpan(const char *contract, const char *member, QObject *caller,
     if (!m_parent.isValid()) {
         m_parent = TraceScope::current();
     }
-    // Opened now when it is going to be recorded, or when there is a story to continue:
-    // a refusal downstream of this call must still land in the trace of the click even
-    // when ordinary calls are not being kept. Otherwise the two random identifiers wait
-    // for the destructor, so a call nobody records pays for none.
-    if (tracer->isEnabled(Category::Call, Severity::Info) || m_parent.isValid()) {
-        m_span = tracer->startSpan(m_parent, QString::fromLatin1(m_member));
-        m_span.startedUs = m_startedUs;
-        m_scope.emplace(m_span);
-    }
+    // Opened here, for every call that is being timed at all, and not left to the
+    // destructor for the ones that turn out not to be worth recording.
+    //
+    // The span is what the rest of the click hangs from: an outbound call carries it, a
+    // record written meanwhile joins it, and a refusal two entities further on names it as
+    // its parent. All of that has to be true while the call is still running, which is
+    // before anyone can know how it ends. Deciding it at the end works for a call in the
+    // middle of a chain, whose parent arrived with it, and fails at the head, which is
+    // where every chain starts: under `monitoring.levels.call: warning`, the documented
+    // way to keep the refusals and drop the chatter, the edge recorded nothing, so it
+    // opened nothing, so the click named no trace, so the refusal an operator turned the
+    // level down to keep was a record whose cause is not in the history.
+    //
+    // What it costs is two random identifiers on a path the category switch has already
+    // let through, and nothing at all when the category is off: that is the switch this
+    // constructor returns on above, and it is the one that carries the cost argument.
+    m_span = tracer->startSpan(m_parent, QString::fromLatin1(m_member));
+    m_span.startedUs = m_startedUs;
+    m_scope.emplace(m_span);
 }
 
 void CallSpan::refuse(const char *reason)
@@ -112,12 +122,6 @@ CallSpan::~CallSpan()
         return;
     }
 
-    // Minted here only for a call that opened no span on the way in, which is one that
-    // was going to be recorded only if it was refused, and was.
-    if (!m_span.isValid()) {
-        m_span = tracer->startSpan(m_parent, QString::fromLatin1(m_member));
-        m_span.startedUs = m_startedUs;
-    }
     const TraceContext span{m_span};
 
     QVariantMap attributes;
