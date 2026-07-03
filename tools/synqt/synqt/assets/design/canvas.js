@@ -266,8 +266,26 @@ export function linkRefusal(from, to) {
         + `so there is no line here to draw.`;
 }
 
+// The names a panel may offer at one end of a drawn link, keeping whoever is already there.
+//
+// Two rules, and they are not the same rule. A monitor is never *offered*, because its links
+// are configuration and the editor does not propose what it will not build. But a project can
+// already have one at an end. `synqt check` allows a monitor to own a declared connect point,
+// and a hand-written project can name one as a consumer, which the findings report as an error
+// and somebody then has to be able to take off. A list that quietly omitted either would open
+// the project showing something its author never wrote, and rewrite it that way on the first
+// touch of a control. Offer nothing new. Lose nothing given.
+//
+// `kept` is one name or several, so the same function serves the owner and the consumers.
+export function endsToOffer(entities, kept) {
+    const keep = new Set([].concat(kept === undefined ? [] : kept).filter(Boolean));
+    return (entities || [])
+        .filter((entity) => !linksAreDerived(entity) || keep.has(entity.name))
+        .map((entity) => entity.name);
+}
+
 function glyph(entity, front, gate) {
-    // A front's glyph rides in its nose at a smaller size: the scope column holds the rest of
+    // A front's glyph rides in its nose at a smaller size. The scope column holds the rest of
     // the shape, and at a disc's size the glyph reached out through the sloped edges.
     const group = element("g", {
         class: "node__glyph",

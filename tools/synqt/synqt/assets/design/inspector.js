@@ -12,7 +12,7 @@
 
 import { behindOf, entityType, scopesOf } from "./rules.js";
 import { ROLE_HELP, accessorName, codeLine, codeParts, codeWord, contractSvg,
-         glyphSvg, linkTitleNode, linksAreDerived, memberCode, memberMarkSvg,
+         endsToOffer, glyphSvg, linkTitleNode, memberCode, memberMarkSvg,
          roleOf } from "./canvas.js";
 import { linkTitle } from "./project.js";
 import { baseType, declarations } from "./source.js";
@@ -1169,13 +1169,13 @@ function contractPanel(design, link, actions) {
 
     // Nothing to name. An entity has one connect point, so the owner names it: consumers
     // reach it as the owner capitalised, and the contract carries that same name.
-    // Every entity that can be either end of a drawn line. A monitor is neither: what
-    // reaches it and what it reaches come from `monitoring.entity` and from the console
-    // client's own `console: true`, so offering it here would offer a line that is never
-    // built. Same rule as the canvas, from the same function.
-    const names = (design.entities || [])
-        .filter((entity) => !linksAreDerived(entity))
-        .map((entity) => entity.name);
+    // Each list offers every entity that can be drawn at that end, and keeps whoever is
+    // already there. A monitor is never proposed, because its links are configuration, but
+    // one this project already put at an end stays in the list it is in, or the panel would
+    // show a point with no owner and rewrite it on the first touch. Same rule as the canvas,
+    // from the same function.
+    const owners = endsToOffer(design.entities, link.owner);
+    const names = endsToOffer(design.entities, link.consumers || []);
     const taken = new Set((design.links || [])
         .filter((one) => one !== link)
         .map((one) => one.owner));
@@ -1183,7 +1183,7 @@ function contractPanel(design, link, actions) {
     // The two labels take the two role colours the canvas and the tip use for the same two
     // words, so a reader who has hovered one line already knows which half of this panel is
     // which without reading either heading.
-    who.append(field("Owner", choice(["", ...names.filter((name) => !taken.has(name))],
+    who.append(field("Owner", choice(["", ...owners.filter((name) => !taken.has(name))],
                                      link.owner, (value) => {
         link.owner = value;
         link.id = value;

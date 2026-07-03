@@ -1,15 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""What the drawing works out rather than draws, checked by running the module the browser runs.
+"""Canvas arithmetic, checked by running canvas.js under node.
 
-A connect point hangs off one slot on its owner's rim, and the slot it was drawn on is the
-slot it keeps. An owner that outgrows its ring doubles it rather than renumbering, so a ninth
-connect point never slides the eight already on screen. A line into a front that no scope
-routes to is cut on its own curve, three quarters of the way to the end it fails to reach.
-Both are arithmetic, so both are written as arithmetic in canvas.js and asserted here through
-node, the same way tools/check-designrules asserts rules.js. Nothing here needs a browser,
-because none of it touches the DOM.
+A connect point keeps the rim slot it was drawn on; a full ring doubles instead of
+renumbering. A line into a front that no scope routes to is cut three quarters of the way
+along its own curve. No DOM is needed.
 """
 
 from __future__ import annotations
@@ -31,11 +27,7 @@ def _geometry(expression):
 
 
 def test_the_ring_doubles_when_it_fills_and_always_leaves_a_slot_free():
-    """Eight slots until eight are taken, then sixteen, and never fewer free than one.
-
-    A ring that filled exactly would leave an entity with nowhere to start the next link
-    from, which is the affordance disappearing at the moment somebody reaches for it.
-    """
+    """Eight slots until eight are taken, then sixteen, and always at least one free."""
     assert _geometry("[0, 7, 8, 15, 16, 31, 32, 63, 64].map(ringSize)") \
         == [8, 8, 16, 16, 32, 32, 64, 64, 64]
 
@@ -90,8 +82,7 @@ def test_every_slot_is_an_index_into_the_one_canonical_ring():
 
 
 def _front(expression):
-    """The same, against the geometry of a front. The wedge a web edge that routes is drawn
-    as, and the column of scope names it has to be big enough to hold."""
+    """The same, against the front wedge and the column of scope names it holds."""
     return _node(f"""
         import {{ frontEdgeAt, seatLabelBox, seatStrip, frontNoseX, contractPoint }}
             from {_module('canvas.js')};
@@ -101,10 +92,8 @@ def _front(expression):
 
 
 def test_every_scope_name_fits_inside_the_wedge():
-    """The one measurement the shape's length and height exist for. Written outside the
-    outline the names were four words hanging off the back of the node. Inside, the row
-    furthest from the middle is the one the sloped edge cuts into first, so that row is what
-    the wedge is sized by and nothing here may be eyeballed.
+    """Every scope name fits inside the wedge. The row furthest from the middle meets the
+    sloped edge first and sizes the wedge.
     """
     boxes = _front("SCOPES.map((scope, index) => "
                    "[scope, seatLabelBox(scope, index, SCOPES.length), "
@@ -116,8 +105,7 @@ def test_every_scope_name_fits_inside_the_wedge():
 
 
 def test_the_strip_a_drop_lands_in_holds_every_name():
-    """A drop on a scope's name has to mean that scope, so the strip the drop test uses and
-    the room the names are drawn in are one measurement."""
+    """The drop strip and the drawn names are one measurement."""
     strip = _front("seatStrip()")
     widest = _front("SCOPES.map((scope, index) => "
                     "seatLabelBox(scope, index, SCOPES.length).left)")
@@ -126,8 +114,7 @@ def test_the_strip_a_drop_lands_in_holds_every_name():
 
 
 def test_the_contract_icon_sits_against_the_nose_the_shape_actually_has():
-    """An arc inscribed in a corner never touches it, and at a nose this sharp it stops over
-    ten units short. Measured from the construction point the icon floated in open canvas."""
+    """The contract icon sits against the real nose of the shape, not the construction point."""
     nose = _front("frontNoseX()")
     at = _front("contractPoint({x: 0, y: 0}, 0, true)")
     assert -12 < at["x"] - nose < 0, (at, nose)
@@ -151,17 +138,16 @@ _SIGNAL = ('{kind: "signal", name: "denied", type: "", roles: [], '
 
 
 def test_the_runs_a_row_is_written_in_spell_the_row_and_nothing_else():
-    """One span per run, in order, covering every character. The block's width is still counted
-    from the string, so a run that added or dropped a character would draw a row wider or
-    narrower than the ground behind it."""
+    """One span per run, in order, covering every character, since the block width is counted
+    from the string.
+    """
     for member in (_PROP, _MODEL, _SLOT, _SIGNAL):
         parts = _members(f"memberParts({member})")
         assert "".join(part["text"] for part in parts) == _members(f"memberLabel({member})")
 
 
 def test_a_type_is_a_type_and_a_name_is_a_name():
-    """The point of colouring them. A reader with the file pane open should not have to learn
-    two colour schemes for one contract."""
+    """Types and names are coloured as in the file pane."""
     assert _members(f"memberParts({_PROP})") == [
         {"text": "bool", "kind": "type"},
         {"text": " ", "kind": "punct"},
@@ -173,8 +159,7 @@ def test_a_type_is_a_type_and_a_name_is_a_name():
 
 
 def test_a_model_names_its_roles_and_a_call_names_its_types():
-    """A row's roles are what a consumer's delegate reads by name. A call's parameters are what
-    a reader wants the shape of, and their names are for whoever writes the body."""
+    """A model lists its role names; a call lists its parameter types."""
     assert _members(f"memberLabel({_MODEL})") == "rows(id, title)"
     assert _members(f"memberLabel({_SIGNAL})") == "denied(string[120])"
     assert _members(f"memberLabel({_SLOT})") == "allows(string[64]): bool"
@@ -194,20 +179,14 @@ def _badge(expression):
 
 
 def test_the_mark_on_a_contract_sits_on_the_far_side_of_it_from_its_entity():
-    """A badge is pinned to its owner's rim, wherever on the ring the point was drawn, so a
-    fixed corner is the wrong corner half the time.
-
-    Pinned to the top right, a point drawn off the left of an entity put its mark in the gap
-    between the badge and the disc. The busiest few pixels on the canvas, and the one place a
-    reader is already looking at something else. Pushed along the line from the entity to the
-    badge it is over open space whichever side the point is on.
+    """The contract mark sits on the far side of the badge from its entity, along the line
+    between them, whatever rim slot the point uses.
     """
     for away in ({"x": 1, "y": 0}, {"x": -1, "y": 0}, {"x": 0, "y": -1}, {"x": -3, "y": 4}):
         mark = _badge(f"badgeAlertAt({json.dumps(away)})")
         span = math.hypot(away["x"], away["y"])
         reach = math.hypot(mark["x"], mark["y"])
-        # Along that direction and not against it. The mark is further from the entity than
-        # the badge it is on, which is the whole of what "away" means here.
+        # Along the direction, away from the entity.
         assert (mark["x"] * away["x"]) + (mark["y"] * away["y"]) > 0
         assert abs(mark["x"] - ((away["x"] / span) * reach)) < 1e-9
         assert abs(mark["y"] - ((away["y"] / span) * reach)) < 1e-9
@@ -224,12 +203,8 @@ def _break(expression):
 
 
 def test_a_broken_line_is_cut_on_the_curve_and_not_across_it():
-    """A line that does not arrive is drawn solid to the break and dashed after it, so the
-    break has to be a point the curve passes through.
-
-    Cut on the chord between the two ends instead, the halves meet somewhere beside the line
-    and the cross sits off it, which on a bowed link is the whole width of the bow. De
-    Casteljau is what makes each half a quadratic of the same shape the whole line was.
+    """A broken line is cut at a point on the curve (De Casteljau), so each half keeps the
+    curve's shape.
     """
     edge = {"x1": 0, "y1": 0, "cx": 100, "cy": 200, "x2": 200, "y2": 0}
     at = 0.75
@@ -246,15 +221,12 @@ def test_a_broken_line_is_cut_on_the_curve_and_not_across_it():
     # And the two halves join there, which is what stops a gap opening at the cross.
     assert halves["before"].endswith(f"{on['x']},{on['y']}")
     assert halves["after"].startswith(f"M {on['x']},{on['y']}")
-    # Three quarters of the way, so the break sits at the end the link fails to reach rather
-    # than in the middle, where every other mark on a line already is.
+    # Three quarters of the way, near the end the link fails to reach.
     assert _break("BREAK_AT") == 0.75
 
 
 def test_a_link_into_a_front_is_broken_until_a_scope_names_its_owner():
-    """A front stops answering its own connect point, so a line arriving at it that no scope
-    routes to carries nobody. That is what the cross on the line says, and it has to go the
-    moment the scope is wired."""
+    """A line into a front shows the break until a scope routes to its owner."""
     front = {"tiers": {"admin": "worker"}}
     assert _break(f"isBroken({json.dumps(front)}, 'worker')") is False
     assert _break(f"isBroken({json.dumps(front)}, 'store')") is True
@@ -285,13 +257,8 @@ def _refusal(from_entity, to_entity):
 
 
 def test_a_line_to_or_from_a_monitor_is_refused_before_it_is_made():
-    """A monitor's links are configuration, not drawing.
-
-    Every service reports to it because `monitoring.entity` names it, and its console
-    reaches it because that client is marked `console: true`. Neither is a line anybody
-    draws, so a gesture that would make one is refused where it is made rather than drawn
-    and then reported. The canvas already leaves a monitor unwired by design, and a line
-    somebody could draw to it would contradict that in the same picture.
+    """A line to or from a monitor is refused as it is drawn. Its links come from
+    `monitoring.entity` and `console: true`.
     """
     ops = {"name": "ops", "type": "monitor"}
     web = {"name": "web", "type": "web_edge"}
@@ -302,6 +269,35 @@ def test_a_line_to_or_from_a_monitor_is_refused_before_it_is_made():
     assert "monitor" in _refusal(ops, web)
     # And the message names the monitor rather than whichever end was dragged first.
     assert "'ops'" in _refusal(ops, web)
-    # Every other pair is untouched: this refuses one entity type, not drawing in general.
+    # Every other pair is untouched. This refuses one entity type, not drawing in general.
     assert _refusal(web, db) == ""
     assert _refusal(db, web) == ""
+
+
+def _offered(entities, kept):
+    """`endsToOffer` as the browser runs it: the names a panel may put in a list."""
+    return _node(f"""
+        import {{ endsToOffer }} from {_module('canvas.js')};
+        process.stdout.write(JSON.stringify(
+            endsToOffer({json.dumps(entities)}, {json.dumps(kept)})));
+    """)
+
+
+def test_a_monitor_already_at_one_end_of_a_point_is_still_offered_there():
+    """A monitor already at one end of a point is still offered there, so the control never
+    rewrites the project on an unrelated click. A monitor may own a point; a consumer the
+    findings report can be removed deliberately.
+    """
+    ops = {"name": "ops", "type": "monitor"}
+    web = {"name": "web", "type": "web_edge"}
+    console = {"name": "ops-console", "type": "client"}
+    entities = [ops, web, console]
+
+    # Nobody there yet. A monitor is not offered as either end of a new line.
+    assert _offered(entities, []) == ["web", "ops-console"]
+    # Already the owner. Kept, so the project opens saying what it says.
+    assert _offered(entities, "ops") == ["ops", "web", "ops-console"]
+    # Already a consumer (reported as an error), kept so it can be removed deliberately.
+    assert _offered(entities, ["ops"]) == ["ops", "web", "ops-console"]
+    # An entity that is not there is not conjured by asking for it.
+    assert _offered(entities, "nobody") == ["web", "ops-console"]
