@@ -1,15 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// What the framework's choke points record. The pipeline tests next door prove
-// that an event handed to the tracer comes out the other end. These prove that the events
-// are handed over at all, from a real web edge and a real session store rather than from a
-// call written for the occasion.
+// What the framework's choke points record. The pipeline tests next door prove that an
+// event handed to the tracer comes out the other end; these prove that the events are
+// handed over at all, from a real web edge and a real session store.
 //
-// Both halves at every gate. A gate watched only through its refusals looks
-// perfectly healthy while it is refusing everybody, which is how `identity.required`
-// refused every visitor of every SynQt application for months without one test going red
-// (tests/m5-webedge). The accepted case is what says the gate still opens.
+// Both halves at every gate. A gate watched only through its refusals looks healthy while
+// it refuses everybody; the accepted case is what shows the gate still opens.
 
 #include "actingfor.h"
 #include "caller.h"
@@ -266,7 +263,7 @@ private slots:
         QCOMPARE(connectedSpy.count(), 0);  // refused before a socket exists
 
         // And the credential is not in it. A monitor holding a session cookie is a place
-        // that session can be read out of. Docs/security.md promises it never gets there.
+        // that session can be read out of, and docs/security.md promises it never gets there.
         for (const TraceEvent &recordedEvent : recorded.events()) {
             const QString rendered{QString::fromUtf8(
                 QJsonDocument::fromVariant(recordedEvent.toVariant()).toJson())};
@@ -380,14 +377,12 @@ private slots:
                                QStringLiteral("moderator")}, true);
         hall.synqtSetCaller(caller);
 
-        // 1. An open slot, answered. Nothing implements it in QML here, which is exactly
-        //    an owner who did not implement it. The call still crossed, and still counts.
+        // 1. An open slot, answered. Nothing implements it in QML here, which is an owner
+        //    that did not implement it. The call still crossed, and still counts.
         //
-        //    The name is checked for below by searching the whole rendered record, which
-        //    carries a random trace id and a random span id, so it has to be a string no
-        //    hex id can contain: 'g' and 'r' are not hex digits, and "ada" (which was
-        //    here) is three that are. It turned up inside a span id about once in thirty
-        //    runs and failed the suite on macOS.
+        // The name is searched for in the whole rendered record, which carries a random
+        // trace id and a random span id, so it must be a string no hex id can contain: 'g'
+        // and 'r' are not hex digits.
         hall.enter(QStringLiteral("grace"));
 
         // 2. The same caller at the same scope, refused by the gate.
@@ -560,20 +555,64 @@ private slots:
         QCOMPARE(said.size(), 1);
         QCOMPARE(said.first().traceId, calls.first().traceId);
         QCOMPARE(said.first().spanId, calls.first().spanId);
-        // A record, not a span. It has no duration and closes nothing.
+        // A record has no duration and closes nothing.
         QCOMPARE(said.first().durationUs, static_cast<qint64>(-1));
         QVERIFY(said.first().parentSpanId.isEmpty());
+    }
+
+    /// A shared entity's two spans nest, rather than reading as the same call twice.
+    ///
+    /// A shared Source answers everybody, and the per-caller mirror in front of it hands
+    /// the call over. Both run the generated body, so one call over the link is two spans.
+    /// That is accurate, but only if the second is inside the first. Parented off what
+    /// arrived on the wire they are siblings with the same name and the same arguments,
+    /// which in the console is one call rendered as two, and an operator counting calls on
+    /// a busy edge counts double.
+    ///
+    /// The rule that decides it: the span a call belongs to is the work enclosing it on
+    /// this thread when there is any, and what the wire said only when there is not. A call
+    /// arriving over a link encloses nothing (every bounded wait detaches, and a slot must
+    /// not spin a loop at all), so such a call reads the wire.
+    void aSharedEntityHandsTheCallOnInsideItsOwnSpan()
+    {
+        Recorded recorded;
+        QObject owner;
+        Ledger mirror;
+        Ledger shared;
+        Caller *mirrorCaller{Caller::forEntity(QStringLiteral("Ledger"),
+                                               QStringLiteral("web"), true, &mirror, &owner)};
+        Caller *sharedCaller{Caller::forEntity(QStringLiteral("Ledger"),
+                                               QStringLiteral("web"), true, &shared, &owner)};
+        mirror.synqtSetCaller(mirrorCaller);
+        shared.synqtSetCaller(sharedCaller);
+        mirror.synqtMirror(&shared);
+
+        const TraceContext click{
+            Tracer::instance()->startSpan(TraceContext{}, QStringLiteral("add"))};
+        QVariantMap session;
+        session.insert(QStringLiteral("key"), QStringLiteral("k"));
+        click.writeTo(session);
+        mirror.post(session, QStringLiteral("bread"));
+
+        const QList<TraceEvent> calls{recorded.withMessage(QStringLiteral("post"))};
+        QCOMPARE(calls.size(), 2);
+        // The inner span closes first, so the shared Source's is the one recorded first.
+        const TraceEvent &inner{calls.first()};
+        const TraceEvent &outer{calls.last()};
+        QCOMPARE(inner.traceId, click.traceId);
+        QCOMPARE(outer.traceId, click.traceId);
+        QCOMPARE(outer.parentSpanId, click.spanId);
+        QCOMPARE(inner.parentSpanId, outer.spanId);
     }
 
     /// Turning ordinary calls down must not take the refusals' story with them.
     ///
     /// `monitoring.levels.call: warning` is the documented way to keep what went wrong and
-    /// drop the chatter, and it is what a busy system runs. The span at the head of a chain
-    /// was opened only when the call was going to be recorded, so under that setting the
-    /// edge opened none, the click named no trace, and every entity downstream started one
-    /// of its own. The refusal an operator turned the level down to keep is then a record
-    /// with a trace identifier that leads to exactly itself. `follow` answers one row, and
-    /// what caused it is not in the history at all.
+    /// drop the chatter, and a busy system runs it. If the span at the head of a chain were
+    /// opened only for a call that is recorded, the edge would open none under that
+    /// setting, the click would name no trace, and every entity downstream would start its
+    /// own: the refusal the operator kept would carry a trace identifier that leads only to
+    /// itself.
     ///
     /// Two hops, both turned down, and the second one refuses.
     void aRefusedCallIsInTheClicksTraceWhenOrdinaryCallsAreNotKept()
@@ -597,7 +636,7 @@ private slots:
         QVERIFY(recorded.withMessage(QStringLiteral("enter")).isEmpty());
 
         // It still has to name the story, because the next hop can only continue one that
-        // exists. This is the whole defect. Nothing was minted here.
+        // exists, so a span is minted here even though the call is not recorded.
         const QVariantMap onward{hall.outbound};
         QVERIFY2(TraceContext::isTraceId(onward.value(QStringLiteral("traceId")).toString()),
                  "the click named no trace, so nothing downstream can be found by it");
@@ -664,15 +703,15 @@ private slots:
 
     /// The gate has a budget, because the answer behind it is expensive to give.
     ///
-    /// A sign-in derives PBKDF2 at the operator store's round count, which is
-    /// hundreds of milliseconds by design, on the edge's own event loop, and the route is open to
-    /// anybody who can reach the port. So an unauthenticated POST was both a password guess
-    /// and the cheapest way there is to stop the edge answering anybody else: a handful a
-    /// second is enough to keep the loop busy, and nothing counted them.
+    /// A sign-in derives PBKDF2 at the operator store's round count, hundreds of
+    /// milliseconds by design, on the edge's own event loop, and the route is open to
+    /// anybody who can reach the port. Unbudgeted, an unauthenticated POST is both a
+    /// password guess and the cheapest way to stop the edge answering anybody else: a
+    /// handful a second keeps the loop busy.
     ///
-    /// The refusal is not the gate's own "no". It is decided before the
-    /// credential is read, so it says nothing about it, and it carries Retry-After so a
-    /// legitimate client can wait rather than read it as "this password is wrong".
+    /// The refusal is not the gate's own "no". It is decided before the credential is read,
+    /// so it says nothing about it, and it carries Retry-After so a legitimate client can
+    /// wait rather than read it as a wrong password.
     void aFloodOfSignInAttemptsIsRefusedBeforeThePasswordIsChecked()
     {
         QQmlEngine engine;
@@ -714,7 +753,7 @@ private slots:
         QCOMPARE(lastStatus, 429);
         QVERIFY2(!retryAfter.isEmpty(), "a refusal a client should wait out has to say so");
 
-        // The decisive half. The derivation stopped being reached. Forty attempts, and the
+        // The decisive half: the derivation stopped being reached. Forty attempts, and the
         // gate itself was consulted for only the handful the budget allows.
         QVERIFY2(checked < 40,
                  qPrintable(QStringLiteral("the password was checked %1 times for 40 "
@@ -771,8 +810,10 @@ private slots:
         // which is what makes the delivery gate work. `setScope` rotates the credential,
         // so a fresh cookie comes back.
         QSignalSpy accepted{&edge, &WebEdge::signInAccepted};
+        const QByteArray rightPassword{
+            QByteArrayLiteral("name=ada&password=correct%20horse%20battery")};
         QNetworkReply *yes{postForm(manager, edge.httpOrigin() + config.signInPath, cookie,
-                                    QByteArrayLiteral("name=ada&password=correct%20horse%20battery"))};
+                                    rightPassword)};
         QVERIFY(yes != nullptr);
         QCOMPARE(yes->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
         const QByteArray raised{sessionCookie(yes)};

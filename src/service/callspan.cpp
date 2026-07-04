@@ -19,12 +19,9 @@ qint64 nowUs()
         .count();
 }
 
-/// Who is calling, in the only terms a monitor is allowed to state it in.
-///
-/// Never an identity and never a session credential. The two identity systems say a user
-/// caller is a person the edge authenticated and an entity caller is a certificate, and
-/// what is useful in a record is which of the two it was. A `sub` or a session id would
-/// turn the operations record into a second copy of the identity store.
+/// Who is calling, in the only terms a monitor may record: user or entity. Never an
+/// identity or a session credential; a `sub` or session id would make the operations record
+/// a copy of the identity store.
 QString callerKind(QObject *caller)
 {
     const Caller *typed{qobject_cast<Caller *>(caller)};
@@ -50,41 +47,43 @@ CallSpan::CallSpan(const char *contract, const char *member, QObject *caller,
     , m_caller{caller}
     , m_argumentCount{argumentCount}
 {
-    // Warning and not Info, because a refusal must still be recorded when an operator has
-    // turned ordinary call tracing down. The destructor asks again for the severity this
-    // call ended up at.
+    // Warning, not Info, so a refusal is recorded even when call tracing is turned down.
+    // The destructor asks again for the severity the call ended at.
     Tracer *tracer{Tracer::instance()};
     if (!tracer->isEnabled(Category::Call, Severity::Warning)) {
         return;
     }
     m_active = true;
     m_startedUs = nowUs();
-    // The span a mesh caller says this call continues, read after the generated body has
-    // taken the session it arrived with; otherwise whatever the thread is doing, which is
-    // nothing for a call arriving over a link and the enclosing span for a call made in
-    // process.
-    if (const Caller *typed{qobject_cast<Caller *>(caller)}) {
-        m_parent = typed->traceContext();
-    }
+    // The parent is the work already running on this thread if there is any, and otherwise
+    // what arrived with the call.
+    //
+    // In that order. A call arriving over a link normally finds the thread empty (every
+    // bounded wait detaches, and slots must not spin a loop), so the wire decides. When the
+    // thread is not empty, the call is inside other work: a shared Source answering through
+    // its per-caller mirror, or a Source reached in process. The Caller there still holds
+    // the outer call's trace, so asking it first would make the inner call a sibling
+    // instead of a child.
+    //
+    // Read after the generated body has taken the session, so the caller holds this call's
+    // trace.
+    m_parent = TraceScope::current();
     if (!m_parent.isValid()) {
-        m_parent = TraceScope::current();
+        if (const Caller *typed{qobject_cast<Caller *>(caller)}) {
+            m_parent = typed->traceContext();
+        }
     }
-    // Opened here, for every call that is being timed at all, and not left to the
-    // destructor for the ones that turn out not to be worth recording.
+    // Opened here for every timed call, not left to the destructor for the ones that end up
+    // recorded.
     //
-    // The span is what the rest of the click hangs from: an outbound call carries it, a
-    // record written meanwhile joins it, and a refusal two entities further on names it as
-    // its parent. All of that has to be true while the call is still running, which is
-    // before anyone can know how it ends. Deciding it at the end works for a call in the
-    // middle of a chain, whose parent arrived with it, and fails at the head, which is
-    // where every chain starts: under `monitoring.levels.call: warning`, the documented
-    // way to keep the refusals and drop the chatter, the edge recorded nothing, so it
-    // opened nothing, so the click named no trace, so the refusal an operator turned the
-    // level down to keep was a record whose cause is not in the history.
+    // The span is what the rest of the click hangs from: outbound calls carry it, records
+    // join it, and a refusal further down names it as parent. That must be true while the
+    // call is still running. Deciding at the end fails at the head of a chain: under
+    // `monitoring.levels.call: warning` the edge would open nothing, and a later refusal
+    // would name no trace.
     //
-    // What it costs is two random identifiers on a path the category switch has already
-    // let through, and nothing at all when the category is off: that is the switch this
-    // constructor returns on above, and it is the one that carries the cost argument.
+    // The cost is two random identifiers once the category switch has let the call through,
+    // and nothing when the category is off (the early return above).
     m_span = tracer->startSpan(m_parent, QString::fromLatin1(m_member));
     m_span.startedUs = m_startedUs;
     m_scope.emplace(m_span);
