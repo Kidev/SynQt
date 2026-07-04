@@ -957,6 +957,13 @@
       "defended_by": "A span is opened for every call the category lets through at all, not only for the ones that will be recorded, because everything that hangs off it happens while the call is still running: the outbound call carries it, a record written meanwhile joins it, and a refusal further down names it as its parent. A category set to `off` remains the switch that costs nothing and records nothing.",
       "file": "tests/monitor/tst_instrumentation.cpp",
       "test": "aRefusedCallIsInTheClicksTraceWhenOrdinaryCallsAreNotKept"
+    },
+    {
+      "id": "a-trace-that-borrowed-another-persons-requests",
+      "what": "The trace a piece of work belongs to is the thread's, which is right while a thread runs one caller's call at a time. A nested event loop breaks that: a bounded wait keeps serving, so the calls delivered inside it are other people's, arriving on a thread that still has the waiting caller's span installed. Every one of them would be recorded as a child of that span, and an operator following a trace to ask who did something would be shown one story made of several people's requests, with nothing in the record saying so. The identity routes wait this way on an open route, so ordinary login traffic would be enough. Hardening: no slot in the framework spins a loop (the auth slot takes the asynchronous exchange for this reason), so the waits that exist are reached from a route handler or a timer and had no span to lend.",
+      "defended_by": "Every bounded wait in the runtime detaches the thread's trace for the length of its loop and restores it after, so a call served inside one starts its own story. The invariant that a slot must not spin a loop at all is stated on SynQt::CallSpan, and the test below reads the runtime for a loop that spins without detaching first, so a wait added later is refused rather than discovered in a record somebody reads days afterwards.",
+      "file": "tools/synqt/tests/test_nested_loops_detach.py",
+      "test": "test_every_nested_loop_in_the_runtime_detaches_the_trace_first"
     }
   ]
 }

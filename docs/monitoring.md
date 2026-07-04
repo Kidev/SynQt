@@ -3,15 +3,15 @@
 
 # Monitoring
 
-A SynQt system is several processes on several machines, connected by links a browser
-cannot see. When something goes wrong in one of them, the question is almost never "what
-does this log file say" but "what did that click do". Monitoring answers that question.
-One click becomes one trace, and the trace runs through every entity it touched.
+A SynQt system is several processes on several machines, joined by links a browser cannot
+see. When something goes wrong, you usually want to know what a click did, not what one
+log file says. Monitoring answers that: one click becomes one trace, running through every
+entity it touched.
 
-It is off until you add a monitor. Nothing is recorded, nothing is stored, and the check
-each instrumented call site pays is a single atomic read measured at 0.23 ns
-([the baseline](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md)). You do
-not rebuild to turn it on, and you do not rebuild to turn it up.
+Monitoring is off until you add a monitor. Until then nothing is recorded or stored, and
+each instrumented call site costs one atomic read, measured at 0.23 ns
+([the baseline](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md)). Turning it
+on or raising its level needs no rebuild.
 
 ## Adding one
 
@@ -19,53 +19,51 @@ not rebuild to turn it on, and you do not rebuild to turn it up.
 synqt add entity ops --type monitor
 ```
 
-That writes four things, and it writes all four because any three of them leave something
-that does not work or is not safe:
+This writes four things, because any three without the fourth leave something broken or
+unsafe:
 
-* the monitor entity, which keeps the history and serves the console on its own port,
-* a console client, marked `console: true`, delivered only to an operator,
-* the sign-in gate, a static page an anonymous visitor gets instead of the console,
-* `monitoring.entity`, the one line that makes every service report.
+* **the monitor entity,** which keeps the history and serves the console on its own port;
+* **a console client,** marked `console: true`, delivered only to an operator;
+* **the sign-in gate,** a static page an anonymous visitor gets instead of the console;
+* **`monitoring.entity`,** the one line that makes every service report.
 
-You can also draw it. `synqt design` has a monitor on its palette. Dropping one and
-applying runs the same scaffolder, and the change set names all four files before anything
-is written. The copy of the designer [on this site](visual-editor.md) writes the same four,
-because the templates it needs are published to it from the scaffolder that owns them
-(`tools/gen-design-assets.py`, guarded by `tools/synqt/tests/test_monitoring.py`) rather
-than kept as a second copy that drifts. A monitor without its console is not a monitor, so
-neither copy can draw one and leave it to be finished by hand.
+You can also draw it: `synqt design` has a monitor on its palette. Dropping one and
+applying runs the same scaffolder, and the change set lists all four files before writing
+anything. The designer [on this site](visual-editor.md) writes the same four files: its
+templates are published from the scaffolder that owns them (`tools/gen-design-assets.py`,
+checked by `tools/synqt/tests/test_monitoring.py`), not kept as a second copy that could
+drift. Neither copy can draw a monitor without its console.
 
-What you cannot do, in the editor or in `synqt.yaml`, is make a monitor consume a connect
-point. Entities report to a monitor and it reaches none of them, so such a link is one
-nothing would ever open, and what it asks for is the opposite of what the record is for,
-which is application data in the store that keeps the shape of what happened rather than
-the substance of it.
+Neither the editor nor `synqt.yaml` lets a monitor consume a connect point. Entities report
+to a monitor and it reaches none of them, so nothing would ever open such a link. It would
+also put application data into a store meant to record what happened, not the data
+itself.
 
-`monitoring.entity` is one line, which is what makes it worth checking. A `type: monitor`
-entity nothing names still builds, starts and serves its console with an empty history, so
-`synqt check` warns about one, and about a second monitor beside a wired one.
+`monitoring.entity` is one line, so it is easy to forget. A `type: monitor` entity
+that nothing names still builds, starts and serves a console with an empty history, so
+`synqt check` warns about it, and about a second monitor beside a wired one.
 
-Then give yourself a way in:
+Then create your login:
 
 ```cli
 synqt monitor operator add alice
 ```
 
-It prints an entry for the monitor's `.env`. Credentials live in the entity's environment,
-never in `synqt.yaml`, for the same reason every other credential in SynQt does.
+It prints an entry for the monitor's `.env`. Like every credential in SynQt, it lives in
+the entity's environment, never in `synqt.yaml`.
 
-With no operator configured the console refuses everybody, and it says so at startup, so
-an empty console is not mistaken for a broken deployment.
+With no operator configured, the console refuses everybody and says so at startup, so an
+empty console is not mistaken for a broken deployment.
 
 ## What is recorded
 
-Every event is a record rather than a sentence. It carries when, which entity, how much it
-matters, what it is about, the trace it belongs to, how long it took if it ended a span,
-and a map of attributes. The message is the human half and carries no fact that is not also
-an attribute, so filtering and searching are not a substring hunt.
+Every event is a record, not a sentence. It carries the time, the entity, the severity,
+the category, its trace, its duration if it ended a span, and a map of attributes. The
+message is for people and carries no fact that is not also an attribute, so filtering and
+searching never mean hunting for substrings.
 
-Six categories, and the vocabulary is closed so that a filter list does not depend on what
-happened to be logged today:
+There are six categories, a fixed set, so a filter list does not depend on what happened to
+be logged today:
 
 | Category | What lands in it |
 | --- | --- |
@@ -76,94 +74,94 @@ happened to be logged today:
 | `data` | a model publish, a property push, a provider query |
 | `application` | whatever an entity's QML says through [`Log`](entities.md#log-in-every-entity-whatever-its-type) |
 
-Six severities, `trace` through `fatal`, on the OpenTelemetry ladder.
+There are six severities, `trace` to `fatal`, following OpenTelemetry.
 
 ## How one click becomes one trace
 
-A trace is one story, and a span is one piece of work in it. The piece of work SynQt opens
-a span for is a slot call crossing a link, so a click that reaches the edge, has the edge
-call a service, and has that service call another, is one trace with a span per hop, each
-the child of the one before it.
+A trace is one story, and a span is one piece of work in it. SynQt opens a span for each
+slot call that crosses a link. A click that reaches the edge, which calls a service, which
+calls another, is one trace with a span per hop, each the child of the one before.
 
-What makes it one story is that the identifiers travel. They travel with the session,
-because the session is already the thing that goes down the chain and a second channel for
-it would be a second thing to forget, and they are not part of it: nothing authorizes
-anything by a trace identifier. Concretely:
+The identifiers travel with the session, which already goes down the chain, so there is no
+second channel to forget; but they are not part of the session, and nothing is authorized
+by a trace identifier. In detail:
 
-* **The browser's call is where a trace starts.** A visitor cannot name one. The edge opens
-  the first span itself, and a `traceparent` a client puts in a request is not read, for
-  the same reason a session it claims is not: a value a visitor controls could stitch their
-  call into somebody else's story.
-* **An outbound call carries the span the work is in**, not the one that reached it, so the
-  service's work is a child of the edge's rather than a sibling.
-* **Everything the entity says while answering joins the span.** `Log.info` in a slot, a
-  provider's query, a refusal by a scope gate: a record written inside a call belongs to
-  the call, so following a trace shows what happened and not only who called whom.
-* **A continuation is still the click.** `Store.recent().then(rows => Cache.put(rows))`
-  runs turns later, when the slot is long finished, and the second call carries the first
-  one's trace. The session does not follow it: by then the entity is acting on its own
-  behalf, which is an authorization question and a separate one.
-* **What arrives is read only in the shape SynQt mints**, 32 and 16 lower-case hex
-  characters, on the mesh where the peer is certificate-authenticated and again where a
-  record reaches the monitor. Anything else is dropped and the call starts a trace of its
-  own. An identifier is repeated by every entity downstream and written into the history,
-  so what a peer can put there is bounded by shape rather than by trust.
+* **A trace starts at the browser's call.** A visitor cannot choose a trace. The edge opens
+  the first span itself and ignores any `traceparent` in the request, as it ignores a
+  session the client claims, because a value the visitor controls could splice their call
+  into someone else's story.
+* **An outbound call carries the span of the current work,** not the span that reached it,
+  so the service's work is a child of the edge's, not a sibling.
+* **Everything the entity logs while answering joins the span.** `Log.info` in a slot, a
+  provider's query, a refusal by a scope gate inside a call all belong to the call, so a
+  trace shows what happened, not only who called whom.
+* **A wait does not lend its trace to what it serves.** The identity routes wait for an
+  answer in a bounded nested event loop that keeps serving requests, so calls arriving
+  during the wait belong to other people. Each wait detaches for its duration, and those
+  calls start their own traces. A slot never waits this way.
+* **A continuation still belongs to the click.** In
+  `Store.recent().then(rows => Cache.put(rows))`, the second call runs later, after the
+  slot has finished, and carries the first call's trace. The session does not follow it:
+  by then the entity acts on its own behalf, which is a separate authorization question.
+* **Incoming identifiers are accepted only in the shape SynQt creates:** 32 and 16 lower
+  case hex characters, checked on the mesh, where the peer is authenticated by
+  certificate, and again when a record reaches the monitor. Anything else is dropped, and
+  the call starts its own trace. Every downstream entity repeats an identifier and the
+  history stores it, so its shape, not trust, bounds what a peer can put there.
 
-A service reached by two clicks answers both on one link and one Caller; each call
+A service reached by two clicks answers both on one link with one Caller. Each call
 continues the trace it arrived with, so the second is never filed under the first.
 
-Turning `call` down does not turn this off. A span is opened for every call the category
-lets through at all, including the ordinary ones that `monitoring.levels.call: warning`
-then declines to record, because what hangs off that span happens while the call is still
-running: the outbound call carries it, and the refusal two entities further on names it as
-its parent. Deciding at the end of a call whether it was worth a span would leave the head
-of every chain without one, which is where a chain starts, and the refusals an operator
-turned the level down to keep would be records with no story behind them. A category set
-to `off` is the switch that costs nothing, and it is the one that records nothing.
+Lowering `call` does not turn tracing off. A span opens for every call the category lets
+through at all, including ordinary calls that `monitoring.levels.call: warning` then
+declines to record, because what hangs off that span happens while the call runs: the
+outbound call carries it, and a refusal two entities later names it as parent. Deciding
+at the end of a call whether it deserved a span would leave every chain without its first
+span, and the refusals an operator kept by lowering the level would have no story behind
+them. Setting a category to `off` costs nothing and records nothing.
 
 ## What is not recorded, and why
 
-**No credential, ever.** A session is named in the record by a handle, half of its
-SHA-256, never by the value a browser sends. An upgrade is recorded as a decision and a
-reason, never as the request that carried it. A provider password, an OAuth token and an
-`Authorization` header never reach the pipeline at all.
+**No credential, ever.** The record names a session by a handle (half of its SHA-256),
+never by the value a browser sends. It records an upgrade as a decision and a reason,
+never the request itself. A provider password, an OAuth token and an `Authorization`
+header never reach the pipeline.
 
-That is a property of the call sites, and under it the pipeline has a backstop for the one
-place an application decides what a record carries. Every event passes through the same
-function on its way to the ring, and an attribute whose name names a credential
-(`password`, `passphrase`, `secret`, `token`, `authorization`, `cookie`, `credential`,
-`bearer`, and `api key` or `private key` in any of their spellings, matched anywhere in
-the name and in any case) is recorded as
-`[redacted]`, with the name kept so the record says a value was held back rather than
-reading as though there was none. So `Log.warn("refused", { authorization: header })` does
-not put a bearer token in this console. It reads names and never values, because a filter
-that guesses at what a value looks like misses and then reads as a guarantee, and it never
-touches the message, which is prose you wrote and search on. Keep credentials out of what
-you pass it, the same as any log. This catches the ones that get through.
+The call sites guarantee this, and the pipeline adds a backstop for the one place an
+application decides what a record carries. Every event passes through one function on its
+way to the ring buffer, which records as `[redacted]` any attribute whose name names a
+credential (`password`, `passphrase`, `secret`, `token`, `authorization`, `cookie`,
+`credential`, `bearer`, and `api key` or `private key` in any spelling, matched anywhere
+in the name, in any case). It keeps the name, so the record shows a value was withheld. So
+`Log.warn("refused", { authorization: header })` does not put a bearer token in the
+console. It reads names, never values, because a filter that guesses what a secret looks
+like will miss and still look like a guarantee; and it never touches the message, which is
+prose you wrote and search on. Keep credentials out of what you pass it, as with any log;
+the backstop catches what slips through.
 
-**No call arguments, unless a member asks.** A recorded call carries the shape of the call:
-which member, whether a person or an entity called it, how many arguments there were, how
-long it took, and which check refused it. It does not carry what the arguments were,
-because those are what somebody typed. A member whose values are worth keeping says so with
+**No call arguments unless the member asks.** A recorded call carries its shape: which
+member, whether a person or an entity called, how many arguments, how long it took, and
+which check refused it. It does not carry the arguments, because they are what somebody
+typed. To keep a member's values, mark it with
 [`capture`](programming-model.md#recording-a-calls-values-capture).
 
 **No identity fields in a capture.** `synqt check` refuses `capture` on a member whose
-arguments carry `sub`, `email` or `login`, directly or through a `record`, because that
-turns the operations record into a second copy of the identity store, kept longer than a
-session, read by people it is not about, and exported wherever an operator points their
-collector. Say `monitoring: {capture_identity: acknowledged}` if that is what you want.
+arguments carry `sub`, `email` or `login`, directly or inside a `record`. That would make
+the operations record a second copy of the identity store: kept longer than a session,
+read by people it is not about, and exported wherever an operator sends it. Write
+`monitoring: {capture_identity: acknowledged}` if you want it anyway.
 
-**Nothing a browser claimed.** A client never reports events. It cannot reach the mesh, and
+**Nothing a browser claims.** A client never reports events. It cannot reach the mesh, and
 a browser reporting as an entity would put a value a visitor controls where an
-authenticated entity name belongs, which is the one conflation SynQt's
-[two identity systems](security.md) exist to prevent. What a visitor does reaches the
-record through the edge that served them, where it is a fact the edge observed.
+authenticated entity name belongs, the exact confusion SynQt's
+[two identity systems](security.md) prevent. A visitor's actions reach the record through
+the edge that served them, as facts the edge observed.
 
 ## Turning it up
 
 `monitoring.levels` sets the lowest severity each category records. It is read at startup
-from the resolved topology, so turning `call` up during an incident is a configuration
-change and a restart rather than a rebuild:
+from the resolved topology, so raising `call` during an incident takes a configuration
+change and a restart, not a rebuild:
 
 ```yaml
 monitoring:
@@ -173,24 +171,25 @@ monitoring:
     data: off
 ```
 
-A category set to `off` records nothing at any severity. A category nobody names keeps its
-default. `synqt check` refuses a category or a level this build does not know, because a
-misspelling fails as an empty console, which reads as though there is nothing to find.
+A category set to `off` records nothing at any severity. A category you do not name keeps
+its default. `synqt check` refuses a category or level this build does not know, because a
+misspelling would show up as an empty console, which looks like there is nothing to
+find.
 
 ## The three tiers
 
-**Hot, in RAM.** A bounded ring in every entity, drained by one writer thread that batches
-on size or elapsed time. It never blocks the caller and it never grows. Past the bound the
-oldest is dropped and counted, and the count is itself an event, so a gap is visible rather
-than silent.
+**Hot, in memory.** A bounded ring buffer in every entity, drained by one writer thread
+that batches by size or elapsed time. It never blocks the caller and never grows. Past the
+bound it drops the oldest event and counts it, and the count is itself an event, so a gap
+shows up.
 
-**Warm, on the monitor.** SQLite, with WAL, STRICT tables, one transaction per received
-batch, indexes on time and on (entity, category, time), and FTS5 for searching messages and
-attributes. This is what the console reads and what you have when nothing else is running.
-It needs no second process to deploy or to back up.
+**Warm, on the monitor.** SQLite with WAL, STRICT tables, one transaction per received batch,
+indexes on time and on (entity, category, time), and FTS5 for searching messages and
+attributes. The console reads it, and it is what you have when nothing else runs. It needs
+no second process to deploy or back up.
 
-Retention is not a cron job somebody has to remember. It is a call the monitor makes on a
-timer, bounded by both age and total bytes:
+Retention needs no cron job: the monitor prunes on a timer, bounded by both age and total
+bytes:
 
 ```yaml
   - name: ops
@@ -205,7 +204,7 @@ timer, bounded by both age and total bytes:
 ## Exporting to what you already run
 
 If your team already runs an OpenTelemetry collector, Grafana, Loki, Jaeger or a hosted
-backend, SynQt sends the same events there and you keep the dashboards you have:
+backend, SynQt sends the same events there, and you keep your dashboards:
 
 ```yaml
   - name: ops
@@ -219,19 +218,18 @@ backend, SynQt sends the same events there and you keep the dashboards you have:
         keep: 5
 ```
 
-`otlp` is OTLP over HTTP with JSON encoding, which every collector accepts and which needs
-no protobuf dependency and no second licence to think about. `endpoint` is the collector's
-base URL with no signal path on it. SynQt appends `/v1/logs` and `/v1/traces` itself. An
-entity becomes an OpenTelemetry resource with a `service.name`, so it arrives as a service
-without a mapping anybody had to write, and a call that closed a span arrives as a span
-with its parent link intact.
+`otlp` is OTLP over HTTP with JSON encoding, which every collector accepts, with no
+protobuf dependency and no extra license. `endpoint` is the collector's base URL without a
+signal path; SynQt appends `/v1/logs` and `/v1/traces`. Each entity becomes an OpenTelemetry
+resource with a `service.name`, so it arrives as a service with no mapping to write, and a
+call that closed a span arrives as a span with its parent link intact.
 
 `jsonl` writes one JSON object per line, which Promtail, Vector, Filebeat and Fluent Bit
-all tail with no parser to write. It is capped and rotated, because a monitor that fills
-the disk of the machine it is watching has become the outage.
+all tail without a custom parser. The file is capped and rotated, because a monitor that
+fills its own machine's disk becomes the outage.
 
-If the collector needs an API key, it goes in the monitor's environment and there is no
-configuration key to put it anywhere else:
+If the collector needs an API key, put it in the monitor's environment; no configuration
+key can hold it:
 
 ```
 SYNQT_MONITOR_OTLP_HEADERS=x-honeycomb-team: your-key-here
@@ -239,74 +237,69 @@ SYNQT_MONITOR_OTLP_HEADERS=x-honeycomb-team: your-key-here
 
 One `Key: value` per line.
 
-Two properties hold whatever is at the other end. Exporting happens after the history is
-written, so a collector that is down costs the monitor no record and no time. And nothing
-queues without a bound. Past `max_in_flight` requests a batch is dropped and counted,
-because an exporter buffering in front of a collector that stopped answering is how a
-monitoring tool takes the machine down with the thing it was watching.
+Two rules hold whatever the collector:
 
-`endpoint` is https, or http to this machine. A batch is the whole record of what the
-system did, meaning who called which member, which upgrades were refused and why, which peer
-connected. The request carrying it also carries the API key above. Sending that over
-plaintext http to another host puts the security record of the system, and the credential
-for the collector holding it, on the network in the clear, so the exporter refuses the
-endpoint outright and says so once at startup rather than every batch. A collector on
-localhost or in the same pod is the ordinary deployment and is not refused, because that
+- **Export happens after the history is written,** so a collector that is down costs the
+  monitor no record and no time.
+- **Nothing queues without a bound.** Past `max_in_flight` requests, a batch is dropped and
+  counted, because an exporter buffering for a collector that stopped answering is how a
+  monitoring tool takes down the machine it watches.
+
+`endpoint` must be https, or http to this machine. A batch holds the whole record of what
+the system did: who called which member, which upgrades were refused and why, which peers
+connected. The request also carries the API key above. Sending it over plaintext http to
+another host would put the system's security record, and the collector's credential, on
+the network in the clear, so the exporter refuses such an endpoint, once, at startup. A
+collector on localhost or in the same pod is the normal setup and is allowed, since that
 traffic never reaches a network. `synqt check` reports the same rule before anything runs,
 and `synqt build --release` refuses it.
 
 ## The console
 
-The console is a separate client, built separately, delivered separately, and it reads a
-contract whose every type is a string, a number or a bool. Nothing about it depends on the
-topology it is watching. Adding an entity or renaming a connect point does not rebuild it,
-because a new entity is another row on the ingest stream.
+The console is a separate client, built and delivered separately, reading a contract
+whose types are all strings, numbers or bools. Nothing in it depends on the topology it
+watches: adding an entity or renaming a connect point does not rebuild it, because a new
+entity is just another row on the ingest stream.
 
-It shows what every entity is doing right now, how many events arrived and how many were
+It shows what every entity is doing now, how many events arrived and how many were
 dropped, which entities are live and which have gone quiet, a filter by entity and
-severity, a search across messages and attributes, and one trace end to end.
+severity, a search across messages and attributes, and any trace end to end.
 
 ![The SynQt monitoring console: a counters strip, a tile per reporting entity, the filter
 row, and the event table](assets/monitoring-console.png)
 
-That is a real console rather than a drawing of one. Two entities are reporting: `ops`, the
-monitor watching itself, and `web`, the edge reporting to it over the mesh. The tiles carry
-each one's event count and liveness dot, the counters above them separate what arrived from
-what was stored and what was dropped, and the table below is the record, with a timestamp, the
-severity, which entity said it, the category, the message, how long the call took, and a
-link that opens the whole trace it belonged to. It is taken by `tests/monitor-console`, on
-a run that has just finished driving that console in a browser, so it is regenerated from a
-passing suite rather than pasted in once and left to age.
+This is a real console. Two entities report: `ops`, the monitor watching itself, and
+`web`, the edge, reporting over the mesh. Each tile shows an event count and a liveness
+dot. The counters above separate what arrived, what was stored and what was dropped. The
+table below is the record: timestamp, severity, entity, category, message, call duration,
+and a link that opens the whole trace. `tests/monitor-console` takes this screenshot right
+after driving the console in a browser, so it comes from a passing test run, not a stale
+paste.
 
-Liveness is reported from the link itself. An entity that stops heartbeating is shown as down,
-which is what makes a catastrophic failure of the main application show up as a red tile
-rather than as silence.
+Liveness comes from the link itself. An entity that stops sending heartbeats shows as
+down, so a crash of the main application appears as a red tile, not as silence.
 
-One question returns at most two thousand rows, whatever it asked for. The console sends a
-row count and the store decides what to honour, because every row is built in memory and
-serialized back over the link, so an unbounded count is a question that materializes the
-whole history at once. Two thousand is already far more than anyone reads down a screen.
-When it is not enough, narrow the question rather than widening the answer.
-Everything else on this path is bounded the same way: the ring, the
-batch, the spool and the retention sweep all have a ceiling, and the one at the end had
-none.
+One query returns at most two thousand rows, whatever it asks for. The console sends a row
+count and the store decides how many to return, because every row is built in memory and
+serialized over the link, so an unbounded count would load the whole history at once. Two
+thousand rows is more than anyone reads on a screen; if it is not enough, narrow the
+query. Everything else on this path is bounded too: the ring buffer, the batch, the spool
+and the retention sweep each have a ceiling.
 
-Severity and category cross the ingest link as numbers, and a number this build has no word
-for is read as `info` and `lifecycle` rather than kept as itself. That matters for what an
-operator can find. An event carrying an unknown category is written to the history and then
-matches no category filter and no severity floor, so it is in the record and cannot be found
-in it. An entity built against a later vocabulary reports as something readable instead.
+Severity and category cross the ingest link as numbers. A number this build does not know
+is read as `info` and `lifecycle`. Otherwise an event with an unknown category would be
+stored but would match no category filter and no severity floor, so nobody could find it.
+An entity built against a newer vocabulary reports something readable instead.
 
 ## Reaching it
 
-The monitor binds `127.0.0.1` by default and `synqt check` refuses any other host. Reaching
-the console should mean reaching the machine first, through a VPN, an SSH tunnel, or being
-on the host. The console shows every request the system has served and every refusal, behind one
-password and no second factor, so it is not a thing to expose because somebody copied an
-edge's `public:` block.
+The monitor binds `127.0.0.1` by default, and `synqt check` refuses any other host. To
+reach the console, reach the machine first: through a VPN, an SSH tunnel, or on the host.
+The console shows every request the system served and every refusal, behind one password
+and no second factor, so do not expose it by copying an edge's `public:` block.
 
-A deployment behind its own authenticating proxy is a real shape, and this framework does
-not get to decide it is wrong. What it does get to do is make it explicit:
+A deployment behind its own authenticating proxy is legitimate, and SynQt allows it, but
+only explicitly:
 
 ```yaml
 monitoring:
@@ -315,56 +308,55 @@ monitoring:
 ```
 
 Two gates apply either way. The bundle is delivered through
-[`bundles:`](project-layout-and-config.md), so an anonymous caller is handed the sign-in
-page and the console bundle is not addressable to them at all. It is a 404 rather than a 403.
-Signing in raises that same session to the `operator` scope, which is what makes the
-console fetchable and what gates its connect point.
+[`bundles:`](project-layout-and-config.md), so an anonymous caller gets the sign-in page and
+cannot address the console bundle at all: it is a 404, not a 403. Signing in raises the same
+session to the `operator` scope, which makes the console fetchable and unlocks its connect
+point.
 
-That map is the whole delivery gate, so `synqt check` reads it rather than trusting it. A
-`console: true` client mapped to any scope but `operator` is refused, on the monitor and on
-an application edge alike, and so is a monitor whose default scope resolves to a client at
-all. The second is what a monitor with no `bundles:` block falls back to, the project's
-first client, which the generated main bakes in as what that port serves. `operator` is not in your project's
-scope vocabulary, because an operator is not a user of your application and a scope that
-meant both would make one login reach the other's surface.
+That map is the whole delivery gate, so `synqt check` verifies it. It refuses a
+`console: true` client mapped to any scope other than `operator`, on the monitor or on an
+application edge, and a monitor whose default scope resolves to any client. The second is
+what a monitor without a `bundles:` block would fall back to: the project's first client,
+which the generated main serves on that port. `operator` is not part of your project's
+scope vocabulary: an operator is not a user of your application, and a shared scope would
+let one login reach the other's surface.
 
 ## The identity it uses
 
-The monitor has its own rather than the application's. Credentials are PBKDF2-SHA256
-over at least 600,000 iterations, read from `SYNQT_MONITOR_OPERATORS` in the monitor's
-environment. A credential derived with fewer iterations is refused at load rather than
-accepted with a warning, one malformed entry does not lock everyone else out, and an empty
-store refuses everybody rather than allowing all.
+The monitor has its own identity, separate from the application's. Credentials are
+PBKDF2-SHA256 with at least 600,000 iterations, read from `SYNQT_MONITOR_OPERATORS` in the
+monitor's environment. A credential with fewer iterations is refused at load, not accepted
+with a warning; one malformed entry does not lock everyone else out; and an empty store
+refuses everybody instead of allowing all.
 
-`synqt monitor operator add <name>` mints an entry. There is no `list` and no `remove`,
-because the list lives in the deployment's environment, and a CLI that edited that file would be a
-CLI editing a running deployment's secrets.
+`synqt monitor operator add <name>` creates an entry. There is no `list` or `remove`: the
+list lives in the deployment's environment, and a CLI that edited it would be editing a
+running deployment's secrets.
 
-The sign-in route is rationed per client address, ten attempts a minute, counted before the
-password is read. A monitor reached through a proxy names it in `public.trusted_proxies`
-like any other browser-facing entity, otherwise every operator arrives from the proxy and
-shares one budget, so ten wrong guesses from anywhere would answer `429` to all of them.
+The sign-in route allows ten attempts a minute per client address, counted before the
+password is read. Behind a proxy, name the proxy in `public.trusted_proxies`, as for any
+entity that faces browsers. Otherwise every operator arrives from the proxy and shares one
+budget, and ten wrong guesses from anywhere would lock everyone out with `429`.
 
 ## When the monitor is down
 
-Nothing stops. An entity whose monitor is unreachable keeps running with no degradation
-other than a spool file. It writes batches it could not hand over to a bounded file under
-its own build directory and replays them when the monitor returns. Past the cap the oldest are
-dropped, the newest kept, and the number dropped is published to the monitor when it comes
-back, so the gap is visible rather than silent.
+Nothing stops. An entity whose monitor is unreachable keeps running normally, apart from
+a spool file: it writes the batches it could not deliver to a bounded file in its own build
+directory, and replays them when the monitor returns. Past the cap, the oldest batches are
+dropped and the newest kept, and the monitor learns how many were dropped when it returns,
+so the gap shows.
 
-Unreachable covers both halves of an outage, a monitor that was never there when the
-entity started, and one that went away under a live link. The second is the ordinary
-one (a restart, a redeploy), and it is not the same event on the wire. The Replica the
-entity holds stays where it is and is marked suspect, and QtRemoteObjects drops a call
-on it rather than refusing it. The entity reads that state as "no monitor" and
-spools from the moment the link drops, so the record has no hole between the outage and
-the reconnect.
+Unreachable covers both kinds of outage: a monitor that was not there when the entity
+started, and one that disappears under a live link. The second is the common one (a
+restart, a redeploy), and it looks different on the wire: the entity's Replica stays in
+place, marked suspect, and QtRemoteObjects silently drops calls on it. The entity treats
+that state as "no monitor" and spools from the moment the link drops, so the record has no
+hole between the outage and the reconnect.
 
 ## Testing what an entity says
 
-`Log.info("bid accepted", { amount: amount })` is a fact about how an entity behaves, so it
-is testable like any other. The QML harness hands the events back. See
+`Log.info("bid accepted", { amount: amount })` describes how an entity behaves, so you can
+test it like any other behavior: the QML harness returns the events. See
 [asserting on what an entity said](testing.md#asserting-on-what-an-entity-said).
 
 ## Configuration reference

@@ -13,6 +13,8 @@
 #include <QAbstractOAuth>
 #include <QAbstractOAuth2>
 #include <QDateTime>
+#include "tracescope.h"
+
 #include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -528,6 +530,9 @@ OAuthBackend::ExchangeResult OAuthBackend::exchange(const QString &state, const 
         loop.quit();
     });
     if (!answered) {
+        // The loop serves other callers while it spins, and they are not this caller's
+        // story. See SynQt::TraceScope on detaching.
+        const SynQt::TraceScope untraced{SynQt::TraceContext{}};
         loop.exec();
     }
     return result;
@@ -724,7 +729,12 @@ bool OAuthBackend::refreshOne(const QString &key)
     boundReply(reply);
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
+    {
+        // The loop serves other callers while it spins, and they are not this caller's
+        // story. See SynQt::TraceScope on detaching.
+        const SynQt::TraceScope untraced{SynQt::TraceContext{}};
+        loop.exec();
+    }
     if (reply->error() != QNetworkReply::NoError) {
         reply->deleteLater();
         return false;

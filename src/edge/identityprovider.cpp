@@ -15,6 +15,8 @@
 #include "sessionmanager.h"
 
 #include <QDateTime>
+#include "tracescope.h"
+
 #include <QEventLoop>
 #include <QHostAddress>
 #include <QHttpHeaders>
@@ -32,9 +34,8 @@
 
 #include <utility>
 
-// Asking the running thread how much stack it has. There is no Qt API for it, and the
-// nesting bound below is only as good as this answer. Guarded so nothing but the platform
-// that needs each of these ever sees it.
+// Asks the running thread for its stack size, which Qt has no API for. The nesting bound
+// below depends on this answer. Each branch is guarded to its platform.
 #if defined(Q_OS_WIN)
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -69,13 +70,11 @@ QHttpServerResponse redirectTo(const QString &location,
 // The cookie name that binds a pending login to the browser that started it.
 const QByteArray kOauthStateCookie{QByteArrayLiteral("synqt_oauth_state")};
 
-// A base64url S256 digest is 43 characters, and nothing else is accepted: pinning the shape
-// here means a caller cannot register a challenge that no verifier can ever match (which
-// would be a claim code nobody can collect) or one short enough to guess.
+// A base64url S256 digest is exactly 43 characters. Anything else is refused, so no
+// challenge can be registered that no verifier matches, or that is short enough to guess.
 constexpr qsizetype kChallengeLength{43};
 
-// The nonce the native client matches the loopback arrival against travels back through a
-// URL, so it is bounded rather than reflected at whatever length was sent.
+// The native client's loopback nonce travels back in a URL, so its length is bounded.
 constexpr qsizetype kMaxReturnStateLength{128};
 
 bool isBase64UrlDigest(const QString &value)
@@ -94,18 +93,15 @@ bool isBase64UrlDigest(const QString &value)
 
 /// Whether a `return` URL may be redirected to at the end of a desktop login.
 ///
-/// This is the single most dangerous line in the desktop flow. Whatever passes here is
-/// where a freshly authenticated visitor's browser gets sent, so anything short of exact is
-/// an open redirect that hands out sessions. It is an allowlist of one shape, not a filter
-/// of known-bad ones.
+/// Whatever passes here receives a freshly authenticated browser, so anything short of
+/// exact is an open redirect that hands out sessions. It allows one shape only:
 ///
-///  - `http` only, and only to the loopback literals. Not `localhost`, which is a name and
-///    can be pointed elsewhere by a hosts file (RFC 8252 says the same).
-///  - No userinfo, because `http://127.0.0.1@evil.example/` has host `evil.example` and
-///    reads to a human as loopback. The host check alone already refuses it. The userinfo
-///    check is there so the refusal does not depend on getting the parse right.
-///  - No path beyond `/`, no query, no fragment. The redirect appends its own query, and a
-///    caller-supplied one is a way to smuggle parameters past that.
+/// - `http`, only to the loopback literals. Not `localhost`, which a hosts file can
+///   redirect (RFC 8252 agrees).
+/// - No userinfo: `http://127.0.0.1@evil.example/` has host `evil.example`. The host check
+///   already refuses it; this check does not depend on the parse.
+/// - No path beyond `/`, no query, no fragment. The redirect adds its own query, and a
+///   caller's could smuggle parameters.
 bool isLoopbackReturn(const QUrl &url)
 {
     if (!url.isValid() || url.scheme() != QLatin1String("http")) {
@@ -129,20 +125,17 @@ bool isLoopbackReturn(const QUrl &url)
 
 QHttpServerResponse notFound()
 {
-    // One answer for every way a claim can fail: unknown code, expired code, code already
-    // spent, wrong verifier. Telling them apart would tell an attacker which half of a
-    // guess was right.
+    // One answer for every claim failure (unknown, expired, spent, wrong verifier), so an
+    // attacker cannot tell which half of a guess was right.
     return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
 }
 
-/// "You are going too fast", and not the answer above.
+/// The "too fast" answer, distinct from the one above.
 ///
-/// Everything else on these routes answers alike, so nothing learns which half
-/// of a guess was right. This refusal is decided before the credential is so much as read,
-/// so it says nothing about it, and it must be distinguishable. A legitimate client reading
-/// "too fast" as "this credential is dead" deletes the visitor's stored sign-in over
-/// somebody else behind the same address making a nuisance of themselves. `Retry-After` is
-/// what is left of the window, so a client can wait it out instead of guessing.
+/// It is decided before the credential is read, so it reveals nothing, and it must be
+/// distinguishable: a client that read it as "credential dead" would delete the visitor's
+/// stored sign-in because of someone else behind the same address. `Retry-After` is the
+/// rest of the window.
 QHttpServerResponse tooManyRequests(qint64 retryAfterMs)
 {
     QHttpServerResponse response{QHttpServerResponse::StatusCode::TooManyRequests};
@@ -156,34 +149,25 @@ QHttpServerResponse tooManyRequests(qint64 retryAfterMs)
 // How long a delegated begin/exchange over the mesh may take before the handler gives up.
 constexpr int kRemoteTimeoutMs{20000};
 
-/// How many answers this edge may be waiting on at once, wherever the answer comes from.
+/// How many answers this edge may wait on at once, from any source.
 ///
-/// Each wait is a nested QEventLoop, which keeps serving requests while it spins, so a
-/// second request that also waits nests inside the first. The routes that do this are open
-/// (a GET to the login route is enough), so without a ceiling the nesting depth is whatever
-/// a caller opens connections for, and the stack is what runs out. Far above the number of
-/// logins any real deployment has in flight at one instant, because each of these lasts one
-/// round trip (over the mesh to the auth entity, or out to the identity provider) rather than
-/// a browser's whole visit to a provider.
+/// Each wait is a nested QEventLoop that keeps serving, so a second waiting request nests
+/// inside the first. The login route is open to anyone, so without a ceiling the nesting
+/// depth is set by the caller until the stack runs out. The ceiling is far above real
+/// concurrent logins, since each wait lasts one round trip (to the auth entity or the
+/// identity provider).
 constexpr int kMaxConcurrentWaits{64};
 
-/// What to assume a thread's stack is when the platform will not say.
-///
-/// The smallest SynQt runs on rather than the roomiest. A Windows thread gets a megabyte,
-/// where Linux and macOS give the main one eight.
+/// The stack size to assume when the platform does not report one: the smallest SynQt runs
+/// on (a Windows thread gets 1 MB; the Linux and macOS main thread gets 8 MB).
 constexpr quintptr kAssumedStackBytes{1024 * 1024};
 
-/// How much of a thread's stack the nesting may spend. One part in four.
+/// The share of a thread's stack the nesting may use: one quarter.
 ///
-/// The count above is a policy number, and it cannot answer this on its own. What the
-/// nesting spends is stack, and what a level of it costs is decided by Qt's call chain and
-/// the compiler rather than by this code. Sixty-four levels fits the eight megabytes Linux and
-/// macOS give the main thread and does not fit the megabyte Windows gives it: the ceiling
-/// meant to stop the stack running out sat above the stack on the platform with the
-/// smallest of them, and a Windows edge crashed on exactly the traffic the count was there
-/// to refuse. So the stack is asked how big it is and a quarter of it is what the nesting
-/// may have. Where it is roomy the count still decides, unchanged. Where it is not, this
-/// does, and the refusal is the same one either way.
+/// The count above cannot bound stack use alone, because the cost of a level depends on
+/// Qt's call chain and the compiler. Sixty-four levels fit 8 MB but not the 1 MB Windows
+/// gives a thread. So the stack size is read and a quarter of it is the budget; where the
+/// stack is large the count still decides. The refusal is the same either way.
 constexpr quintptr kStackShareForNesting{4};
 
 /// The size of the running thread's stack, or zero when the platform will not say.
@@ -236,9 +220,9 @@ IdentityProvider::WaitScope::WaitScope(WaitState *state)
         return;
     }
 
-    // `this` is a local in the frame that is about to wait, so its address is where that
-    // frame sits. The outermost wait records its own and reads the budget off the thread
-    // it is running on. Every wait under it is that much further along the stack.
+    // `this` is a local of the frame about to wait, so its address marks that frame. The
+    // outermost wait records its own address and reads the thread's budget; nested waits
+    // are measured from it.
     const quintptr frame{reinterpret_cast<quintptr>(this)};
     if (m_state->count == 0) {
         m_state->outermostFrame = frame;
@@ -271,33 +255,31 @@ IdentityProvider::IdentityProvider(IdentityConfig config, SessionManager *sessio
     if (!m_config.mappingHook.isEmpty() && m_engine) {
         m_mappingComponent = new QQmlComponent{
             m_engine, QUrl::fromLocalFile(m_config.mappingHook), this};
-        // Asked before creating: create() on a component that failed to compile prints
-        // its own "Component is not ready" and says nothing about which file or why.
+        // Checked before create(), whose own "Component is not ready" names neither the
+        // file nor the reason.
         m_mapping = m_mappingComponent->isReady() ? m_mappingComponent->create() : nullptr;
         if (m_mapping) {
             m_mapping->setParent(this);
         } else {
-            // Loud, because the failure is quiet otherwise. Without the hook there is
-            // nothing to give a session a scope, so every login is refused until the file
-            // loads. That is the fail-closed direction and still a change nobody asked for,
-            // and the edge stays up so the rest of the site keeps serving. The hook's own
-            // file and QML diagnostic, nothing from the provider payload it would have read.
+            // Logged, because without the hook no session gets a scope and every login is
+            // refused until the file loads. The edge stays up. The message has the hook's
+            // file and QML diagnostic, nothing from the provider payload.
             qWarning("SynQt: identity mapping hook %s failed to load: %s; every login is "
                      "refused until it does",
                      qUtf8Printable(m_config.mappingHook),
                      qUtf8Printable(m_mappingComponent->errorString()));
         }
     }
-    // In-process mode owns the secret-bearing engine. In provider_entity mode the secret and
-    // tokens live on the auth entity, so this edge builds no backend and holds no secret.
+    // In-process mode owns the secret-bearing engine. In provider_entity mode the secret
+    // and tokens are on the auth entity, so this edge has no backend and no secret.
     if (m_config.providerEntity.isEmpty()) {
         m_backend = new OAuthBackend{m_config, this};
         m_backend->setAutoRefresh(m_config.refreshIntervalSeconds, m_config.refreshMarginSeconds);
     }
 
-    // Staying signed in across relaunches. Only for a project that both asked for it and
-    // builds a desktop client, because enrolment happens at the claim exchange and nothing
-    // but a native client ever reaches that.
+    // Staying signed in across relaunches, only when the project asked for it and builds a
+    // desktop client: enrolment happens at the claim exchange, which only a native client
+    // reaches.
     if (m_config.device.enabled && m_config.allowDesktopLogin) {
         auto *registry{new DeviceRegistry{m_config.device, this}};
         QString error;
@@ -306,10 +288,9 @@ IdentityProvider::IdentityProvider(IdentityConfig config, SessionManager *sessio
             connect(m_devices, &DeviceRegistry::reuseDetected,
                     this, &IdentityProvider::onReuseDetected);
         } else {
-            // Loud, and then off: an edge that refused to start over an unreachable device
-            // store would trade "desktop users sign in every launch" for "nobody signs in at
-            // all". What must never happen quietly is the other direction, so this says
-            // which store and why, and the feature is not there.
+            // Logged, then disabled. Refusing to start over an unreachable device store
+            // would stop everyone from signing in; disabling it only makes desktop users
+            // sign in each launch. The message names the store and the reason.
             delete registry;
             qWarning("SynQt: identity.desktop_session is 'device' and the store would not "
                      "open (%s), so desktop clients will sign in once per launch. No "
@@ -374,10 +355,10 @@ bool IdentityProvider::isRemote() const
 void IdentityProvider::attachRemote(QObject *identityReplica)
 {
     m_remote = identityReplica;
-    // The auth entity's answers connect by name into this object's receiving slots (the Identity
-    // Replica is dynamic, so string-based connect as in SessionManager::attachRemote). As
-    // with the session cache, this provider must be destroyed while the Replica is still
-    // alive, since the Replica frees its runtime metaobject on destruction.
+    // The auth entity's answers connect by name to this object's slots (the Identity
+    // Replica is dynamic, as in SessionManager::attachRemote). This provider must be
+    // destroyed while the Replica is alive, since the Replica frees its runtime metaobject
+    // when destroyed.
     connect(identityReplica,
             SIGNAL(beginResult(QString, QString, QString, QString)),
             this, SLOT(onBeginResult(QString, QString, QString, QString)));
@@ -448,7 +429,7 @@ IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &provi
                             QStringLiteral("too many logins waiting on the auth entity")};
     }
 
-    // Delegate to the auth entity. Invoke the slot, then wait (bounded) for the correlated
+    // Delegate to the auth entity: invoke the slot, then wait (bounded) for the correlated
     // beginResult signal. The nested loop keeps the route handler synchronous.
     const QString requestId{randomToken()};
     const AwaitScope awaited{&m_awaited, requestId};
@@ -463,7 +444,11 @@ IdentityProvider::BeginOutcome IdentityProvider::beginLogin(const QString &provi
     QMetaObject::invokeMethod(m_remote, "beginLogin", Q_ARG(QString, requestId),
                               Q_ARG(QString, providerName), Q_ARG(QString, redirectUri),
                               Q_ARG(QString, binding), Q_ARG(QString, context));
-    loop.exec();
+    {
+        // The loop serves other callers while it spins. See SynQt::TraceScope on detaching.
+        const SynQt::TraceScope untraced{SynQt::TraceContext{}};
+        loop.exec();
+    }
 
     if (!m_beginResults.contains(requestId)) {
         return BeginOutcome{QString{}, QString{}, QStringLiteral("auth entity timed out")};
@@ -476,14 +461,11 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
                                                                  const QString &presentedBinding)
 {
     const QString redirectUri{m_edgeOrigin + m_config.callbackRoute};
-    // The ceiling covers both ways of running identity, because both of them wait inside a
-    // nested event loop and the loop is what has to be counted. In provider_entity mode the
-    // wait is for the auth entity's answer. In process it is `OAuthBackend::exchange`
-    // spinning its own loop around the token exchange with the provider. That second one had
-    // no bound at all, and it is the reachable one: the callback route is open, a state this
-    // engine issued is all it takes to get past the first check, and up to
-    // `kMaxPendingLogins` of those can be in flight. Callbacks arriving together then nest
-    // one loop inside another until the stack, rather than any limit, decides.
+    // The ceiling covers both identity modes, because both wait in a nested event loop. In
+    // provider_entity mode the wait is for the auth entity. In process it is
+    // `OAuthBackend::exchange` around the token exchange, which is reachable: the callback
+    // route is open, a valid state passes the first check, and up to `kMaxPendingLogins`
+    // can be in flight at once.
     const WaitScope wait{&m_waits};
     if (!wait.isTaken()) {
         return ExchangeOutcome{QVariantMap{}, QString{},
@@ -516,7 +498,11 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
                               Q_ARG(QString, state), Q_ARG(QString, code),
                               Q_ARG(QString, redirectUri),
                               Q_ARG(QString, presentedBinding));
-    loop.exec();
+    {
+        // The loop serves other callers while it spins. See SynQt::TraceScope on detaching.
+        const SynQt::TraceScope untraced{SynQt::TraceContext{}};
+        loop.exec();
+    }
 
     if (!m_exchangeResults.contains(requestId)) {
         return ExchangeOutcome{QVariantMap{}, QString{},
@@ -537,8 +523,8 @@ void IdentityProvider::holdClaim(const QString &code, const QByteArray &sessionI
         return;
     }
     if (m_remote) {
-        // Fire and forget. The claim is written before the loopback redirect that names it
-        // leaves this process, and the client cannot present it before it has that.
+        // Fire and forget: the claim is stored before the loopback redirect naming it
+        // leaves this process.
         QMetaObject::invokeMethod(m_remote, "holdClaim", Q_ARG(QString, code),
                                   Q_ARG(QString, QString::fromLatin1(sessionId)),
                                   Q_ARG(QString, challenge));
@@ -559,8 +545,8 @@ QByteArray IdentityProvider::takeClaim(const QString &code, const QString &verif
         return {};
     }
 
-    // The same bounded nested loop the begin/exchange pair uses, for the same reason: the
-    // route handler is synchronous and the answer comes back as a correlated signal.
+    // The same bounded nested loop as begin/exchange: the handler is synchronous and the
+    // answer is a correlated signal.
     const QString requestId{randomToken()};
     const AwaitScope awaited{&m_awaited, requestId};
     const auto forget{qScopeGuard([this, requestId]() { m_claimResults.remove(requestId); })};
@@ -573,7 +559,11 @@ QByteArray IdentityProvider::takeClaim(const QString &code, const QString &verif
     QTimer::singleShot(kRemoteTimeoutMs, &loop, &QEventLoop::quit);
     QMetaObject::invokeMethod(m_remote, "takeClaim", Q_ARG(QString, requestId),
                               Q_ARG(QString, code), Q_ARG(QString, verifier));
-    loop.exec();
+    {
+        // The loop serves other callers while it spins. See SynQt::TraceScope on detaching.
+        const SynQt::TraceScope untraced{SynQt::TraceContext{}};
+        loop.exec();
+    }
     return m_claimResults.take(requestId);
 }
 
@@ -595,8 +585,8 @@ void IdentityProvider::releaseRemoteTokens(const QByteArray &sessionId)
 
 void IdentityProvider::forgetSession(const QByteArray &sessionId)
 {
-    // The back-reference goes, the family stays. A session running out of time is exactly
-    // what the device credential is for. The next launch redeems it and gets a new session.
+    // The back-reference goes; the family stays. An expired session is what the device
+    // credential exists for: the next launch redeems it for a new session.
     if (m_devices) {
         m_devices->unbindSession(sessionId);
     }
@@ -615,9 +605,9 @@ void IdentityProvider::followRotation(const QByteArray &from, const QByteArray &
     if (m_backend) {
         m_backend->rekeyTokens(QString::fromLatin1(from), QString::fromLatin1(to));
     } else {
-        // provider_entity mode. The tokens are the auth entity's, held under the session id
-        // this edge told it about. `bindSession` is the same call the callback makes, so
-        // rebinding under the new id moves them there exactly as rekeyTokens does here.
+        // provider_entity mode: the tokens are on the auth entity under the session id this
+        // edge sent. `bindSession`, the same call the callback makes, moves them to the new
+        // id as rekeyTokens does here.
         bindRemoteSession(QString::fromLatin1(from), to);
     }
     if (m_devices) {
@@ -646,11 +636,10 @@ QHttpServerResponse IdentityProvider::handleLogin(const QHttpServerRequest &requ
         providerName = m_config.providers.first().name;
     }
 
-    // The desktop half, decided before a single byte goes to the provider. A login that
-    // asks for a loopback answer and does not fully qualify for one is refused outright
-    // rather than quietly downgraded to the browser flow. Downgrading would sign somebody
-    // in on a machine whose app is still waiting, and set a cookie in a browser that is not
-    // the app. Refusing is the only outcome that leaves nothing behind.
+    // The desktop half, decided before anything goes to the provider. A login asking for a
+    // loopback answer that does not fully qualify is refused, not downgraded to the browser
+    // flow, which would sign someone in while the app still waits and set a cookie in a
+    // browser that is not the app.
     QString returnUrl;
     const QString requestedReturn{query.queryItemValue(QStringLiteral("return"),
                                                        QUrl::FullyDecoded)};
@@ -674,10 +663,10 @@ QHttpServerResponse IdentityProvider::handleLogin(const QHttpServerRequest &requ
         returnUrl = requestedReturn;
     }
 
-    // Bind this login to the browser that started it. A random value set as a cookie now
-    // and required to match on the callback (defeats login CSRF / fixation). It goes to the
-    // identity engine with the state rather than into a table here, so the callback is
-    // answerable by any edge process. See IdentityProvider::LoginContext.
+    // Bind this login to the browser that started it: a random value set as a cookie now
+    // and required on the callback (against login CSRF and fixation). It goes to the
+    // identity engine with the state, so any edge process can answer the callback. See
+    // IdentityProvider::LoginContext.
     const QString csrfToken{randomToken()};
     LoginContext context;
     context.returnUrl = returnUrl;
@@ -712,23 +701,20 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
     const QString code{query.queryItemValue(QStringLiteral("code"))};
     const QString state{query.queryItemValue(QStringLiteral("state"))};
 
-    // The state and binding checks happen where the record is, which is the
-    // identity engine. It holds the state, the CSRF binding and the desktop context
-    // together, refuses a callback whose binding does not match BEFORE spending the code,
-    // and consumes the record either way. Doing it there rather than here is what lets an
-    // edge process answer a callback for a login it never saw the start of, and what keeps
-    // the record single-use across every process rather than once per process.
+    // The state and binding checks run in the identity engine, which holds the state, the
+    // CSRF binding and the desktop context together. It refuses a mismatched binding before
+    // spending the code and consumes the record either way, so any edge process can answer
+    // the callback and the record is single-use across all of them.
     //
-    // The login-CSRF defense is unchanged in substance. A state alone is still not enough,
-    // because an attacker can hand a victim a valid state and their own authorization code.
-    // What changed is only which process is holding the value it is checked against.
+    // A state alone is not enough: an attacker can give a victim a valid state together
+    // with the attacker's own authorization code.
     const QByteArray presentedCsrf{cookieValue(request.value("Cookie"), kOauthStateCookie)};
     const ExchangeOutcome exchange{exchangeCode(state, code,
                                                 QString::fromUtf8(presentedCsrf))};
     const LoginContext context{LoginContext::fromJson(exchange.context)};
 
-    // These two are refusals of the request, not failures of the exchange, and they keep the
-    // status codes the browser flow has always answered them with.
+    // These two refuse the request rather than report a failed exchange, and keep the
+    // browser flow's status codes.
     if (exchange.error == QLatin1String("invalid or expired state")
         || exchange.error == QLatin1String("login session mismatch")) {
         return QHttpServerResponse{QByteArrayLiteral("text/plain"),
@@ -738,29 +724,24 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
 
     if (exchange.identity.isEmpty()) {
         if (context.isDesktop()) {
-            // Tell the waiting desktop client it failed. Without this the app sits on its
-            // loopback listener until the timeout with nothing to report, which reads to
-            // the visitor as a sign-in that hung rather than one that was refused.
+            // Tell the waiting desktop client it failed, so it does not wait for the
+            // timeout.
             return loopbackRedirect(context, QString{}, QStringLiteral("access_denied"));
         }
         return redirectTo(m_config.appRoute, {buildStateCookie(QByteArray{}, true)});
     }
 
-    // A login that cannot be given one of the project's declared scopes fails here, closed.
-    // A `return QStringLiteral("user")` fallback at the end of mapScope would let a hook
-    // that fails outright hand out an authenticated scope, and without the vocabulary as
-    // a list to resolve against, a typo in the hook would produce a session holding a scope no
-    // check can satisfy, which locks the visitor out of everything with nothing logged.
+    // A login that cannot be given a declared scope fails closed. A default such as `return
+    // QStringLiteral("user")` would let a failing hook hand out an authenticated scope, and
+    // a typo would give a session a scope no check can satisfy.
     QString scopeError;
     const QString scope{mapScope(exchange.identity, &scopeError)};
     if (scope.isEmpty()) {
         qWarning("SynQt: refusing a login the identity mapping hook could not place: %s",
                  qPrintable(scopeError));
-        // The exchange has already happened, so the provider's tokens are held under the
-        // state key waiting for a session to be rekeyed to, and there will be none. Let go
-        // of them here. Left where they were, every refused sign-in kept an entry for the
-        // life of the process, and its refresh token was spent against the provider on every
-        // sweep, on behalf of a visitor who was never signed in.
+        // The exchange already happened, so the provider tokens wait under the state key
+        // for a session that will not exist. Release them, or they stay for the life of the
+        // process and the sweep spends their refresh token.
         if (m_backend) {
             m_backend->releaseTokens(exchange.tokenKey);
         } else {
@@ -773,9 +754,9 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
     }
     const QByteArray sessionId{m_sessions->createSession(scope, exchange.identity)};
     if (sessionId.isEmpty()) {
-        // The session table is at its ceiling with nothing to let go of. The login itself
-        // succeeded and there is no session to hand it to. The tokens the exchange left
-        // under the state key go with it, exactly as for a login the hook refused.
+        // The session table is full with nothing to drop. The login succeeded but there is
+        // no session to give; release the tokens under the state key, as for a refused
+        // hook.
         qWarning("SynQt: refusing a login because no session can be issued right now");
         if (m_backend) {
             m_backend->releaseTokens(exchange.tokenKey);
@@ -791,8 +772,8 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
                                    QHttpServerResponse::StatusCode::ServiceUnavailable};
     }
 
-    // Move the tokens under the stable session id so refresh can find them, and keep them
-    // where they already are. On the edge (in-process) or the auth entity (provider_entity).
+    // Move the tokens under the session id so refresh finds them, on the edge (in-process)
+    // or the auth entity (provider_entity).
     if (isRemote()) {
         bindRemoteSession(exchange.tokenKey, sessionId);
     } else {
@@ -800,11 +781,9 @@ QHttpServerResponse IdentityProvider::handleCallback(const QHttpServerRequest &r
     }
 
     if (context.isDesktop()) {
-        // A desktop login ends here, and not with a cookie: the system browser
-        // is not the app. Leaving it signed in would put a live session in a browser the
-        // visitor did not sign in with, on a machine that may not be theirs alone, and
-        // nothing would ever end it. What crosses the loopback is a code that stands for the
-        // session for the next minute, exchangeable once, by whoever holds the verifier.
+        // A desktop login ends without a cookie: the system browser is not the app, and a
+        // session left there would never end. The loopback carries a code that stands for
+        // the session for one minute, exchangeable once, by whoever holds the verifier.
         const QString claimCode{randomToken()};
         holdClaim(claimCode, sessionId, context.returnChallenge);
         return loopbackRedirect(context, claimCode, QString{});
@@ -819,19 +798,14 @@ QHttpServerResponse IdentityProvider::loopbackRedirect(const LoginContext &conte
                                                        const QString &code,
                                                        const QString &error) const
 {
-    // Checked again here, and not only at login. isLoopbackReturn is the line this flow
-    // turns on. Whatever passes it is where a freshly authenticated visitor's browser is
-    // sent. The value arriving here has been out of this process in between, carried as
-    // the `context` the identity engine keeps beside the state, which in provider_entity
-    // mode means a round trip to the auth entity and back through JSON. Nothing has gone
-    // wrong with that today. But a check whose correctness depends on every hop between two
-    // distant points in the code is a check that stops holding the first time somebody adds
-    // a hop, and this one costs a URL parse on a path that runs once per desktop sign-in.
+    // Checked again here after the check at login. The value has left this process as the
+    // `context` the identity engine keeps with the state (in provider_entity mode, a JSON
+    // round trip to the auth entity). The check costs one URL parse per desktop sign-in and
+    // does not depend on every hop in between staying correct.
     QUrl target{context.returnUrl, QUrl::StrictMode};
     if (!isLoopbackReturn(target)) {
-        // Not a redirect to somewhere safer. There is nowhere safe to send this. The app
-        // waiting on its loopback listener times out and says the sign-in failed, which is
-        // the truth.
+        // No fallback redirect. The app waiting on its loopback listener times out and
+        // reports the failure.
         qWarning("SynQt: refusing to complete a desktop login whose return URL is not a "
                  "loopback address; nothing was handed back");
         return QHttpServerResponse{QByteArrayLiteral("text/plain"),
@@ -857,17 +831,14 @@ QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &requ
     if (!m_config.allowDesktopLogin) {
         return notFound();
     }
-    // No browser has any business here. The browser flow ends with a cookie and never
-    // claims. Refusing anything that carries an Origin puts this endpoint out of reach of
-    // page script altogether, rather than relying on the code being unguessable.
+    // No browser uses this route: the browser flow ends with a cookie. Refusing any request
+    // with an Origin keeps page script out entirely.
     if (!request.value("Origin").isEmpty()) {
         return notFound();
     }
 
-    // A code and a verifier are 64 hex characters each. Anything past this is not a claim,
-    // and refusing it before the decode keeps a large body from being turned into a QString
-    // and parsed as a query. (What QHttpServer buffered before reaching here is its own
-    // affair. This is the part the edge decides.)
+    // A code and a verifier are 64 hex characters each. Longer bodies are refused before
+    // decoding. (What QHttpServer buffered before this is its own limit.)
     constexpr qsizetype kMaxClaimBody{1024};
     if (request.body().size() > kMaxClaimBody) {
         return notFound();
@@ -876,19 +847,17 @@ QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &requ
     const QString code{body.queryItemValue(QStringLiteral("code"), QUrl::FullyDecoded)};
     const QString verifier{body.queryItemValue(QStringLiteral("verifier"),
                                                QUrl::FullyDecoded)};
-    // One answer for every way this can fail (unknown code, expired code, code already
-    // spent, wrong verifier), and the code is spent either way. One code, one attempt.
-    // Where the record lives is the only thing that differs between an edge running
-    // identity in process and one asking the auth entity, which is what lets a replica
-    // that never saw the login honour the claim it produced.
+    // One answer for every failure (unknown, expired, spent, wrong verifier), and the code
+    // is spent either way. Only the record's location differs between in-process identity
+    // and the auth entity, so any replica can honour the claim.
     const QByteArray claimedSession{takeClaim(code, verifier)};
     if (claimedSession.isEmpty()) {
         return notFound();
     }
 
-    // Enrolment, when the client asked for it and the project persists sessions. No route of
-    // its own. This is the one place where a session has been proven to belong to the
-    // process asking, and adding an endpoint would be a second way to reach the same thing.
+    // Enrolment, when the client asked for it and the project persists sessions. Here,
+    // because this is where the session has been proven to belong to the caller; a separate
+    // endpoint would be a second way in.
     DeviceRegistry::Credential credential;
     const bool wantsDevice{body.queryItemValue(QStringLiteral("device"))
                            == QLatin1String("1")};
@@ -897,9 +866,9 @@ QHttpServerResponse IdentityProvider::handleClaim(const QHttpServerRequest &requ
         const QString sub{record ? record->identity.value(QStringLiteral("sub")).toString()
                                  : QString{}};
         if (record && !sub.isEmpty()) {
-            // The level the client reports about its own store. Below the configured floor
-            // this returns nothing, and that is not an error. The client stays signed in
-            // with the session it claimed and writes nothing anywhere.
+            // The level the client reports for its store. Below the configured floor this
+            // returns nothing and the client keeps the claimed session without storing
+            // anything.
             const DeviceBinding binding{deviceBindingFromName(
                 body.queryItemValue(QStringLiteral("binding"), QUrl::FullyDecoded))};
             credential = m_devices->enrol(sub, record->identity, m_edgeOrigin, binding,
@@ -917,9 +886,8 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
     if (!m_config.allowDesktopLogin || m_devices == nullptr) {
         return notFound();
     }
-    // As on the claim route, and for the same reason. The browser flow ends with a cookie and
-    // never comes here, so refusing anything carrying an Origin puts this endpoint out of
-    // reach of page script altogether rather than relying on a secret staying unguessable.
+    // As on the claim route: the browser flow never comes here, so any request with an
+    // Origin is refused.
     if (!request.value("Origin").isEmpty()) {
         return notFound();
     }
@@ -928,25 +896,21 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
         return notFound();
     }
 
-    // Per-address fixed window. Cheap, and it is about the cost of a guess rather than its
-    // chance of succeeding. A 256-bit secret is not brute-forced, but nothing should be able
-    // to buy a database read per packet.
+    // Per-address fixed window, limiting the cost of a guess: a 256-bit secret is not
+    // brute-forced, but no one should buy a database read per packet.
     constexpr int kMaxAttemptsPerWindow{30};
     constexpr qint64 kWindowMs{60 * 1000};
-    // The visitor's address, not the peer's. Behind a balancer the peer is one address for
-    // everybody, so a window keyed on it would be a single global budget that any one
-    // client can exhaust for every other client at once.
+    // The visitor address, not the peer: behind a balancer the peer is one address for
+    // everybody.
     const QString peer{m_clientAddress
                            ? m_clientAddress->resolve(request.remoteAddress(),
                                                       request.value("X-Forwarded-For"))
                            : request.remoteAddress().toString()};
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
 
-    // The table's own ceiling, taken first, for the two reasons webedge.cpp's sign-in gate
-    // spells out: a reference from operator[] does not survive a prune (QHash::erase moves
-    // the entries after the one it removes), and dropping only what has run out is what
-    // keeps the ceiling from being a way to clear the count. A table that is still full of
-    // live windows after that is a refusal rather than a reset.
+    // Enforce the table ceiling first, as in webedge.cpp's sign-in gate: a reference from
+    // operator[] does not survive a prune (QHash::erase moves later entries), and only
+    // expired windows are dropped. A table still full after that refuses.
     constexpr int kMaxRateEntries{4096};
     if (pruneRateWindows(m_deviceRate, now, kWindowMs, kMaxRateEntries)) {
         return tooManyRequests(kWindowMs);
@@ -961,10 +925,9 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
         return tooManyRequests(window.startedMs + kWindowMs - now);
     }
 
-    // Asked before the credential is spent. Redeeming rotates it, and a rotation whose
-    // answer is never handed back is a credential the client cannot present next time.
-    // The refusal is the rate limit's, and for the same reason. It says nothing about the
-    // credential and tells a legitimate client to wait rather than to forget what it holds.
+    // Checked before the credential is spent: redeeming rotates it, and a rotation that is
+    // never returned leaves the client unable to sign in. Like the rate limit, it says
+    // nothing about the credential and tells the client to wait.
     if (!m_sessions->hasRoom()) {
         return tooManyRequests(kWindowMs);
     }
@@ -977,30 +940,26 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
     secret.fill('\0');
     secret.clear();
     if (!redemption.ok) {
-        // One answer for unknown, expired, revoked, reused and wrong alike. Telling them
-        // apart would tell whoever found a file on a disk which half of it still works.
+        // One answer for unknown, expired, revoked, reused and wrong, so a stolen file
+        // reveals nothing.
         return notFound();
     }
 
-    // The scope is re-derived here, every time, from the identity stored at enrolment. This
-    // is the reason that identity is a column instead of a lookup: somebody demoted from
-    // moderator yesterday must not carry moderator for the remaining 29 days of a credential
-    // issued while they still were one.
+    // The scope is derived again from the identity stored at enrolment, so a user demoted
+    // yesterday does not keep the old scope for the rest of the credential's life.
     QString scopeError;
     const QString scope{mapScope(redemption.identity, &scopeError)};
     if (scope.isEmpty()) {
-        // Same answer as every other refusal on this route, for the same reason: this one
-        // is a project error rather than a stolen credential, but telling the two apart on
-        // the wire would tell whoever found a file on a disk which half of it still works.
-        // The log is where the difference is reported, because it is read by the project.
+        // The same answer as every other refusal here; this is a project error, and the log
+        // reports the difference.
         qWarning("SynQt: refusing a device redemption the identity mapping hook could not "
                  "place: %s", qPrintable(scopeError));
         return notFound();
     }
     const QByteArray sessionId{m_sessions->createSession(scope, redemption.identity)};
     if (sessionId.isEmpty()) {
-        // hasRoom() said yes a moment ago and nothing runs in between, so this is not
-        // reached. It is refused the same way rather than answering with an empty session.
+        // hasRoom() just said yes and nothing runs in between, so this is not reached.
+        // Refused rather than answering with an empty session.
         return tooManyRequests(kWindowMs);
     }
     bindFamily(sessionId, redemption.next.family);
@@ -1043,10 +1002,8 @@ void IdentityProvider::bindFamily(const QByteArray &sessionId, const QString &fa
 
 void IdentityProvider::onReuseDetected(const QString &family)
 {
-    // Two copies of one credential are in play and there is no telling which of them is the
-    // visitor, so everything the family opened goes. The row is already gone, and here go the
-    // sessions it minted. Somebody signs in again, which is the correct cost of the one event
-    // that means a credential was copied off a machine.
+    // Two copies of one credential are in use and there is no telling which is the visitor,
+    // so every session the family opened is revoked. The visitor signs in again.
     qWarning("SynQt: a retired device credential was presented past its overlap window, so "
              "the device and every session it opened have been revoked. If this was not a "
              "theft it was a client that could not store what it was given.");
@@ -1062,24 +1019,16 @@ void IdentityProvider::onReuseDetected(const QString &family)
 
 QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &request)
 {
-    // Signing out is a state change, and this route is reached by a GET, which is what
-    // `Session.logout()` does on both clients: the browser navigates to it and the desktop
-    // client fetches it. That makes it a cross-site request forgery target: another site
-    // need only navigate a visitor here to end their session, and with it the device
-    // credential that would have kept them signed in. The cookie's SameSite=Lax does not
-    // cover it (a top-level navigation is exactly what Lax still sends), and in
-    // `split_origin` the cookie is SameSite=None and covers nothing at all.
+    // Signing out changes state, and this route is a GET (`Session.logout()` navigates or
+    // fetches it), so it is a CSRF target: another site could end a visitor's session and
+    // device credential. SameSite=Lax does not prevent a top-level navigation, and under
+    // `split_origin` the cookie is SameSite=None.
     //
-    // `Sec-Fetch-Site` is the header that separates the two, and it is set by the browser
-    // rather than by the page. `same-origin` for the app's own navigation, `cross-site`
-    // for somebody else's. A caller that is not a browser (the desktop client) sends none,
-    // and is unaffected. Refused rather than answered, so nothing is ended.
-    // `same-site` is refused only under the same-origin model, where the app and the edge
-    // share an origin and a legitimate sign-out is always `same-origin`. Under
-    // `split_origin` the app is a sibling of the edge by design, so its own sign-out
-    // arrives as `same-site` and refusing it would break the one deployment that needs it;
-    // there the bar for an attacker rises to controlling a sibling subdomain. `cross-site`
-    // is refused either way, which is the case a stray link can reach.
+    // The browser sets `Sec-Fetch-Site`: `same-origin` for the app's own navigation,
+    // `cross-site` for another site's. A non-browser caller (the desktop client) sends none
+    // and is unaffected. `same-site` is refused only under the same-origin model; under
+    // `split_origin` the app is a sibling of the edge and its sign-out arrives as
+    // `same-site`. `cross-site` is always refused.
     const QByteArray site{request.value("Sec-Fetch-Site")};
     if (site == "cross-site" || (site == "same-site" && !m_cookie.sameSiteNone)) {
         return QHttpServerResponse{QByteArrayLiteral("text/plain"),
@@ -1089,11 +1038,9 @@ QHttpServerResponse IdentityProvider::handleLogout(const QHttpServerRequest &req
 
     const QByteArray sessionId{cookieValue(request.value("Cookie"), m_cookie.name.toUtf8())};
     if (!sessionId.isEmpty()) {
-        // Signing out ends the credential too, and it has to. A logout that leaves a
-        // redeemable credential on disk is worse than no logout at all, because the visitor
-        // believes it worked. This is also the only thing that ends a family early, which is
-        // why it reads the family from what this edge recorded when the session was minted
-        // rather than from anything the caller sent.
+        // Signing out also ends the device credential: a logout that leaves a redeemable
+        // credential on disk is worse than none. The family is read from what this edge
+        // recorded when the session was minted, never from the request.
         if (m_devices) {
             const QString family{m_devices->familyOf(sessionId)};
             m_devices->unbindSession(sessionId);
@@ -1137,13 +1084,10 @@ QString IdentityProvider::mapScope(const QVariantMap &identity, QString *error)
         return fail(QStringLiteral("the mapping hook has no scopeFor(identity)"));
     }
 
-    // Two shapes, because a QML function's return annotation is part of its metaobject
-    // signature: `function scopeFor(identity): int` registers a method returning int, and
-    // an unannotated one registers a method returning QVariant. Asking for the wrong one
-    // fails the invocation outright ("return type mismatch"), which would report a
-    // correct hook as a missing one. The annotated form is what the scaffold writes and
-    // what the docs show. The other is read too, so an older hook says what it means
-    // rather than being refused for how it was spelled.
+    // Two shapes, because the return annotation is part of the metaobject signature:
+    // `function scopeFor(identity): int` returns int, an unannotated one returns QVariant,
+    // and invoking with the wrong one fails with "return type mismatch". The scaffold and
+    // the docs use the annotated form; the other is accepted too.
     const QMetaMethod method{meta->method(methodIndex)};
     bool isNumber{false};
     int index{-1};
@@ -1161,10 +1105,9 @@ QString IdentityProvider::mapScope(const QVariantMap &identity, QString *error)
             return fail(QStringLiteral("the mapping hook's scopeFor(identity) could not be "
                                        "called"));
         }
-        // The hook returns a member of the generated Scope enum, whose value is the
-        // scope's index in scopes.order (synqt.scopegen writes both the enum and the list
-        // the edge is handed). So what follows is a bounds check and nothing else: there is
-        // no spelling to compare, and no answer outside the range can name a declared scope.
+        // The hook returns a member of the generated Scope enum, whose value is the scope's
+        // index in scopes.order (synqt.scopegen writes both). A bounds check is all that is
+        // needed.
         index = result.toInt(&isNumber);
         if (!isNumber) {
             return fail(QStringLiteral("the mapping hook returned '%1', which is not a "
@@ -1182,8 +1125,8 @@ QString IdentityProvider::mapScope(const QVariantMap &identity, QString *error)
 
 QByteArray IdentityProvider::buildStateCookie(const QByteArray &value, bool expire) const
 {
-    // SameSite=Lax so the cookie rides the top-level GET navigation back from the provider
-    // to the callback, but not a cross-site subrequest.
+    // SameSite=Lax: the cookie is sent on the top-level GET back from the provider, but not
+    // on cross-site subrequests.
     QByteArray cookie{kOauthStateCookie + "=" + value + "; HttpOnly; SameSite=Lax; Path=/"};
     if (m_cookie.secure) {
         cookie += "; Secure";
@@ -1198,12 +1141,10 @@ QByteArray IdentityProvider::buildCookie(const QByteArray &token) const
 {
     QByteArray cookie{m_cookie.name.toUtf8() + "=" + token + "; HttpOnly; Path=/"};
     if (m_cookie.sameSiteNone) {
-        // This is the cookie the measurement in tests/split-origin singles out. It is set on
-        // the callback, a top-level navigation onto the edge, so marking it `Partitioned`
-        // files it under the edge's partition where the client site can never read it. The
-        // attribute is therefore absent here for a sharper reason than in WebEdge, and it
-        // cannot be added until the callback hands the session back through the client
-        // context instead of setting it here.
+        // No `Partitioned`: this cookie is set on the callback, a top-level navigation onto
+        // the edge, so a partitioned cookie would be filed under the edge's partition,
+        // unreadable by the client site (tests/split-origin). That holds until the callback
+        // returns the session through the client context instead.
         cookie += "; SameSite=None; Secure";
     } else {
         cookie += "; SameSite=Lax";
@@ -1238,14 +1179,12 @@ IdentityProvider::LoginContext IdentityProvider::LoginContext::fromJson(const QS
 
 void IdentityProvider::expireClaims()
 {
-    // Swept on the way in to the two routes that can add one, so an uncollected code cannot
-    // outlive its minute even on an edge nobody signs into again. A claim that expires here
-    // takes nothing with it. The session it stood for is a real session, and it lives or
-    // expires on the session manager's own terms.
+    // Swept on entry to the two routes that add a claim, so an uncollected code never
+    // outlives its minute. An expiring claim takes nothing with it; its session follows the
+    // session manager's own rules.
     //
-    // In provider_entity mode this table is empty and the auth entity sweeps its own, on
-    // the same clamp (SynQt::claimTtlMsFrom), so a claim cannot expire on one side and not
-    // the other.
+    // In provider_entity mode this table is empty and the auth entity sweeps its own, with
+    // the same clamp (SynQt::claimTtlMsFrom).
     m_claims.expire(QDateTime::currentMSecsSinceEpoch(),
                     claimTtlMsFrom(m_config.claimTtlSeconds));
 }
