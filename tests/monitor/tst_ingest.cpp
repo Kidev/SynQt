@@ -13,11 +13,17 @@
 #include "traceevent.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QObject>
+#include <QPointer>
 #include <QRemoteObjectReplica>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QThread>
 #include <QVariantList>
+
+#include <atomic>
+#include <thread>
 
 using namespace SynQt;
 
@@ -62,6 +68,38 @@ QList<TraceEvent> events(int count, int from = 0)
     }
     return batch;
 }
+
+/// The entity side of monitoring, on the entity's thread. The IngestClient and the Replicas
+/// it is pointed at, retired the way a reconnect retires them. Everything here runs on the
+/// thread this is moved to, which is what makes the client and its Replica share a thread
+/// the way they do in a running entity. publish() is driven from another thread, as the
+/// tracer's writer thread drives it.
+class EntitySide : public QObject
+{
+    Q_OBJECT
+
+public:
+    IngestClient *client{nullptr};
+    QObject *current{nullptr};
+    std::atomic<long> swaps{0};
+
+public slots:
+    void bringUp() { client = new IngestClient{QString{}, 0, this}; swap(); }
+
+    void swap()
+    {
+        MonitorStandIn *fresh{new MonitorStandIn{}};
+        client->setReplica(fresh);
+        // Deleted here, synchronously and on this (the Replica's own) thread. A reconnect
+        // uses deleteLater, which frees at the next turn of this loop. Deleting now stands
+        // in for that by forcing the free into the window a publish in flight on the writer
+        // thread is reading the old Replica in. It is the deterministic form of the timing
+        // a reconnect hits by chance.
+        delete current;
+        current = fresh;
+        swaps.fetch_add(1, std::memory_order_relaxed);
+    }
+};
 
 } // namespace
 
@@ -240,8 +278,59 @@ private slots:
                  QStringLiteral("monitoring spool overflowed"));
         QCOMPARE(gap.value(QStringLiteral("attributes")).toMap()
                      .value(QStringLiteral("droppedBatches")).toInt(), 1);
-        // And it is reported once: the count is cleared by the replay that carried it.
+        // And it is reported once. The count is cleared by the replay that carried it.
         QCOMPARE(client.droppedBatches(), static_cast<qint64>(0));
+    }
+
+    // send() runs on the tracer's writer thread, while the Replica it publishes to belongs
+    // to the entity's thread and is retired there on a reconnect. Reaching into the Replica
+    // straight from the writer thread dereferences it on that thread, and a reconnect can
+    // free it in the window between the mutex read and the metacall: a use-after-free the
+    // writer commits inside QMetaObject, which a review reproduced as a crash in
+    // invokeMethodImpl under exactly this shape (and which AddressSanitizer does not see,
+    // because the read is in precompiled Qt). This drives that shape: one thread publishes
+    // without pause while another swaps and frees the Replica on its own thread. Without the
+    // fix (the hand-off marshalled to the entity's thread, where the Replica is touched
+    // and its deletion is serialized) the writer dereferences freed memory and the process
+    // crashes. With it, the run completes.
+    void publishingWhileTheReplicaIsRetiredNeverTouchesItOffItsThread()
+    {
+        QThread entity;
+        EntitySide side;
+        side.moveToThread(&entity);
+        entity.start();
+
+        // Bring the client up on the entity thread and wait until it is there.
+        QMetaObject::invokeMethod(&side, "bringUp", Qt::BlockingQueuedConnection);
+
+        std::atomic<bool> stop{false};
+        std::thread writer{[&side, &stop]() {
+            // A batch larger than one slice, so serializing it is a real window for the
+            // entity thread to free the Replica in.
+            const QList<TraceEvent> batch{events(400)};
+            while (!stop.load(std::memory_order_acquire)) {
+                side.client->publish(batch);
+            }
+        }};
+
+        // Retire and free the Replica as fast as the entity loop will run it.
+        constexpr long target{200000};
+        for (long index{0}; index < target; ++index) {
+            QMetaObject::invokeMethod(&side, "swap", Qt::QueuedConnection);
+        }
+        QElapsedTimer clock;
+        clock.start();
+        while (side.swaps.load() < target - 2000 && clock.elapsed() < 60000) {
+            QThread::msleep(5);
+        }
+
+        stop.store(true, std::memory_order_release);
+        writer.join();
+        entity.quit();
+        entity.wait();
+
+        // Surviving is the assertion. Without the fix the process is already gone by here.
+        QVERIFY(side.swaps.load() > 0);
     }
 };
 

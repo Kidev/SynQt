@@ -18,14 +18,12 @@ namespace SynQt {
 
 namespace {
 
-/// The spool's format version, written ahead of every batch. A record kept across a
-/// restart is a record read by a build that may not be the one that wrote it, and a stream
-/// with no version is one that silently misreads the day the record changes.
+/// The spool format version, written before every batch. A spool kept across a restart may
+/// be read by another build.
 constexpr quint32 kSpoolVersion{1};
 
-/// The largest batch the contract accepts (`Ingest.publish` declares `list[512]`). Split
-/// here rather than refused there. A batch that arrived at the boundary too large would be
-/// dropped whole, and the boundary is doing its job by saying no.
+/// The largest batch the contract accepts (`Ingest.publish` declares `list[512]`). Larger
+/// batches are split here, since the boundary would drop them whole.
 constexpr int kMaxBatch{512};
 
 QVariantList toVariants(const QList<TraceEvent> &batch)
@@ -60,9 +58,8 @@ void IngestClient::setReplica(QObject *replica)
     }
     m_attached = replica;
     if (replica != nullptr) {
-        // By name, as every call on it is. This library knows the Replica only as a
-        // QObject with a `publish`. A stand-in that says nothing about its state is
-        // taken as always live, which is what a stand-in is.
+        // By name, like every call on it: this library knows the Replica only as a QObject
+        // with a `publish`. A stand-in without state is treated as always live.
         connect(replica, SIGNAL(stateChanged(QRemoteObjectReplica::State,
                                              QRemoteObjectReplica::State)),
                 this, SLOT(onReplicaStateChanged(QRemoteObjectReplica::State)),
@@ -91,8 +88,8 @@ void IngestClient::onReplicaStateChanged(QRemoteObjectReplica::State state)
         }
     }
     if (live) {
-        // Back on the same object, which a reconnect on one node does. What the outage
-        // held goes out now, ahead of anything published from here on.
+        // Back on the same object (a reconnect on one node). What the outage held goes out
+        // first.
         replay();
     }
 }
@@ -112,36 +109,48 @@ void IngestClient::publish(const QList<TraceEvent> &batch)
 
 bool IngestClient::send(const QList<TraceEvent> &batch)
 {
-    QObject *replica{nullptr};
+    QPointer<QObject> replica;
     {
         QMutexLocker locker{&m_replicaMutex};
-        replica = m_replica.data();
+        replica = m_replica;
     }
-    if (replica == nullptr) {
+    if (replica.isNull()) {
         return false;
     }
-    // Fire and forget, by name: this library knows nothing of the generated Ingest
-    // replica's type, and a monitor is a consumer like any other.
+    // The serialization stays on this (writer) thread, so one built payload crosses.
+    // Copy-initialized, not braced: `QVariantList{aList}` would take the list as one
+    // element.
+    const QVariantList payload = toVariants(batch);
+
+    // The hand-off crosses to the entity's thread through `this`, not through the Replica.
+    // The Replica belongs to the entity's thread, and only that thread may touch it, even
+    // to read its affinity. A reconnect retires the old Replica on that thread (deleteSoon
+    // in EntityRuntime), so reading it here could be a use-after-free inside
+    // QMetaObject::invokeMethod, invisible to AddressSanitizer inside Qt.
     //
-    // Queued, and this is not a preference. A Replica belongs to the thread that acquired
-    // it, which is the entity's; calling into it from the writer thread starts and stops
-    // that thread's timers, which is undefined behaviour and which Qt reports as
-    // "QObject::killTimer: Timers cannot be stopped from another thread". The expensive
-    // half stays here: `toVariants` runs on this thread, so what crosses is one metacall
-    // carrying a list that is already built, and the entity's loop only hands it to a
-    // socket.
+    // `this` lives on the entity's thread (parented to the runtime), so posting to it reads
+    // only its own stable affinity. The QPointer is resolved on the owning thread, where
+    // deletion is serialized, and a retired Replica is dropped. Posting to `this` is safe
+    // because the runtime clears the sink before destroying the client. `toVariants`
+    // already ran here, so the entity loop only hands a built list to a socket.
     //
-    // True on a successful hand-off rather than on delivery: a queued call returns before
-    // anything is sent, so there is no answer to wait for. The case the spool exists for
-    // is the one above, where there is no replica at all.
-    return QMetaObject::invokeMethod(replica, "publish", Qt::QueuedConnection,
-                                     Q_ARG(QVariantList, toVariants(batch)));
+    // Fire and forget, by name: this library does not know the generated Ingest replica
+    // type. True means handed off, with no word on delivery. The spool covers the case of no
+    // replica at all.
+    QPointer<IngestClient> self{this};
+    return QMetaObject::invokeMethod(this, [self, replica, payload]() {
+        if (self.isNull() || replica.isNull()) {
+            return;
+        }
+        QMetaObject::invokeMethod(replica.data(), "publish", Qt::DirectConnection,
+                                  Q_ARG(QVariantList, payload));
+    });
 }
 
 void IngestClient::spool(const QList<TraceEvent> &batch)
 {
-    // This runs on the tracer's writer thread and replay() runs on the entity's, and both
-    // of them have the same file and the same counter in hand.
+    // This runs on the tracer's writer thread and replay() on the entity's; both use the
+    // same file and counter.
     QMutexLocker locker{&m_spoolMutex};
     if (m_spoolPath.isEmpty()) {
         m_droppedBatches += 1;
@@ -168,14 +177,12 @@ void IngestClient::trimLocked()
     if (info.size() <= m_spoolCapBytes) {
         return;
     }
-    // Read what is there, keep the newest that fit, write it back. Not the cheapest way to
-    // bound a file, and it does not need to be. This runs only once the spool is already over its
-    // cap, which means the monitor has been gone long enough that the entity has bigger
-    // problems than the cost of a rewrite.
+    // Read, keep the newest batches that fit, write back. Not cheap, but it runs only once
+    // the spool is over its cap, after a long monitor outage.
     const QList<QVariantList> batches{readSpoolLocked()};
 
-    // Newest first while measuring, so what survives is the end of the record rather than
-    // its beginning. The events just before a crash are the ones worth having.
+    // Newest first while measuring, so the end of the record survives: the events before a
+    // crash matter most.
     QList<QVariantList> kept;
     qint64 bytes{0};
     for (qsizetype index{batches.size() - 1}; index >= 0; --index) {
@@ -190,10 +197,9 @@ void IngestClient::trimLocked()
         bytes += measured.size();
         kept.prepend(batches.at(index));
     }
-    // The newest batch is kept even when it is alone larger than the cap. A cap that small
-    // is a misconfiguration, and the right answer to one is to overshoot it by a bounded
-    // amount (a batch is at most 512 events, by the contract) rather than to keep a spool
-    // file that can never hold anything.
+    // The newest batch is kept even if it alone exceeds the cap. Such a small cap is a
+    // misconfiguration, and overshooting by at most one batch (512 events) beats a spool
+    // that can hold nothing.
 
     QSaveFile rewritten{m_spoolPath};
     if (!rewritten.open(QIODevice::WriteOnly)) {
@@ -207,13 +213,10 @@ void IngestClient::trimLocked()
     rewritten.commit();
 }
 
-/// Every batch the spool file holds, oldest first. The caller holds m_spoolMutex.
+/// Every batch in the spool file, oldest first. The caller holds m_spoolMutex.
 ///
-/// A batch this cannot read ends the walk rather than being skipped over. The file is a
-/// sequence and not an index, so a record that does not parse is not one bad entry: it is
-/// the point past which nothing can be located, and reading on from there would be reading
-/// the middle of a batch as the start of one. A version this build does not know is the
-/// same answer for the same reason.
+/// An unreadable batch ends the walk: the file is a sequence with no index, so nothing
+/// after it can be located. An unknown version is treated the same.
 QList<QVariantList> IngestClient::readSpoolLocked() const
 {
     QList<QVariantList> batches;
@@ -242,16 +245,19 @@ QList<QVariantList> IngestClient::readSpoolLocked() const
 QList<QVariantList> IngestClient::takeSpooledLocked()
 {
     const QList<QVariantList> batches{readSpoolLocked()};
-    QFile::remove(m_spoolPath);
+    // Only when there is a file: with spooling off the path is empty, and QFile::remove
+    // would warn on every reconnect.
+    if (!m_spoolPath.isEmpty()) {
+        QFile::remove(m_spoolPath);
+    }
     return batches;
 }
 
-/// Put batches back that a replay took out and could not deliver, ahead of anything the
-/// writer thread has spooled since. The caller holds m_spoolMutex.
+/// Put back batches a replay took and could not deliver, ahead of anything spooled since.
+/// The caller holds m_spoolMutex.
 ///
-/// Ahead, and not appended, because these are older. The file was taken whole when the
-/// replay began, and whatever is in it now arrived after. A record that reads out of order
-/// is a record an operator has to reconstruct by timestamp.
+/// Ahead, because they are older: the file was taken whole when the replay began, so the
+/// record stays in order.
 void IngestClient::restoreLocked(const QList<QVariantList> &pending)
 {
     if (pending.isEmpty()) {
@@ -281,21 +287,18 @@ void IngestClient::restoreLocked(const QList<QVariantList> &pending)
 
 void IngestClient::replay()
 {
-    // Taken once, under the lock that guards it, and tracked from there: a QPointer copy
-    // still goes null if the Replica is destroyed while this runs, which is the case the
-    // loop below is watching for, and reading the member itself on this thread while the
-    // writer thread reads it on its own is the race that mutex exists to stop.
+    // Taken once under its lock and tracked from there: the QPointer copy still goes null
+    // if the Replica is destroyed meanwhile, and reading the member here while the writer
+    // thread reads it is the race the mutex prevents.
     QPointer<QObject> replica;
     {
         QMutexLocker locker{&m_replicaMutex};
         replica = m_replica;
     }
 
-    // Then the file work, under its own lock, with nothing published while it is held: a
-    // monitor coming back must not stall the thread that records what happens next. What
-    // the spool is holding is taken whole, and the file with it, so a batch the writer
-    // thread appends after this point belongs to the next spool rather than to a file that
-    // has already been read out from underneath it.
+    // Then the file work, under its own lock, publishing nothing while it is held, so a
+    // returning monitor does not stall recording. The spool and its file are taken whole,
+    // so anything the writer thread appends later goes to the next spool.
     QList<QVariantList> batches;
     qint64 dropped{0};
     {
@@ -308,9 +311,9 @@ void IngestClient::replay()
     // Oldest first, so the record reads in the order it happened.
     for (qsizetype index{0}; index < batches.size(); ++index) {
         if (replica.isNull()) {
-            // Gone again mid-replay. What has not been delivered goes back on disk, ahead
-            // of anything spooled since, so the guarantee this class exists for (that what
-            // the monitor missed is kept) holds through a link that drops twice.
+            // The link dropped again mid-replay. What was not delivered goes back on disk,
+            // ahead of anything spooled since, so nothing is lost even if the link drops
+            // twice.
             QMutexLocker locker{&m_spoolMutex};
             restoreLocked(batches.mid(index));
             m_droppedBatches += dropped;
@@ -321,11 +324,9 @@ void IngestClient::replay()
     }
 
     if (dropped > 0 && !replica.isNull()) {
-        // The gap, named. A monitor that received a replay with no word of what was lost
-        // would show a quiet period where there had been an overflowing one. Reported
-        // whether or not there was a file to replay. An entity with no writable state
-        // directory spools nothing and drops every batch the monitor misses, which is the
-        // case where saying so matters most.
+        // Report the gap, so the monitor does not show a quiet period where events were
+        // dropped. Reported with or without a file: an entity without a writable state
+        // directory spools nothing and drops every missed batch.
         TraceEvent gap;
         gap.severity = Severity::Warning;
         gap.category = Category::Lifecycle;
