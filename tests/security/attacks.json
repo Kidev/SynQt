@@ -964,6 +964,20 @@
       "defended_by": "Every bounded wait in the runtime detaches the thread's trace for the length of its loop and restores it after, so a call served inside one starts its own story. The invariant that a slot must not spin a loop at all is stated on SynQt::CallSpan, and the test below reads the runtime for a loop that spins without detaching first, so a wait added later is refused rather than discovered in a record somebody reads days afterwards.",
       "file": "tools/synqt/tests/test_nested_loops_detach.py",
       "test": "test_every_nested_loop_in_the_runtime_detaches_the_trace_first"
+    },
+    {
+      "id": "a-revocation-that-read-the-credential-it-freed",
+      "what": "Revoking a session by its handle (SessionManager::revokeByKey) is the one caller that hands SessionManager::revoke a reference into the very hash node it is about to erase: it walks the table and calls revoke(it.key()). revoke() erased that entry and then went on reading what it was handed -- the name it emits as sessionRemoved, the handle it traces, and the id it tells the authoritative store to drop -- out of a QByteArray whose heap block QHash::erase had already freed (confirmed with __asan_address_is_poisoned: the block reads poisoned while revoke still reads it). It stayed benign because the emitted token is snapshotted before the erase-adjacent work runs and the trace is dropped, and it is invisible to AddressSanitizer because the reads are inside precompiled Qt; but it is undefined behaviour, reachable from IdentityProvider::onReuseDetected -- the response to a stolen device credential replayed -- which is exactly when the id that crosses to the auth entity has to be the right one. With no session TTL (identity.session.ttl_minutes: 0) the table holds the only reference, so the erase frees it outright.",
+      "defended_by": "revoke() copies the id into a local QByteArray before the erase and reads only the copy afterwards, so nothing reads the freed block. The test revokes a session by key with no TTL, through a recording stand-in for the authoritative store, and asserts the session actually removed is the one named to both the sessionRemoved signal and the store.",
+      "file": "tests/m7-caller/tst_sessions.cpp",
+      "test": "revokingByKeyEndsExactlyTheSessionItNamed"
+    },
+    {
+      "id": "a-monitor-batch-that-touched-a-replica-off-its-thread",
+      "what": "The tracer's writer thread reports each batch to the monitor through IngestClient::send, which read the Ingest Replica's raw pointer under a mutex, released it, and then called QMetaObject::invokeMethod on it from that thread. A Replica belongs to the thread that acquired it -- the entity's -- and a reconnect retires the previous one there (EntityRuntime deleteSoon). In the window between the mutex read and the metacall, that Replica can be freed under the writer thread, and invokeMethod then dereferences freed memory: a crash in QMetaObject::invokeMethodImpl, reproduced under a stress that retires the Replica while the writer publishes, and invisible to AddressSanitizer because the read is inside precompiled Qt. deleteLater narrows the window rather than closing it.",
+      "defended_by": "send() marshals the hand-off through the IngestClient itself, which lives on the entity's thread, and touches the Replica only inside that posted call, where the Replica's deletion is serialized against the touch and a QPointer resolves to nothing if it has been retired. The serialization still runs on the writer thread. The test drives the exact shape: one thread publishes without pause while another swaps and frees the Replica on its own thread, and the process must survive.",
+      "file": "tests/monitor/tst_ingest.cpp",
+      "test": "publishingWhileTheReplicaIsRetiredNeverTouchesItOffItsThread"
     }
   ]
 }
