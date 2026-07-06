@@ -46,6 +46,21 @@ qint64 minutesAgo(int minutes)
 
 } // namespace
 
+/// A stand-in for the SessionStore Replica an edge cache writes through. SessionManager
+/// calls removeSession(QString) on whatever attachRemote was given, by name, so this
+/// records the id it is handed. It carries no signals of its own. AttachRemote's connects
+/// to a plain QObject fail with a warning and leave m_remote set, which is all this needs.
+class RemoteRecorder : public QObject
+{
+    Q_OBJECT
+
+public:
+    QString lastRemoved;
+
+public slots:
+    void removeSession(const QString &token) { lastRemoved = token; }
+};
+
 class TestSessions : public QObject
 {
     Q_OBJECT
@@ -146,7 +161,7 @@ private slots:
         QCOMPARE(purgedRemovals.count(), 0);  // already reclaimed
     }
 
-    // The expiry queue holds hints, not truth. Overwriting a token leaves behind a hint
+    // The expiry queue only holds hints. Overwriting a token leaves behind a hint
     // whose creation time no longer matches the record. The purge must drop the hint and
     // keep the record. Getting this wrong would silently sign out a user who just
     // refreshed their session, which no test above would catch.
@@ -248,20 +263,18 @@ private slots:
     }
 
     // The same rotation, with more than two Callers on the session and the elevation asked
-    // for by the one that was made first.
+    // for by the first one made.
     //
-    // A Caller elevates by handing its own `m_sessionId` to setScope, and the rotation
-    // that raises is what sets that member to the new credential. While the parameter was
-    // a reference to it, the first receiver to run changed the value every later receiver
-    // was about to be handed. They were told the session had rotated from itself, matched
-    // nothing, and were left naming a credential that had been erased. What the edge
-    // was then told is worse than that. `sessionRemoved` is emitted from the same value, so
-    // it named the session that had this moment been issued rather than the one being
-    // replaced, and the edge acts on that by closing the connections of the session it just
-    // created. On a browser that is a visitor signed out one instant after signing in.
+    // A Caller elevates by handing its own `m_sessionId` to setScope, and the rotation sets
+    // that member to the new credential. Passed by reference, the first receiver to run
+    // would change the value every later receiver is handed: they would match nothing and
+    // keep naming an erased credential. Worse, `sessionRemoved` is emitted from the same
+    // value, so it would name the session just issued rather than the one replaced, and the
+    // edge would close the new session's connections: a visitor signed out one instant
+    // after signing in.
     //
-    // Two Callers could not see it. The aliased one is also a receiver, and with two it is
-    // the last one, so nothing runs after it has spoiled the value.
+    // Two Callers cannot show it: the aliased one is also a receiver, and with two it runs
+    // last.
     void setScopeReachesCallersMadeAfterTheOneThatAsked()
     {
         SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
@@ -297,14 +310,13 @@ private slots:
         QCOMPARE(removed.first().first().toString().toLatin1(), anonymous);
     }
 
-    // Two elevations before the visitor's next page load. The browser is still holding the
+    // Two elevations before the visitor's next page load. The browser still holds the
     // credential the FIRST one replaced, in an httpOnly cookie no slot call can rewrite, so
-    // the hand-off from that credential is the only thing that gets the visitor their new
-    // one. The second elevation erased what the first hand-off pointed at, `rotationOf`
-    // refuses a hand-off whose target is gone, and the next page load handed the visitor a
-    // fresh anonymous session. Signed in, then signed out again by being promoted. Signing
-    // somebody in and then granting them a role in the same call is an ordinary thing to
-    // write.
+    // the hand-off from that credential is the only way the visitor gets their new one. The
+    // second elevation erases what the first hand-off points at, and `rotationOf` refuses a
+    // hand-off whose target is gone, so the chain has to follow both rotations; otherwise
+    // the next page load hands out a fresh anonymous session. Signing somebody in and
+    // granting them a role in the same call is ordinary.
     void rotationChainStillLeadsToTheLiveSession()
     {
         SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
@@ -364,11 +376,79 @@ private slots:
         QCOMPARE(removals.count(), 1);
     }
 
+    // Revoking by key is the one caller that hands revoke() a reference to the credential
+    // the table itself holds: revokeByKey walks the map and calls revoke(it.key()). A
+    // revoke() that erases that entry and then goes on reading its argument (the name it
+    // emits, the handle it traces, the id it hands the authoritative store) reads a
+    // QByteArray whose heap block QHash::erase has freed.
+    //
+    // No sanitizer catches it: the read is inside precompiled Qt (fromLatin1, keyFor),
+    // which AddressSanitizer does not instrument, and the freed block is not reliably
+    // reclaimed before the read, so no observable value is wrong.
+    // `__asan_address_is_poisoned` shows the block poisoned right after the erase.
+    //
+    // So this is a contract guard: the id is copied before the erase, and revoke-by-key
+    // must name exactly the session it removed. Reached in production from
+    // IdentityProvider::onReuseDetected, the response to a replayed stolen device
+    // credential.
+    void revokingByKeyEndsExactlyTheSessionItNamed()
+    {
+        // No TTL (`identity.session.ttl_minutes: 0`, sessions end by revocation alone) is the
+        // configuration where the table holds the only reference to the credential, so the
+        // erase frees the block rather than leaving the expiry queue holding a copy of it.
+        SessionManager sessions{QStringLiteral("anonymous"), 0};
+
+        // A stand-in for the SessionStore Replica an edge cache writes through: revoke()
+        // calls removeSession(QString) on it by name, and this records the id. That id is
+        // read after the erase, so it is the one the copy has to keep correct.
+        RemoteRecorder store;
+        sessions.attachRemote(&store);
+
+        QList<QByteArray> issued;
+        QStringList keys;
+        for (int index{0}; index < 8; ++index) {
+            const QByteArray minted{sessions.createSession()};
+            issued.append(QByteArray{minted.constData(), minted.size()});  // a deep copy
+            keys.append(SessionManager::keyFor(minted));
+        }
+        const QByteArray target{issued.at(3)};
+
+        QSignalSpy removals{&sessions, &SessionManager::sessionRemoved};
+        sessions.revokeByKey(keys.at(3));
+
+        // The session it named is gone, and no other survivor was touched.
+        QVERIFY(!sessions.isLive(target));
+        for (const QByteArray &other : std::as_const(issued)) {
+            if (other != target) {
+                QVERIFY(sessions.isLive(other));
+            }
+        }
+
+        // It named the session it removed, to the signal and to the authoritative store:
+        // the two reads that decide whether the revocation reaches anywhere but here.
+        QCOMPARE(removals.count(), 1);
+        QCOMPARE(removals.first().at(0).toString(), QString::fromLatin1(target));
+        QCOMPARE(store.lastRemoved, QString::fromLatin1(target));
+    }
+
+    void revokingByAKeyNobodyHoldsChangesNothing()
+    {
+        SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};
+        const QByteArray id{sessions.createSession()};
+        QSignalSpy removals{&sessions, &SessionManager::sessionRemoved};
+
+        sessions.revokeByKey(SessionManager::keyFor(QByteArrayLiteral("never-issued")));
+        sessions.revokeByKey(QString{});
+
+        QVERIFY(sessions.isLive(id));
+        QCOMPARE(removals.count(), 0);
+    }
+
     // The table has a ceiling, and at the ceiling it lets go of the sessions nobody would
     // miss before it refuses anybody. Anyone who can reach an edge can mint a session (a
-    // page load with no live cookie is enough), and until this the only thing that ever
-    // took one away was the TTL: a stranger could grow the table for twelve hours at one
-    // request per record, and on a replicated edge every record went to every replica.
+    // page load with no live cookie is enough); with only the TTL taking sessions away, a
+    // stranger could grow the table for twelve hours at one request per record, and on a
+    // replicated edge every record goes to every replica.
     void theTableHasACeilingAndEvictsTheAnonymousIdleFirst()
     {
         SessionManager sessions{QStringLiteral("anonymous"), OneMinuteTtl};

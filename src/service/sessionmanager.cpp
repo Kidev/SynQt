@@ -296,17 +296,28 @@ QByteArray SessionManager::rotationOf(const QByteArray &id) const
 
 void SessionManager::revoke(const QByteArray &id)
 {
-    const auto it{m_sessions.constFind(id)};
+    // Copied rather than aliased, because `id` may be a reference into the very node this erases.
+    // revokeByKey passes `it.key()`, and QHash::erase destroys the node's key before this
+    // function's later reads (the signal, the trace, the hand-off to the remote store) run.
+    // Reading it after that is a use-after-free of the credential's own bytes. It has stayed
+    // invisible only because those reads feed values that are snapshotted or dropped, and
+    // because the reads happen inside Qt where AddressSanitizer does not see them. The same
+    // hazard is spelled out in IdentityProvider's rate-window prune. This is the one place
+    // that had not taken the copy. A local QByteArray is implicitly shared, so this is a
+    // pointer bump when the caller already owns its own copy and a real copy only when it
+    // does not.
+    const QByteArray token{id.constData(), id.size()};
+    const auto it{m_sessions.constFind(token)};
     if (it != m_sessions.constEnd()) {
         dropRotationTo(it.value());
         m_sessions.erase(it);
-        emit sessionRemoved(QString::fromLatin1(id));
+        emit sessionRemoved(QString::fromLatin1(token));
         trace(Category::Authorization, Severity::Info, QStringLiteral("session revoked"),
-              {{QStringLiteral("session"), keyFor(id)}});
+              {{QStringLiteral("session"), keyFor(token)}});
     }
     if (m_remote) {
         QMetaObject::invokeMethod(m_remote, "removeSession",
-                                  Q_ARG(QString, QString::fromLatin1(id)));
+                                  Q_ARG(QString, QString::fromLatin1(token)));
     }
 }
 
