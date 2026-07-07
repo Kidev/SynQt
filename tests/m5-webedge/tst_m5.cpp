@@ -1356,6 +1356,60 @@ private slots:
         QCOMPARE(thirdConnected.count(), 0);
     }
 
+    // The socket ceiling, behind a balancer. The link ceiling above resolves the visitor
+    // through `public.trusted_proxies`. The socket ceiling is counted at accept, where
+    // there is no request to read a forwarding header from, so it is keyed by the peer.
+    // Behind a balancer the peer is one address for everybody, and a per-address ceiling
+    // on it is a ceiling on the whole site: `max_connections_per_ip * SocketsPerLink`
+    // sockets, 160 at the defaults, after which every visitor is refused at accept, and
+    // one visitor holding that many is enough to get there. The inbound API surface
+    // already switches its per-address socket ceiling off when it trusts a proxy
+    // (ApiServer::start). This is the browser side doing the same. The global ceiling
+    // still holds, and the link ceiling still counts the visitor the header names.
+    void theSocketCeilingIsNotCountedAgainstABalancer()
+    {
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxConnectionsPerIp = 1;
+        config.trustedProxies = {QStringLiteral("127.0.0.1")};
+        config.handshakeTimeoutMs = 60000;
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const auto liveCookie{[&]() {
+            QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+            const QByteArray cookie{reply ? sessionCookie(reply) : QByteArray{}};
+            if (reply) {
+                reply->deleteLater();
+            }
+            return cookie;
+        }};
+
+        // More visitors than the per-address socket ceiling, every one of them arriving
+        // through the balancer, every one of them a different person, and every link held
+        // open. Each is entitled to their one link, and the balancer's address is not a
+        // budget they share.
+        const int links{config.maxConnectionsPerIp * WebEdgeConfig::SocketsPerLink + 2};
+        std::vector<std::unique_ptr<QWebSocket>> held;
+        for (int i{0}; i < links; ++i) {
+            auto socket{std::make_unique<QWebSocket>()};
+            QSignalSpy connected{socket.get(), &QWebSocket::connected};
+            socket->setSslConfiguration(insecureClientConfig());
+            QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+            request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+            request.setRawHeader("Cookie", liveCookie());
+            request.setRawHeader("X-Forwarded-For",
+                                 QByteArrayLiteral("198.51.100.") + QByteArray::number(i + 1));
+            request.setSslConfiguration(insecureClientConfig());
+            socket->open(request);
+            QVERIFY2(QTest::qWaitFor([&connected]() { return connected.count() >= 1; }, 5000),
+                     qPrintable(QStringLiteral("visitor %1 of %2 was refused at the "
+                                               "balancer's address: %3")
+                                    .arg(i + 1).arg(links).arg(socket->errorString())));
+            held.push_back(std::move(socket));
+        }
+    }
+
     void aForgedForwardedHeaderDoesNotMoveTheCap()
     {
         // No trusted proxy configured, which is every edge facing the internet directly.

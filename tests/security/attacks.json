@@ -978,6 +978,13 @@
       "defended_by": "send() marshals the hand-off through the IngestClient itself, which lives on the entity's thread, and touches the Replica only inside that posted call, where the Replica's deletion is serialized against the touch and a QPointer resolves to nothing if it has been retired. The serialization still runs on the writer thread. The test drives the exact shape: one thread publishes without pause while another swaps and frees the Replica on its own thread, and the process must survive.",
       "file": "tests/monitor/tst_ingest.cpp",
       "test": "publishingWhileTheReplicaIsRetiredNeverTouchesItOffItsThread"
+    },
+    {
+      "id": "one-visitor-behind-a-balancer-spends-the-sites-socket-ceiling",
+      "what": "The socket ceiling is counted at accept, where there is no request to read a forwarding header from, so it was keyed by the peer's own address whatever public.trusted_proxies said. Behind a balancer the peer is one address for everybody, so max_connections_per_ip * SocketsPerLink sockets (160 at the defaults) was the ceiling for the whole site, and one visitor holding that many sockets through the balancer had every other visitor refused at accept. The link ceiling had been taught to count the visitor the header names; the socket ceiling underneath it had not.",
+      "defended_by": "WebEdge::trackPendingUpgrade applies the per-address socket ceiling only to a peer public.trusted_proxies does not name, the same rule ApiServer::start applies to its own per-host ceiling; the global socket ceiling still holds for everybody, and the link ceiling still counts the visitor the forwarding header names.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "theSocketCeilingIsNotCountedAgainstABalancer"
     }
   ]
 }

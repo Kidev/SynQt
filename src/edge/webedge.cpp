@@ -1368,15 +1368,26 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
     // true of the Qt ceiling this replaces. Counted back down when the socket is destroyed,
     // below, which an upgrade cannot disconnect the way it disconnects the socket's signals.
     const QString address{normalizedAddress(socket->peerAddress()).toString()};
+    // Per address only when the address is the visitor's. Behind a balancer every socket
+    // is the balancer's, and a per-address ceiling on it is a ceiling on the whole site:
+    // `max_connections_per_ip * SocketsPerLink` sockets for everybody, which one visitor
+    // holding that many reaches on their own, after which every other visitor is refused
+    // at accept. The link ceiling still counts the visitor the forwarding header names
+    // (verifyUpgrade), the global ceiling still holds, and this is the same rule the
+    // inbound API surface applies to its own per-host ceiling (ApiServer::start).
+    const bool perAddress{!m_clientAddress.trustsPeer(socket->peerAddress())};
     const int perIpCeiling{m_config.maxConnectionsPerIp * WebEdgeConfig::SocketsPerLink};
     const int globalCeiling{m_config.maxConnectionsGlobal * WebEdgeConfig::SocketsPerLink};
-    if (m_socketsGlobal >= globalCeiling || m_socketsPerIp.value(address) >= perIpCeiling) {
+    if (m_socketsGlobal >= globalCeiling
+        || (perAddress && m_socketsPerIp.value(address) >= perIpCeiling)) {
         emit upgradeRejected(QStringLiteral("socket cap reached"));
         socket->abort();
         return;
     }
     ++m_socketsGlobal;
-    ++m_socketsPerIp[address];
+    if (perAddress) {
+        ++m_socketsPerIp[address];
+    }
 
     const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
     QTimer *timer{new QTimer{socket}};
@@ -1435,23 +1446,23 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
     // move the connection. Every edge needs it to own the connection, because once the
     // upgrade is accepted nothing else does (see carry()).
     //
-    // Conditional for the same reason as the timer above: the key is reusable, so a
+    // Conditional for the same reason as the timer above. The key is reusable, so a
     // teardown running late must not evict the entry a newer connection put there.
     QObject *tag{new QObject{socket}};
-    connect(tag, &QObject::destroyed, this, [this, key, socket, address]() {
+    connect(tag, &QObject::destroyed, this, [this, key, socket, address, perAddress]() {
         // Null as well as this socket, because by the time a child's destroyed() runs the
-        // parent has already cleared every QPointer to itself: the entry this handler is
+        // parent has already cleared every QPointer to itself. The entry this handler is
         // here to clean up reads as null rather than as the socket it names. A live entry
         // under the same key is a newer connection's, and it stays.
         const QPointer<QAbstractSocket> held{m_pendingRawSockets.value(key)};
         if (held.isNull() || held.data() == socket) {
             m_pendingRawSockets.remove(key);
         }
-        // The socket is gone, whichever path it took: closed by QHttpServer after a
+        // The socket is gone, whichever path it took. Closed by QHttpServer after a
         // request, or destroyed with the connection it was upgraded into. Its slot in the
         // socket ceilings goes with it.
         --m_socketsGlobal;
-        if (--m_socketsPerIp[address] <= 0) {
+        if (perAddress && --m_socketsPerIp[address] <= 0) {
             m_socketsPerIp.remove(address);
         }
     });

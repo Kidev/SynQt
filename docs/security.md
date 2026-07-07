@@ -390,27 +390,32 @@ read them.
   than at upgrade, which is what makes them the bound on a peer that opens sockets and
   never finishes a request. The two ceilings count different things and the socket one
   has to be the looser, because a visitor fetches the bundle over as many as six parallel
-  HTTP connections before it opens its one sync link; a socket ceiling set equal to the
+  HTTP connections before it opens its one sync link. A socket ceiling set equal to the
   link ceiling would refuse real browsers long before it refused an attacker. Eight is
   that headroom, it is derived rather than configured because there is no way for a
-  project to pick it usefully, and releasing a socket readmits the next caller.
+  project to pick it usefully, and releasing a socket readmits the next caller. The
+  per-address half is counted only against a peer `public.trusted_proxies` does not
+  name, because behind a balancer every socket is the balancer's, and a per-address ceiling on
+  it would be a ceiling on the whole site that one visitor could reach alone. The global
+  half still holds there, and the link cap above still counts the visitor the forwarding
+  header names.
 
     The edge counts these itself although Qt 6.12 offers the same two ceilings
     (`QHttpServerConfiguration::setMaximumConnections` and
-    `setMaximumConnectionsPerHost`), because Qt's cannot count a WebSocket link back down:
-    it decrements on the socket's `disconnected`, and its upgrade path disconnects every
+    `setMaximumConnectionsPerHost`), because Qt's cannot count a WebSocket link back down.
+    It decrements on the socket's `disconnected`, and its upgrade path disconnects every
     receiver of that socket's signals as it hands the socket over. Under Qt's ceilings an
     address that had opened its quota of links over the life of the process, page loads and
-    reconnects included, was refused at accept from then on, and after the global quota so
-    was everybody. The edge decrements when the raw socket is destroyed instead, which no
+    reconnects included, would be refused at accept from then on, and after the global quota
+    so would everybody. The edge decrements when the raw socket is destroyed instead, which no
     hand-over can take away, and `tests/m5-webedge` opens more links than the ceiling from
     one address, one at a time, to hold it to that.
 
 - Session ceiling. `security.max_sessions` (100000) bounds the one table a stranger can
-  grow with nothing but page loads: every request that arrives without a live cookie is
-  handed a session, and until the ceiling only the TTL ever took one away, which was
-  twelve hours of memory per request for anyone who could reach the edge, forwarded to
-  every replica of a replicated one. At the ceiling the edge lets go of the oldest
+  grow with nothing but page loads. Every request that arrives without a live cookie is
+  handed a session, and below the ceiling only the TTL ever takes one away, which would
+  otherwise be twelve hours of memory per request for anyone who could reach the edge,
+  forwarded to every replica of a replicated one. At the ceiling the edge lets go of the oldest
   session that nobody would miss, anonymous, at the default scope and with no browser
   connected on it, so under a flood it is the flood's own sessions that go and a visitor
   arriving in the middle of it is still given one. A signed-in session is never evicted,
