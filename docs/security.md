@@ -3,25 +3,21 @@
 
 # Security
 
-Security drives the shape of the SynQt architecture. A system is a small mesh of
-entities, so security has to hold at every link, browser and mesh alike. This
-document
-states the threat model, the one fact about QtRemoteObjects that everything
-compensates for, and the full defensive design across the mesh. Read it before
-deploying. The defaults here are the secure baseline. The notes explain when and
-how to widen them and what you give up.
+A SynQt system is a small mesh of entities, so security has to hold on every link:
+the browser link and every mesh link. This page states the threat model, the gap in
+QtRemoteObjects that SynQt closes, and the defenses on each link. Read it before you
+deploy. The defaults are the secure baseline. The notes say when you can widen them and
+what that costs.
 
-## The fact that drives the model
+## QtRemoteObjects has no security of its own
 
 QtRemoteObjects has no built in authentication and no built in encryption. A bare
-QtRO host listens and will talk to anyone who connects. Qt's own guidance and long
-standing developer discussion treat raw QtRO as suitable for trusted inter process
-or controlled internal networks rather than exposure to untrusted parties. SynQt's job is
-to put every QtRO link behind a gate so that, by the time a QtRO message is
-processed, the link is encrypted, the peer is authenticated, and the action is
-authorized by the owner. All of that comes from the layers SynQt wraps around each
-link rather than from QtRO. The rest of this document is those layers, applied to
-two kinds of link: browser to web edge, and entity to entity.
+QtRO host talks to anyone who connects. Qt's own guidance treats raw QtRO as fit for
+trusted processes on one machine or a controlled internal network, never for untrusted
+peers. SynQt puts every QtRO link behind a gate. Before QtRO processes a message, the
+link is encrypted, the peer is authenticated, and the owner has authorized the action.
+SynQt's layers around each link do all of this. The rest of this page describes those
+layers on the two kinds of link: browser to web edge, and entity to entity.
 
 ## Threat model
 
@@ -34,16 +30,16 @@ Assets to protect:
 - The confidentiality and integrity of traffic on every link.
 - Availability of each entity.
 
-Trust boundaries (there are several):
+Trust boundaries:
 
 - The browser and everything in it (the WebAssembly client, its memory, any page
   script) is untrusted. Anything the client checks can be bypassed.
 - The network between any two entities is untrusted. Assume an active attacker who
   can read and modify anything not protected by TLS.
-- Each service entity is a trust anchor for the data it owns, but does not blindly
-  trust other entities. The web edge does not trust the browser. The database does
-  not trust the edge beyond the specific calls the edge is authorized to make.
-- The mesh CA private key is the root of entity identity and is the most sensitive
+- Each service entity is the authority for the data it owns, and trusts other
+  entities only as far as their authorization goes. The web edge does not trust the
+  browser. The database trusts the edge only for the calls the edge may make.
+- The mesh CA private key is the root of entity identity, and the most sensitive
   secret in the system.
 
 Adversaries considered:
@@ -57,101 +53,104 @@ Adversaries considered:
 - A compromised non sensitive entity (say, a cache) trying to reach a sensitive
   one (the database) it is not authorized to call.
 
-Out of scope: a fully compromised host, side channels in the
-browser WebAssembly engine, and network layer volumetric denial of service (handle
-that with infrastructure).
+Out of scope: a fully compromised host, side channels in the browser WebAssembly
+engine, and volumetric denial of service at the network layer (handle that with
+infrastructure).
 
 ## The browser to edge link
 
-This is the only link an internet client touches. Its defenses are unchanged in
-spirit from the single server design and are summarized here.
+This is the only link an internet client touches.
 
-Transport. All production browser traffic is TLS (https for delivery, wss for
-sync), on one port and one certificate on the web edge. A release build with neither a
-`tls` block nor `public.tls_terminated_upstream` is refused by `synqt check`, before
-anything is built. An edge that carries a certificate and key and cannot read them
-refuses to start rather than listening on a port whose handshake can never complete.
-Plaintext is permitted only for `synqt dev` on localhost.
+**Transport.** All production browser traffic is TLS (https for delivery, wss for sync),
+on one port with one certificate on the web edge. `synqt check` refuses a release build
+that has neither a `tls` block nor `public.tls_terminated_upstream`, before anything is
+built. An edge that has a certificate and key configured but cannot read them refuses to
+start: it never listens on a port whose handshake cannot complete. Plaintext is allowed
+only for `synqt dev` on localhost.
 
-Authentication. The user logs in through a server side flow on the edge, using Qt
-Network Authorization with PKCE (on by default since 6.8) and a random state value
-(CSRF defense on the authorization request). The edge holds the client secret. The
-browser never does. After login the edge issues an httpOnly, Secure, SameSite
-session cookie. Access, refresh, and ID tokens are sensitive. They are stored on the
-edge, associated with the session, never sent to the browser, and never logged. When ID
-tokens are used for identity, the edge verifies their signature against the
-provider JWKS, because Qt does not verify ID tokens itself. Full flow in
-[authentication](authentication.md).
+**Authentication.** The user logs in through a server side flow on the edge. It uses Qt
+Network Authorization with PKCE (on by default since Qt 6.8) and a random state value,
+which defends the authorization request against CSRF. The edge holds the client secret;
+the browser never does. After login the edge issues an httpOnly, Secure, SameSite session
+cookie. The edge stores the access, refresh and ID tokens with the session. It never
+sends them to the browser and never logs them. When the edge uses an ID token for
+identity, it verifies the signature against the provider's JWKS, because Qt does not.
+The full flow is in [authentication](authentication.md).
 
-The upgrade verifier. The edge accepts the browser WebSocket through QHttpServer,
-whose base exposes `addWebSocketUpgradeVerifier()`, handed the full request before
-a socket exists. The verifier, in order, rejecting on first failure:
+**The upgrade verifier.** The edge accepts the browser WebSocket through QHttpServer.
+Its base class offers `addWebSocketUpgradeVerifier()`, which receives the full request
+before a socket exists. The verifier runs these checks in order and rejects on the first
+failure:
 
-1. Origin check. The Origin header must be in `security.allowed_origins` (`self`
-   expands to the edge origin). A browser cannot forge Origin, so this is the
-   primary defense against cross site WebSocket hijacking, and Qt's own guidance is
-   that a browser facing server should validate the origin.
-2. Session credential check. The session cookie must map to a live, unexpired
-   session.
-3. Scope precondition. If `identity.required`, an anonymous connection is rejected
+1. **Origin.** The Origin header must be in `security.allowed_origins` (`self` expands
+   to the edge origin). A browser cannot forge Origin, so this check is the main
+   defense against cross site WebSocket hijacking. Qt's own guidance says a server
+   that faces browsers should validate the origin.
+2. **Session.** The session cookie must map to a live, unexpired session.
+3. **Scope.** If `identity.required` is set, the edge rejects an anonymous connection
    here, before any object exists.
-4. Rate and resource checks. Per IP and global connection caps.
+4. **Rate and resources.** Per IP and global connection caps.
 
-Ending a session ends its connections. Which connect points a connection hosts is
-decided at the upgrade, from the scope the session holds. Every property and model on
-those points then replicates for as long as the socket is open. So signing out,
-revoking a session, or letting it run past its TTL closes every browser connection open
-on it, and the client reconnects as whoever it is now. Without that, taking the
-credential away would leave the data flowing. A new call would be refused, because
-`Caller` re-reads the live session on every one, while everything the owner pushed went
-on arriving in a tab that had signed out.
+**Ending a session ends its connections.** The edge decides which connect points a
+connection hosts at the upgrade, from the session's scope. Every property and model on
+those points then replicates for as long as the socket stays open. So signing out,
+revoking a session, or letting it pass its TTL closes every browser connection on it,
+and the client reconnects as whoever it is now. Otherwise the data would keep flowing
+after the credential was gone: `Caller` re-reads the live session on every call, so a
+new call would fail, but everything the owner pushes would still reach a signed-out tab.
 
-A scope change is not the end of a session, and it is not left where the upgrade put it
-either. `Caller.setScope` rotates the credential and the visitor stays connected, which
-is why raising somebody's scope does not hang up on them from inside the slot that
-raised it. Instead the edge decides again, on the same connection, which scope-gated
-connect points the session now meets. A point the visitor has just become entitled to is
-hosted and the browser's Replica for it comes up, and a point the session no longer
-meets the scope of is withdrawn, so a demotion stops every push on it rather than only
-the next call. `tests/m7-caller` raises and lowers a scope under one live connection to
-hold it to both.
+**A scope change keeps the connection.** `Caller.setScope` rotates the credential and
+the visitor stays connected, so raising a scope from inside a slot does not hang up on
+the caller. The edge decides again, on the same connection, which scope-gated connect
+points the session now meets. It hosts each point the visitor has just gained, and the
+browser's Replica for it comes up. It withdraws each point the session no longer meets,
+so a demotion stops every push on that point, not only the next call.
+`tests/m7-caller` raises and lowers a scope on one live connection to check both.
 
-Rejecting at upgrade, before a socket and before any QtRO state, keeps
-unauthenticated load off the object plane and closes the window where an attacker
-opens many sockets that consume resources before being rejected.
+**The old credential after a rotation.** A slot cannot set a cookie, so the browser
+still holds the credential the elevation replaced. For ten minutes the edge remembers
+what that id became, and on the next page load it hands the visitor the new cookie
+instead of a fresh anonymous session. A route whose own response carries the new
+cookie (the monitor's password gate) keeps no such hand-off. There, the browser that
+signed in already holds the new credential, and a hand-off could only let someone else
+redeem the old id for the new session. That is session fixation, which rotation on
+elevation exists to prevent, so the old id is dead at once. `tests/m5-webedge` presents
+it again after a sign-in and checks that it gets nothing.
 
-A project that declares no `origin_model` serves the
-client and the sync endpoint from one origin, so the session cookie is first party, the
-content security policy `connect-src 'self'` is sufficient, and there is no cross origin
-relaxation to get wrong. This is the deployment SynQt is built around.
+Rejecting at the upgrade, before a socket or any QtRO state exists, keeps
+unauthenticated load off the object plane. An attacker cannot open many sockets that
+cost resources before the edge rejects them.
 
-Split origin (CDN) is the exception. It is opt in by hand, and it is deprecated. Its
-session cookie is a third party cookie, so the app loads and never connects wherever
-third party cookies are restricted, and `synqt check` says so. Put a node near the user
-that serves the bundle and terminates the browser link on one hostname instead. With
-`origin_model: split_origin` the client is served from a different origin than the sync
-endpoint, `allowed_origins` must list the client origin explicitly, and the session
-cookie is issued `SameSite=None; Secure` (the edge derives that from `origin_model`, so
-there is no second setting to get out of step). The origin check remains the anti
-hijacking control. Widening allowed origins requires an explicit, reviewed change.
+**One origin by default.** A project that declares no `origin_model` serves the client
+and the sync endpoint from one origin. The session cookie is first party,
+`connect-src 'self'` is enough in the content security policy, and there is no cross
+origin relaxation to get wrong. SynQt is built around this deployment.
 
-That deployment also needs one narrow relaxation, because a browser arriving from a CDN
-has never made a request to the edge and so has no session to present at the upgrade.
-With `public.serve_client: false`, `client_route` returns `204` and the session cookie to
-a credentialed cross origin fetch, echoing back the requesting origin only when it is
-already an allowed origin, never a wildcard. It hands out nothing else. This is the only
-cross origin relaxation in the system. It exists because the credential has to start
-somewhere, and it is off entirely otherwise.
+**Split origin is deprecated.** Split origin (a CDN) is opt in by hand. Its session
+cookie is a third party cookie, so wherever third party cookies are restricted the app
+loads and never connects, and `synqt check` warns about it. Instead, put a node near the
+user that serves the bundle and terminates the browser link on one hostname. With
+`origin_model: split_origin`, the client comes from a different origin than the sync
+endpoint, `allowed_origins` must list the client origin, and the edge issues the session
+cookie with `SameSite=None; Secure` (derived from `origin_model`, so no second setting
+can disagree). The origin check still stops hijacking. Widening `allowed_origins` takes
+an explicit, reviewed change.
 
-The cost is a third party session cookie, which is measured rather than assumed.
-Under third party cookie restriction the session cannot be obtained and the upgrade is
-refused, so the app loads and never connects, and the `Partitioned` (CHIPS) attribute
-does not repair it (it breaks login instead). The measurement and the full table are in
+Split origin also needs one narrow relaxation. A browser arriving from a CDN has never
+made a request to the edge, so it has no session to present at the upgrade. With
+`public.serve_client: false`, `client_route` answers a credentialed cross origin fetch
+with `204` and the session cookie. It echoes the requesting origin only when that origin
+is already allowed, never a wildcard, and it hands out nothing else. This is the only
+cross origin relaxation in the system, and it is off in every other deployment.
+
+The cost is a third party session cookie, and it was measured. When third party
+cookies are restricted, the browser cannot obtain the session and the edge refuses the
+upgrade, so the app loads and never connects. The `Partitioned` (CHIPS) attribute does
+not fix this; it breaks login instead. The measurement and the full table are in
 [serving the client from another
 origin](project-layout-and-config.md#serving-the-client-from-another-origin). A reverse
-proxy, or a nearby node, that fronts both the bundle and the sync path under one
-hostname gives the same delivery win with none of this, and is the recommended way to
-get both.
+proxy or a nearby node that serves both the bundle and the sync path under one hostname
+gives the same delivery benefit without any of this. Use that.
 
 ## The entity to entity links (the mesh)
 
@@ -161,789 +160,743 @@ whether or not it crosses a host. A permission protected local socket exists as 
 explicit opt in for co located entities, with the weaker caller identity that
 entails (below).
 
-Mutual TLS links (the default): the owner side uses
-QSslServer and the consumer side a QSslSocket. Both set the CA certificate and
-`QSslConfiguration::setPeerVerifyMode(QSslSocket::VerifyPeer)`, so each side
-verifies the other's certificate against the project CA. The accepted socket is
-handed to the QtRO node with `addHostSideConnection()` and the consumer side with
-`addClientSideConnection()`, exactly the QtRO SSL example pattern. Each entity's
-certificate carries its entity name as its identity, so a verified peer
-certificate tells the owner which entity is calling. This is the foundation of
-entity authorization. When the two entities share a host, the same transport
-binds to the loopback interface, so there is no public exposure, and certificate
-identity stays uniform across the mesh, so `Caller.entity` is authenticated the
-same way on every link. `require_mtls_cross_host` is true and cannot be disabled
-in a release build.
+**Mutual TLS links (the default).** The owner uses a QSslServer and the consumer a
+QSslSocket. Both set the project CA certificate and
+`QSslConfiguration::setPeerVerifyMode(QSslSocket::VerifyPeer)`, so each side verifies
+the other's certificate against the project CA. The owner hands the accepted socket to
+its QtRO node with `addHostSideConnection()`, and the consumer uses
+`addClientSideConnection()`, as in the QtRO SSL example. Each entity's certificate
+carries the entity name as its identity, so a verified peer certificate tells the owner
+which entity is calling. Entity authorization rests on this. When two entities share a
+host, the same transport binds to the loopback interface: nothing is exposed publicly,
+and `Caller.entity` is authenticated the same way on every link.
+`require_mtls_cross_host` is true and cannot be turned off in a release build.
 
-Local socket links (opt in, same host only): `transport: local` swaps the
-loopback TLS link for a QLocalServer and QLocalSocket pair, a filesystem object (a
-Unix domain socket or a named pipe) that never touches the network. The operating
-system's filesystem permissions decide who may connect, and the framework
-restricts the socket to the user the entities run as and checks the peer's OS
-credentials (the user id at the other end) through the socket descriptor where the
-platform provides them, on both ends of the link. The owner asks it of every
-process that connects, and the consumer asks it of whatever is listening at the
-socket's path, because that path lives in a directory every user of the machine
-can write and a process of another user that took the name first would otherwise
-be taken for the owner. That does not give you everything. The OS identifies
-the connecting user rather than the connecting entity, so any process running as that
-user can connect and present itself as any entity. `Caller.entity` on a local link
-is therefore trusted by colocation rather than authenticated. The framework treats it
-accordingly. Local transport is never chosen implicitly, `synqt check` flags every
-local link, and a connect point that authorizes by `Caller.entity` should stay on
-the default mutual TLS transport unless every process running as that user on that
-host is trusted as much as the entities themselves.
+**Local socket links (opt in, same host only).** `transport: local` replaces the
+loopback TLS link with a QLocalServer and QLocalSocket pair: a filesystem object (a Unix
+domain socket or a named pipe) that never touches the network. Filesystem permissions
+decide who may connect. The framework restricts the socket to the user the entities run
+as, and where the platform allows it, both ends check the peer's OS user id through the
+socket descriptor. The owner checks every process that connects. The consumer checks
+whatever listens at the socket path, because that path sits in a directory every user
+can write, and a process of another user that took the name first would otherwise pass
+for the owner.
 
-This is the only reason a second check exists. On every other topology
-`Caller.entity` is complete on its own. The
-framework decides the name from a verified certificate, the caller never asserts it,
-and no amount of defensive coding in a slot adds anything. So write
-`if (Caller.entity !== "edge")` and stop. What a local link changes is who decides.
-The name then comes from the connect point's one consumer (which is why `synqt check`
-refuses a local link that lists two, since it could not tell them apart), and the operating
-system vouches only for the peer's user. [`Caller.isEntityVerified`](runtime-api.md#service-caller)
-is false exactly there, so a slot that must not be reachable by colocation even in a
-deployment that opted into it can say
+The OS identifies the connecting user, not the connecting entity. Any process running
+as that user can connect and claim to be any entity. So on a local link `Caller.entity`
+is trusted by colocation, not authenticated, and the framework treats it that way. It
+never picks the local transport implicitly, and `synqt check` flags every local link.
+Keep a connect point that authorizes by `Caller.entity` on mutual TLS unless you trust
+every process of that user on that host as much as the entities themselves.
+
+**When to check `Caller.isEntityVerified`.** Only local links need a second check. On
+every other link `Caller.entity` is complete on its own: the framework takes the name
+from a verified certificate, the caller never asserts it, and extra checks in a slot add
+nothing. Write `if (Caller.entity !== "edge")` and stop. On a local link the name comes
+from the connect point's only consumer (so `synqt check` refuses a local link with two
+consumers, which it could not tell apart), and the OS vouches only for the peer's user.
+[`Caller.isEntityVerified`](runtime-api.md#service-caller) is false there and nowhere
+else. A slot that must stay out of reach of colocated processes, even in a deployment
+that opted into local links, can write
 `if (!Caller.isEntityVerified || Caller.entity !== "edge")`. On a mesh with no local
-link that condition is dead code, and writing it everywhere buys nothing.
+link that condition is dead code.
 
-Authorization by entity. Once the calling entity is known (by verified
-certificate on the default mutual TLS links, and by colocation only on an opt in
-local socket link), the owner authorizes per
-connect point and per slot. The consumer allowlist on each connect point is the
-coarse gate. Only listed consumers may acquire the Replica, and the framework opens
-only those links. Inside a slot, the owner can check `Caller.entity` for fine
-grained decisions (for example, a database slot that only the edge may call). The
-push only property default and per peer instances apply here just as they do for
-browser users.
+**Authorization by entity.** Once the owner knows the calling entity (from a verified
+certificate on mutual TLS, from colocation on an opt in local link), it authorizes per
+connect point and per slot. The consumer allowlist on each connect point is the coarse
+gate: only listed consumers may acquire the Replica, and the framework opens only those
+links. Inside a slot, the owner can check `Caller.entity` for finer decisions (for
+example, a database slot only the edge may call). Push only properties and per caller
+instances work here as they do for browser users.
 
-No registry, deny by default. SynQt does not use the QtRO registry, because the
-registry provides ambient discovery and automatic connection, where any node that
-reaches it can learn about and connect to sources, which a zero trust mesh cannot
-allow. Instead the topology is fully declared (each connect point
-names its owner and consumers), and only those links are opened, each mutually
-authenticated. An entity can reach only what configuration permits. There is no
-dynamic discovery surface to attack.
+**No registry, deny by default.** SynQt does not use the QtRO registry. The registry
+offers ambient discovery and automatic connection: any node that reaches it can find
+sources and connect to them, which a zero trust mesh cannot allow. Instead, the
+configuration declares the whole topology (each connect point names its owner and
+consumers), and the framework opens only those links, each mutually authenticated. An
+entity reaches only what the configuration allows, and there is no discovery surface to
+attack.
 
 ## Network segmentation and the database
 
-The web edge is the only entity of `type: web_edge` and the only one bound
-to a public interface. Every other entity binds only to a private interface (or a
-local socket) and is unreachable from the internet. A database entity:
+The web edge is the only entity of `type: web_edge` and the only one bound to a public
+interface. Every other entity binds to a private interface (or a local socket), so the
+internet cannot reach it. A database entity:
 
-- is not a web edge, so it never serves a client and never faces the net,
-- is listed as the consumer of nothing the browser owns and as the owner of connect
-  points consumed only by the entities that need its data (typically
-  the edge or a small number of services),
-- authorizes the calling entity inside its slots, so even a compromised cache that
-  somehow reached it would be refused by `Caller.entity` checks,
-- holds its own secrets (the data file path, any encryption key) in its own `.env`,
+- is not a web edge, so it never serves a client and never faces the internet;
+- owns connect points that only the entities needing its data consume (usually the
+  edge or a few services), and consumes nothing the browser owns;
+- checks the calling entity inside its slots, so even a compromised cache that somehow
+  reached it would fail the `Caller.entity` check;
+- keeps its own secrets (the data file path, any encryption key) in its own `.env`,
   which it does not share with the edge.
 
-There is no path from the browser to the database except through the
-edge connect points that the edge implements and authorizes, and those calls are
-themselves authenticated as coming from the edge. Two trust boundaries stand
-between an internet user and the durable data.
+The browser reaches the database only through the connect points the edge implements
+and authorizes, and the database authenticates those calls as coming from the edge. Two
+trust boundaries stand between an internet user and the durable data.
 
-External engines behind a provider. When an entity is backed by a third party
-engine through a provider (PostgreSQL, MongoDB, Redis, see [providers](providers.md)),
-the engine is reachable only through the entity, and the entity is the trust
-boundary. The masking is itself a security property:
+**External engines behind a provider.** When a provider puts a third party engine
+behind an entity (PostgreSQL, MongoDB, Redis; see [providers](providers.md)), only that
+entity can reach the engine, and the entity is the trust boundary. Hiding the engine
+this way is itself a security property:
 
-- The engine connection lives only inside the entity. No mesh consumer, and no
-  browser, gets the engine address, the credentials, or a direct path to it. Every
-  call still passes the entity's `Caller` checks before any provider call runs, so
-  the entity's fine grained authorization sits in front of an engine whose own
-  authorization may be coarser.
-- Engine credentials are `env:` references on that entity only, never in
-  `synqt.yaml`, never referenced by a client target, never logged. The build
-  rejects a client target that references a provider secret.
-- The connection from the entity to an external engine uses TLS with verification.
-  A relational provider sets full verification (`sslmode: verify-full` or the
-  driver equivalent) against a configured CA, and document and cache providers
-  enable TLS and verify the engine certificate. A plaintext or unverified
-  connection to an external engine is allowed only in dev on localhost and is
-  refused in a release build.
-- The engine is segmented like any sensitive entity, on a private address reachable
-  only by its entity, never public.
-- Provider client libraries are pinned through vcpkg and reviewed. A custom provider
-  is reviewed as entity code. Using a provider does not introduce an unaudited
-  binary.
+- The engine connection lives only inside the entity. No mesh consumer and no browser
+  gets the engine address, the credentials, or a direct path to it. Every call passes
+  the entity's `Caller` checks before any provider call runs, so the entity's fine
+  grained authorization sits in front of an engine whose own may be coarser.
+- Engine credentials are `env:` references on that entity only. They never appear in
+  `synqt.yaml`, in a client target, or in a log. The build rejects a client target
+  that references a provider secret.
+- The entity connects to an external engine over verified TLS. A relational provider
+  uses full verification (`sslmode: verify-full` or the driver's equivalent) against a
+  configured CA. Document and cache providers enable TLS and verify the engine
+  certificate. A plaintext or unverified connection is allowed only in dev on
+  localhost; a release build refuses it.
+- The engine sits on a private address that only its entity can reach, like any
+  sensitive entity.
+- Provider client libraries are pinned through vcpkg and reviewed. A custom provider is
+  reviewed like entity code, so a provider brings in no unaudited binary.
 
-So adding a managed PostgreSQL or a MongoDB cluster does not widen the system's
-exposure. It adds one authenticated, verified, credential isolated connection
-inside one entity, behind the same two trust boundaries that already protect the
-embedded case.
+Adding a managed PostgreSQL or a MongoDB cluster therefore does not widen the system's
+exposure. It adds one authenticated, verified connection with isolated credentials,
+inside one entity, behind the same two trust boundaries as the embedded case.
 
 ## Authorization, restated for the mesh
 
-Authentication says who a caller is (a user, by session, or an entity, by
-certificate). Authorization says what they may do. SynQt authorizes on every
-privileged action, at the owner, and never trusts a caller's own checks.
+Authentication says who a caller is: a user, by session, or an entity, by
+certificate. Authorization says what they may do. SynQt authorizes every privileged
+action at the owner and never trusts a caller's own checks.
 
 Layers, outermost to innermost:
 
-- Topology. An entity may open only the links its consumed connect points imply.
-- Consumer allowlist. Only listed consumer entities may acquire a connect point.
-- Connect point scope (browser users). The edge does not acquire a scoped connect
-  point's Replica for an under scoped user.
-- Sharing. `shared: false` on an entity keeps one user's authoritative state separate
-  from another's, and one calling entity's separate from another's. A shared entity
-  answers everyone from one Source, and each caller reaches it through a mirror carrying
-  their own `Caller`, so a slot can still refuse them.
-- Push only properties. Consumers cannot set owner properties directly, only
-  request a change the owner controls.
-- In slot checks. Every slot checks `Caller` (a user scope and ownership, or a
-  calling entity) and validates input before acting.
+- **Topology.** An entity may open only the links its consumed connect points imply.
+- **Consumer allowlist.** Only listed consumer entities may acquire a connect point.
+- **Connect point scope** (browser users). The edge does not acquire a scoped connect
+  point's Replica for a user below that scope.
+- **Sharing.** `shared: false` on an entity keeps each user's authoritative state apart,
+  and each calling entity's. A shared entity answers everyone from one Source, and each
+  caller reaches it through a mirror that carries their own `Caller`, so a slot can
+  still refuse them.
+- **Push only properties.** A consumer cannot set an owner property. It can only ask
+  for a change, which the owner controls.
+- **Checks in the slot.** Every slot checks `Caller` (a user's scope and ownership, or
+  the calling entity) and validates its input before acting.
 
-Client and consumer side checks (hiding a button, or an entity choosing not to
-call) are convenience only. The owner repeats every check.
+Checks on the client or consumer side (hiding a button, an entity choosing not to call)
+are conveniences. The owner repeats every check.
 
 ### The session that travels with a mesh call
 
-Only the first link of a chain authenticates a person. A connect point a service consumes
-therefore carries the session the calling entity is acting for, so that a service the
+Only the first link of a chain authenticates a person. So a connect point that a
+service consumes carries the session the calling entity acts for, and a service the
 browser can never reach still knows who a request is for (see
-[the session down the chain](runtime-api.md#the-session-down-the-chain)). Three properties
-make that safe to build on:
+[the session down the chain](runtime-api.md#the-session-down-the-chain)). Four rules
+make this safe:
 
-- **The certificate is what authorizes the call.** The forwarded session is the calling
-  entity's assertion, worth trusting that entity and no more, which is a decision the
-  consumer allowlist already made. `Caller.entity` remains the check, and
-  `Caller.identity` is what the check lets you read.
-- **The browser has no such field.** A connect point only the client consumes carries no
-  session on the wire at all, so there is nothing for a hand-crafted client to fill in. On
-  a point with both browser and service consumers the field exists, and a user's `Caller`
-  discards it, because a browser's session is the credential the edge looked up at the
-  upgrade, and nothing inside a call can change who that is.
-- **The credential stays at the edge.** What travels is a key derived from the session id
-  rather than the id. A downstream entity can correlate and can key its own state on it,
-  and cannot replay it at the edge. `Caller.setScope` stays the edge's alone, since only
-  the entity that authenticated a session may elevate it.
-- **The scope travels and the vocabulary does not.** `scopes.order` is the edge's, so a
-  `<user>` gate on a service is an exact match on the name the session holds rather than a
-  hierarchy (see [scope down the chain](runtime-api.md#scope-down-the-chain)). Deciding
-  what a tier may do belongs to the entity that knows who the person is.
+- **The certificate authorizes the call.** The forwarded session is the calling
+  entity's claim. Trust it as far as you trust that entity, which the consumer
+  allowlist already decided. `Caller.entity` is still the check, and `Caller.identity`
+  is what the check lets you read.
+- **The browser has no such field.** A connect point that only the client consumes
+  carries no session on the wire, so a hand-crafted client has nothing to fill in. On a
+  point with both browser and service consumers the field exists, and a user's `Caller`
+  discards it: a browser's session is the credential the edge looked up at the upgrade,
+  and nothing inside a call can change it.
+- **The credential stays at the edge.** What travels is a key derived from the session
+  id, not the id itself. A downstream entity can correlate on it and key its own state
+  on it, but cannot replay it at the edge. Only the edge can call `Caller.setScope`,
+  since only the entity that authenticated a session may elevate it.
+- **The scope travels, the vocabulary does not.** `scopes.order` belongs to the edge,
+  so a `<user>` gate on a service is an exact match on the scope name, not a hierarchy
+  (see [scope down the chain](runtime-api.md#scope-down-the-chain)). The entity that
+  knows who the person is decides what a tier may do.
 
-The [trace identifiers](monitoring.md#how-one-click-becomes-one-trace) ride in the same map
-and are governed by the same two rules, because they are repeated by every entity further
-down the chain and written into the monitoring history. A browser's `Caller` discards them
-exactly as it discards a claimed session, so a trace begins at the edge. Between entities
-they are read only in the shape the tracer mints, so a peer cannot choose the length or the
-content of a value that travels under this entity's name. Nothing is authorized by one. A
-trace identifier says which story a call belongs to and never who may make it.
+The [trace identifiers](monitoring.md#how-one-click-becomes-one-trace) travel in the
+same map under the same rules, because every entity further down repeats them and the
+monitoring history records them. A browser's `Caller` discards them, as it discards a
+claimed session, so a trace starts at the edge. Between entities, a trace identifier is
+accepted only in the shape the tracer mints, so a peer cannot choose the length or
+content of a value that travels under this entity's name. A trace identifier authorizes
+nothing. It says which story a call belongs to, never who may make it.
 
 ## Data minimization in the contract
 
-The contract is an allowlist of what may cross any link, and the framework cannot
-send what the contract does not declare. Models expose only their listed roles, so
-an owner row may carry owner ids, internal flags, or private fields that never
-serialize to any consumer. Only configured connect points are exposed. There is no
-ambient way for any consumer (browser or entity) to reach an arbitrary QObject, and
-with the registry rejected there is no discovery path either.
+The contract is an allowlist of what may cross a link. The framework cannot send what
+the contract does not declare. A model exposes only its listed roles, so an owner's row
+can hold owner ids, internal flags or private fields that never reach a consumer. Only
+configured connect points are exposed. No consumer, browser or entity, can reach an
+arbitrary QObject, and without the registry there is no discovery path either.
 
-The same allowlist runs per caller. A member written `<admin>` in the `export:` block
+The allowlist also applies per caller. A member written `<admin>` in the `export:` block
 ([gating one member](programming-model.md#gating-one-member-scope)) crosses only to a
-session holding that scope, and the check is on the flow rather than on the shape. The
-Source answering an under-scoped caller never seeds the member, never follows it, and
-never emits it, so nothing is sent to be filtered later. This matters most for the members
-that take no call to read. A gated `slot` can be refused when it is called, but a `prop`
-and a `model` are pushed state, and were they sent and hidden, a console would be enough to
-read them.
+session holding that scope. The Source that answers a caller below that scope never
+seeds the member, never follows it and never emits it, so nothing is sent and filtered
+later. This matters most for members that need no call to read. A gated `slot` can
+refuse the call, but a `prop` and a `model` are pushed state: if they were sent and
+merely hidden, a browser console could read them.
 
 ## Denial of service and resource limits
 
-- Handshake timeout. The edge accepts browser sockets through the QHttpServer
-  upgrade path, which has no built in handshake timeout, so the framework enforces
-  `security.handshake_timeout_ms` itself (10 seconds by default). A connection that
-  has not completed its upgrade within the window is closed and its resources
-  reclaimed. (Qt's QWebSocketServer does enforce its own 10 second default, but
-  that class is used only in the transport spike, never on the edge.) The
-  verifier's early rejection compounds this.
+- **Handshake timeout.** The QHttpServer upgrade path has no handshake timeout of its
+  own, so the framework enforces `security.handshake_timeout_ms` (10 seconds by
+  default). It closes a connection that has not finished its upgrade in time and frees
+  its resources. (Qt's QWebSocketServer has its own 10 second default, but only the
+  transport spike uses that class, never the edge.) The verifier's early rejection adds
+  to this.
 
-    What the window covers is a socket that connects and then says nothing. It is
-    armed when the socket is accepted and cancelled by the first byte the peer sends,
-    whether that byte starts an upgrade request or an ordinary page request. The
-    distinction matters in practice. A browser fetches the page, the loader and the bundle
-    over the connection it goes on to upgrade, so a deadline that outlived that first
-    byte would cut an ordinary transfer on a slow link and record refused upgrades
-    nobody attempted.
+    The window covers a socket that connects and then sends nothing. It starts when the
+    edge accepts the socket and stops at the first byte the peer sends, whether that byte
+    starts an upgrade or a page request. A browser fetches the page, the loader and the
+    bundle over the connection it later upgrades, so a deadline that outlived the first
+    byte would cut a normal transfer on a slow link and log refused upgrades nobody
+    attempted.
 
-    This window does not bound a peer that sends part of a request and never
-    finishes it. If it goes quiet,
-    QHttpServer's own keep-alive timeout closes it (15 seconds by default, measured at
-    about 21 from the first byte), so it is covered, by Qt rather than by this window.
-    If it keeps dribbling bytes it never goes idle, so neither the handshake window nor
-    the keep-alive timeout ends it, and the connection caps below never count it
-    either, because those are counted when a connection is hosted, and one that never
-    completes a request is never hosted. What bounds it is the socket ceiling immediately
-    below, which is counted at accept. That one connection still lives as long as it keeps
-    dribbling, and the 64 KiB header limit it would take days to reach at that rate is
-    the only thing that ends it, but an address cannot have an unbounded number of them.
-    A reverse proxy in front of an edge that faces the internet directly is the way to
-    end the individual connection sooner.
+    The window does not bound a peer that sends part of a request and never finishes. If
+    that peer goes quiet, QHttpServer's keep-alive timeout closes it (15 seconds by
+    default, measured at about 21 from the first byte). If it keeps dribbling bytes, it
+    never goes idle, so neither timeout ends it. The connection caps below never count it
+    either: they count hosted connections, and a connection that never completes a
+    request is never hosted. The socket cap below bounds it, because the edge counts
+    sockets at accept. Such a connection lives until it reaches the 64 KiB header limit,
+    which takes days at that rate, but one address cannot hold an unbounded number of
+    them. To end each one sooner, put a reverse proxy in front of an edge that faces the
+    internet.
 
-- Connection caps. `security.max_connections_per_ip` (20) and
-  `security.max_connections_global` (1000), applied inside the upgrade verifier, so
-  a connection over the cap is refused before a socket exists.
-- Socket caps. The same two numbers, times eight, counted by the edge at accept rather
-  than at upgrade, which is what makes them the bound on a peer that opens sockets and
-  never finishes a request. The two ceilings count different things and the socket one
-  has to be the looser, because a visitor fetches the bundle over as many as six parallel
-  HTTP connections before it opens its one sync link. A socket ceiling set equal to the
-  link ceiling would refuse real browsers long before it refused an attacker. Eight is
-  that headroom, it is derived rather than configured because there is no way for a
-  project to pick it usefully, and releasing a socket readmits the next caller. The
-  per-address half is counted only against a peer `public.trusted_proxies` does not
-  name, because behind a balancer every socket is the balancer's, and a per-address ceiling on
-  it would be a ceiling on the whole site that one visitor could reach alone. The global
-  half still holds there, and the link cap above still counts the visitor the forwarding
-  header names.
+- **Connection caps.** `security.max_connections_per_ip` (20) and
+  `security.max_connections_global` (1000). The upgrade verifier applies them, so the
+  edge refuses a connection over the cap before a socket exists.
+- **Socket caps.** The same two numbers times eight, counted at accept instead of at
+  upgrade. This is what bounds a peer that opens sockets and never finishes a request.
+  The socket cap must be the looser one, because a visitor fetches the bundle over up
+  to six parallel HTTP connections before opening its one sync link; a socket cap equal
+  to the link cap would refuse real browsers long before an attacker. The factor of
+  eight is that headroom. It is derived, not configured, because a project has no
+  useful way to choose it. Releasing a socket admits the next caller. The per address
+  cap counts only peers that `public.trusted_proxies` does not name: behind a balancer
+  every socket belongs to the balancer, and a per address cap there would be a cap on
+  the whole site that one visitor could fill. The global cap still applies there, and
+  the link cap still counts the visitor that the forwarding header names.
 
-    The edge counts these itself although Qt 6.12 offers the same two ceilings
+    Qt 6.12 offers the same two ceilings
     (`QHttpServerConfiguration::setMaximumConnections` and
-    `setMaximumConnectionsPerHost`), because Qt's cannot count a WebSocket link back down.
-    It decrements on the socket's `disconnected`, and its upgrade path disconnects every
-    receiver of that socket's signals as it hands the socket over. Under Qt's ceilings an
-    address that had opened its quota of links over the life of the process, page loads and
-    reconnects included, would be refused at accept from then on, and after the global quota
-    so would everybody. The edge decrements when the raw socket is destroyed instead, which no
-    hand-over can take away, and `tests/m5-webedge` opens more links than the ceiling from
-    one address, one at a time, to hold it to that.
+    `setMaximumConnectionsPerHost`), but Qt cannot count a WebSocket link back down. It
+    decrements on the socket's `disconnected` signal, and its upgrade path disconnects
+    every receiver of that socket's signals when it hands the socket over. With Qt's
+    ceilings, an address that had opened its quota of links over the life of the
+    process (page loads and reconnects included) would be refused at accept from then
+    on, and after the global quota, so would everyone. The edge counts itself and
+    decrements when the raw socket is destroyed, which no hand-over can bypass.
+    `tests/m5-webedge` opens more links than the cap from one address, one at a time,
+    to check this.
 
-- Session ceiling. `security.max_sessions` (100000) bounds the one table a stranger can
-  grow with nothing but page loads. Every request that arrives without a live cookie is
-  handed a session, and below the ceiling only the TTL ever takes one away, which would
-  otherwise be twelve hours of memory per request for anyone who could reach the edge,
-  forwarded to every replica of a replicated one. At the ceiling the edge lets go of the oldest
-  session that nobody would miss, anonymous, at the default scope and with no browser
-  connected on it, so under a flood it is the flood's own sessions that go and a visitor
-  arriving in the middle of it is still given one. A signed-in session is never evicted,
-  however idle. When nothing can be let go of, a page load is served without a cookie,
-  and the sign-in, callback and device routes answer that no session can be issued.
-- Message size cap. `security.max_message_bytes` (1 MiB) is set on each accepted
-  browser socket as both the message and the frame limit, so an oversized frame is
-  rejected as it arrives rather than after it is buffered.
-- Idle connection timeout. `security.keep_alive_timeout_s` (15) is QHttpServer's own,
-  and it is the limit that ends a peer which sends part of a request and then goes
-  quiet, since the handshake window above lets go at the first byte.
-- Request body cap. `security.max_body_bytes`, answered with 413. Anyone who can
-  reach the edge can post to it, so this is what decides how much a stranger may make
-  it buffer. Left out it is derived from what the entity accepts: 64 KiB for an edge
-  whose own routes carry a session token and a password field, and the ceiling
-  `network.inbound` already names for one that receives calls. Qt's own default is
-  32 MiB, which is the right answer for a general-purpose server rather than for this.
-- Request rate cap. `security.max_requests_per_second`, off unless a project sets it,
-  answered with 429. It is off by default because Qt counts the peer address and
-  knows nothing of `X-Forwarded-For`. On an edge facing the internet that is the
-  visitor, and behind a balancer it is one bucket for everybody, where a limit meant
-  to slow one client refuses the whole site. `synqt check` refuses the combination
-  rather than letting a deployment discover it under load.
-- Header and URL ceilings. Left at Qt's values (64 KiB of headers in total, 48 KiB
-  for one field, 128 fields, a 64 KiB URL), which no browser approaches. They are
-  named here because they are the only thing bounding how long one peer may dribble a
-  request, and at one byte every few seconds that bound is days away. How many such
-  peers there may be is the socket cap's job rather than theirs.
-- Read buffer ceiling. Capping one frame does not cap their sum, so the transport
-  also caps what one connection may hold unread. Past the ceiling it discards the
-  buffer and closes the connection, rather than letting a peer that sends faster
-  than anything reads decide how much memory the process allocates. The edge sets it
-  to four times `max_message_bytes` per connection, so tightening that one knob
-  tightens both, and with the global connection cap the two bound the edge's total
-  read memory. A drained buffer also returns its allocation instead of keeping it
-  for the life of the connection. On an edge running `threads: N` the ceiling is
-  measured on the socket's thread rather than the device's. There the socket is
-  read by a thread that is never busy, and each message it takes off the wire is
-  posted to the thread hosting the caller's Sources, so the queue between the two
-  is the buffer. The channel counts what it has sent across and not yet been told
-  was read, and cuts the peer off at the same ceiling.
-- Stalled peers. The same concern the other way round. A tab that stops reading (a
-  debugger paused on the page, a script that froze it, or a client written to do
-  exactly this) fills its receive window and the kernel's send buffer, and from then
-  on every message the owner publishes for it sits in the socket's own buffer, which
-  Qt does not bound, so without a ceiling the edge would keep every fan-out message
-  for such a tab for as long as it stayed connected. What is measured is what the
-  kernel refused, after each flush rather than on each write, so a burst the size of a
-  large model is not mistaken for a peer in trouble. Past four times
-  `max_message_bytes` the peer has to be seen taking bytes. Falling behind is not on
-  its own a reason to do anything,
-  because a browser on a slow link is meant to fall behind and cutting one off for
-  that would be the framework deciding how fast a visitor's connection has to be. A
-  peer already past the ceiling that has handed the kernel nothing at all for thirty
-  seconds has stopped, and its connection is aborted rather than closed, because a
-  close frame would queue behind everything it is not reading and a graceful
-  disconnect waits for that queue to drain.
+- **Session ceiling.** `security.max_sessions` (100000) bounds the one table a stranger
+  can grow with page loads alone. The edge gives a session to every request that
+  arrives without a live cookie, and below the ceiling only the TTL removes one. Without
+  a ceiling, anyone who could reach the edge could cost it twelve hours of memory per
+  request, copied to every replica of a replicated edge. At the ceiling the edge drops
+  the oldest session nobody would miss: anonymous, at the default scope, with no
+  browser connected. Under a flood, the flood's own sessions go, and a visitor arriving
+  in the middle still gets one. The edge never evicts a signed-in session, however
+  idle. When it can drop nothing, it serves the page without a cookie, and the sign-in,
+  callback and device routes answer that no session can be issued.
+- **Message size cap.** `security.max_message_bytes` (1 MiB) is set on each accepted
+  browser socket as both the message and the frame limit, so the edge rejects an
+  oversized frame as it arrives, before buffering it.
+- **Idle connection timeout.** `security.keep_alive_timeout_s` (15) is QHttpServer's
+  own. It ends a peer that sends part of a request and goes quiet, since the handshake
+  window stops at the first byte.
+- **Request body cap.** `security.max_body_bytes`, answered with 413. Anyone who can
+  reach the edge can post to it, so this sets how much a stranger can make it buffer.
+  When left out, it follows what the entity accepts: 64 KiB for an edge whose own routes
+  carry a session token and a password field, or the ceiling `network.inbound` sets for
+  an edge that receives calls. Qt's default, 32 MiB, suits a general purpose server,
+  not this one.
+- **Request rate cap.** `security.max_requests_per_second`, answered with 429, and off
+  unless a project sets it. Qt counts the peer address and ignores `X-Forwarded-For`.
+  On an edge facing the internet the peer is the visitor. Behind a balancer it is one
+  bucket for everybody, and a limit meant to slow one client refuses the whole site.
+  `synqt check` refuses that combination so a deployment does not discover it under
+  load.
+- **Header and URL ceilings.** Qt's defaults: 64 KiB of headers in total, 48 KiB for
+  one field, 128 fields, a 64 KiB URL. No browser comes near them. They are the only
+  bound on how long one peer can dribble a request, and at one byte every few seconds
+  that bound is days away. The socket cap limits how many such peers there can be.
+- **Read buffer ceiling.** Capping each frame does not cap their sum, so the transport
+  also caps how much one connection may hold unread. Past the ceiling it discards the
+  buffer and closes the connection, so a peer that sends faster than anything reads
+  cannot decide how much memory the process allocates. The edge sets the ceiling to
+  four times `max_message_bytes` per connection, so one setting tightens both. With the
+  global connection cap, the two bound the edge's total read memory. A drained buffer
+  releases its allocation. On an edge running `threads: N`, the ceiling is measured on
+  the socket's thread. That thread reads the socket and posts each message to the
+  thread hosting the caller's Sources, so the queue between them is the buffer. The
+  channel counts what it has posted and not yet had confirmed as read, and cuts the
+  peer off at the same ceiling.
+- **Stalled peers.** The same problem in the other direction. A tab that stops reading
+  (a debugger paused on the page, a frozen script, or a client written to do this)
+  fills its receive window and the kernel's send buffer. After that, every message the
+  owner publishes for it waits in the socket's buffer, which Qt does not bound, and
+  without a ceiling the edge would keep every fan-out message for that tab as long as
+  it stayed connected. The edge measures what the kernel refused after each flush, not
+  after each write, so a burst the size of a large model does not look like a problem.
+  Past four times `max_message_bytes`, the peer must be seen taking bytes. Falling
+  behind alone triggers nothing: a browser on a slow link is expected to fall behind,
+  and the framework does not decide how fast a visitor's connection must be. A peer
+  past the ceiling that has given the kernel nothing for thirty seconds has stopped.
+  The edge aborts its connection instead of closing it, because a close frame would
+  queue behind everything the peer is not reading, and a graceful disconnect waits for
+  that queue to drain.
 
-- Password and credential gates. Two routes take something guessable and are rationed by
-  client address on a one minute fixed window: the entity password gate (`sign_in`) at ten
-  attempts, and the desktop device-credential route at thirty. Both are counted before the
-  credential is read, so a refusal says nothing about it, and both answer `429` with
-  `Retry-After`. What is being rationed is the cost as much as the guess. A PBKDF2 is
-  expensive on purpose, and an unauthenticated caller must not be able to buy one per packet.
+- **Password and credential gates.** Two routes accept something guessable, and the
+  edge rations them by client address over a one minute fixed window: the entity
+  password gate (`sign_in`) at ten attempts, the desktop device credential route at
+  thirty. The edge counts an attempt before reading the credential, so a refusal
+  reveals nothing about it. Both answer `429` with `Retry-After`. The ration limits
+  cost as well as guesses: PBKDF2 is expensive on purpose, and an unauthenticated
+  caller must not get one per packet.
 
-    The table each keeps is keyed by whatever address dialled in, so it needs a ceiling of
-    its own, and the ceiling must not become a way to clear the count. Past four thousand
-    addresses the windows that have run out are dropped, which is evidence of nothing. When
-    that frees nothing, the gate refuses for the rest of the window rather than emptying the
-    table. Emptying it is how a guesser who can present addresses, and an IPv6 /64 is an
-    unlimited supply of them, hands themselves a fresh budget on demand.
+    Each gate keys its table by the calling address, so the table needs its own
+    ceiling, and that ceiling must not become a way to reset the count. Past four
+    thousand addresses the gate drops expired windows, which proves nothing either way.
+    If that frees nothing, the gate refuses everyone for the rest of the window instead
+    of emptying the table. Emptying it would hand a fresh budget to any guesser who can
+    present new addresses, and an IPv6 /64 supplies them without limit.
 
-    That has an availability cost. Four thousand distinct addresses arriving at one of
-    these routes inside a minute make it answer `429` to everybody until the minute is out.
-    That trade is the right one. A password gate that can be brute-forced is worse than one
-    a flood can make briefly unavailable, and a flood on that scale is already the case for
-    a reverse proxy in front of the edge.
+    This costs some availability. Four thousand distinct addresses hitting one of these
+    routes within a minute make it answer `429` to everybody until the minute ends. A
+    password gate that can be brute forced is worse than one a flood can make briefly
+    unavailable, and a flood that size already calls for a reverse proxy in front of the
+    edge.
 
-- Logins in flight, and callbacks being exchanged. Two ceilings, because the login path
-  spends two different things. A pending login holds a flow object for the five minutes it
-  is given, and `/auth/login` is open, so at most a thousand may be in flight. Past that the
-  route refuses rather than allocating further. A callback then waits for the token exchange
-  inside a nested event loop, which keeps serving requests while it spins, so callbacks
-  arriving together nest one loop inside another and the stack is what runs out. At most
-  sixty-four are exchanged at once, whether identity runs on the edge or on an auth entity,
-  and the nesting may spend at most a quarter of the running thread's stack, whichever of
-  the two it reaches first. The second of those is there because a count on its own is a
-  guess at what a stack holds. The compiler decides what a level of nesting costs,
-  and sixty-four of them fit the eight megabytes Linux and macOS give the main thread but
-  not the megabyte Windows gives it. Both numbers are far above what any real deployment
-  has at one instant. Neither is a knob to tune. They bound a failure mode that no workload
-  should reach, and `tests/m8-auth/tst_m8.cpp` drives more callbacks at a stalled provider
-  than the ceilings allow, against an edge on a deliberately small stack, to prove it still
-  holds.
+- **Logins in flight and callbacks in exchange.** The login path spends two different
+  resources, so it has two ceilings. A pending login holds a flow object for its five
+  minutes, and `/auth/login` is open, so at most a thousand logins may be in flight;
+  past that the route refuses instead of allocating more. A callback waits for the
+  token exchange inside a nested event loop, which keeps serving requests while it
+  waits. Callbacks that arrive together nest one loop inside another, and the stack is
+  what runs out. So at most sixty-four exchanges run at once, whether identity runs on
+  the edge or on an auth entity, and the nesting may use at most a quarter of the
+  thread's stack, whichever limit comes first. The stack limit exists because a count
+  alone is a guess: the compiler decides what one level of nesting costs, and
+  sixty-four levels fit the 8 MB main thread stack on Linux and macOS but not the 1 MB
+  one on Windows. Both limits are far above what a real deployment reaches, and neither
+  is a setting to tune. `tests/m8-auth/tst_m8.cpp` sends more callbacks than the limits
+  allow at a stalled provider, against an edge on a deliberately small stack, and
+  checks that the edge holds.
 
-- Answers from an auth entity. An edge that delegates identity waits for the auth entity's
-  reply and gives up after twenty seconds, and a reply that arrives after that is dropped.
-  The three tables those replies land in are
-  keyed by request id and read only by a handler that is still waiting, so a reply kept past
-  its deadline would be kept for the life of the process, and so would one naming a request
-  id the edge never issued. Both are ordinary rather than exotic. The first is what a slow
-  auth entity produces on every call, and the login route is open to anybody who can reach
-  the edge. The second is what an auth entity that has been compromised can produce as fast
-  as it can write. So a reply is kept only while somebody is waiting for it, and the waiter
-  stops waiting before it returns.
+- **Answers from an auth entity.** An edge that delegates identity waits up to twenty
+  seconds for the auth entity's reply and drops anything later. The three tables those
+  replies land in are keyed by request id and read only by a handler that is still
+  waiting. A reply kept past its deadline would stay for the life of the process, and
+  so would a reply naming a request id the edge never issued. Both happen in practice:
+  a slow auth entity produces the first on every call, and the login route is open to
+  anyone who can reach the edge; a compromised auth entity can produce the second as
+  fast as it can write. So the edge keeps a reply only while a handler waits for it,
+  and the handler stops waiting before it returns.
 
-- Outbound answers. `Http` holds a whole reply in memory before a handler sees it, so the
-  size of one is capped at 16 MiB, checked while the body is arriving and against the
-  announced length as well as the running count. An allowlisted third party is not the same
-  thing as a trusted one, and a `Content-Length` is not a promise anybody has to keep. A
-  provider endpoint on the login path is capped the same way, at 1 MiB, which no real token
-  response or profile approaches.
+- **Outbound answers.** `Http` holds a whole reply in memory before a handler sees it,
+  so a reply is capped at 16 MiB. The cap is checked while the body arrives, against
+  both the announced length and the running count: an allowlisted third party is not
+  necessarily a trusted one, and nothing forces a server to honor its
+  `Content-Length`. A provider endpoint on the login path has the same kind of cap, at
+  1 MiB, far above any real token response or profile.
 
-- Heartbeat and reconnection. The QtRO heartbeat detects dead connections so their
-  resources are reclaimed, and capped exponential backoff avoids hammering a
-  recovering entity.
-- Input bounds. These are the application's responsibility. A slot's arguments arrive
-  typed but not bounded, so validate length, range, and shape before acting on them,
-  both for correctness and so that no caller can spend an owner's time or memory by
-  asking for it. The
-  framework can guarantee that only declared slots are reachable and that only
-  declared fields come back. It cannot know that your `add(string text)` should
-  refuse a megabyte.
-- Database specifics. The relational entity type serializes writes and sets a busy
-  timeout, so concurrent transactions cannot deadlock the entity (SQLite blocks
-  under concurrent writers). See [entities](entities.md).
+- **Heartbeat and reconnection.** The QtRO heartbeat detects dead connections so their
+  resources are freed. Capped exponential backoff keeps clients from hammering an
+  entity that is recovering.
+- **Input bounds.** These are the application's job. A slot's arguments arrive typed
+  but not bounded, so validate length, range and shape before acting on them, for
+  correctness and so no caller can spend the owner's time or memory. The framework
+  guarantees that only declared slots are reachable and only declared fields come back.
+  It cannot know that your `add(string text)` should refuse a megabyte.
+- **Databases.** The relational entity type serializes writes and sets a busy timeout,
+  so concurrent transactions cannot deadlock the entity (SQLite blocks under concurrent
+  writers). See [entities](entities.md).
 
-The caps above are browser link controls, and only the browser link has them. A mesh
-link has no connection cap, no message size cap, and no read buffer ceiling, because its
-peer has already presented a certificate this project's own CA issued, so a peer in
-a position to exhaust an entity's memory is a peer that is already inside the trust
-boundary, and the answer to one is revocation and rotation rather than a quota. What
-does bound a mesh link is the topology itself, since an entity accepts connections
-only from the consumers its connect points name. If you run entities you do not
-fully trust in one mesh, that is the assumption to revisit first.
+Only the browser link has these caps. A mesh link has no connection cap, no message
+size cap and no read buffer ceiling, because its peer has already presented a
+certificate from the project's own CA. A peer able to exhaust an entity's memory is
+already inside the trust boundary, and the answer is revocation and rotation. The
+topology bounds a mesh link: an entity accepts connections only from the
+consumers its connect points name. If you run entities you do not fully trust in one
+mesh, revisit this assumption first.
 
-Of the limits in this section, only the QtRO heartbeat and the per socket message
-size cap come from Qt APIs. The handshake timeout, the connection caps, and the two
-buffer ceilings have no equivalent on the QHttpServer upgrade path and are enforced
-by the framework itself. These live in the transport rather than on the edge,
-so the client is held to them too. Its peer is one edge rather than the open internet,
-but a client that buffers without bound is a browser tab that dies.
+Of these limits, only the QtRO heartbeat and the per socket message size cap come from
+Qt APIs. The handshake timeout, the connection caps and the two buffer ceilings have no
+equivalent on the QHttpServer upgrade path, so the framework enforces them. They live in
+the transport, not the edge, so the client has them too. The client's peer is one edge,
+not the open internet, but a client that buffers without bound is a browser tab that
+dies.
 
-Network and volumetric DoS belong to infrastructure in front of the edge and are
-out of scope for the framework.
+Network level and volumetric DoS belong to the infrastructure in front of the edge and
+are out of scope for the framework.
 
 ## Browser hardening (response headers)
 
-The web edge stamps these on the delivered page via QHttpServer's after request
-handler:
+The web edge adds these headers to the delivered page through QHttpServer's after
+request handler:
 
-- Content Security Policy. The default is restrictive: `default-src 'self'`,
-  `connect-src 'self'` (the client may talk only to its own origin, the sync
-  endpoint, and the edge also appends the sync endpoint's explicit `wss://` origin to
-  `connect-src` when it serves the page, so the upgrade is allowed even where a
-  browser does not extend `'self'` to WebSocket schemes), `script-src 'self'
-  'wasm-unsafe-eval'` (WebAssembly instantiation needs `wasm-unsafe-eval` and
-  nothing more), `img-src 'self' data:` and `style-src 'self' 'unsafe-inline'`
-  (the Qt loader styles its canvas inline and may use data images, and these are the
-  only widenings in the default, confined to images and styles),
-  `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` (no framing,
-  blocking clickjacking). Widen only with intent.
-- Cross origin isolation. When `cross_origin_isolation` is true (required for the
-  multi threaded client), the edge sends COOP `same-origin` and COEP `require-corp`,
-  which the browser requires before granting SharedArrayBuffer. In this mode the
-  edge also adds `worker-src 'self' blob:` to the CSP. The `blob:` half is a margin
-  for a future toolchain rather than a present need. The pinned kit spawns its pthread
-  workers from same origin URLs, and the real threaded bundle served under a strict
-  `worker-src 'self'` stayed isolated, spawned every worker, and logged no violation
-  in Chromium, Firefox and WebKit, and the multi threaded proof serves its bundle under
-  that strict policy on every run, in every engine it can launch, reporting any
-  violation by directive. It is kept because a future Emscripten could go back to
-  `blob:` workers, and because it widens the attack surface by almost nothing, since
-  constructing a `blob:` worker already requires script execution, which `script-src`
+- **Content Security Policy.** Restrictive by default:
+    - `default-src 'self'`.
+    - `connect-src 'self'`: the client may talk only to its own origin, the sync
+      endpoint. The edge also appends the sync endpoint's explicit `wss://` origin, so
+      the upgrade works in browsers that do not extend `'self'` to WebSocket schemes.
+    - `script-src 'self' 'wasm-unsafe-eval'`: instantiating WebAssembly needs
+      `wasm-unsafe-eval` and nothing more.
+    - `img-src 'self' data:` and `style-src 'self' 'unsafe-inline'`: the Qt loader
+      styles its canvas inline and may use data images. These are the only widenings
+      in the default, and they cover only images and styles.
+    - `object-src 'none'`, `base-uri 'none'`, and `frame-ancestors 'none'` (no framing,
+      which blocks clickjacking).
+
+    Widen it only on purpose.
+
+- **Cross origin isolation.** When `cross_origin_isolation` is true (the multi threaded
+  client requires it), the edge sends COOP `same-origin` and COEP `require-corp`, which
+  the browser requires before it grants SharedArrayBuffer. In this mode the edge also
+  adds `worker-src 'self' blob:` to the CSP. The pinned kit spawns its pthread workers
+  from same origin URLs, so `blob:` is a margin for a future toolchain. The threaded
+  bundle, served under a strict `worker-src 'self'`, stayed isolated, spawned every
+  worker and logged no violation in Chromium, Firefox and WebKit. The multi threaded
+  proof serves it under that strict policy on every run, in every engine it can launch,
+  and reports any violation by directive. The `blob:` allowance stays because a future
+  Emscripten could return to `blob:` workers, and it adds almost no attack surface:
+  constructing a `blob:` worker already requires running script, which `script-src`
   governs. See [CSP](csp.md) for the measurement. The single threaded default needs
   none of this.
-- Transport and content headers. `Strict-Transport-Security`,
+- **Transport and content headers.** `Strict-Transport-Security`,
   `X-Content-Type-Options: nosniff`, and a minimal `Referrer-Policy`.
 
 ## Deep links and the login resume
 
-Client routes are real URLs, so two things have to hold that are easy to get wrong.
-The edge has to answer a path it has never heard of, and the client has to remember
-where a visitor was going across a trip to an identity provider. Both touch input an
-attacker controls.
+Client routes are real URLs. The edge must answer paths it does not know, and the
+client must remember where a visitor was going across a trip to an identity provider.
+Both handle input an attacker controls, and both are easy to get wrong.
 
-The application shell for an unmatched path. A visitor who bookmarks
-`/c/summer-sale` or refreshes on it sends the edge a path no route of its own
-answers. The edge serves `index.html` there, and the client resolves the path
-itself.
+**The application shell for an unmatched path.** A visitor who bookmarks
+`/c/summer-sale`, or refreshes on it, sends the edge a path none of its own routes
+answer. The edge serves `index.html` there, and the client resolves the path.
 
-- It is registered as a route rather than as a missing handler. Qt answers a missing
-  handler through a `QHttpServerResponder`, and it does not run after request
-  handlers for a responder answered request, which is where every hardening header
-  is added. Served that way the one HTML document in the system would go out with no
-  CSP, no COOP, and no COEP. As a route it takes the same headers as every other
-  response.
-- Only `GET` and `HEAD` get the shell. A `POST` or a `DELETE` to an unknown URL is
-  a client bug or a probe, and answering it with HTML would hide that.
-- A path whose final segment contains a `.` returns 404 instead of HTML. An
-  asset request has to fail honestly, because HTML with a 200 in place of a missing script
-  surfaces as a confusing module load error rather than as the missing file it is.
-- A single segment path (`/about`) gets the shell too. The edge's asset route and
-  the shell fallback share one URL template and the asset route is registered
-  first, so it answers on the fallback's terms when the bundle holds no such file.
-  A path that resolves to a real file outside the bundle directory is refused
-  as 404 and never dressed up as a client route, and an absolute path or one
-  carrying a backslash or a NUL is refused as 403 before anything looks at it.
-- The shell response carries the same session cookie and the same cache terms
-  (`ETag` and `Cache-Control: no-cache`) as the root document. A deep link is a cold
-  visitor's first page load as often as `/` is. Without the cookie the client has no
-  credential at the wss upgrade and reconnects forever on a page that loaded
-  perfectly, and without the cache terms an intermediary can pin a loader the deploy
-  has replaced.
+- The shell is a registered route, not a missing handler. Qt answers a missing handler
+  through a `QHttpServerResponder` and skips the after request handlers for it, and
+  those handlers add every hardening header. Served that way, the only HTML document in
+  the system would go out with no CSP, COOP or COEP. As a route, it gets the same
+  headers as every other response.
+- Only `GET` and `HEAD` get the shell. A `POST` or `DELETE` to an unknown URL is a
+  client bug or a probe, and HTML would hide it.
+- A path whose last segment contains a `.` gets a 404, not HTML. A missing asset must
+  fail visibly: HTML with a 200 in place of a missing script shows up as a confusing
+  module load error instead of a missing file.
+- A single segment path (`/about`) gets the shell too. The asset route and the shell
+  fallback share one URL template, and the asset route is registered first, so it
+  applies the fallback's rules when the bundle has no such file. A path that resolves
+  to a real file outside the bundle directory gets a 404 and is never treated as a
+  client route. An absolute path, or one containing a backslash or a NUL, gets a 403
+  before anything reads it.
+- The shell response carries the same session cookie and cache headers (`ETag` and
+  `Cache-Control: no-cache`) as the root document. A deep link is often a visitor's
+  first page load. Without the cookie the client has no credential at the wss upgrade
+  and reconnects forever on a page that loaded fine. Without the cache headers, a proxy
+  can keep serving a loader that a deploy has replaced.
 
-The login resume. When a route guard refuses a navigation, the client remembers
-the path so that signing in lands the visitor where they were going. In the browser
-that value lives in `sessionStorage`, which is per tab and is never sent to the
-server. On a [native desktop build](desktop.md#navigating-without-an-address-bar) it
-is held in memory across the loopback redirect. Only the path is kept, never the
-query string the guard is dropping, which may carry a token.
+**The login resume.** When a route guard refuses a navigation, the client remembers
+the path, so signing in takes the visitor where they were going. In the browser the
+path lives in `sessionStorage`, which is per tab and never sent to the server. On a
+[native desktop build](desktop.md#navigating-without-an-address-bar) it stays in memory
+across the loopback redirect. The client keeps only the path, never the query string
+the guard drops, which may carry a token.
 
-Anyone can put a link in front of a user, and the link is what decides the stored
-path, so validation is the whole of what keeps a resume from becoming an open
-redirect. A stored path is accepted only when all of the following hold, checked
-again at the moment it is used rather than trusted for having been stored:
+Anyone can show a user a link, and the link sets the stored path, so validation is the
+only thing that stops the resume from becoming an open redirect. The client accepts a
+stored path only when all of these hold, and checks again when it uses the path:
 
-- it is not empty, and is no longer than 2048 characters.
-- it starts with exactly one `/`. A protocol relative `//host` is another origin,
-  which is precisely the open redirect being guarded against.
-- it contains no `:` anywhere. A scheme cannot follow a leading `/` in any case,
-  so this is wider than strictly needed, which keeps the rule to one line.
-- it contains no `\`, which several browsers fold to `/`, turning `/\evil.example`
-  into that same protocol relative payload.
-- it contains no control character. Browsers strip tab, newline, and carriage
-  return out of a URL before parsing it, so `/<tab>/evil.example` would arrive as
+- It is not empty and has at most 2048 characters.
+- It starts with exactly one `/`. A protocol relative `//host` is another origin: the
+  open redirect this guards against.
+- It contains no `:`. A scheme cannot follow a leading `/` anyway, so the rule is
+  stricter than needed, and it stays one line.
+- It contains no `\`. Several browsers turn `\` into `/`, which makes
+  `/\evil.example` the same protocol relative payload.
+- It contains no control character. Browsers strip tab, newline and carriage return
+  from a URL before parsing it, so `/<tab>/evil.example` would arrive as
   `//evil.example`.
-- it contains no `#`, and no percent encoded separator (`%2f`, `%5c`), which would
-  decode into a separator after the match was decided.
-- it contains no `.` or `..` segment in any spelling, the percent encoded ones
-  included. Any `%2e` in a segment is refused, which covers `.%2e`, `%2e.`, and
-  `%2e%2e` in one rule.
-- and it matches a route the client declares.
+- It contains no `#` and no percent encoded separator (`%2f`, `%5c`), which would decode
+  into a separator after the match.
+- It contains no `.` or `..` segment in any spelling, percent encoded ones included. Any
+  `%2e` in a segment is refused, which covers `.%2e`, `%2e.` and `%2e%2e` in one rule.
+- It matches a route the client declares.
 
-The stored path is cleared as it is read, whether or not it validated, so a
-stale intent cannot steer a later visit. Anything that fails the check does not
-resume, and the visitor stays where the guard put them. Neither does a path the new
-scope still cannot reach, since going there would only bounce off the same guard.
+The client clears the stored path when it reads it, valid or not, so a stale intent
+cannot steer a later visit. A path that fails the check does not resume, and the visitor
+stays where the guard put them. The same goes for a path the new scope still cannot
+reach, since it would bounce off the same guard.
 
-One user visible cost comes out of the colon rule. A path parameter containing a
-literal `:` cannot be resumed. Percent encode it as `%3A` in links you generate if
-those paths need to survive a login.
+The colon rule has one visible cost: a path parameter containing a literal `:` cannot
+resume. If such paths must survive a login, percent encode the colon as `%3A` in the
+links you generate.
 
 ## Remote pages (edge-delivered QML)
 
 A [remote page](remote-pages.md) is a QML file the web edge holds and delivers to the
-browser at navigation time, rather than compiling it into the client bundle. It
-crosses the same authenticated `wss` link as everything else, so it inherits the
-upgrade verifier, the session, and `Caller`. Three security facts govern it.
+browser when the visitor navigates to it, instead of compiling it into the client
+bundle. It crosses the same authenticated `wss` link as everything else, so the upgrade
+verifier, the session and `Caller` all apply.
 
-**The edge enforces the scope before it delivers anything.** A route's `scope` is
-checked on the edge, in `fetchPageFor`. The edge matches the route, reads its declared
-scope, and if the caller lacks it the request is refused. Only after that check passes
-does the edge read the page source, hash it, and produce the seed. The client-side
-route guard that redirects an under-scoped navigation is navigation only, exactly as
-it is for a compiled-in view. It steers the address bar, and the edge's refusal is
-what keeps the page's markup off an under-scoped machine.
+**The edge enforces the scope before it delivers anything.** The edge checks a route's
+`scope` in `fetchPageFor`. It matches the route and reads its declared scope; if the
+caller lacks that scope, it refuses the request. Only after the check passes does it
+read the page source, hash it and produce the seed. The client side route guard that
+redirects a navigation below the route's scope only steers the address bar, as it does
+for a compiled-in view. The edge's refusal is what keeps the page's markup off the
+visitor's machine.
 
-A refusal carries nothing. When `fetchPageFor` refuses a request, `forbidden` for
-an under-scoped caller or `notFound` for a path no route answers, the reply carries no
-markup, no content hash, and no seed. An under-scoped visitor cannot even learn the
-size of a page they may not see, let alone its source. The page is delivered only on
-the path where the scope check has already passed.
+**A refusal carries nothing.** When `fetchPageFor` refuses a request (`forbidden` for a
+caller below the scope, `notFound` for a path no route answers), the reply has no
+markup, no content hash and no seed. A visitor below the scope cannot even learn the
+size of the page.
 
-The seed is public output of a privileged context. The seed hook runs on the edge,
-after the scope check, with access to edge state and the `caller`. Whatever it returns
-is sent to the browser to paint the first frame, so treat its return value as public.
-Scope it to what the caller is entitled to see, exactly as you would any value that
-crosses to the browser.
+**The seed is public output from a privileged context.** The seed hook runs on the edge
+after the scope check, with access to edge state and to `caller`. The browser receives
+whatever it returns to paint the first frame, so treat the return value as public and
+limit it to what the caller may see, like any value sent to the browser.
 
-The palette is a trust boundary. `router.palette` is the whole set of QML modules
-a delivered page may import, enforced by the client's `QmlPalette` at run time (a page
-that imports anything else is refused rather than rendered). It bounds what an edge-delivered
-page can reach inside the client. Keep it as small as the pages need.
+**The palette is a trust boundary.** `router.palette` lists every QML module a delivered
+page may import. The client's `QmlPalette` enforces it at run time and refuses to render
+a page that imports anything else. Keep the palette as small as your pages allow.
 
-Because it is a boundary, the client reads a page exactly as the QML engine's lexer does.
-Comments and string literals are removed before anything is judged, a statement ends at a
-semicolon as well as at a line break, and the `import` keyword may not appear anywhere the
-check did not approve. The last rule is what makes this hold under a page written to defeat
-it. An import the check cannot account for is refused without reasoning about how it got
-there.
+Because the palette is a boundary, the client reads a page exactly as the QML engine's
+lexer does. It removes comments and string literals first, ends a statement at a
+semicolon as well as at a line break, and refuses the `import` keyword anywhere the
+check did not approve. That last rule holds up against a page written to defeat the
+check: an import the check cannot account for is refused, however it got there.
 
-Matching the lexer matters most at the definition of a line ending, which is the part
-easiest to get wrong. The engine ends one at four characters rather than two: a line feed, a
-lone carriage return, and U+2028 and U+2029, the Unicode line and paragraph separators. Any
-of them closes a `//` comment, so a page can put an import after one and have a scan that
-knows only the first two read it as part of the comment. All four count here, and so does a
-leading byte order mark, which the engine skips.
+Line endings are the easiest part to get wrong. The engine ends a line at four
+characters, not two: a line feed, a lone carriage return, and U+2028 and U+2029 (the
+Unicode line and paragraph separators). Each of them closes a `//` comment, so a page
+could hide an import after one from a scan that only knows the first two. The client
+counts all four, and skips a leading byte order mark as the engine does.
 
-Accepted risk: a delivered page reaches the client accessors. A delivered page can
-still reach `Server`, `Session`, `Router`, and `App`, the same context the compiled-in
-views have. This is not a new exposure, because the entity that can send
-a malicious remote page is the web edge, and an edge that would ship a malicious page
-can equally ship a malicious bundle. The trust you place in your own edge is the same
-trust either way. The palette narrows what a page may import. It does not, and is not
-meant to, sandbox a page away from the runtime the client already trusts its edge to
-drive. What a remote page does not do is widen any data boundary. It reads a connect
-point through the same owner-side scope checks as any other consumer, so a `scope` on a
-page protects the page's markup, never the data the page later reads.
+**Accepted risk: a delivered page reaches the client accessors.** A delivered page can
+reach `Server`, `Session`, `Router` and `App`, like any compiled-in view. This adds no
+exposure: only the web edge can send a remote page, and an edge that would send a
+malicious page could send a malicious bundle just as well. The palette limits what a
+page may import. It does not sandbox the page from the runtime the client already lets
+its edge drive. A remote page also widens no data boundary. It reads a connect point
+through the same owner side scope checks as any other consumer, so a `scope` on a page
+protects the page's markup, never the data the page reads later.
 
 ## Secrets and the mesh CA
 
-- Application secrets are referenced only with the `env:` prefix and resolve only
-  from a service entity's own env file or process environment, only in that
-  entity's build. A client target that references an `env:` value is a build error,
-  so a secret cannot reach the browser through configuration.
-- Each entity holds only the secrets it needs. The OAuth2 client secret lives on the
-  edge, and the database file path and any data encryption key live on the database.
-- The mesh CA private key is the system's most sensitive secret. It is used only to
-  issue entity certs (on a developer machine or in a CI secret store), never shipped
-  to a running entity, and never committed. A running entity holds only its own
-  cert and key plus the CA certificate to verify peers. Entity private keys live in
-  `synqt/mesh/` as `<entity>.key`, with restrictive permissions, and are git ignored.
-- Secrets are never logged, and two separate things hold that. The framework's own call
-  sites record a handle rather than the thing itself. A session is the SHA-256 handle
-  `Caller.session.key` and never the credential the browser sends, a refused upgrade
-  records the reason and the peer and never the cookie or header it was refused for, a
-  mesh peer is its verified certificate subject, and tokens and certificate private
-  material reach no trace call at all. Under that, the pipeline redacts: every event
-  passes through `Tracer::record`, which replaces the value of any attribute whose name
-  names a credential (`password`, `passphrase`, `secret`, `token`, `authorization`,
-  `cookie`, `credential`, `bearer`, and `api key` or `private key` in any of their
-  spellings, matched case-insensitively anywhere in the name, so `set-cookie`,
-  `refreshToken` and `clientSecret` are all covered) with
-  `[redacted]`, keeping the name so the record says a value was held back rather than
-  reading as though there was none. It runs past anything QML can reach, which is what
-  makes it cover [`Log`](runtime-api.md#log-what-an-entity-records-about-itself) too. An application that writes
+- **Secrets come from `env:` only.** Configuration refers to an application secret
+  only with the `env:` prefix, which resolves from a service entity's own env file or
+  process environment, in that entity's build only. A client target that references an
+  `env:` value is a build error, so configuration cannot carry a secret to the browser.
+- **Each entity holds only the secrets it needs.** The OAuth2 client secret lives on the
+  edge. The database file path and any data encryption key live on the database.
+- **The mesh CA private key never reaches a running entity.** It is the system's most
+  sensitive secret. It only issues entity certificates, on a developer machine or from
+  a CI secret store. It is never shipped to a running entity and never committed. A
+  running entity holds its own certificate and key, plus the CA certificate to verify
+  peers. Entity private keys live in `synqt/mesh/` as `<entity>.key`, with restrictive
+  permissions, and git ignores them.
+- **Secrets are never logged.** Two mechanisms enforce this. First, the framework's own
+  call sites record a handle, never the secret: a session is the SHA-256 handle
+  `Caller.session.key`, never the credential the browser sends; a refused upgrade logs
+  the reason and the peer, never the cookie or header; a mesh peer is its verified
+  certificate subject; tokens and private key material never reach a trace call.
+  Second, the pipeline redacts. Every event passes through `Tracer::record`, which
+  replaces with `[redacted]` the value of any attribute whose name names a credential:
+  `password`, `passphrase`, `secret`, `token`, `authorization`, `cookie`, `credential`,
+  `bearer`, and `api key` or `private key` in any spelling, matched case insensitively
+  anywhere in the name (so `set-cookie`, `refreshToken` and `clientSecret` are
+  covered). It keeps the name, so the record shows that a value was withheld. It runs
+  below anything QML can reach, so it covers
+  [`Log`](runtime-api.md#log-what-an-entity-records-about-itself) too:
   `Log.warn("refused", { authorization: header })` does not put a bearer token in the
-  operator's console. Two things it does not do. It does not read values,
-  because a filter that guesses at what a value looks like misses and then reads as a
-  guarantee, and it does not read the message, which is prose an operator wrote and
-  searches on. So it is the backstop under the call-site discipline rather than a substitute
-  for it. A credential you pass under a name that does not say what it is still gets
-  recorded, exactly as it would in any other log.
+  operator's console. It does not inspect values, because a filter that guesses what a
+  secret looks like will miss and still look like a guarantee. It does not inspect the
+  message either, which is prose an operator wrote and searches on. So redaction backs
+  up careful call sites and does not replace them: a credential passed under a name that
+  does not say what it is gets recorded, as in any other log.
 
-## Development code is absent from a release build
+## Development code cannot ship
 
-A development convenience that ships is a back door. SynQt has two worth naming. The stub identity provider signs anybody in as a preconfigured person with
-no password, so a developer can exercise the whole login flow without registering an OAuth
-application. The scope picker (`synqt dev --identity-picker`) goes further. It skips the flow
-entirely and mints a session at whichever scope you click. Both exist because they make
-development faster, and neither must be in anything you deploy.
+SynQt has two development sign-ins, and either one in production would be a critical
+vulnerability:
 
-The usual way to arrange that is a runtime check, and SynQt has several. The stub server
-starts only under `--dev`, which `synqt serve` and every built artifact never pass. It
-refuses to be constructed without an acknowledgement that can only be written on purpose.
-The runtime refuses the `devStub` provider entry unless the same flag is set. And the
-picker's routes are registered only when `--identity-picker` came alongside `--dev`. More
-gates is better than one, and it is still the wrong shape. A capability that is in the
-binary can be reached through a bug in whichever check is doing the work, through an
-argument someone passes, or read out of the strings by anybody holding the artifact.
+- **The stub identity provider** signs anyone in as a preconfigured person, with no
+  password, so you can test the whole login flow without registering an OAuth app.
+- **The scope picker** (`synqt dev --identity-picker`) skips the flow and creates a
+  session at whatever scope you click.
 
-So the release build does not contain it. Three independent layers, in the order they fail:
+Runtime checks guard both. The stub server starts only under `--dev`, which
+`synqt serve` and built artifacts never pass, and it refuses to be constructed without
+an acknowledgement nobody writes by accident. The runtime refuses the `devStub` provider
+entry unless the same flag is set. The picker registers its routes only when
+`--identity-picker` comes with `--dev`. But code that is in the binary can still be
+reached through a bug in one of those checks or through an argument someone passes, and
+anyone holding the artifact can read its strings.
 
-1. **CMake never names the file.** `src/edge/CMakeLists.txt` adds the development sources to
-   `SynQtEdge` only under `SYNQT_DEV_TOOLS`, which `synqt dev` sets and `synqt build` never
-   does, whatever its profile. Not compiled, not linked, not there.
-2. **The header refuses to be included.** It carries an `#error` above every `#include`, so a
-   translation unit that reaches for it in a release build fails naming the mistake, rather
-   than compiling and failing later at link on an undefined symbol.
-3. **The generator does not emit the call.** The edge's `main.cpp` names the type only when
-   it is generated for a development build, so a project that asked for a development
-   sign-in in its `synqt.yaml` still gets a release main that has never heard of one. The
-   picker's flag is the same shape from the other side. The option is parsed in every edge
-   and there is nothing behind it to switch on in one that was not compiled with the
-   development sources.
+So a release build does not contain the code at all. Three independent layers ensure
+it, in the order they would fail:
 
-Each layer is enough on its own, which is the point of having three. None of them depends on
-another being right.
+1. **CMake never names the file.** `src/edge/CMakeLists.txt` adds the development
+   sources to `SynQtEdge` only under `SYNQT_DEV_TOOLS`. `synqt dev` sets it;
+   `synqt build` never does, whatever the profile. The code is not compiled and not
+   linked.
+2. **The header refuses to be included.** It has an `#error` above every `#include`, so
+   a release build that includes it fails at once and names the mistake, instead of
+   failing later at link time on an undefined symbol.
+3. **The generator does not emit the call.** The edge's generated `main.cpp` names the
+   type only in a development build. A project that asks for a development sign-in in
+   its `synqt.yaml` still gets a release `main.cpp` that knows nothing about it. Every
+   edge parses the picker's flag, but in a release build there is nothing behind it to
+   switch on.
 
-This is a claim about a compiled artifact, so it is proven by reading one.
+Each layer works alone, and none depends on another.
+
 [`tests/dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion)
-configures the framework twice and reads both symbol tables. The release archive must not
-contain the development sign-ins, the development archive must, and the header must refuse
-the probe. The middle assertion is not padding. Without it the first would pass on an
-archive that contains nothing at all. Both `StubIdentityServer` and `IdentityPicker` are on
-that list, which makes adding a third development-only type one word rather than a
-second test.
+checks the compiled artifact. It configures the framework twice and reads both symbol
+tables. The release archive must not contain the development sign-ins, the development
+archive must contain them, and the header must refuse the probe. The second assertion
+matters: without it, the first would pass on an empty archive. `StubIdentityServer` and
+`IdentityPicker` are both on the list, so adding a third development-only type means
+adding one word.
 
-The rule generalises, and applying it is not optional for new code. Anything that must not
-exist in production goes in a file the release CMake does not name, with the `#error` guard
-at the top, and its symbol is added to the list `tests/dev-exclusion` checks.
+New code follows the same rule. Put anything that must not exist in production in a
+file the release CMake does not name, add the `#error` guard at the top, and add its
+symbol to the list `tests/dev-exclusion` checks.
 
 ## Supply chain
 
-- Qt and Emscripten are pinned in `project.qt_version` and resolved to exact
-  installers, so every entity builds on the same tested toolchain.
-- Native dependencies, if any, go through vcpkg with a pinned baseline, recorded and
-  auditable.
-- The generated contract layer is reproducible from what the connect points in
-  `synqt.yaml` export, and is not edited by hand, so it cannot hide unreviewed behavior.
-- The official entity types (relational, cache, document, api, jobs) are part
-  of the framework and reviewed. Using one does not pull in an unaudited third party
-  product.
+- `project.qt_version` pins Qt and Emscripten to exact installers, so every entity
+  builds on the same tested toolchain.
+- Native dependencies, if any, go through vcpkg with a pinned, recorded baseline.
+- The generated contract layer is reproduced from what the connect points in
+  `synqt.yaml` export, and nobody edits it by hand, so it cannot hide unreviewed
+  behavior.
+- The official entity types (relational, cache, document, api, jobs) are part of the
+  framework and reviewed. Using one pulls in no unaudited third party product.
 
 ## Logging and observability
 
-Each entity logs lifecycle and security events (upgrade accepted or rejected and
-why, session created, scope assigned, mesh peer connected with its verified entity
-name, slot refused) at an operator controllable level, with secrets redacted.
-Refusals are logged because a spike in rejected upgrades, failed peer verifications,
-or authorization failures is worth alerting on. The browser receives only what a
-contract signal deliberately sends it (for example a user facing rejection reason).
+Each entity logs lifecycle and security events, with secrets redacted, at a level
+the operator controls: upgrades accepted or rejected (and why), sessions created,
+scopes assigned, mesh peers connected (with their verified entity name), slots refused.
+Refusals are logged because a spike in rejected upgrades, failed peer verifications or
+authorization failures deserves an alert. The browser receives only what a contract
+signal sends it on purpose, such as a rejection reason meant for the user.
 
-Where those events go, what they are allowed to carry, and who may read them is
-[monitoring](monitoring.md). Three things there are security decisions rather than
-operational ones. A record names a session by a handle and never by the credential a
-browser sends. A recorded call carries the shape of the call and not its arguments unless a
-member asks with `capture`, which `synqt check` refuses on a member carrying an identity.
-And the console is reached by first reaching the machine. The monitor binds loopback, a
-non-loopback host has to be acknowledged in `synqt.yaml`, and the console bundle is not
-addressable at all without an operator session. That last gate is the bundle map, so
-`synqt check` reads it rather than trusting it. A `console: true` client mapped below
-`operator`, on the monitor or on an application edge, is refused, and so is a monitor whose
-default scope resolves to a client instead of a static sign-in page.
+[Monitoring](monitoring.md) covers where these events go, what they may carry, and who
+may read them. Three of its rules are security decisions:
 
-## Security checklist (use before every deploy)
+- **A record names a session by a handle,** never by the credential the browser sends.
+- **A recorded call carries its shape, not its arguments,** unless a member asks for
+  them with `capture`. `synqt check` refuses `capture` on a member that carries an
+  identity.
+- **Reaching the console means reaching the machine first.** The monitor binds to
+  loopback, a non-loopback host must be acknowledged in `synqt.yaml`, and the console
+  bundle cannot be addressed without an operator session. The bundle map enforces that
+  last gate, so `synqt check` verifies it: it refuses a `console: true` client mapped
+  below `operator` (on the monitor or on an application edge), and a monitor whose
+  default scope resolves to a client instead of a static sign-in page.
 
-For the mechanics of the deployment these items apply to, see [deploying a SynQt
+## Security checklist
+
+Go through this list before every deploy. For how to deploy, see [deploying a SynQt
 system](deploying.md).
 
 Browser link:
 
-- TLS enabled on the web edge with a real certificate. A release build that neither
-  carries `tls.cert_file` and `tls.key_file` nor declares
-  `public.tls_terminated_upstream` is refused by `synqt check`, and an edge that carries
-  them and cannot read them refuses to start rather than listening on a port whose
-  handshake can never complete. The key may be RSA or elliptic curve. It may not be
-  encrypted, since nothing is there to type a passphrase into. An elliptic-curve key
-  needs a Qt whose TLS backend is OpenSSL, which is what a Linux build uses. The
-  backends that have no key API of their own (Secure Transport on macOS, Schannel on a
-  Windows build with no OpenSSL beside it) hand the pair to the platform as a PKCS#12
-  blob that Qt writes for RSA and DSA only, so an edge running on one of those refuses
-  an elliptic-curve key at startup and names it rather than listening with an identity
-  the handshake never gets.
-- No `origin_model` declared unless a split origin deployment was chosen on purpose, and
+- **TLS on the web edge, with a real certificate.** `synqt check` refuses a release
+  build that has neither `tls.cert_file` and `tls.key_file` nor
+  `public.tls_terminated_upstream`. An edge that has them but cannot read them refuses
+  to start. The key may be RSA or elliptic curve, and must not be encrypted, since
+  nobody is there to type a passphrase. An elliptic curve key needs a Qt whose TLS
+  backend is OpenSSL, as on Linux. Backends with no key API of their own (Secure
+  Transport on macOS, Schannel on a Windows build without OpenSSL) receive the pair as a
+  PKCS#12 blob, which Qt writes only for RSA and DSA. On those, the edge refuses an
+  elliptic curve key at startup and says so.
+- **One origin.** No `origin_model` unless you chose split origin on purpose.
   `allowed_origins` lists exactly the origins that may open the sync connection.
-- The session is the httpOnly Secure cookie. There is no alternative transport. The
-  subprotocol is refused for a toolkit reason recorded with the config keys.
-- CSP is the restrictive default, and any widening is reviewed.
-- A private deployment maps its default scope to a gate through
-  [`bundles:`](project-layout-and-config.md), so an unauthenticated visitor is served the
-  gate and no file of any other bundle. A route `scope:` alone does not do this. It is a
-  navigation guard, so the QML of a privileged view still ships to every visitor when one
-  bundle serves everybody. A file outside the caller's bundle answers 404, never 403.
-- Cross origin isolation matches the threading mode.
-- The route table passes `synqt check`: no client route claims a path the edge
-  answers itself (the sync endpoint or the login routes), and the fallback is a
-  declared route. A guard is a redirect, so every privileged view still gets its
-  data through a scope gated connect point.
+- **The session is the httpOnly Secure cookie.** There is no other transport. The
+  subprotocol is refused, for a toolkit reason recorded with the config keys.
+- **CSP is the restrictive default,** and any widening has been reviewed.
+- **A private deployment serves a gate to visitors who have not signed in.** Map the
+  default scope to a gate through [`bundles:`](project-layout-and-config.md), so such a
+  visitor gets the gate and no file of any other bundle. A route `scope:` alone does not
+  do this: it is a navigation guard, and when one bundle serves everybody, the QML of a
+  privileged view still ships to every visitor. A file outside the caller's bundle
+  answers 404, never 403.
+- **Cross origin isolation matches the threading mode.**
+- **The route table passes `synqt check`.** No client route claims a path the edge
+  answers itself (the sync endpoint or the login routes), and the fallback is a declared
+  route. A guard is only a redirect, so every privileged view still gets its data
+  through a scope gated connect point.
 
 Mesh links:
 
-- Every cross host link is mutual TLS against the project CA, and
+- **Every cross host link is mutual TLS** against the project CA, and
   `require_mtls_cross_host` is on.
-- Same host links keep the default loopback mutual TLS unless a local socket link
-  was chosen on purpose, and no connect point that authorizes by `Caller.entity`
-  rides an opt in local link unless every same user process on that host is
-  trusted.
-- The mesh CA private key is not on any running entity and not committed, and entity
-  keys have restrictive permissions.
-- Certs are within their validity window, and rotation is scheduled before expiry.
-- The only entities bound where the internet can reach them are the web edges and
-  any entity that declares [`network.inbound`](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it).
-  Every other entity binds private or local only. An `inbound` surface sits behind its
-  API key, its origin list, its rate limit and its socket ceilings, and `synqt check`
-  refuses one that names no keys unless it also says `public: true`. That rate limit
-  counts one address per caller, so a surface with a proxy in front of it names the
-  proxy in `network.inbound.trusted_proxies`. Without it every caller arrives from the
-  proxy and shares a single budget. The socket ceilings (`max_connections`,
-  `max_connections_per_ip`) are counted at accept, so a caller that opens connections
-  and never sends the request the other checks would see is bounded too. The
-  per-address one is switched off behind a named proxy, where every socket is the
-  proxy's.
+- **Same host links stay on loopback mutual TLS** unless you chose a local socket link
+  on purpose. A connect point that authorizes by `Caller.entity` uses a local link only
+  if you trust every process of that user on that host.
+- **The mesh CA private key is on no running entity and in no commit,** and entity keys
+  have restrictive permissions.
+- **Certificates are valid,** and rotation is scheduled before they expire.
+- **Only web edges and `network.inbound` entities are reachable from the internet.**
+  Every other entity binds to a private address or a local socket (see
+  [`network.inbound`](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it)).
+  An `inbound` surface sits behind its API keys, its origin list, its rate limit and its
+  socket caps, and `synqt check` refuses one with no keys unless it also says
+  `public: true`. The rate limit counts one address per caller, so name any proxy in
+  front of the surface in `network.inbound.trusted_proxies`; otherwise every caller
+  arrives from the proxy and shares one budget. The socket caps (`max_connections`,
+  `max_connections_per_ip`) count at accept, so they also bound a caller that opens
+  connections and never sends a request. The per address cap is off behind a named
+  proxy, where every socket belongs to the proxy.
 
 Authorization and data:
 
-- Every privileged slot authorizes `Caller` (user scope and ownership, or calling
-  entity) and validates input before acting. No slot relies on a consumer side
-  check.
-- An entity holding private per user or per entity state says `shared: false`, so one
-  caller's state is never in another caller's Source.
-- Contracts expose only the model roles and objects consumers need. Private fields
-  stay off the contract.
-- The database (and any sensitive entity) is reachable only through authorized
-  connect points, never from the browser, never from the internet.
-- For any entity backed by an external engine through a provider: the engine is on
-  a private address, the connection is TLS with verification, credentials are
-  `env:` on that entity only, and no consumer can reach the engine directly.
-- Every `network.outbound` entry names the narrowest place that works, host and path
-  and all, because the headers on that entry travel with every call under it. The
-  runtime compares scheme, host, port and path segments rather than the text of the
-  URL, so a prefix cannot be escaped by spelling. A prefix that is wider than it needs
-  to be is still a wider place for those headers to reach. Every redirect is compared
-  the same way, against the entry the call was made through rather than against the
-  whole list, so an allowlisted host cannot send those headers elsewhere by answering
-  `302`, and cannot send them to another allowlisted host either, because the redirected
-  request is a copy of the first one, headers included, and one endpoint's key was never
-  meant for the next.
-- Signing out is a server side end to a session, and it takes the browser's live
-  connections with it. Nothing on the client is trusted to stop reading. It is reached
-  by a navigation, so the edge refuses one that another site started. The browser says
-  which it was in `Sec-Fetch-Site`, and a caller that is not a browser sends none.
-- The console's password gate has a per address budget. The check behind it is a slow
-  key derivation on purpose, which makes an unauthenticated request both a guess and a
-  way to occupy the edge. The budget is spent before the password is read, so the
-  refusal says nothing about it and carries `Retry-After`. It is also a POST that ends
-  in a session, so it refuses a form another site submitted on the same terms as the
-  sign-out route. The browser says where the request came from in `Sec-Fetch-Site`, and
-  a cross-site one is refused before the credentials are read. A browser too old to say
-  so still names itself in `Origin`, which every browser puts on a POST, and one the
-  edge did not list is refused on that alone.
+- **Every privileged slot checks `Caller`** (the user's scope and ownership, or the
+  calling entity) and validates its input before acting. No slot relies on a check on
+  the consumer side.
+- **Private per caller state uses `shared: false`,** so one caller's state never sits in
+  another caller's Source.
+- **Contracts expose only what consumers need.** Private fields stay off the contract.
+- **The database, and any sensitive entity, is reachable only through authorized connect
+  points,** never from the browser or the internet.
+- **External engines behind a provider** sit on a private address, connect over verified
+  TLS, and have `env:` credentials on their entity only. No consumer can reach the
+  engine directly.
+- **Every `network.outbound` entry is as narrow as it can be,** host and path included,
+  because the entry's headers travel with every call under it. The runtime compares
+  scheme, host, port and path segments, not the URL text, so no spelling escapes a
+  prefix, but a wider prefix is still a wider place for those headers to go. The runtime
+  compares every redirect the same way, against the entry the call went through, not
+  against the whole list. An allowlisted host cannot send the headers elsewhere by
+  answering `302`, not even to another allowlisted host: the redirected request copies
+  the first one, headers included, and one endpoint's key is not meant for another.
+- **Signing out ends the session on the server** and closes the browser's live
+  connections; nothing relies on the client to stop reading. Sign-out is reached by a
+  navigation, so the edge refuses one that another site started. The browser reports
+  where a request came from in `Sec-Fetch-Site`; a caller that is not a browser sends
+  none.
+- **The console's password gate has a per address budget.** The check behind it is a
+  deliberately slow key derivation, so each unauthenticated request is both a guess and
+  load on the edge. The edge spends the budget before reading the password, so a refusal
+  reveals nothing and carries `Retry-After`. The gate is a POST that creates a session,
+  so, like sign-out, it refuses a form another site submitted: the edge refuses a cross
+  site `Sec-Fetch-Site` before reading the credentials. A browser too old to send that
+  header still sends `Origin` on every POST, and the edge refuses any origin it did not
+  list.
 
 System wide:
 
-- The browser link's limits are set: message size, the two connection caps, the
-  handshake timeout, and the request body cap. A mesh link carries none of these, and
-  the consumer list is what bounds it. The QtRO heartbeat runs on every link, and a
-  relational entity has its busy timeout.
-- Secrets only via `env:`, never referenced by a client target, never logged.
-- Toolchain, dependencies, and entity types pinned and reviewed.
+- **The browser link's limits are set:** message size, the two connection caps, the
+  handshake timeout and the request body cap. A mesh link has none of these; its
+  consumer list bounds it. The QtRO heartbeat runs on every link, and every relational
+  entity has its busy timeout.
+- **Secrets come only from `env:`,** are never referenced by a client target, and are
+  never logged.
+- **Toolchain, dependencies and entity types are pinned and reviewed.**

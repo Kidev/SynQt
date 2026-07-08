@@ -22,10 +22,9 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-/// One browser user's session on the edge. The opaque credential the browser presents
-/// (the httpOnly cookie), the scope it was granted, and the normalized identity
-/// (empty while anonymous). The identity and scope are set by the login flow (M8). Until
-/// then a session is created anonymous and may be elevated by the dev/test path.
+/// One browser user's session on the edge: the opaque credential the browser presents (the
+/// httpOnly cookie), the scope it was granted, and the normalized identity (empty while
+/// anonymous).
 struct SessionRecord
 {
     QByteArray id;
@@ -48,44 +47,28 @@ class SessionManager : public QObject
 public:
     explicit SessionManager(QString defaultScope, int ttlMinutes, QObject *parent = nullptr);
 
-    /// The name one session answers to everywhere in a system, derived from the
-    /// credential and never the credential itself.
+    /// The name one session answers to across a system: half of the credential's SHA-256, never
+    /// the credential itself.
     ///
-    /// The id IS the credential. Anything holding a copy of it is that visitor, so it may
-    /// not be handed to a consumer, written to a monitor, or put in a log. This is what
-    /// goes in its place, half of its SHA-256. A downstream entity keys its own
-    /// per-session state on it, and correlating two entities' records is reading the same
-    /// string in both. What it cannot do is be replayed at the edge, which is the whole
-    /// reason the browser's own id stops there.
-    ///
-    /// It changes when the credential rotates, which happens on a scope change: an
-    /// elevated session is a different session, and state a service kept for the anonymous
-    /// visitor is not state it should go on keeping for the signed-in one.
+    /// The id is the credential, so it never leaves the edge. Downstream entities key their
+    /// per-session state on this instead, and it cannot be replayed at the edge. It changes when
+    /// the credential rotates on a scope change: an elevated session is a different session.
     static QString keyFor(const QByteArray &id);
 
     /// Create a fresh session. An empty scope means the configured default (anonymous).
     ///
-    /// Empty when the table is full and nothing in it can be let go of. See
-    /// setMaximumSessions. Every caller has to read that. A cookie set to an empty id is
-    /// a visitor who cannot connect and is told nothing about why.
+    /// Empty when the table is full and nothing in it can be released (see setMaximumSessions);
+    /// every caller must check.
     QByteArray createSession(const QString &scope = QString(),
                              const QVariantMap &identity = QVariantMap());
 
-    /// How many sessions this manager will hold, and what it does at the ceiling.
+    /// How many sessions this manager holds, and what it does at the ceiling.
     ///
-    /// Anyone who can reach an edge can ask it for a session. A page load with no live
-    /// cookie mints one, and nothing but the TTL ever took it away. That made the session
-    /// table the one thing a stranger could grow for as long as the TTL lasts, at the cost
-    /// of one request each, and on a replicated edge every one of them was forwarded to
-    /// the auth entity and to every other replica's cache besides. This is the bound.
-    ///
-    /// At the ceiling a new session is made by letting go of the oldest one that nobody
-    /// would miss: anonymous, at the default scope, and with no live connection (see
-    /// setInUseCheck). Under a flood those are the flood's own sessions, which is what makes
-    /// the edge keep serving real visitors through it rather than refusing everybody until
-    /// the flood's sessions expire. A signed-in session is never evicted, however idle: it
-    /// holds an identity somebody proved. When nothing can be let go of, createSession()
-    /// returns empty and the caller refuses. Zero disables the ceiling.
+    /// A page load with no live cookie mints a session, so this bounds the one table a stranger
+    /// can grow. At the ceiling, the oldest session that is anonymous, at the default scope and
+    /// without a live connection (see setInUseCheck) is released; under a flood those are the
+    /// flood's own. A signed-in session is never evicted. When nothing can be released,
+    /// createSession() returns empty. Zero disables the ceiling.
     void setMaximumSessions(int maximum);
     int maximumSessions() const;
 
@@ -94,56 +77,54 @@ public:
     /// with no check installed, every session counts as unattached.
     void setInUseCheck(std::function<bool(const QByteArray &)> inUse);
 
-    /// Whether createSession() would succeed right now: the table is under its ceiling,
-    /// or holds something eviction may take. For a route that spends something before it
-    /// mints (the device credential route rotates the credential first), so it can refuse
-    /// before spending rather than after.
+    /// Whether createSession() would succeed now, for a route that spends something before it
+    /// mints (the device credential route rotates the credential first).
     bool hasRoom() const;
 
     /// Look up a live (unexpired) session by its credential. Nullptr if unknown/expired.
     const SessionRecord *lookup(const QByteArray &id) const;
     bool isLive(const QByteArray &id) const;
 
-    /// Elevate a session after login and rotate its credential (defeats fixation).
-    /// Returns the new id; an empty return means the old id was unknown.
+    /// Whether a rotation leaves a hand-off for the browser still holding the replaced id (see
+    /// rotationOf).
     ///
-    /// Named `wasId` because it usually stops being that caller's session while this runs:
-    /// it is normally a `Caller`'s own `m_sessionId`, and the rotation this raises moves
-    /// that member to the new credential. The implementation copies it first for exactly
-    /// that reason.
-    QByteArray setScope(const QByteArray &wasId, const QString &scope,
-                        const QVariantMap &identity = QVariantMap());
+    /// A slot (`Caller.setScope`) cannot set the browser's cookie, so the next page load hands it
+    /// the new credential. A route that answers with the new cookie itself needs no hand-off, and
+    /// leaving one would let a planted pre-sign-in cookie redeem the elevated session.
+    enum class Handoff {
+        Keep,  ///< the caller cannot set the cookie. The old id may still name its successor
+        None,  ///< the caller's response carries the cookie. The old id is dead outright
+    };
 
-    /// The id a rotated-away credential became, while that is still worth knowing.
+    /// Elevate a session after login and rotate its credential (defeats fixation). Returns the
+    /// new id, or empty when the old id was unknown.
     ///
-    /// Rotating on elevation is only half an exchange: the new id reaches the connection
-    /// that asked for it, and the browser goes on holding the old one in a cookie no
-    /// slot call can rewrite (it is httpOnly, and a WebSocket sets no headers). Without
-    /// this, `Caller.setScope()` in a slot would sign the visitor out on their next page
-    /// load, losing the elevation and the sign-in with it.
+    /// `wasId` is often a `Caller`'s own `m_sessionId`, which the rotation moves, so the
+    /// implementation copies it first.
+    QByteArray setScope(const QByteArray &wasId, const QString &scope,
+                        const QVariantMap &identity = QVariantMap(),
+                        Handoff handoff = Handoff::Keep);
+
+    /// The id a rotated-away credential became, for RotationGraceMs.
     ///
-    /// What is returned is a redirection, never an authorization: the old id is gone from
-    /// the table, isLive() is false for it, and no upgrade, call or lookup accepts it.
-    /// The only thing it can still do is tell the edge which cookie to put in its place,
-    /// which is exactly what the browser that was holding it needs. Kept for
-    /// RotationGraceMs, since a page load is the event that consumes it.
+    /// A slot's `Caller.setScope()` cannot rewrite the browser's httpOnly cookie, so the browser
+    /// keeps the old id until its next page load. This returns a redirection, never an
+    /// authorization: the old id is out of the table and nothing accepts it; it only tells the
+    /// edge which cookie to set in its place.
     QByteArray rotationOf(const QByteArray &id) const;
 
     void revoke(const QByteArray &id);
 
-    /// Revoke the session a key names (see keyFor), or nothing when no live session has
-    /// that key. For the one place that holds keys and not ids. The device store, whose
-    /// rows outlive the process and so must not carry the credential. A walk over the
-    /// table, which is fine for what calls it (a detected credential reuse) and would not
-    /// be for anything on a request path.
+    /// Revoke the session a key names (see keyFor), for the device store, whose rows must not
+    /// carry the credential. A walk over the table: fine for a detected credential reuse, not for
+    /// a request path.
     void revokeByKey(const QString &key);
 
     QString defaultScope() const;
 
-    /// Promote this manager to a dedicated auth entity: writes here (create/setScope/revoke)
-    /// are forwarded to the authoritative store behind the given SessionStore Replica, and the
-    /// authoritative store's echoed changes are applied back into the local read cache. The
-    /// cache keeps lookup()/isLive() synchronous (as the upgrade verifier needs). See
+    /// Promote this manager to a dedicated auth entity: writes (create/setScope/revoke) are
+    /// forwarded to the authoritative store behind the given SessionStore Replica, and its echoed
+    /// changes are applied to the local read cache, which keeps lookup()/isLive() synchronous. See
     /// "Where identity runs" in [Authentication](https://synqt.org/authentication/).
     void attachRemote(QObject *sessionReplica);
 
@@ -168,46 +149,31 @@ signals:
     void sessionUpserted(const QString &token, const QString &scope,
                          const QString &identityJson, double createdMs);
     void sessionRemoved(const QString &token);
-    /// A hand-off recorded on this manager, in the form the SessionStore contract carries
-    /// so the auth entity's Source can forward it to every edge. Raised by a rotation
-    /// made here and by one applied from the store alike. The originating edge ignores
-    /// its own echo, since it already holds the entry.
+    /// A hand-off recorded on this manager, in the SessionStore contract's form, so the auth
+    /// entity can forward it to every edge. The originating edge ignores its own echo.
     void rotationRecorded(const QString &from, const QString &to);
 
-    /// The same session under a new credential, after a scope change rotated it.
-    ///
-    /// Raised on this entity for whoever is still naming the old id, which is everyone: a
-    /// connection holds a Caller per connect point, `Caller.setScope()` runs on one of them,
-    /// and the rest would otherwise go on naming the credential that call erased. Not
-    /// the same event as sessionRemoved followed by sessionUpserted, which is how the pair
-    /// reaches another entity and says nothing about the two being one session.
+    /// The same session under a new credential, after a scope change rotated it. Every Caller
+    /// still naming the old id follows it. Not the same event as sessionRemoved followed by
+    /// sessionUpserted, which is how the pair reaches another entity.
     void sessionRotated(const QByteArray &from, const QByteArray &to);
 
-    /// A session reclaimed because its time-to-live ran out, on this entity.
-    ///
-    /// Not sessionRemoved. That one is the table change the auth entity
-    /// forwards to every edge, and an expiry is not a change anyone needs to be told
-    /// about (every holder of the record reaches the same verdict from the same
-    /// createdMs). What it is good for is releasing what an expired session was still
-    /// holding here, which is how the edge stops keeping a signed-out user's OAuth
-    /// tokens for as long as the process runs.
+    /// A session reclaimed because its time-to-live ran out, on this entity. Unlike
+    /// sessionRemoved, it is not forwarded: every holder reaches the same verdict. It releases
+    /// what the session held here, such as its OAuth tokens.
     void sessionExpired(const QString &token);
 
 private:
-    /// How long a rotated-away id can still name its replacement. Long enough that a
-    /// visitor whose scope changed mid-session gets the new cookie on their next page
-    /// load or refresh, short enough that it is not a second credential anyone can hold
-    /// on to. It authorizes nothing on its own either way (see rotationOf).
+    /// How long a rotated-away id can name its replacement: long enough for the next page load,
+    /// short enough not to be a second credential. It authorizes nothing (see rotationOf).
     static constexpr qint64 RotationGraceMs{10 * 60 * 1000};
 
     /// The default ceiling. A hundred thousand records is a few tens of megabytes, far
     /// above the concurrent visitors of a single edge and far below what would take one
     /// down.
     static constexpr int DefaultMaximumSessions{100000};
-    /// How far into the table eviction looks for something to let go of. The oldest
-    /// entries are at the front, and under a flood they are the flood's. A table whose
-    /// oldest thousands are all signed-in visitors has nothing cheap to give, and walking
-    /// the whole of it on every refused mint would be the flood's next lever.
+    /// How far into the table eviction looks. Walking the whole table on every refused mint
+    /// would give a flood another lever.
     static constexpr int EvictionSearchDepth{4096};
 
     QByteArray newToken() const;
@@ -218,32 +184,19 @@ private:
     /// Let go of the oldest evictable session. False when none was found within
     /// EvictionSearchDepth of the front.
     bool evictOne();
-    /// Drop the hand-off that pointed at this record, now that the record is going. A
-    /// rotation names a session. Once that session is revoked or expired the entry can
-    /// never do anything again, so keeping it for the rest of its grace period is holding
-    /// memory on behalf of nobody.
+    /// Drop the hand-off pointing at this record, which is going.
     void dropRotationTo(const SessionRecord &record);
     void purgeExpired();
     void emitUpsert(const SessionRecord &record);
 
     QHash<QByteArray, SessionRecord> m_sessions;
-    /// Insertion-ordered {createdMs, id} hints that make purgeExpired() amortized O(1): a
-    /// fixed TTL means sessions expire in creation order, so the purge only drains the front
-    /// while it is past the TTL instead of scanning the whole table on every create. Entries
-    /// are hints, not truth. An id that was rotated (setScope) or overwritten (applyUpsert)
-    /// leaves a stale entry whose recorded createdMs no longer matches the map, and the purge
-    /// drops it. Only maintained when m_ttlMs > 0 (with no TTL there is nothing to
-    /// reclaim). lookup()/isLive() re-check the TTL themselves, so a lagging queue never
-    /// returns an expired session. It only defers reclaiming its memory.
+    /// Insertion-ordered {createdMs, id} hints that make purgeExpired() amortized O(1): with a
+    /// fixed TTL, sessions expire in creation order. A rotated or overwritten id leaves a stale
+    /// hint the purge drops. Only maintained when m_ttlMs > 0. lookup()/isLive() re-check the TTL,
+    /// so a lagging queue only defers reclaiming memory.
     std::deque<std::pair<qint64, QByteArray>> m_expiryQueue;
-    /// Sweeps the queue on a timer as well as on every create.
-    ///
-    /// Creating a session is the natural moment to reclaim one, but it is not a moment
-    /// that arrives on a quiet edge. A browser that already holds a live session is not
-    /// given another one (webedge.cpp), so an edge whose visitors have all gone home
-    /// would keep every expired record, and whatever hangs off it, until someone new
-    /// arrives. lookup() never returns an expired session either way. This is about the
-    /// memory, and about the tokens released with the record.
+    /// Sweeps the queue on a timer as well as on every create, so a quiet edge still releases
+    /// expired records and the tokens hanging off them.
     QTimer *m_sweepTimer{nullptr};
     /// Rotated-away id -> what it became, and when. Not sessions: entries here are
     /// consulted only to re-cookie the browser still holding the old id (see rotationOf),

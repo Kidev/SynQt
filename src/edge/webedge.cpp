@@ -662,16 +662,21 @@ QHttpServerResponse WebEdge::handleSignIn(const QHttpServerRequest &request)
                                    QHttpServerResponder::StatusCode::Unauthorized};
     }
     const QByteArray presented{sessionIdOf(request)};
-    QByteArray elevated{m_sessionManager->setScope(presented, m_config.signInScope)};
+    // No hand-off from the old credential. This response carries the new cookie, so the
+    // browser that signed in already holds it, and the only thing a hand-off could still
+    // do is redeem the pre-sign-in id for the operator session in somebody else's hands.
+    QByteArray elevated{m_sessionManager->setScope(presented, m_config.signInScope,
+                                                   QVariantMap{},
+                                                   SessionManager::Handoff::None)};
     if (elevated.isEmpty()) {
-        // No live session to raise: they arrived without one, which a browser that fetched
+        // No live session to raise. They arrived without one, which a browser that fetched
         // the page would not have done, but a script might. Give them one at the scope they
         // proved they hold.
         elevated = m_sessionManager->createSession(m_config.signInScope);
     }
     if (elevated.isEmpty()) {
         // The table is full of sessions that cannot be let go of. The password was right,
-        // and the answer is still no cookie: an empty one would sign nobody in and say
+        // and the answer is still no cookie. An empty one would sign nobody in and say
         // nothing about why.
         emit signInRefused(name);
         return QHttpServerResponse{QByteArrayLiteral("text/plain"),

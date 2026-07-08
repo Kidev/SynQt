@@ -1787,9 +1787,71 @@ private slots:
         }
     }
 
+    // An elevation the response itself hands back leaves no hand-off behind.
+    //
+    // `SessionManager::setScope` rotates the credential and remembers, for ten minutes,
+    // that the old id became the new one, so that a browser whose session was elevated
+    // under a live socket (Caller.setScope in a slot, which can set no cookie) is handed
+    // its new credential on the next page load. The password gate is not that case: its
+    // answer IS the response that carries the new cookie, so the browser that signed in
+    // already holds it. Left standing, the hand-off made the pre-sign-in id a ticket to the
+    // operator session for ten minutes, redeemable by anyone who knew it: a cookie planted
+    // from a sibling subdomain before the operator typed their password is exactly that
+    // (session fixation, which rotating on elevation exists to close).
+    void thePasswordGateLeavesNoHandOffFromTheOldCredential()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeGatedConfig()};
+        config.signInPath = QStringLiteral("/monitor/signin");
+        config.signInScope = QStringLiteral("moderator");
+        config.signIn = [](const QString &name, const QString &password) {
+            return name == QLatin1String("alice") && password == QLatin1String("pw");
+        };
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // The anonymous session a visitor holds before signing in. The one a planted
+        // cookie would name.
+        QNetworkReply *landing{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(landing);
+        const QByteArray before{sessionCookie(landing)};
+        landing->deleteLater();
+        QVERIFY(before.startsWith("synqt_session="));
+
+        QNetworkRequest request{QUrl{edge.httpOrigin() + QStringLiteral("/monitor/signin")}};
+        request.setSslConfiguration(insecureClientConfig());
+        useOnlyTheCookiesNamedHere(request);
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QByteArrayLiteral("application/x-www-form-urlencoded"));
+        request.setRawHeader("Sec-Fetch-Site", "same-origin");
+        request.setRawHeader("Cookie", before);
+        QNetworkReply *signedIn{m_nam.post(request, QByteArrayLiteral("name=alice&password=pw"))};
+        QSignalSpy finished{signedIn, &QNetworkReply::finished};
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(statusOf(signedIn), 200);
+        const QByteArray after{sessionCookie(signedIn)};
+        signedIn->deleteLater();
+        QVERIFY(after.startsWith("synqt_session="));
+        QVERIFY(after != before);
+
+        // The old credential, presented again by whoever else holds it: not the operator
+        // session, and not live either. A fresh anonymous session is what a stranger with a
+        // dead cookie gets.
+        QNetworkReply *replayed{httpGet(edge.httpOrigin() + QStringLiteral("/"),
+                                        QByteArrayLiteral("Cookie"), before)};
+        QVERIFY(replayed);
+        const QByteArray handed{sessionCookie(replayed)};
+        replayed->deleteLater();
+        QVERIFY2(handed != after,
+                 "the pre-sign-in credential was redeemed for the operator session");
+        const QByteArray oldToken{before.mid(QByteArrayLiteral("synqt_session=").size())};
+        QVERIFY(!edge.sessionManager()->isLive(oldToken));
+        QVERIFY(edge.sessionManager()->rotationOf(oldToken).isEmpty());
+    }
+
     void aDevEdgePicksAScopeAndHandsBackASession()
     {
-        // The accept case, and it is not padding: a gate tested only by refusals passes
+        // The accept case, and it is not padding. A gate tested only by refusals passes
         // when it refuses everything, which is how identity.required refused everybody in
         // this tree for months. moderator is index 2 in makeGatedConfig's vocabulary.
         QQmlEngine engine;

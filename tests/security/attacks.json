@@ -985,6 +985,13 @@
       "defended_by": "WebEdge::trackPendingUpgrade applies the per-address socket ceiling only to a peer public.trusted_proxies does not name, the same rule ApiServer::start applies to its own per-host ceiling; the global socket ceiling still holds for everybody, and the link ceiling still counts the visitor the forwarding header names.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "theSocketCeilingIsNotCountedAgainstABalancer"
+    },
+    {
+      "id": "a-planted-cookie-redeemed-for-the-operator-session",
+      "what": "SessionManager::setScope rotates the credential and, for ten minutes, lets the old id name its successor (rotationOf), so a browser elevated under a live socket is handed its new cookie on the next page load. The monitor's password gate elevated through the same call and then set the new cookie in its own response, so the browser that signed in already held it; the hand-off it left behind was only ever redeemed by somebody else holding the pre-sign-in id. A cookie planted in the operator's browser from a sibling subdomain (or on a plaintext edge) before they typed their password was exactly that: session fixation, the attack rotating on elevation exists to close, reopened for ten minutes on the most sensitive session in the system.",
+      "defended_by": "SessionManager::Handoff::None: a route whose response carries the new cookie asks for no hand-off, so the old id is dead outright and no earlier credential can buy the session it became. The gate's own test presents the pre-sign-in cookie again after a successful sign-in and requires that it is neither live nor redeemed.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "thePasswordGateLeavesNoHandOffFromTheOldCredential"
     }
   ]
 }
