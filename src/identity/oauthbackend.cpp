@@ -30,6 +30,7 @@
 #include <QTimer>
 #include <QUrlQuery>
 
+#include <chrono>
 #include <utility>
 
 namespace SynQt {
@@ -165,6 +166,12 @@ QNetworkAccessManager *OAuthBackend::network()
     if (!m_network) {
         m_network = new QNetworkAccessManager{this};
         applyEnvironmentProxy(m_network);
+        // The token exchange itself is a request Qt's flow makes on this manager, so it is
+        // not one boundReply() can reach: the ExchangeJob's deadline answers the login and
+        // lets go of the flow, and the reply the flow left in flight stayed open on this
+        // manager until the provider closed it. The same deadline, applied by the manager
+        // to every request it carries, is what ends that one too.
+        m_network->setTransferTimeout(std::chrono::milliseconds{kProviderTimeoutMs});
     }
     return m_network;
 }

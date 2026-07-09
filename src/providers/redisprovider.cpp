@@ -144,6 +144,20 @@ bool RedisCacheProvider::connect(QString *error)
         return false;
     }
 
+    // The same bound on every command as on the connect. hiredis is synchronous, so a
+    // command runs on the entity's own event loop, and a server that accepted the
+    // connection and then stopped answering held that loop, and every caller behind it,
+    // for as long as it liked. With this it is an error after two seconds, which the
+    // provider reports as a miss, and the entity keeps answering.
+    if (redisSetTimeout(m_context, timeout) != REDIS_OK) {
+        if (error != nullptr) {
+            *error = QStringLiteral("could not bound Redis commands: %1")
+                         .arg(QString::fromUtf8(m_context->errstr));
+        }
+        disconnect();
+        return false;
+    }
+
     // Asked for TLS means TLS or nothing, on every link and not only the ones the guard
     // above refuses: a dev loopback link that says `tls: true` and silently gets plaintext
     // is how a production config that means it ends up untested.
