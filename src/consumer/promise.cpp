@@ -37,13 +37,12 @@ Promise::Promise(const QRemoteObjectPendingCall &call, QJSEngine *engine, QObjec
             });
 
 #ifdef Q_OS_WASM
-    // On firefox-for-WebAssembly the emscripten posted-event pump that delivers the watcher's
-    // queued finished() signal can be starved, so a returning-slot reply resolves (isFinished()
-    // becomes true, its value set synchronously in QtRO's notifyAboutReply) yet the watcher never
-    // fires and the promise would never settle. Poll the call's own resolved state as a fallback so
-    // the promise settles regardless of the queued signal. settleFulfilled/settleRejected are
-    // Pending-guarded, so whichever path fires first wins and the other is a no-op. Gated to WASM:
-    // native builds drain posted events normally and need no poll.
+    // On Firefox for WebAssembly the posted-event pump that delivers the watcher's queued
+    // finished() can be starved: the reply resolves (isFinished() is true, its value set
+    // synchronously in QtRO's notifyAboutReply) but the watcher never fires. Poll the
+    // call's own state as a fallback. settleFulfilled/settleRejected are guarded on
+    // Pending, so the first path wins. WASM only: native builds drain posted events
+    // normally.
     QTimer *poll{new QTimer{this}};
     poll->setInterval(50);
     connect(poll, &QTimer::timeout, this, [this, call, poll]() {
@@ -142,12 +141,10 @@ void Promise::flush()
 
 void Promise::scheduleDisposal()
 {
-    // After the current turn, so everything chained onto this promise where the call was
-    // made still runs first, and so a handler that is running right now cannot be freed
-    // underneath itself. A chained promise is a child of the one it was chained from, so
-    // retiring the root retires the chain with it. A child that scheduled its own
-    // disposal first is deleted by its parent, and Qt drops the pending deletion
-    // with the object.
+    // After the current turn, so everything chained here runs first and a running handler
+    // is not freed under itself. A chained promise is a child of the one it was chained
+    // from, so retiring the root retires the chain. A child that scheduled its own disposal
+    // first is deleted by its parent, and Qt drops the pending deletion with it.
     if (m_disposalScheduled) {
         return;
     }
@@ -157,8 +154,8 @@ void Promise::scheduleDisposal()
 
 void Promise::dispatch(const Handler &handler)
 {
-    // A fulfilled value flows through an onFulfilled handler. A rejection flows through an
-    // onRejected handler (which recovers the chain) and otherwise propagates unchanged.
+    // A fulfilled value flows through onFulfilled. A rejection flows through onRejected
+    // (which recovers the chain) or otherwise propagates unchanged.
     const bool runsHere{(m_state == State::Fulfilled && !handler.onRejected)
                         || (m_state == State::Rejected && handler.onRejected)};
     if (!runsHere) {
@@ -172,15 +169,22 @@ void Promise::dispatch(const Handler &handler)
 
     QJSValue callback{handler.callback};
     if (!callback.isCallable()) {
-        handler.next->settleFulfilled(m_value);
+        // No handler, so the outcome passes through: a rejection through
+        // `catchError(undefined)` stays a rejection, instead of becoming a fulfilment with
+        // an empty value.
+        if (m_state == State::Fulfilled) {
+            handler.next->settleFulfilled(m_value);
+        } else {
+            handler.next->settleRejected(m_reason);
+        }
         return;
     }
     QJSValue argument{m_engine != nullptr
                           ? (m_state == State::Fulfilled ? m_engine->toScriptValue(m_value)
                                                          : m_engine->toScriptValue(m_reason))
                           : QJSValue{}};
-    // The handler runs where the call was made, as far as the trace is concerned: a call
-    // it makes on carries the click's context, a record it writes joins it.
+    // The handler runs in the calling context for tracing: its outbound calls and records
+    // join the click's trace.
     const TraceScope scope{m_trace};
     const QJSValue result{callback.call(QJSValueList{argument})};
     if (result.isError()) {

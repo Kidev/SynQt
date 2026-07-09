@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Acceptance for the two consumer ergonomics the docs use throughout (programming-model.md
-// "Handling a connect point's signals" and the tutorials' returning-slot `.then(...)`):
+// The two consumer ergonomics the docs use throughout (programming-model.md "Handling a
+// connect point's signals" and the tutorials' returning-slot `.then(...)`):
 //
 //   * `<Contract>.on<Signal>` attached handlers (no target), and
 //   * a returning slot resolving as a Promise (`Server.x.slot(args).then(v => ...)`),
 //
-// plus the facade forwarding the connect point's push property, model, void slot and signal.
-// The connect point is hosted in-process over the real WebSocketTransport (as M2), acquired
+// plus the facade forwarding the connect point's push property, model, void slot and
+// signal. The connect point is hosted in-process over the real WebSocketTransport, acquired
 // as a typed Replica, wrapped in its generated ArenaConsumer... WidgetConsumer facade, and
 // consumed from a real QML document exactly as the client runtime exposes it.
 
@@ -24,6 +24,8 @@
 
 #include <QAbstractItemModel>
 #include <QHostAddress>
+#include <QJSEngine>
+#include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -63,6 +65,35 @@ private slots:
         // type) and the typed Replica factory, exactly as a generated client main does.
         synqtRegisterWidgetConsumers();
         synqtRegisterWidgetReplicas();
+    }
+
+    // A handler that is not a function is a step with nothing to run, and the outcome
+    // passes through it unchanged. A rejected half that fulfils the next promise with
+    // the rejected one's (empty) value makes `slot().catchError(undefined).then(v => ...)`
+    // run the fulfilment handler on a call that has failed.
+    void aHandlerThatIsNotAFunctionPassesTheOutcomeThrough()
+    {
+        QJSEngine engine;
+        engine.globalObject().setProperty(QStringLiteral("seen"), QJSValue{QStringLiteral("")});
+        const QJSValue onFulfilled{engine.evaluate(
+            QStringLiteral("(function (value) { seen = 'fulfilled:' + value; })"))};
+        const QJSValue onRejected{engine.evaluate(
+            QStringLiteral("(function (reason) { seen = 'rejected:' + reason; })"))};
+
+        // A rejection through a non-callable catchError stays a rejection.
+        SynQt::Promise *failed{SynQt::Promise::rejected(QStringLiteral("boom"), &engine)};
+        failed->catchError(QJSValue{})->then(onFulfilled)->catchError(onRejected);
+        QCOMPARE(engine.globalObject().property(QStringLiteral("seen")).toString(),
+                 QStringLiteral("rejected:boom"));
+
+        // And a fulfilment through a non-callable then stays a fulfilment.
+        engine.globalObject().setProperty(QStringLiteral("seen"), QJSValue{QStringLiteral("")});
+        SynQt::Promise *answered{SynQt::Promise::resolved(QVariant{42}, &engine)};
+        answered->then(QJSValue{})->catchError(onRejected)->then(onFulfilled);
+        QCOMPARE(engine.globalObject().property(QStringLiteral("seen")).toString(),
+                 QStringLiteral("fulfilled:42"));
+        delete failed;
+        delete answered;
     }
 
     void facadeSurfacesAndErgonomics()
@@ -142,13 +173,12 @@ private slots:
             qobject_cast<QAbstractItemModel *>(facadeObject->property("rows").value<QObject *>())};
         QTRY_COMPARE(mirrored->rowCount(), 1);
 
-        // 2b) And it is a model to read, never one to write. The owner already refuses a
-        // write that reaches it, so this closes the half the owner cannot: QtRO's model
-        // Replica takes setData into its own cache and answers true before anything
-        // crosses the wire, which left the consumer that called it showing a value nobody
-        // else had until the next publish. A lie a view tells only to itself is the kind
-        // that survives review, so the facade hands out a read-only view of the Replica's
-        // model rather than the Replica's own. Before this, the call below returned true.
+        // 2b) And it is a model to read, never one to write. The owner refuses a write that
+        // reaches it; this closes the half the owner cannot see. QtRO's model Replica takes
+        // setData into its own cache and answers true before anything crosses the wire, so
+        // the calling consumer would show a value nobody else has until the next publish.
+        // The facade hands out a read-only view of the Replica's model instead of the
+        // Replica's own.
         QVERIFY(!mirrored->setData(mirrored->index(0, 0), QStringLiteral("rewritten"),
                                    Qt::UserRole));
         QVERIFY(!(mirrored->flags(mirrored->index(0, 0)) & Qt::ItemIsEditable));
@@ -188,11 +218,11 @@ private slots:
         QTRY_COMPARE(root->property("computed").toInt(), 38);  // the last one, 19 * 2
         QTRY_COMPARE_WITH_TIMEOUT(promisesHeld(), 0, 5000);
 
-        // 7) A call in flight when the link drops. The reply never comes, so nothing settles
-        //    the promise. It stayed pending, parented to a facade that lives as long as the
-        //    client, one per call cut off by a reconnect, and the handler written for the
-        //    failure never ran. A reconnect hands the facade a fresh Replica, and that is
-        //    the moment every answer the old one owed is known never to arrive.
+        // 7) A call in flight when the link drops. The reply never comes, so nothing
+        // settles the promise, which would stay pending, parented to a facade that lives as
+        // long as the client, with its failure handler never run. A reconnect hands the
+        // facade a fresh Replica, and that is the moment every answer the old one owed is
+        // known never to arrive.
         QVERIFY(QMetaObject::invokeMethod(root.data(), "requestComputeOrFail", Q_ARG(int, 50)));
         QCOMPARE(promisesHeld(), 1);
         clientSocket.abort();  // the packet is written. The answer has nowhere to land
