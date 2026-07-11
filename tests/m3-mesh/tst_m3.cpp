@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M3 acceptance. The service-to-service mesh transports.
+// The service-to-service mesh transports.
 //   - mutual TLS is the default on every link (loopback for same host): two native
 //     nodes exchange a property and a slot, each verifying the other against the CA,
 //     and the owner reads the caller's entity name from the verified certificate;
@@ -37,6 +37,7 @@
 #include <QUrl>
 
 #include <cstdio>
+#include <utility>
 
 using SynQt::MeshClient;
 using SynQt::MeshPeer;
@@ -44,14 +45,13 @@ using SynQt::MeshServer;
 
 namespace {
 
-// A crash-safe progress trace. On Windows a piped standard stream is block-buffered, so a hard
-// termination (an access violation, not a failed QVERIFY) discards everything QtTest printed and
-// the failure reaches the ctest log as "***Failed" in half a second with no output at all, not
-// even QtTest's own "Start testing" banner, which is why unbuffering stdout alone did not reveal
-// the crash site. This writes each step to a file that is reopened, flushed, and closed per line,
-// so whatever is on disk after the process dies is exactly the last step it reached. QFile, not
-// fopen: MSVC compiles this suite with /W4 /WX, where fopen is C4996 and would fail the build. The
-// path is an absolute compile-time define, so the test's working directory does not matter.
+// A crash-safe progress trace. On Windows a piped standard stream is block-buffered, so a
+// hard termination (an access violation, not a failed QVERIFY) discards everything QtTest
+// printed, and the failure reaches the ctest log with no output at all. This writes each
+// step to a file reopened, flushed and closed per line, so what is on disk after the
+// process dies is the last step it reached. QFile, not fopen: MSVC compiles this suite with
+// /W4 /WX, where fopen is C4996. The path is an absolute compile-time define, so the
+// working directory does not matter.
 void traceWrite(const QString &message, QIODevice::OpenMode mode)
 {
 #ifdef M3_TRACE_LOG
@@ -167,14 +167,15 @@ private slots:
     {
         traceMark(QStringLiteral("enter initTestCase"));
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
-        QVERIFY2(!loadCert(QStringLiteral("ca")).isNull(), "test certificates missing; run gen-certs.sh");
+        QVERIFY2(!loadCert(QStringLiteral("ca")).isNull(),
+                 "test certificates missing; run gen-certs.sh");
         reportTlsEnvironment();
         traceMark(QStringLiteral("leave initTestCase"));
     }
 
-    // Run before and after every test function. The last "enter" with no matching "leave" in the
-    // trace names the clause the process died in. The one fact the empty ctest log could not
-    // give. A failed QVERIFY still reaches "leave" (QtTest runs cleanup after a failure), so an
+    // Run before and after every test function. The last "enter" with no matching "leave" in
+    // the trace names the test function the process died in, which an empty ctest log cannot.
+    // A failed QVERIFY still reaches "leave" (QtTest runs cleanup after a failure), so an
     // "enter" with no "leave" is specifically a hard crash, not an assertion failure.
     void init()
     {
@@ -186,8 +187,8 @@ private slots:
         traceMark(QStringLiteral("leave ") + QString::fromUtf8(QTest::currentTestFunction()));
     }
 
-    // Clauses 1 and 4: mutual TLS on loopback carries a property and a slot, each side
-    // verified against the CA, and the owner sees the caller's certificate subject.
+    // Mutual TLS on loopback carries a property and a slot, each side verified against the
+    // CA, and the owner sees the caller's certificate subject.
     void mutualTlsLoopbackExchange()
     {
         const QSslCertificate ca{loadCert(QStringLiteral("ca"))};
@@ -216,11 +217,10 @@ private slots:
         MeshClient client;
         connect(&client, &MeshClient::connected, &node,
                 [&node](QIODevice *device) { node.addClientSideConnection(device); });
-        // Both sides already work out why a handshake failed, and nothing was listening: a
-        // failure arrived as a signal that never came and a timeout that named no cause.
-        // Report them. On a green run these are silent. On a red one they are the difference
-        // between "the peer's certificate was rejected, here is the error" and five seconds
-        // of nothing.
+        // Both sides know why a handshake failed, so a red run reports the cause instead of
+        // timing out on a signal that never came. On a green run these are silent. On a red
+        // one they are the difference between "the peer's certificate was rejected, here is
+        // the error" and five seconds of nothing.
         connect(&client, &MeshClient::errorOccurred, this, [](const QString &reason) {
             qWarning().noquote() << "mesh client error:" << reason;
         });
@@ -250,20 +250,18 @@ private slots:
     // Both ends of a mesh link carry TCP_NODELAY.
     //
     // A mesh link carries a push protocol: small frames, sent when something happened, with
-    // no bulk transfer to batch them into. Nagle holds a small segment back until the
-    // previous one is acknowledged and the peer's delayed-ACK timer holds that
-    // acknowledgement back in turn, so a frame that was ready to leave waits on two timers
-    // that are each reasonable alone. Qt sets this option itself on a socket QWebSocket
-    // dials out on, and on nothing else, so neither end of a mesh link had it.
+    // no bulk transfer to batch them into. Nagle holds a small segment until the previous
+    // one is acknowledged, and the peer's delayed-ACK timer holds that acknowledgement in
+    // turn, so a ready frame waits on two timers that are each reasonable alone. Qt sets
+    // this option only on a socket QWebSocket dials out on, so the mesh sets it on both
+    // ends itself.
     //
-    // Read back through socketOption(), which is a getsockopt on the live socket rather than
-    // an echo of what was asked for, so this fails if the option never reached the kernel.
+    // Read back through socketOption(), a getsockopt on the live socket rather than an echo
+    // of the request, so this fails if the option never reached the kernel.
     //
-    // What comes back is "set", not the number 1. Linux reports the boolean it stored, but
-    // the BSD stack macOS is built on reports the socket's own flag word masked to that
-    // option, so a NODELAY socket answers 4 there (TF_NODELAY). Both are the kernel saying
-    // yes. Only one of them is 1, and this asserted the value rather than the answer until
-    // the macOS column ran it.
+    // The answer is "set", not the number 1. Linux reports the boolean it stored; the BSD
+    // stack macOS is built on reports the socket's flag word masked to the option, so a
+    // NODELAY socket answers 4 there (TF_NODELAY).
     void bothEndsOfAMeshLinkSendWithoutWaiting()
     {
         const QSslCertificate ca{loadCert(QStringLiteral("ca"))};
@@ -315,7 +313,11 @@ private slots:
                                           loadCert(QStringLiteral("impostor")),
                                           loadKey(QStringLiteral("impostor"))),
                  qPrintable(impostor.errorString()));
-        QSignalSpy accepted{&impostor, &MeshServer::peerConnected};
+        QList<QAbstractSocket *> handed;
+        connect(&impostor, &MeshServer::peerConnected, this,
+                [&handed](QIODevice *device, const MeshPeer &) {
+                    handed.append(qobject_cast<QAbstractSocket *>(device));
+                });
 
         MeshClient consumer;
         QSignalSpy connectedSpy{&consumer, &MeshClient::connected};
@@ -339,11 +341,23 @@ private slots:
                                                              Qt::CaseInsensitive),
                  qPrintable(QStringLiteral("refused for another reason: %1")
                                 .arg(reasons.join(QLatin1String(" | ")))));
-        // And nothing was hosted to it: the impostor never got a peer to talk to.
-        QCOMPARE(accepted.count(), 0);
+        // And nothing was hosted to it. Whether the impostor ever sees its handshake
+        // complete is the consumer's TLS backend's to decide: OpenSSL evaluates the owner's
+        // certificate as it arrives and aborts before sending the consumer's own, so the
+        // impostor accepts nothing; Secure Transport (qtls_st.cpp, startHandshake) checks
+        // the peer only once SSLHandshake has returned, so the impostor's side completes
+        // first and the consumer tears the link down a moment later. Either way the
+        // consumer reported no link, and a socket the impostor was handed closes without a
+        // byte of the consumer's on it. The mesh attaches its node on `connected`, which
+        // never fired.
+        for (QAbstractSocket *socket : std::as_const(handed)) {
+            QVERIFY(socket != nullptr);
+            QTRY_COMPARE_WITH_TIMEOUT(socket->state(), QAbstractSocket::UnconnectedState, 5000);
+            QCOMPARE(socket->bytesAvailable(), 0);
+        }
     }
 
-    // Clause 2: a consumer presenting no certificate is rejected at the handshake.
+    // A consumer presenting no certificate is rejected at the handshake.
     void missingCertificateRejected()
     {
         const QSslCertificate ca{loadCert(QStringLiteral("ca"))};
@@ -381,7 +395,7 @@ private slots:
         QCOMPARE(peerSpy.count(), 0);
     }
 
-    // Clause 3: a consumer presenting a certificate from a different CA is rejected.
+    // A consumer presenting a certificate from a different CA is rejected.
     void foreignCertificateRejected()
     {
         const QSslCertificate ca{loadCert(QStringLiteral("ca"))};
@@ -417,8 +431,8 @@ private slots:
         QCOMPARE(peerSpy.count(), 0);
     }
 
-    // Clause 5: the explicitly opted-in local socket carries a property and a slot. Its
-    // peer is trusted by colocation, not authenticated.
+    // The explicitly opted-in local socket carries a property and a slot. Its peer is
+    // trusted by colocation, not authenticated.
     void localSocketExchange()
     {
         const QString socketName{
@@ -497,15 +511,14 @@ private slots:
         QVERIFY(!observedPeer.authenticated);
     }
 
-    // The check behind that trust, on both ends of a local link. The owner has asked the
-    // operating system who connected since the transport existed. The consumer asked
-    // nothing about who was listening, and a local socket is a path in a directory every
-    // user of the machine can write, so a process of another user that took the owner's
-    // name first was taken for the owner. The same primitive now runs at both ends
-    // (MeshServer::onLocalConnectionPending, MeshClient::openLocal), and this is the
-    // primitive. Asked of a real connected pair, it recognises this user on either side
-    // and refuses any other. Another user cannot be stood up inside one test process, so
-    // the refusal is proved by asking about a user this process is not.
+    // The check behind that trust, on both ends of a local link. A local socket is a path
+    // in a directory every user of the machine can write, so without a check a process of
+    // another user that took the owner's name first would be taken for the owner. The same
+    // primitive runs at both ends (MeshServer::onLocalConnectionPending,
+    // MeshClient::openLocal), and this tests it: asked of a real connected pair, it
+    // recognises this user on either side and refuses any other. Another user cannot be
+    // stood up inside one test process, so the refusal is proved by asking about a user
+    // this process is not.
     void bothEndsOfALocalLinkAskWhoThePeerRunsAs()
     {
         QLocalServer listener;
@@ -540,14 +553,12 @@ private slots:
     }
 };
 
-// The expansion of QTEST_GUILESS_MAIN, with one addition. Stdout and stderr are made
+// The expansion of QTEST_GUILESS_MAIN, with one addition: stdout and stderr are made
 // unbuffered before the run. On Windows a piped standard stream is block-buffered, so a
-// hard termination (an access violation or an abort, the kind a failed QVERIFY never
-// produces) discards everything QtTest had printed into the buffer and the failure reaches
-// the log as zero output, which is exactly how m3 first surfaced: "***Failed" in half a
-// second with not one PASS or QWARN line to say where. Unbuffering flushes each line as it
-// is written, so the last line before a crash is the crash site. It costs nothing on a green
-// run and nothing on the other platforms, where a pipe is line-buffered already.
+// hard termination (an access violation or an abort, which a failed QVERIFY never produces)
+// discards everything QtTest printed and the failure reaches the log with no output.
+// Unbuffered, the last line before a crash names the crash site. It costs nothing on a
+// green run or on other platforms, where a pipe is line-buffered already.
 int main(int argc, char *argv[])
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
