@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// PROV-4 acceptance: EntityRuntime is type-aware. Given an entity with a type and
-// a provider config, the runtime builds and connects the provider and injects that
-// type's helper into every owned Source's QML context. No manual injection. One test
-// per type (relational -> Db, cache -> Cache, document -> Docs, api -> Http,
-// jobs -> Jobs), each proving the helper reached QML and works, plus the failure paths: a
-// provider that selects nothing stops the entity, and one that will not connect is fatal
-// for a database and survivable for a cache or a document store.
+// EntityRuntime is type-aware. Given an entity with a type and a provider config, the
+// runtime builds and connects the provider and injects that type's helper into every owned
+// Source's QML context, with no manual injection. One test per type (relational -> Db,
+// cache -> Cache, document -> Docs, api -> Http, jobs -> Jobs), each proving the helper
+// reached QML and works, plus the failure paths: a provider that selects nothing stops the
+// entity, and one that will not connect is fatal for a database and survivable for a cache
+// or a document store.
 
 #include "cache.h"
 #include "connectpointhost.h"
@@ -112,8 +112,8 @@ private:
     QTemporaryDir m_dir;
 
     /// A one connect point topology of `entityType`, owned by `entity`, whose Source is
-    /// `sourceFile`. A local socket keeps the owner cert-free. These tests prove injection,
-    /// not the mesh, which M3 and M4 already cover.
+    /// `sourceFile`. A local socket keeps the owner cert-free: these tests prove injection,
+    /// not the mesh, which tests/m3-mesh and tests/m4-topology cover.
     static Topology typeTopology(const QString &entity, const QString &entityType,
                                  const QString &sourceFile, QVariantMap provider,
                                  QStringList outbound = {}, bool declaresOutbound = false)
@@ -190,6 +190,11 @@ private:
     }
 
 private slots:
+    // A directory of its own per pass. Every database file below is named, so a second
+    // pass over the suite in one process (how tests/memory measures what a pass keeps)
+    // would otherwise find the rows the first one stored and count them twice.
+    void initTestCase() { m_dir = QTemporaryDir{}; }
+
     void runtimeInjectsDbFromBlueprintAndItWorks()
     {
         const QString dbFile{m_dir.filePath(QStringLiteral("app.db"))};

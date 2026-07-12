@@ -63,14 +63,17 @@ DISPATCH_FRAMES = ("doActivate", "QSlotObjectBase::call", "QMetaObject::activate
 SOAK_LIMIT_KB_PER_RUN = 4096
 
 
-def _run(command: Sequence[str], env: Optional[Dict[str, str]] = None) -> Tuple[int, int]:
-    """Run command to completion; return (exit status, peak resident set in KB)."""
+def _run(command: Sequence[str], env: Optional[Dict[str, str]] = None,
+         cwd: Optional[str] = None) -> Tuple[int, int]:
+    """Run command to completion and return (exit status, peak resident set in KB)."""
     pid = os.fork()
     if pid == 0: # child
         try:
             devnull = os.open(os.devnull, os.O_WRONLY)
             os.dup2(devnull, 1)
             os.dup2(devnull, 2)
+            if cwd:
+                os.chdir(cwd)
             os.execve(command[0], list(command), env if env is not None else os.environ)
         finally:
             os._exit(127)
@@ -78,8 +81,23 @@ def _run(command: Sequence[str], env: Optional[Dict[str, str]] = None) -> Tuple[
     return status, usage.ru_maxrss
 
 
-def _tests_of(build_dir: Path) -> List[Tuple[str, List[str]]]:
-    """Every test ctest knows about in build_dir, as (name, command)."""
+class Suite:
+    """One test as ctest would run it. Its command, and the properties that decide
+    whether it can run at all. A suite that asserts on QT_QUICK_BACKEND, or reads a
+    fixture next to its binary, is written for the ENVIRONMENT and WORKING_DIRECTORY its
+    CMakeLists gave it. Run bare, it fails at its first case and this reports it as a
+    suite that will not run twice, which is not what happened."""
+
+    def __init__(self, name: str, command: List[str], env: Dict[str, str],
+                 cwd: Optional[str]) -> None:
+        self.name = name
+        self.command = command
+        self.env = env
+        self.cwd = cwd
+
+
+def _tests_of(build_dir: Path) -> List[Suite]:
+    """Every test ctest knows about in build_dir."""
     import subprocess
 
     out = subprocess.run(["ctest", "--show-only=json-v1"], cwd=build_dir,
@@ -87,8 +105,18 @@ def _tests_of(build_dir: Path) -> List[Tuple[str, List[str]]]:
     tests = []
     for test in json.loads(out).get("tests", []):
         command = test.get("command") or []
-        if command and Path(command[0]).exists():
-            tests.append((test["name"], command))
+        if not command or not Path(command[0]).exists():
+            continue
+        env = dict(os.environ)
+        cwd = None
+        for prop in test.get("properties", []):
+            if prop.get("name") == "ENVIRONMENT":
+                for assignment in prop.get("value", []):
+                    key, _, value = assignment.partition("=")
+                    env[key] = value
+            elif prop.get("name") == "WORKING_DIRECTORY":
+                cwd = prop.get("value")
+        tests.append(Suite(test["name"], command, env, cwd))
     return tests
 
 
@@ -96,7 +124,7 @@ def soak(build_dir: Path, low: int, high: int, only: Optional[str]) -> int:
     """Run each suite at two repeat counts and report what it kept per repetition."""
     tests = _tests_of(build_dir)
     if only:
-        tests = [t for t in tests if only in t[0]]
+        tests = [t for t in tests if only in t.name]
     if not tests:
         print("no tests found; build the tree first", file=sys.stderr)
         return 1
@@ -104,9 +132,12 @@ def soak(build_dir: Path, low: int, high: int, only: Optional[str]) -> int:
     findings = 0
     unrepeatable: List[str] = []
     print(f"{'suite':<24} {'x' + str(low):>10} {'x' + str(high):>10} {'KB/run':>10}")
-    for name, command in sorted(tests):
-        low_status, low_rss = _run([*command, "-repeat", str(low), "-silent"])
-        high_status, high_rss = _run([*command, "-repeat", str(high), "-silent"])
+    for suite in sorted(tests, key=lambda t: t.name):
+        name = suite.name
+        low_status, low_rss = _run([*suite.command, "-repeat", str(low), "-silent"],
+                                   suite.env, suite.cwd)
+        high_status, high_rss = _run([*suite.command, "-repeat", str(high), "-silent"],
+                                     suite.env, suite.cwd)
         if low_status != 0 or high_status != 0:
             # A suite that fails when run twice in one process is not a memory result: it
             # is a suite whose fixture does not survive its own second run (a table it

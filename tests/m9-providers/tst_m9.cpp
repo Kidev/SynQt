@@ -188,6 +188,11 @@ private:
     }
 
 private slots:
+    // A directory of its own per pass. Every database file below is named, so a second
+    // pass over the suite in one process (how tests/memory measures what a pass keeps)
+    // would otherwise find the rows the first one stored and count them twice.
+    void initTestCase() { m_dir = QTemporaryDir{}; }
+
     void sqliteStoresQueriesAndPersistsAcrossRestart()
     {
         const QString file{dbFile(QStringLiteral("persist.db"))};

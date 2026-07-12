@@ -25,6 +25,7 @@ class tst_SpaFallback : public QObject
 
 private slots:
     void initTestCase();
+    void cleanupTestCase();
     void deepLinkReturnsTheShell();
     void topLevelRouteReturnsTheShell();
     void topLevelRouteCarriesTheSecurityHeaders();
@@ -69,8 +70,10 @@ void tst_SpaFallback::initTestCase()
     manifest.close();
 
     // A bundle subdirectory, to prove a client route named after one is not answered
-    // differently from a client route named after nothing at all.
-    QVERIFY(QDir{m_bundle.path()}.mkdir(QStringLiteral("assets")));
+    // differently from a client route named after nothing at all. mkpath rather than
+    // mkdir: the bundle directory is the suite's, and a second pass over the suite in one
+    // process (how tests/memory measures what a pass keeps) finds it already there.
+    QVERIFY(QDir{m_bundle.path()}.mkpath(QStringLiteral("assets")));
 
     WebEdgeConfig config;
     config.bundleDir = m_bundle.path();
@@ -80,6 +83,14 @@ void tst_SpaFallback::initTestCase()
     QVERIFY(m_edge->start());
     m_port = m_edge->serverPort();
     QVERIFY(m_port != 0);
+}
+
+void tst_SpaFallback::cleanupTestCase()
+{
+    // Torn down here rather than with the suite, so the next pass in the same process
+    // starts an edge of its own instead of parking another beside this one.
+    delete m_edge;
+    m_edge = nullptr;
 }
 
 QNetworkReply *tst_SpaFallback::get(const QString &path)
