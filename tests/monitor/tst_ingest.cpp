@@ -82,6 +82,11 @@ public:
     IngestClient *client{nullptr};
     QObject *current{nullptr};
     std::atomic<long> swaps{0};
+    std::atomic<long> consumed{0};
+
+    // The last stand-in is the one no swap retired, and it holds every batch the storm's
+    // tail delivered to it. Tens of megabytes a pass, kept for the life of the process.
+    ~EntitySide() override { delete current; }
 
 public slots:
     void bringUp() { client = new IngestClient{QString{}, 0, this}; swap(); }
@@ -99,6 +104,10 @@ public slots:
         current = fresh;
         swaps.fetch_add(1, std::memory_order_relaxed);
     }
+
+    /// Posted by the writer behind each publish, into the same queue. When this has run,
+    /// the payload ahead of it has been handed on or dropped, and the writer may post more.
+    void mark() { consumed.fetch_add(1, std::memory_order_release); }
 };
 
 } // namespace
@@ -150,12 +159,11 @@ private slots:
         QCOMPARE(client.spooledEvents(), static_cast<qint64>(0));
     }
 
-    // The monitor goes away while the link is up, which is the ordinary outage: it
-    // restarts, or the network between the two does. The Replica the entity holds does
-    // not disappear then; QtRO marks it Suspect, and a call on a Suspect Replica is dropped
-    // with a warning. Every batch published between the drop and the reconnect went
-    // there, so the spool that exists for exactly this window never saw it, and the
-    // record had a hole right where an operator would look for what went wrong.
+    // The monitor goes away while the link is up, the ordinary outage: it restarts, or the
+    // network between the two does. The Replica the entity holds does not disappear; QtRO
+    // marks it Suspect and drops a call on it with a warning. Batches published between the
+    // drop and the reconnect must go to the spool that exists for this window, or the
+    // record has a hole exactly where an operator looks for what went wrong.
     void aMonitorThatGoesAwayIsSpooledForUntilItIsBack()
     {
         QTemporaryDir dir;
@@ -213,13 +221,13 @@ private slots:
         // window there is. The overflow report comes after the replay, so the last thing
         // that was spooled is the one before it.
         QStringList spooled;
-        // Something survived, or the assertions below would be reading an empty list.
         for (const QVariant &event : replayed) {
             const QString message{event.toMap().value(QStringLiteral("message")).toString()};
             if (message != QStringLiteral("monitoring spool overflowed")) {
                 spooled.append(message);
             }
         }
+        // Something survived, or the assertions below would be reading an empty list.
         QVERIFY(!spooled.isEmpty());
         QCOMPARE(spooled.last(), QStringLiteral("799"));
         QVERIFY(spooled.first().toInt() > 0);
@@ -284,15 +292,12 @@ private slots:
 
     // send() runs on the tracer's writer thread, while the Replica it publishes to belongs
     // to the entity's thread and is retired there on a reconnect. Reaching into the Replica
-    // straight from the writer thread dereferences it on that thread, and a reconnect can
-    // free it in the window between the mutex read and the metacall: a use-after-free the
-    // writer commits inside QMetaObject, which a review reproduced as a crash in
-    // invokeMethodImpl under exactly this shape (and which AddressSanitizer does not see,
-    // because the read is in precompiled Qt). This drives that shape: one thread publishes
-    // without pause while another swaps and frees the Replica on its own thread. Without the
-    // fix (the hand-off marshalled to the entity's thread, where the Replica is touched
-    // and its deletion is serialized) the writer dereferences freed memory and the process
-    // crashes. With it, the run completes.
+    // from the writer thread dereferences it there, and a reconnect can free it between the
+    // mutex read and the metacall: a use-after-free inside QMetaObject (invokeMethodImpl),
+    // invisible to AddressSanitizer because the read is in precompiled Qt. This drives that
+    // shape: one thread publishes without pause while another swaps and frees the Replica
+    // on its own thread. The hand-off is marshalled to the entity's thread, where the
+    // Replica is touched and its deletion serialized, so the run completes.
     void publishingWhileTheReplicaIsRetiredNeverTouchesItOffItsThread()
     {
         QThread entity;
@@ -305,21 +310,43 @@ private slots:
 
         std::atomic<bool> stop{false};
         std::thread writer{[&side, &stop]() {
-            // A batch larger than one slice, so serializing it is a real window for the
-            // entity thread to free the Replica in.
+            // A whole slice, so serializing it is a real window for the entity thread to
+            // free the Replica in.
             const QList<TraceEvent> batch{events(400)};
+            long published{0};
             while (!stop.load(std::memory_order_acquire)) {
+                // A handful of payloads in the entity's queue at once, never more. Each is
+                // half a megabyte of variants, and a writer that never waits builds them
+                // faster than the loop drains them. The race is in the hand-off, not in
+                // the depth of the queue, and an unbounded queue is gigabytes of fixture.
+                if (published - side.consumed.load(std::memory_order_acquire) >= 16) {
+                    std::this_thread::yield();
+                    continue;
+                }
                 side.client->publish(batch);
+                ++published;
+                QMetaObject::invokeMethod(&side, "mark", Qt::QueuedConnection);
             }
         }};
 
-        // Retire and free the Replica as fast as the entity loop will run it.
+        // Retire and free the Replica as fast as the entity loop will run it. Posted a
+        // chunk at a time, with the next chunk held until the loop has reached this one:
+        // the swaps and the publishes racing them share the entity's queue, and a queue
+        // holding every swap at once runs every publish after the last swap rather than
+        // against it. A chunk in flight keeps the loop swapping without pause and the
+        // writer's payloads interleaved with the swaps.
         constexpr long target{200000};
-        for (long index{0}; index < target; ++index) {
-            QMetaObject::invokeMethod(&side, "swap", Qt::QueuedConnection);
-        }
+        constexpr long chunk{2000};
         QElapsedTimer clock;
         clock.start();
+        for (long posted{0}; posted < target && clock.elapsed() < 60000; posted += chunk) {
+            for (long index{0}; index < chunk; ++index) {
+                QMetaObject::invokeMethod(&side, "swap", Qt::QueuedConnection);
+            }
+            while (side.swaps.load() < posted && clock.elapsed() < 60000) {
+                QThread::msleep(1);
+            }
+        }
         while (side.swaps.load() < target - 2000 && clock.elapsed() < 60000) {
             QThread::msleep(5);
         }
@@ -329,7 +356,7 @@ private slots:
         entity.quit();
         entity.wait();
 
-        // Surviving is the assertion. Without the fix the process is already gone by here.
+        // Surviving is the assertion.
         QVERIFY(side.swaps.load() > 0);
     }
 };
