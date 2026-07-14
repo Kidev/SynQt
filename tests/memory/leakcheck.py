@@ -123,6 +123,11 @@ def _tests_of(build_dir: Path) -> List[Suite]:
 def soak(build_dir: Path, low: int, high: int, only: Optional[str]) -> int:
     """Run each suite at two repeat counts and report what it kept per repetition."""
     tests = _tests_of(build_dir)
+    # tst_memory is this file's sibling gate, not a soak subject. It measures byte drift
+    # over its own repeated cycles internally, so a QTest `-repeat` over it re-runs those
+    # cycles and drifts the absolute baseline it is built to hold still. The soak asks the
+    # same question of everything else. The gate answers its own, on its own ctest run.
+    tests = [t for t in tests if t.name != "memory"]
     if only:
         tests = [t for t in tests if only in t.name]
     if not tests:
