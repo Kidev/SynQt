@@ -118,11 +118,10 @@ public:
                              }
                          });
         // Bounded, so Qt stops draining the kernel and the sender's buffers are what
-        // fill: with no ceiling at all, QTcpSocket reads everything the kernel has into
+        // fill. With no ceiling at all, QTcpSocket reads everything the kernel has into
         // its own buffer and the sender never sees a peer that is not reading. A few
-        // bytes is the stalled case; a reader that means to make progress needs enough
-        // room that the receive window actually reopens when it reads, so it asks for
-        // more (see aPeerThatReadsSlowlyIsNotAStalledPeer).
+        // bytes is the stalled case. A reader that means to make progress asks for one
+        // read's worth (see aPeerThatReadsSlowlyIsNotAStalledPeer).
         reader->setReadBufferSize(readBufferSize);
         reader->connectToHost(QHostAddress::LocalHost, m_server.serverPort());
         if (!reader->waitForConnected(5000)) {
@@ -635,35 +634,77 @@ private slots:
     {
         constexpr qint64 limit{128 * 1024};
         constexpr qsizetype frameSize{64 * 1024};
+        constexpr int readSize{32 * 1024};
+        constexpr int stallMs{200};
+        // Five times the stall timeout, past the ceiling without a break.
+        constexpr qint64 holdMs{5 * stallMs};
+        // Where the backlog is kept. Two frames over the ceiling, so what the reader
+        // takes between two turns never brings it back under.
+        constexpr qint64 backlogTarget{2 * limit};
+        // Bounds on a run that never gets there, so it fails instead of filling memory.
+        constexpr qint64 giveUpAfter{64 * 1024 * 1024};
+        constexpr qint64 giveUpAfterMs{15000};
 
         Link link;
         link.setPeerWriteBufferLimit(limit);
-        link.setPeerWriteStallTimeout(200);
+        link.setPeerWriteStallTimeout(stallMs);
         QTcpSocket slow;
-        // Room enough that reading reopens the receive window, which is what makes this a
-        // slow reader rather than a second stalled one: with a few bytes of buffer the
-        // window never reopens and the peer makes no progress at all, however often it
-        // calls read().
-        QVERIFY(link.acceptStalledReader(&slow, QIODevice::ReadWrite, 256 * 1024));
+        // Exactly one read of buffer, which is what makes this a slow reader rather than a
+        // second stalled one, and a steady one rather than a bursty one. Qt refills its
+        // buffer from the kernel only once a read has emptied it, so a buffer larger than
+        // a read frees the kernel's receive window in buffer-sized bursts, a few reads
+        // apart, and a burst that is late by a stall timeout is a stalled peer. A few
+        // bytes of buffer is the other failure. The window never reopens at all and the
+        // peer makes no progress, however often it calls read(). One read's worth
+        // hands the sender a window update on every tick.
+        QVERIFY(link.acceptStalledReader(&slow, QIODevice::ReadWrite, readSize));
         QSignalSpy overflows{link.peer(), &WebSocketTransport::writeBufferOverflowed};
 
-        // Reading, and slowly: well under what is being written to it, so the backlog
+        // Reading, and slowly. Well under what is being written to it, so the backlog
         // only grows, and steadily, so the peer is always visibly taking bytes.
         QTimer drain;
         drain.setInterval(20);
         QObject::connect(&drain, &QTimer::timeout, &slow, [&slow]() {
-            slow.read(32 * 1024);
+            slow.read(readSize);
         });
         drain.start();
 
+        // The writer is paced by what the peer has refused, not by the clock. Before
+        // any of it reaches the transport's own buffer, the loopback interface's kernel
+        // buffers take it, and how much they take is the host's. A few megabytes on
+        // Linux, more on macOS, and more again while the timer this loop sleeps on
+        // runs late on a loaded runner. A fixed volume at a fixed rate is therefore past
+        // the ceiling on one host and entirely absorbed on another. Topping the backlog
+        // up to the target every turn puts it past the ceiling on any host, and the hold
+        // is counted from the turn it first is.
         const QByteArray payload{patterned(frameSize)};
-        QElapsedTimer elapsed;
-        elapsed.start();
-        // Five times the stall timeout, writing the whole time.
-        while (elapsed.elapsed() < 1000) {
-            if (link.peer()->isOpen()) {
-                link.peer()->write(payload);
+        QElapsedTimer over;  // running while the backlog has been past the ceiling
+        qint64 written{0};
+        QElapsedTimer total;
+        total.start();
+        while (link.peer()->isOpen() && written < giveUpAfter
+               && total.elapsed() < giveUpAfterMs) {
+            // What the flush on the previous turn left behind is what the kernel refused.
+            const qint64 backlog{link.acceptedSocket()->bytesToWrite()};
+            if (backlog > limit) {
+                if (!over.isValid()) {
+                    over.start();
+                }
+                if (over.elapsed() >= holdMs) {
+                    break;
+                }
+            } else {
+                over.invalidate();
             }
+            // A frame on every turn, whatever the backlog. A write is what flushes, and a
+            // flush is when the transport measures, so a turn without one is a turn the
+            // stall clock never sees. Then as many more as it takes to reach the target.
+            qint64 queued{backlog};
+            do {
+                link.peer()->write(payload);
+                written += frameSize;
+                queued += frameSize;
+            } while (queued < backlogTarget && link.peer()->isOpen());
             QTest::qWait(10);
         }
         drain.stop();
@@ -671,10 +712,11 @@ private slots:
         QVERIFY2(overflows.isEmpty(),
                  "a peer that was reading, only slowly, was cut off as if it had stopped");
         QVERIFY(link.peer()->isOpen());
-        // And it really was behind: the case would prove nothing if the backlog had
-        // stayed under the ceiling the whole time.
-        QVERIFY2(link.acceptedSocket()->bytesToWrite() > limit,
-                 "the peer never fell past the ceiling, so nothing was exercised");
+        // And it was behind. The case would prove nothing if the backlog had not
+        // stayed past the ceiling for longer than a stalled peer is given.
+        QVERIFY2(over.isValid() && over.elapsed() >= holdMs,
+                 "the peer never stayed past the ceiling for five stall timeouts, so "
+                 "nothing was exercised");
     }
 
     // A drained buffer hands its allocation back to the process.
