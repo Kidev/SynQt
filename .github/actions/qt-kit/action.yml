@@ -179,9 +179,23 @@ runs:
         arch="${{ inputs.aqt_arch }}"
         kit="$QT_ROOT/$QT_VERSION/${{ inputs.kit_dir }}"
 
-        python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" --outputdir "$QT_ROOT"
+        # On Windows py7zr's path check can reject a valid entry while aqt extracts archives in
+        # parallel, so the image's 7-Zip extracts instead.
+        extract=()
+        if [ "${{ runner.os }}" = "Windows" ]; then
+          sevenzip="/c/Program Files/7-Zip/7z.exe"
+          if [ ! -f "$sevenzip" ]; then
+            echo "::error::7-Zip is missing at $sevenzip"
+            exit 1
+          fi
+          extract=(--external "$(cygpath -w "$sevenzip")")
+        fi
+
+        python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" ${extract[@]+"${extract[@]}"} \
+          --outputdir "$QT_ROOT"
         for m in $QT_MODULES; do
-          python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" -m "$m" --outputdir "$QT_ROOT" \
+          python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" -m "$m" ${extract[@]+"${extract[@]}"} \
+            --outputdir "$QT_ROOT" \
             || echo "prebuilt $m unavailable; will try a source build"
         done
 
@@ -209,7 +223,8 @@ runs:
             continue
           fi
           echo "$m missing; building it from source into the kit"
-          python -m aqt install-src "$host" "$QT_VERSION" --archives "$m" --outputdir "$QT_ROOT"
+          python -m aqt install-src "$host" "$QT_VERSION" --archives "$m" ${extract[@]+"${extract[@]}"} \
+            --outputdir "$QT_ROOT"
           src="$QT_ROOT/$QT_VERSION/Src/$m"
           qt_cmake="$kit/bin/qt-cmake"
           [ -f "$qt_cmake" ] || qt_cmake="$kit/bin/qt-cmake.bat"
