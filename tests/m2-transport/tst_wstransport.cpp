@@ -658,6 +658,24 @@ private slots:
         // peer makes no progress, however often it calls read(). One read's worth
         // hands the sender a window update on every tick.
         QVERIFY(link.acceptStalledReader(&slow, QIODevice::ReadWrite, readSize));
+        // And the kernel's receive buffer pinned to two reads, so that every read is
+        // visible to the sender. A receiver does not advertise every byte it frees. Linux
+        // sends a window update once a read frees a segment's worth, and macOS only once
+        // one frees a quarter of the receive buffer (xnu tcp_output.c, `4 * adv >=
+        // sb_hiwat`), or empties it, which a reader behind the sender never does. Left
+        // to autotune, that buffer grows into the megabytes on loopback, and the sender
+        // then sees the window reopen a few hundred milliseconds apart while the peer
+        // reads every 20 ms. Setting the option also turns the autotuning off.
+        slow.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption, 2 * readSize);
+        // Checked rather than trusted: a host that keeps a larger buffer (Linux hands
+        // back twice what was asked, which is still a quarter per read) would fail this
+        // test for a reason that is not the transport's.
+        const qint64 receiveBuffer{
+            slow.socketOption(QAbstractSocket::ReceiveBufferSizeSocketOption).toLongLong()};
+        QVERIFY2(receiveBuffer > 0 && 4 * static_cast<qint64>(readSize) >= receiveBuffer,
+                 qPrintable(QStringLiteral("the reader's kernel receive buffer is %1 bytes, "
+                                           "more than four reads of %2")
+                                .arg(receiveBuffer).arg(readSize)));
         QSignalSpy overflows{link.peer(), &WebSocketTransport::writeBufferOverflowed};
 
         // Reading, and slowly. Well under what is being written to it, so the backlog
