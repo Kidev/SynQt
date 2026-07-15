@@ -1,12 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Everything a job needs before it can build SynQt: Python, CMake and Ninja, MSVC on PATH,
-# the native dependencies Qt's configure looks for, the jwt-cpp headers, the pinned Qt host
-# kit, and a compiler cache. The caller checks the repository out first.
-#
-# A composite action does not see the calling job's `env` context. Every value the steps
-# read is an `inputs:` value, restated in a per-step `env:` block where a shell needs it.
+# Everything a job needs to build SynQt. The caller checks the repository out first.
+# A composite action cannot see the caller's `env`, so every value is an input.
 
 name: Qt host kit
 description: Install the pinned Qt host kit, the native dependencies, and a compiler cache
@@ -51,8 +47,6 @@ runs:
         python-version: "3.12"
 
     - name: Install the CLI's Python dependencies
-      # The run scripts drive the synqt package through `python3`, which on Windows is a
-      # shim setup-python provides.
       shell: bash
       run: |
         set -eu
@@ -75,9 +69,7 @@ runs:
         architecture: x64
 
     - name: Install the native dependencies Qt needs to configure
-      # A missing dependency of a Qt plugin is reported by find_package as the module that
-      # scanned it ("Failed to find required Qt component Gui"), so the ones Qt6Gui reaches
-      # (OpenGL, Wayland) are checked here by name.
+      # Qt6Gui's plugin scan needs OpenGL and Wayland.
       shell: bash
       run: |
         set -eu
@@ -109,7 +101,6 @@ runs:
             echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
             ;;
           Windows)
-            # The runner image ships OpenSSL, at a location that has moved between images.
             found=""
             for root in "/c/Program Files/OpenSSL-Win64" "/c/Program Files/OpenSSL"; do
               if [ -f "$root/include/openssl/ssl.h" ]; then
@@ -179,8 +170,8 @@ runs:
         arch="${{ inputs.aqt_arch }}"
         kit="$QT_ROOT/$QT_VERSION/${{ inputs.kit_dir }}"
 
-        # On Windows py7zr's path check can reject a valid entry while aqt extracts archives in
-        # parallel, so the image's 7-Zip extracts instead.
+        # One aqt worker on Windows: parallel extraction races on shared directories.
+        aqt=(python -m aqt)
         extract=()
         if [ "${{ runner.os }}" = "Windows" ]; then
           sevenzip="/c/Program Files/7-Zip/7z.exe"
@@ -189,12 +180,15 @@ runs:
             exit 1
           fi
           extract=(--external "$(cygpath -w "$sevenzip")")
+          settings="$RUNNER_TEMP/aqt-settings.ini"
+          printf '[aqt]\nconcurrency : 1\n' > "$settings"
+          aqt+=(-c "$(cygpath -w "$settings")")
         fi
 
-        python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" ${extract[@]+"${extract[@]}"} \
+        "${aqt[@]}" install-qt "$host" desktop "$QT_VERSION" "$arch" ${extract[@]+"${extract[@]}"} \
           --outputdir "$QT_ROOT"
         for m in $QT_MODULES; do
-          python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" -m "$m" ${extract[@]+"${extract[@]}"} \
+          "${aqt[@]}" install-qt "$host" desktop "$QT_VERSION" "$arch" -m "$m" ${extract[@]+"${extract[@]}"} \
             --outputdir "$QT_ROOT" \
             || echo "prebuilt $m unavailable; will try a source build"
         done
@@ -223,7 +217,7 @@ runs:
             continue
           fi
           echo "$m missing; building it from source into the kit"
-          python -m aqt install-src "$host" "$QT_VERSION" --archives "$m" ${extract[@]+"${extract[@]}"} \
+          "${aqt[@]}" install-src "$host" "$QT_VERSION" --archives "$m" ${extract[@]+"${extract[@]}"} \
             --outputdir "$QT_ROOT"
           src="$QT_ROOT/$QT_VERSION/Src/$m"
           qt_cmake="$kit/bin/qt-cmake"
@@ -235,9 +229,7 @@ runs:
         done
 
     - name: Install the compiler cache
-      # sccache on MSVC (ccache cannot handle /Zi's separate .pdb. Cmake/SynQtBuildFlags.cmake
-      # switches MSVC to embedded debug information when it finds sccache), ccache elsewhere.
-      # Not fatal when the install fails. The build then runs at full price.
+      # sccache on MSVC, ccache elsewhere. Optional.
       shell: bash
       run: |
         set -u
