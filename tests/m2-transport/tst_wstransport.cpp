@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The WebSocketTransport unit cases the test plan names: framing, partial reads, large
+// The WebSocketTransport unit cases: framing, partial reads, large
 // messages, and close handling, plus what a large read buffer costs in time and holds
 // in memory.
 //
@@ -17,6 +17,7 @@
 
 #include <QAbstractSocket>
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QHostAddress>
@@ -33,6 +34,7 @@
 #include <cstring>
 
 #if defined(Q_OS_LINUX)
+#include <malloc.h>
 #include <unistd.h>
 #endif
 
@@ -100,7 +102,8 @@ public:
     /// the upgrade by hand and then reads nothing, which is the one thing the QWebSocket
     /// client above cannot be made to do, since its event loop is this one. `peer` wraps
     /// the accepted end as connectPair() does. There is no `client` transport.
-    bool acceptStalledReader(QTcpSocket *reader, QIODevice::OpenMode peerMode = QIODevice::ReadWrite,
+    bool acceptStalledReader(QTcpSocket *reader,
+                             QIODevice::OpenMode peerMode = QIODevice::ReadWrite,
                              int readBufferSize = 64)
     {
         if (!m_server.listen(QHostAddress::LocalHost, 0)) {
@@ -156,7 +159,7 @@ private:
 };
 
 /// Reaches the protected QIODevice overrides directly, for the cases a live socket cannot
-/// produce. A transport whose socket has already been destroyed.
+/// produce: a transport whose socket has already been destroyed.
 class ProbeTransport : public WebSocketTransport
 {
     Q_OBJECT
@@ -423,23 +426,14 @@ private slots:
     // Draining a large buffer in small reads costs time linear in its size, not quadratic.
     //
     // readData() advances an offset into the read buffer rather than erasing from its
-    // front, so a read moves only the bytes it returns and the drain is linear by
-    // construction. The erase it replaced was linear too, but only because
-    // QArrayDataPointer::erase (qarraydataops.h) special cases a range at the front and
-    // advances the begin pointer instead of moving anything. That is an implementation
-    // property of Qt 6's container and not a documented guarantee, since
-    // QByteArray::remove() promises only that capacity is preserved.
+    // front, so a read moves only the bytes it returns. A reader that compacts on every
+    // call returns the same bytes and differs only in time, so only the clock can catch the
+    // change.
     //
-    // So this no longer guards a bet on somebody else's container. What it still guards is
-    // the adapter. A reader that walks the buffer with an offset is one edit away from a
-    // reader that compacts on every call, and the result does not change when it does.
-    // Only the clock notices, so nothing else in this suite would.
-    //
-    // 16 MiB drained 1 KiB at a time is 16384 reads. Amortized constant measures 1 to 2 ms
-    // here. Quadratic would move about 128 GiB and run for tens of seconds. The budget
-    // below sits three orders of magnitude above the first and an order of magnitude below
-    // the second, and the loop gives up the moment it is exceeded, so a regression fails
-    // in two seconds rather than hanging the suite.
+    // 16 MiB drained 1 KiB at a time is 16384 reads. Linear takes a few milliseconds;
+    // quadratic would move about 128 GiB and run for tens of seconds. The budget sits far
+    // above the first and well below the second, and the loop gives up the moment it is
+    // exceeded, so a quadratic drain fails in two seconds rather than hanging the suite.
     void drainingALargeBufferIsLinear()
     {
         constexpr qint64 chunkSize{1024};
@@ -540,23 +534,22 @@ private slots:
     }
 
     // The other direction of the same bound. Capping what a connection holds unread bounds
-    // a peer that sends too fast. Nothing bounded a peer that stops reading. A browser tab
-    // that keeps the socket open and never drains it (a debugger on the page, a tab a
-    // script froze, or a client written to do exactly this) fills the kernel's
-    // buffers and then QAbstractSocket's own, which has no ceiling: every fan-out message
-    // the owner published after that was kept for it, on the edge, for as long as the
-    // connection lived. One such connection per allowed slot and the edge's memory belongs
-    // to whoever opened them.
+    // a peer that sends too fast; this bounds a peer that stops reading. A browser tab that
+    // keeps the socket open and never drains it (a debugger on the page, a frozen script,
+    // or a client written to do this) fills the kernel's buffers and then QAbstractSocket's
+    // own, which has no ceiling, so every fan-out message the owner publishes would be kept
+    // for it on the edge for the life of the connection. One such connection per allowed
+    // slot and the edge's memory belongs to whoever opened them.
     //
-    // What is counted is what the kernel refused, not what a pass wrote: a burst of
-    // messages written in one turn sits in the socket's buffer until the loop flushes it,
-    // and a ceiling read before that flush would cut healthy connections on every large
-    // model. The ceiling is therefore checked after the flush the device already defers to
-    // the loop blocking, and only a peer that is still behind then is over it.
+    // What is counted is what the kernel refused, not what a pass wrote: a burst written in
+    // one turn sits in the socket's buffer until the loop flushes it, and a ceiling read
+    // before that flush would cut healthy connections on every large model. The ceiling is
+    // checked after the flush the device defers to the loop blocking, and only a peer still
+    // behind then is over it.
     //
-    // Aborted rather than closed, because a close frame is queued behind everything the
-    // peer has not read and a graceful disconnect waits for that queue to drain, which for
-    // this peer is never.
+    // Aborted rather than closed: a close frame is queued behind everything the peer has
+    // not read, and a graceful disconnect waits for that queue to drain, which for this
+    // peer is never.
     void aPeerThatStopsReadingHitsTheWriteBufferLimit()
     {
         constexpr qint64 limit{256 * 1024};
@@ -568,7 +561,7 @@ private slots:
         Link link;
         link.setPeerWriteBufferLimit(limit);
         // Short, so the case is reached in a test rather than in half a minute. What it
-        // stands for is the default. A peer that has taken nothing at all for that long.
+        // stands for is the default: a peer that has taken nothing at all for that long.
         link.setPeerWriteStallTimeout(300);
         QTcpSocket stalled;
         QVERIFY(link.acceptStalledReader(&stalled));
@@ -635,15 +628,26 @@ private slots:
         constexpr qint64 limit{128 * 1024};
         constexpr qsizetype frameSize{64 * 1024};
         constexpr int readSize{32 * 1024};
-        constexpr int stallMs{200};
+        // The transport can only see progress the kernel lets through, and a receiver
+        // does not advertise every byte it frees. Linux sends a window update once a read
+        // frees a segment's worth. macOS (xnu tcp_output.c) sends one only when a read
+        // empties the buffer or frees a quarter of it, and xnu also trims a buffer the
+        // application reads from back toward its ideal size (tcp_sbrcv_trim, after
+        // every read) and re-grows it by sixteen segments when the window gets tight
+        // (tcp_sbrcv_grow_rwin). So a reader taking 32 KiB every 20 ms sees its freed
+        // bytes absorbed into the trim, and the sender sees the window stay shut for
+        // eight to sixteen reads and then open in one burst. That cycle is 160 ms to 330
+        // ms on a loopback MSS of 16 KiB, so the timeout sits three times above it. The
+        // production default is 30 s, and a browser reads as fast as its link delivers.
+        constexpr int stallMs{1000};
         // Five times the stall timeout, past the ceiling without a break.
         constexpr qint64 holdMs{5 * stallMs};
         // Where the backlog is kept. Two frames over the ceiling, so what the reader
         // takes between two turns never brings it back under.
         constexpr qint64 backlogTarget{2 * limit};
         // Bounds on a run that never gets there, so it fails instead of filling memory.
-        constexpr qint64 giveUpAfter{64 * 1024 * 1024};
-        constexpr qint64 giveUpAfterMs{15000};
+        constexpr qint64 giveUpAfter{256 * 1024 * 1024};
+        constexpr qint64 giveUpAfterMs{30000};
 
         Link link;
         link.setPeerWriteBufferLimit(limit);
@@ -658,24 +662,19 @@ private slots:
         // peer makes no progress, however often it calls read(). One read's worth
         // hands the sender a window update on every tick.
         QVERIFY(link.acceptStalledReader(&slow, QIODevice::ReadWrite, readSize));
-        // And the kernel's receive buffer pinned to two reads, so that every read is
-        // visible to the sender. A receiver does not advertise every byte it frees. Linux
-        // sends a window update once a read frees a segment's worth, and macOS only once
-        // one frees a quarter of the receive buffer (xnu tcp_output.c, `4 * adv >=
-        // sb_hiwat`), or empties it, which a reader behind the sender never does. Left
-        // to autotune, that buffer grows into the megabytes on loopback, and the sender
-        // then sees the window reopen a few hundred milliseconds apart while the peer
-        // reads every 20 ms. Setting the option also turns the autotuning off.
+        // And the kernel's receive buffer asked to be two reads. Linux hands back twice
+        // that and holds it. macOS takes it as the ideal size its trim cycle returns to,
+        // and still grows it by sixteen segments at a time, so the value read back there
+        // is not the value set. What the option buys on macOS is a small ideal size, and
+        // with it the short cycle the stall timeout above is measured against. Left to
+        // autotune, the ideal size runs into the megabytes and the window stays shut for
+        // a second or more at a time.
         slow.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption, 2 * readSize);
-        // Checked rather than trusted: a host that keeps a larger buffer (Linux hands
-        // back twice what was asked, which is still a quarter per read) would fail this
-        // test for a reason that is not the transport's.
         const qint64 receiveBuffer{
             slow.socketOption(QAbstractSocket::ReceiveBufferSizeSocketOption).toLongLong()};
-        QVERIFY2(receiveBuffer > 0 && 4 * static_cast<qint64>(readSize) >= receiveBuffer,
-                 qPrintable(QStringLiteral("the reader's kernel receive buffer is %1 bytes, "
-                                           "more than four reads of %2")
-                                .arg(receiveBuffer).arg(readSize)));
+        QVERIFY2(receiveBuffer > 0, "the reader's kernel receive buffer could not be read");
+        qInfo("the reader's kernel receive buffer is %lld bytes after asking for %d",
+              static_cast<long long>(receiveBuffer), 2 * readSize);
         QSignalSpy overflows{link.peer(), &WebSocketTransport::writeBufferOverflowed};
 
         // Reading, and slowly. Well under what is being written to it, so the backlog
@@ -772,6 +771,14 @@ private slots:
         QVERIFY(link.connectPair(QIODevice::ReadWrite,
                                  QIODevice::ReadWrite | QIODevice::Unbuffered));
 
+        // An idle floor, and not whatever the previous cases left behind. Their sockets
+        // and the buffers behind them go through deleteLater, so without this they are
+        // still resident here and are released during the wait below, and that release
+        // cancels most of the growth this case is looking for. Collect them, then hand
+        // the freed pages back to the kernel.
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCoreApplication::processEvents();
+        malloc_trim(0);
         const qint64 baseline{residentBytes()};
         QVERIFY(baseline > 0);
 
