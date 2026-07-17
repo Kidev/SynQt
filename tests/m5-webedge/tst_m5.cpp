@@ -14,6 +14,7 @@
 
 #include "greeting_sourcehelper.h"  // synqtRegisterGreetingSources()
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QNetworkAccessManager>
@@ -474,6 +475,45 @@ private slots:
         // takes the encoded path at all.
         QCOMPARE(reply->rawHeader("Vary"), QByteArray("Accept-Encoding"));
         QCOMPARE(reply->rawHeader("Content-Type"), QByteArray("text/javascript"));
+        reply->deleteLater();
+
+        QFile::remove(plain.fileName());
+        QFile::remove(gz.fileName());
+    }
+
+    // A compressed copy older than the file it was made from is a copy of an older file.
+    // `synqt dev` rebuilds the client in place and leaves the copies the first build wrote,
+    // and every browser accepts gzip, so a stale one was served in its place: after the first
+    // build, no edit to the client ever reached the browser. The edge serves the file itself
+    // instead, uncompressed and current.
+    void aStaleCompressedCopyIsNotServed()
+    {
+        const QString bundle{QStringLiteral(M5_SRCDIR "/bundle")};
+        QFile plain{QDir{bundle}.filePath(QStringLiteral("m5-stale.js"))};
+        QVERIFY(plain.open(QIODevice::WriteOnly));
+        plain.write(QByteArrayLiteral("// m5 the current build"));
+        plain.close();
+        QFile gz{QDir{bundle}.filePath(QStringLiteral("m5-stale.js.gz"))};
+        QVERIFY(gz.open(QIODevice::WriteOnly));
+        gz.write(QByteArrayLiteral("the previous build, compressed"));
+        gz.close();
+        // Dated once the bytes are on disk. Setting it before the close would be undone by
+        // the flush the close does.
+        QVERIFY(gz.open(QIODevice::ReadOnly));
+        QVERIFY(gz.setFileTime(QDateTime::currentDateTimeUtc().addSecs(-3600),
+                               QFileDevice::FileModificationTime));
+        gz.close();
+
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/m5-stale.js"),
+                                     "Accept-Encoding", "gzip")};
+        QVERIFY(reply != nullptr);
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+        QVERIFY(reply->rawHeader("Content-Encoding").isEmpty());
+        QCOMPARE(reply->readAll(), QByteArray("// m5 the current build"));
         reply->deleteLater();
 
         QFile::remove(plain.fileName());
