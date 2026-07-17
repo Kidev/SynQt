@@ -26,9 +26,9 @@ SPDX_CPP = (
 )
 
 
-#: The extra leading argument every slot takes on a contract a service consumes: the
-#: session the calling entity is acting for. Written in one place, because the rep, the
-#: owner-side override and the consumer's invoke all have to spell it the same way.
+#: The extra leading argument every slot takes on a contract a service consumes: the session
+#: the calling entity acts for. The rep, the owner override and the consumer invoke share
+#: it.
 SESSION_PARAM = "QVariantMap synqtSession"
 SESSION_ARG = "synqtSession"
 
@@ -78,17 +78,11 @@ def _param_list(params, record_names, path) -> str:
     )
 
 
-# What a declared bound is worth at run time
-#
-# A bound written in a contract (`string[64]`, `list[100]`, `var[4096]`) is a rule about
-# what may cross, so the generated boundary enforces it rather than describing it. A value
-# that breaks the rule is refused and named in a warning. Nothing is quietly truncated into
-# something that looks right, because a silently shortened name and a silently dropped tail
-# are exactly the bugs a bound exists to prevent.
+# Declared bounds (`string[64]`, `list[100]`, `var[4096]`) are enforced at the generated
+# boundary. A value over its bound is refused with a warning, never truncated.
 
-#: The QtCore header a contract type needs. repc copies single-line directives from the
-#: top of a `.rep` into the header it generates, and its own includes stop at qvariant.h,
-#: so a contract that names a date or a URL says so there.
+#: The QtCore header a contract type needs. repc copies single-line directives from the top
+#: of a `.rep` into its header, and its own includes stop at qvariant.h.
 TYPE_INCLUDES = {
     "date": "QDateTime",
     "list": "QVariantList",
@@ -103,10 +97,8 @@ def _bound_guard(spelling: str, value: str, where: str, field: str,
                  refuse: List[str], indent: str) -> List[str]:
     """Refuse `value` when it is over the bound its type was written with.
 
-    `value` is an expression already of the type's C++ spelling, because how a value is
-    measured depends on what it is: characters for text, elements for a list, and for a
-    `var` the bytes it serializes to, which is the only workable answer to how big something
-    generic is.
+    `value` is already of the C++ type. Text is measured in characters, a list in elements,
+    a `var` in serialized bytes.
     """
     bound = bound_of(spelling)
     size = measure(spelling, value)
@@ -157,30 +149,25 @@ def _bounds_a_var(syn: SynFile) -> bool:
                for written in _written_types(syn))
 
 
-# `import SynQt` re-exports QtQuick, so an entity's QML writes one import line and leans on
-# Item, Timer and Component.onCompleted without naming QtQuick. The re-export is a call. If
-# only the generated entity main made it, any other host of the same QML (a test harness,
-# an embedder, a tool loading one Source) would register the contract, load the file, and
-# get "Timer is not a type". Registering the contract is the one thing every such
-# host does, so the re-export rides along with it. Idempotent, so an entity with several
-# contracts still installs it once.
-MODULE_IMPORTS_INCLUDE = """// Present whenever a runtime is linked, absent for a contract-only target, which has no
-// engine to make the re-export mean anything. The call below is guarded the same way.
+# `import SynQt` re-exports QtQuick. The re-export is installed with the contract
+# registration, so every host of the QML (entity main, test harness, embedder) gets it.
+# Idempotent.
+MODULE_IMPORTS_INCLUDE = """// Present when a runtime is linked. A contract-only target has no
+// engine and skips the re-export; the call below is guarded the same way.
 #if __has_include(<moduleimports.h>)
 #  include <moduleimports.h>
 #  define SYNQT_HAS_MODULE_IMPORTS 1
 #endif"""
 
 MODULE_IMPORTS_CALL = """#ifdef SYNQT_HAS_MODULE_IMPORTS
-    // Registering a contract is what makes `import SynQt` enough. It brings QtQuick with it,
-    // so the QML registered below can hold a Timer without a second import line.
+    // Registering a contract makes `import SynQt` bring QtQuick with it, so the QML
+    // registered below needs no second import line.
     SynQt::registerModuleImports();
 #endif"""
 
-ACTING_FOR_SHIM = """// A slot names the Caller it is answering for as long as it runs, so that a call the
-// owner's implementation makes on to another entity carries the same person. That lives in
-// the consumer runtime, which a contract-only target does not link and has nothing to call
-// out to either, so there it is a name that does nothing.
+ACTING_FOR_SHIM = """// A slot names the Caller it answers for while it runs, so calls the
+// owner makes to another entity carry the same person. That lives in the consumer runtime;
+// a contract-only target does not link it and gets a no-op.
 #if __has_include(<actingfor.h>)
 #  include <actingfor.h>
 using SynqtActingFor = SynQt::ActingFor;
@@ -198,15 +185,11 @@ QVariantMap synqtActingForSession() { return QVariantMap{}; }
 } // namespace
 #endif
 """
-CALL_SPAN_SHIM = """// Every slot call crossing a link is timed and recorded, however it leaves: refused by a
-// scope gate, refused by a bound on an argument, forwarded to the entity behind a front,
-// or answered by the owner's own QML. The record is closed by the destructor rather than
-// by a line before each return, so a return added here later stays traced.
-//
-// It records the shape of the call and never its arguments, which are what a person
-// typed. The whole thing lives in the service runtime. A contract-only target links no
-// runtime, has nothing to record to, and compiles the same slot bodies against a span
-// that does nothing at all.
+CALL_SPAN_SHIM = """// Every slot call crossing a link is timed and recorded, however it
+// ends: refused by a scope gate or an argument bound, forwarded to the entity behind a
+// front, or answered by the owner QML. The destructor closes the record, so every return
+// is traced. It records the shape of the call, never its arguments. It lives in the
+// service runtime; a contract-only target gets a span that does nothing.
 #if __has_include(<callspan.h>)
 #  include <callspan.h>
 using SynqtCallSpan = SynQt::CallSpan;
@@ -226,9 +209,7 @@ public:
 
 
 VARIANT_BYTES_HELPER = """namespace {
-// What a var costs on the wire. `var[n]` bounds a value whose type says nothing about how
-// big it is, so the only measure that means anything is what it serializes to, and that is
-// measured rather than estimated.
+// The serialized size of a var, which is what `var[n]` bounds.
 qsizetype synqtVariantBytes(const QVariant &value)
 {
     QByteArray buffer;
@@ -248,9 +229,7 @@ def emit_rep(syn: SynFile) -> str:
     path = f"{syn.stem}.syn"
     lines: List[str] = [SPDX_CPP.rstrip("\n"), ""]
 
-    # repc copies these into the header it generates, ahead of the declarations that need
-    # them. Without them a contract naming a date or a URL compiles only by the luck of
-    # something else having included it first.
+    # repc copies these into its header ahead of the declarations that need them.
     includes = _type_includes(syn)
     if includes:
         lines += [f"#include <{header}>" for header in includes]
@@ -278,8 +257,7 @@ def emit_rep(syn: SynFile) -> str:
 
 def _lower_member(syn: SynFile, member, records, path) -> str:
     if isinstance(member, Model):
-        # repc's roles are names. The declared types are the generator's to enforce, at the
-        # publish boundary in the Source helper.
+        # repc roles are names; the Source helper enforces the declared types at publish.
         return f"MODEL {member.name}({', '.join(role.name for role in member.roles)})"
     if isinstance(member, Signal):
         return f"SIGNAL({member.name}({_param_list(member.params, records, path)}))"
@@ -302,18 +280,16 @@ def _has_models(syn: SynFile) -> bool:
 
 
 def emit_source_helper_header(syn: SynFile, lstem: str) -> str:
-    # <lstem>_rep.h is an indirection the build writes to the correct repc header for
-    # this target's role (_source, _replica, or _merged), so the helper compiles the
-    # same way whether the target is an owner or a both-sided test.
+    # <lstem>_rep.h points at the repc header for this target's role (_source, _replica or
+    # _merged).
     out: List[str] = [SPDX_CPP, "#pragma once", "",
                       f'#include "{lstem}_rep.h"', "",
                       "#include <QList>",
                       "#include <QObject>",
                       "#include <QPointer>",
                       "#include <QQmlListProperty>", ""]
-    # SourceModel is a QStandardItemModel that refuses a write arriving from a consumer,
-    # and it is QtGui through its base. Only pull it in when a contract has a
-    # model, so a model-less service does not need QtGui.
+    # SourceModel refuses consumer writes and needs QtGui, so it is included only for a
+    # contract with a model.
     if _has_models(syn):
         out += ["#include <sourcemodel.h>", "#include <QVariantList>", ""]
     records = syn.record_names
@@ -321,9 +297,8 @@ def emit_source_helper_header(syn: SynFile, lstem: str) -> str:
     for contract in syn.contracts:
         out.append(_source_helper_class(syn, contract, records, path))
         out.append("")
-    # The typed Caller subclass (emit<Signal> sugar) is only meaningful when this Source is
-    # hosted by the service runtime, which is the only thing that binds a Caller. Guard it on
-    # the runtime's caller.h so a standalone contract target (rep-only) still compiles.
+    # The typed Caller subclass needs the service runtime's caller.h; guarded so a rep-only
+    # target compiles.
     caller_subclasses = [_caller_subclass(contract, records, path)
                          for contract in syn.contracts if contract.signals]
     if caller_subclasses:
@@ -337,10 +312,9 @@ def emit_source_helper_header(syn: SynFile, lstem: str) -> str:
 
 
 def _caller_subclass(contract: Contract, records, path) -> str:
-    # A per-contract Caller whose emit<Signal>(...) methods forward to the inherited
-    # emitSignal, giving owner QML the Caller.emit<Signal>(...) sugar (e.g.
-    # Caller.emitRejected(reason)). The per-connection Source has a single consumer, so the
-    # signal reaches this caller alone.
+    # A per-contract Caller with emit<Signal>(...) methods forwarding to emitSignal, for
+    # Caller.emit<Signal>(...) in owner QML. The per-connection Source has one consumer, so
+    # the signal reaches that caller only.
     name = contract.name
     lines = [
         f"// Typed Caller for {name}: Caller.emit<Signal>(...) sugar over emitSignal.",
@@ -366,35 +340,25 @@ def _caller_subclass(contract: Contract, records, path) -> str:
 def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str:
     name = contract.name
     lines = [
-        "// Owner-side helper: the QML type the connect point's server file derives",
-        f"// from (registered as \"{name}\", the contract's own name: the file is that",
-        "// point's server, so its location already says which side of the link it is on,",
-        "// and an entity never consumes a contract it owns, so the name is free here).",
-        "// Props and signals are inherited from the generated Source. A model is published",
-        "// either way round: bind <model>Rows to where the rows live, or call",
-        "// set<Model>(rows) when something happens. Both keep only the declared roles,",
-        "// dropping any undeclared owner-only field at the boundary.",
+        "// Owner-side helper: the QML type the connect point's server file derives from,",
+        f"// registered as \"{name}\" (the contract name; an entity never consumes a contract it",
+        "// owns). Props and signals come from the generated Source. Publish a model by binding",
+        "// <model>Rows to where the rows live, or by calling set<Model>(rows). Both keep only",
+        "// the declared roles.",
         f"class {name}SourceHelper : public {name}SimpleSource",
         "{",
         "    Q_OBJECT",
-        "    // A generated Source is not a visual item, so its default property is a plain",
-        "    // QObject child list: this lets the owner's server file declare non-visual QML",
-        "    // children (a Timer, an Instantiator, ...) inside the Source to drive itself.",
+        "    // A generated Source is not a visual item, so its default property is a QObject",
+        "    // child list. The owner can declare non-visual children (a Timer, an Instantiator)",
+        "    // inside it.",
         '    Q_CLASSINFO("DefaultProperty", "data")',
         "    Q_PROPERTY(QQmlListProperty<QObject> data READ data DESIGNABLE false)",
     ]
     if contract.models:
-        # The declarative way to publish a model. Bind `<model>Rows` to whatever holds the
-        # rows (usually a list on the entity's own singleton) and every change to it
-        # republishes. Without it an owner had to call set<Model>(rows) from
-        # Component.onCompleted and again from a Connections block watching the singleton,
-        # which is three lines of bookkeeping saying what one binding says.
-        #
-        # A name of its own rather than the model's. The generated Source already carries
-        # `Q_PROPERTY(QAbstractItemModel *<model> ...)`, and QtRO resolves that property by
-        # name off the most derived meta-object (qtro_property_index calls
-        # indexOfProperty), so a property here with the same name would be the one it tried
-        # to remote as the model.
+        # `<model>Rows` publishes a model declaratively: bind it to the rows and every
+        # change republishes. Its name differs from the model's because the Source already
+        # has `Q_PROPERTY(QAbstractItemModel *<model> ...)`, and QtRO finds that property by
+        # name (qtro_property_index calls indexOfProperty).
         lines.append("")
         for model in contract.models:
             lines.append(f"    Q_PROPERTY(QVariantList {model.name}Rows READ {model.name}Rows")
@@ -407,47 +371,40 @@ def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str
         "",
         "    QQmlListProperty<QObject> data();",
         "",
-        "    // Shared entities. An entity that is shared answers everyone from one Source,",
-        "    // and each caller reaches it through a mirror: the mirror is what that caller's",
-        "    // links acquire, it republishes the shared Source's props, models and signals",
-        "    // outward, and it forwards every slot back with that caller bound. Both calls",
-        "    // are the runtime's, invoked by name so it needs none of these types.",
+        "    // Shared entities. A shared entity answers everyone from one Source, and each",
+        "    // caller reaches it through a mirror. The mirror republishes the shared props,",
+        "    // models and signals and forwards every slot with its caller bound. The runtime",
+        "    // calls both by name.",
         "    Q_INVOKABLE void synqtSetCaller(QObject *caller);",
         "    Q_INVOKABLE void synqtMirror(QObject *shared);",
         "",
     ]
     lines += [
-        "    // Fronts. A web edge may own a point it does not implement and hand each",
-        "    // caller to the entity serving their scope; this Source is what the browser",
-        "    // acquires, and `replica` is that entity. Everything it publishes is followed",
-        "    // outward and every slot is forwarded back, so the caller sees one surface and",
-        "    // never learns which of them answered. The runtime calls this by name.",
+        "    // Fronts. A web edge may own a point it does not implement and hand each caller to",
+        "    // the entity serving their scope; `replica` is that entity. Everything it publishes",
+        "    // is followed and every slot is forwarded back. The runtime calls this by name.",
         "    Q_INVOKABLE void synqtRelay(QObject *replica);",
         "",
     ]
     lines += [
-            "    // Scope gates. A member written `<admin> ...` in the contract reaches only",
-            "    // a caller holding that scope, and the gate is on what crosses rather than",
-            "    // on the shape: the member is still declared, so a Replica still matches by",
-            "    // signature, and nothing about it is ever published or accepted for a caller",
-            "    // without the scope. This instance gates by default, which is what a mirror",
-            "    // and a per-caller Source both want; the one Source a shared entity answers",
-            "    // everyone from holds the ungated truth its mirrors publish from, and the",
-            "    // runtime says so by calling this.",
+            "    // Scope gates. A member written `<admin> ...` reaches only a caller with that",
+            "    // scope. The member stays declared, so a Replica still matches by signature,",
+            "    // but nothing about it is published or accepted without the scope. Gating is on",
+            "    // by default, for mirrors and per-caller Sources. The runtime turns it off on",
+            "    // the one Source a shared entity answers from.",
             "    Q_INVOKABLE void synqtHoldsSharedState();",
             "",
             "public Q_SLOTS:",
-            "    // Publish every gated member again, now that this caller's scope has",
-            "    // changed. What they may not see is withdrawn, not left where it was.",
+            "    // Republish every gated member after this caller's scope changed. Members now",
+            "    // out of reach are withdrawn.",
             "    void synqtRegate();",
             "",
             "public:",
             "",
         ]
-    # One slots block, holding everything a QMetaMethod has to be able to connect to: the
-    # pull slots a front follows the entity behind it with, and the emit<Signal> methods a
-    # mirror and a front both relay a broadcast into. Q_INVOKABLE is not enough for either,
-    # because QObject::connect refuses a target that is not a slot or a signal.
+    # One slots block for everything a QMetaMethod connects to: the pull slots a front
+    # follows with and the emit<Signal> methods a mirror or front relays into.
+    # QObject::connect refuses a Q_INVOKABLE target.
     followed = contract.props + contract.models
     if followed or contract.signals:
         lines.append("public Q_SLOTS:")
@@ -465,20 +422,16 @@ def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str
     if followed or contract.signals:
         lines += ["", "public:", ""]
     if contract.models:
-        # repc gives the Source a virtual set<Model>(QAbstractItemModel *) that the
-        # owner is not meant to call. The model it publishes is this class's own. The
-        # `using` keeps that overload visible all the same, because a name declared
-        # here would otherwise hide it, and a hidden virtual is a warning every
-        # translation unit that includes this header has to carry.
+        # repc declares a virtual set<Model>(QAbstractItemModel *) the owner must not call.
+        # The `using` keeps it visible so it is not hidden (and warned about).
         for model in contract.models:
             lines.append(f"    using {name}SimpleSource::set{_cap(model.name)};")
         for model in contract.models:
             lines.append(
                 f"    Q_INVOKABLE void set{_cap(model.name)}(const QVariantList &rows);")
         lines.append("")
-        # The rows last published, so the bindable property has something to read back.
-        # A QVariantList copy is a reference count, so holding the rows the owner handed
-        # over costs nothing until one side changes them.
+        # The rows last published, read back by the bindable property. A QVariantList copy
+        # is reference counted.
         for model in contract.models:
             lines.append(f"    QVariantList {model.name}Rows() const "
                          f"{{ return m_{model.name}Rows; }}")
@@ -528,9 +481,8 @@ def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str
     lines.append("    bool m_synqtUngated{false};")
     for prop in _gated_props(contract):
         ctype = cpp_type(prop.type, records, path=path, line=prop.line, col=prop.col)
-        # What the owner last assigned, kept apart from what the Source publishes: a gate
-        # that opens later has to have something to publish, and one that closes has to be
-        # able to withdraw without losing the value it was hiding.
+        # What the owner last assigned, kept apart from what is published, so a gate can
+        # publish it later or withdraw it.
         lines.append(f"    {ctype} m_synqt{_cap(prop.name)}{{}};")
     for model in contract.models:
         lines.append(f"    SynQt::SourceModel m_{model.name}Model;")
@@ -548,11 +500,9 @@ def _slot_signature(syn: SynFile, slot: Slot, records, path) -> str:
 
 
 SLOT_DISPATCH_HELPER = """namespace {
-// Dispatch a consumer's slot call to the owner's QML implementation. A QML `function`
-// with the slot's name is added to the object's meta-object beyond the generated
-// helper's own C++ methods (cppMethodCount). If one exists, this returns its index so
-// the slot can invoke it. Returns -1 when the owner did not implement the slot in QML,
-// in which case the slot is a no-op (or returns a default), never recursing into itself.
+// Find the owner QML `function` implementing a slot: a method with the slot's name after
+// the helper's own C++ methods (cppMethodCount). Returns its index, or -1 when the owner
+// does not implement it, in which case the slot returns a default.
 int synqtQmlSlotIndex(const QObject *object, const char *name, int paramCount,
                       int cppMethodCount)
 {
@@ -565,24 +515,66 @@ int synqtQmlSlotIndex(const QObject *object, const char *name, int paramCount,
     }
     return -1;
 }
+
+// Call the owner QML implementation at `index` with `arguments` converted to the declared
+// parameter types, and return its answer as a QVariant. A typed QML function
+// (`function walk(forward: real): void`) does not accept QVariant arguments, so each one is
+// converted, and one that cannot be is refused, naming the parameter.
+bool synqtInvokeQmlSlot(QObject *object, int index, QVariantList arguments,
+                        QVariant *result)
+{
+    constexpr qsizetype mostArguments{10};
+    const QMetaMethod method{object->metaObject()->method(index)};
+    if (arguments.size() != method.parameterCount() || arguments.size() > mostArguments) {
+        return false;
+    }
+    QGenericArgument passed[mostArguments]{};
+    for (qsizetype at{0}; at < arguments.size(); ++at) {
+        const QMetaType wanted{method.parameterMetaType(static_cast<int>(at))};
+        QVariant &argument{arguments[at]};
+        if (wanted == QMetaType::fromType<QVariant>()) {
+            passed[at] = QGenericArgument("QVariant", &argument);
+            continue;
+        }
+        if (!argument.convert(wanted)) {
+            qWarning("%s: argument %d cannot be converted to %s, the type the owner declares",
+                     method.methodSignature().constData(), static_cast<int>(at),
+                     wanted.name());
+            return false;
+        }
+        passed[at] = QGenericArgument(wanted.name(), argument.constData());
+    }
+    const QMetaType returned{method.returnMetaType()};
+    QVariant answer{};
+    QGenericReturnArgument into{};
+    if (returned == QMetaType::fromType<QVariant>()) {
+        into = QGenericReturnArgument("QVariant", &answer);
+    } else if (returned.isValid() && returned.id() != QMetaType::Void) {
+        answer = QVariant{returned};
+        into = QGenericReturnArgument(returned.name(), answer.data());
+    }
+    const bool called{method.invoke(object, Qt::DirectConnection, into,
+                                    passed[0], passed[1], passed[2], passed[3], passed[4],
+                                    passed[5], passed[6], passed[7], passed[8], passed[9])};
+    if (called && result) {
+        *result = answer;
+    }
+    return called;
+}
 } // namespace
 """
 
 
 RELAY_INTRO = """namespace {
-// Wiring for a front. A web edge that owns a point it does not implement and hands each
-// caller to the entity serving their scope. The Source the browser acquires is this
-// helper, and what answers it is a Replica of a different contract, so everything here
-// goes through the meta-object by name. That is also what keeps it free of any SynQt
-// header, the way the rest of this file is. A contract target linking no service runtime
-// still compiles.
-//
-// The check `synqt check` runs is what makes by-name safe. An entity behind a front
-// carries exactly the members the front offers its callers, no more and no fewer.
+// Wiring for a front: a web edge that owns a point it does not implement and hands each
+// caller to the entity serving their scope. The browser acquires this helper, and a
+// Replica of another contract answers it, so everything goes through the meta-object by
+// name and needs no SynQt header. `synqt check` guarantees the entity behind a front
+// carries exactly the members the front offers.
 QMetaMethod synqtMethodNamed(const QMetaObject *metaObject, const char *name,
                              QMetaMethod::MethodType wanted)
 {
-    // Most derived first, so a Replica's own member wins over anything a base declares.
+    // Most derived first, so a Replica's own member wins.
     for (int index{metaObject->methodCount() - 1}; index >= 0; --index) {
         const QMetaMethod method{metaObject->method(index)};
         if (method.methodType() == wanted && method.name() == name) {
@@ -593,13 +585,11 @@ QMetaMethod synqtMethodNamed(const QMetaObject *metaObject, const char *name,
 }
 """
 
-#: The same opening, for a file whose contracts raise no signal. Nothing looks a method up
-#: by name, so the helper that does would be an unused function.
+#: The same opening, for a file whose contracts raise no signal (no name lookup helper).
 RELAY_INTRO_ONLY = RELAY_INTRO.split("QMetaMethod synqtMethodNamed")[0]
 
 RELAY_FOLLOW_PROPERTY = """
-// Follow `name` on `replica`, calling `slot` on `source` whenever it changes and once now,
-// so a Replica that already holds a value is not waited on for a second one.
+// Follow `name` on `replica`: call `slot` on `source` now and whenever it changes.
 bool synqtFollowProperty(QObject *replica, QObject *source, const char *name,
                          const char *slot)
 {
@@ -620,13 +610,9 @@ bool synqtFollowProperty(QObject *replica, QObject *source, const char *name,
 """
 
 RELAY_TAKES_SESSION = """
-// Does the entity behind the front take the session on every call?
-//
-// A connect point a service consumes carries the session the calling entity is acting for,
-// as one parameter ahead of the declared ones, and a point only a browser consumes carries
-// nothing extra. Which of the two is behind a given front is a fact about how that point
-// was compiled, so it is read off the method rather than assumed. One parameter more than
-// the contract declares means the session is one of them.
+// Does the entity behind the front take the forwarded session on every call? A point a
+// service consumes carries it as an extra first parameter, so one parameter more than
+// the contract declares means yes.
 bool synqtTakesSession(const QObject *replica, const char *name, int declared)
 {
     const QMetaMethod method{synqtMethodNamed(replica->metaObject(), name,
@@ -636,9 +622,8 @@ bool synqtTakesSession(const QObject *replica, const char *name, int declared)
 """
 
 RELAY_FOLLOW_SIGNAL = """
-// Relay a signal the entity behind the front raises out to the caller, through the
-// helper's own emit<Signal>, so it passes the same bound checks and the same scope gate as
-// one the front raised itself.
+// Relay a signal from the entity behind the front through the helper's own
+// emit<Signal>, so it passes the same bound checks and scope gate.
 bool synqtFollowSignal(QObject *replica, QObject *source, const char *name, const char *slot)
 {
     const QMetaMethod signal{synqtMethodNamed(replica->metaObject(), name,
@@ -654,8 +639,8 @@ bool synqtFollowSignal(QObject *replica, QObject *source, const char *name, cons
 """
 
 RELAY_ROWS = """
-// The rows a model replica is holding, in the shape a Source publishes. Read through the
-// model's own role names, which are the contract's declared roles and nothing else.
+// The rows a model replica holds, in the shape a Source publishes, read through the
+// model's role names (the declared roles).
 QVariantList synqtRowsOf(const QAbstractItemModel *model)
 {
     QVariantList rows;
@@ -689,21 +674,21 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
                       "#include <QHash>",
                       "#include <QMetaMethod>",
                       "#include <QMetaProperty>",
+                      "#include <QMetaType>",
                       "#include <QQmlEngine>",
                       "#include <QQmlListProperty>",
                       "#include <QVariant>",
                       "#include <QVariantList>",
                       "#include <QVariantMap>", ""]
     if _has_models(syn):
-        out += ["#include <QMetaType>",
-                "#include <QStandardItem>", "",
+        out += ["#include <QStandardItem>", "",
                 "#include <utility>", ""]
     if _bounds_a_var(syn):
         out += ["#include <QByteArray>",
                 "#include <QDataStream>",
                 "#include <QIODevice>", ""]
-    # Present whenever a service runtime is linked, absent for a contract-only target. The
-    # registration below is guarded the same way.
+    # Present when a service runtime is linked. The registration below is guarded the same
+    # way.
     out += ["#if __has_include(<sourcefactory.h>)",
             "#  include <sourcefactory.h>",
             "#endif", ""]
@@ -716,8 +701,8 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
     has_slots = any(contract.slots for contract in syn.contracts)
     if has_slots:
         out += [SLOT_DISPATCH_HELPER, ""]
-    # Only the pieces this file's contracts call. An unused static function in an
-    # anonymous namespace is a warning, and the build treats warnings as errors.
+    # Only the helpers this file's contracts call; an unused static function would fail the
+    # warnings-as-errors build.
     follows = any(contract.props or contract.models for contract in syn.contracts)
     relays_signal = any(contract.signals for contract in syn.contracts)
     relays_slot = any(contract.slots for contract in syn.contracts)
@@ -747,9 +732,8 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
         out.append(
             f'    qmlRegisterType<{contract.name}SourceHelper>("SynQt", 1, 0, "{contract.name}");'
         )
-    # Install the typed Caller factory when the service runtime is present (same guard as the
-    # subclass in the header), so forUser/forEntity mint the <Contract>Caller for this
-    # contract and QML gets Caller.emit<Signal>(...).
+    # Install the typed Caller factory when the service runtime is present, so
+    # forUser/forEntity mint the <Contract>Caller.
     caller_contracts = [contract for contract in syn.contracts if contract.signals]
     if caller_contracts:
         out.append("#if __has_include(<caller.h>)")
@@ -762,9 +746,8 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
                 f"{{ return new {contract.name}Caller{{parent}}; }});"
             )
         out.append("#endif")
-    # The mirror factory, on the same terms. A shared entity's runtime has to build one more
-    # instance of this Source per caller and knows only the contract's name, so the one place
-    # that knows the type registers a way to make one.
+    # The mirror factory, on the same terms. A shared entity runtime builds one mirror per
+    # caller and knows only the contract name.
     out.append("#if __has_include(<sourcefactory.h>)")
     for contract in syn.contracts:
         out.append(
@@ -788,19 +771,15 @@ def _source_helper_impl(syn: SynFile, contract: Contract, records, path) -> str:
     lines.append(f"    : {name}SimpleSource{{parent}}")
     lines.append("{")
     for model in contract.models:
-        # An empty model, published now rather than on the owner's first set<Model>().
-        # It has to be published from the constructor: enableRemoting() reads the model
-        # off the Source as it registers it, and a Source that hands over a null model
-        # there never gets one afterwards. The argument is spelled out because the
-        # inherited set<Model>(QAbstractItemModel *) is an overload of this name too,
-        # and `{}` would be a null pointer to it.
+        # Publish an empty model from the constructor: enableRemoting() reads the model when
+        # it registers the Source, and a null one is never replaced. The argument is spelled
+        # out because `{}` would pick the QAbstractItemModel * overload.
         lines.append(f"    set{_cap(model.name)}(QVariantList{{}});")
     lines.append("}")
     lines.append("")
 
-    # The default child list. Accept non-visual QML children declared in the Source. The
-    # QML engine still calls componentComplete on each (so a child Timer with running:true
-    # starts), independent of this object not being a visual parent.
+    # The default child list accepts non-visual QML children. The engine still completes
+    # each one, so a child Timer with running: true starts.
     lines.append(f"QQmlListProperty<QObject> {name}SourceHelper::data()")
     lines.append("{")
     lines.append("    return QQmlListProperty<QObject>{this, nullptr,")
@@ -855,13 +834,10 @@ def _source_helper_impl(syn: SynFile, contract: Contract, records, path) -> str:
 def _mirror_impl(contract: Contract, records, path) -> str:
     """The three methods that make one Source answerable to many callers.
 
-    A shared entity keeps one Source and hands each caller a mirror of it. Everything the
-    shared Source pushes is copied outward as it changes, so every mirror shows the same
-    values. Everything a caller asks for is forwarded back with that caller bound, so the
-    shared Source's slots still see a Caller and can still refuse one. A signal the shared
-    Source raises reaches every mirror (which is what sharing is for), while
-    `Caller.emit<Signal>` runs on the one mirror the caller acquired and reaches them
-    alone.
+    A shared entity keeps one Source and gives each caller a mirror. Pushes are copied out
+    to every mirror; calls are forwarded back with the caller bound, so the shared Source's
+    slots still see a Caller. A shared signal reaches every mirror; `Caller.emit<Signal>`
+    reaches only the caller's own mirror.
     """
     name = contract.name
     helper = f"{name}SourceHelper"
@@ -874,15 +850,13 @@ def _mirror_impl(contract: Contract, records, path) -> str:
     if gated:
         lines += [
             "    if (caller) {",
-            "        // A scope this caller gains or loses changes what they may see, so the",
-            "        // gated members are published again when it moves. String-based, like",
-            "        // everything else this reaches on the Caller, so no runtime type is",
-            "        // needed here. Unique, because binding a caller twice is allowed.",
+            "        // Republish the gated members when this caller's scope changes. By name,",
+            "        // like everything else on the Caller here. Unique, because a caller may be",
+            "        // bound twice.",
             "        connect(caller, SIGNAL(scopeChanged()), this, SLOT(synqtRegate()),",
             "                Qt::UniqueConnection);",
             "    }",
-            "    // What the owner assigned before there was a caller to weigh it against was",
-            "    // held back; now there is one.",
+            "    // Publish what the owner assigned before a caller was bound.",
             "    synqtRegate();",
         ]
     lines += [
@@ -890,9 +864,9 @@ def _mirror_impl(contract: Contract, records, path) -> str:
         "",
         f"void {helper}::synqtAdoptCaller(QObject *caller)",
         "{",
-        "    // By name, so a contract target that links no service runtime still compiles:",
-        "    // SynQt::Caller::adopt takes this caller's identity and the mirror it answers",
-        "    // through, which is what makes one shared Source able to tell its callers apart.",
+        "    // By name, so a target without the service runtime compiles. SynQt::Caller::adopt",
+        "    // records this caller's identity and its mirror, so one shared Source can tell",
+        "    // callers apart.",
         "    if (m_synqtCaller && caller && m_synqtCaller != caller) {",
         '        QMetaObject::invokeMethod(m_synqtCaller.data(), "adopt", Qt::DirectConnection,',
         "                                  Q_ARG(QObject *, caller));",
@@ -945,10 +919,8 @@ def _bounded_props(contract: Contract):
 
 
 def _intercepted_props(contract: Contract):
-    """The props whose setter the helper overrides: bounded, gated, or both.
-
-    Both reasons want the same hook, the virtual setter repc generates, so one override
-    carries them. The bound is checked on the way in and the gate on the way out.
+    """The props whose setter the helper overrides: bounded, gated, or both. The bound is
+    checked on the way in, the gate on the way out.
     """
     return [prop for prop in contract.props
             if bound_of(prop.type) is not None or _gate(prop)]
@@ -957,10 +929,8 @@ def _intercepted_props(contract: Contract):
 def _relay_impl(contract: Contract, records, path) -> str:
     """`synqtRelay`, and the pull slot behind each followed member.
 
-    A front's Source answers one caller and holds nothing of its own. What it publishes is
-    whatever the entity behind it is holding, and what it is asked for is forwarded there.
-    Following is one-way by construction, because a Replica is read-only to its consumer,
-    which is what keeps this from being a second place state can be written.
+    A front's Source publishes what the entity behind it holds and forwards calls there. A
+    Replica is read-only, so following is one-way.
     """
     name = contract.name
     helper = f"{name}SourceHelper"
@@ -968,11 +938,9 @@ def _relay_impl(contract: Contract, records, path) -> str:
         f"void {helper}::synqtRelay(QObject *replica)",
         "{",
         "    if (m_synqtRelay && m_synqtRelay != replica) {",
-        "        // Let go of the entity this was relaying to before following another. A",
-        "        // front is re-pointed when the caller's scope moves to a tier another",
-        "        // entity serves, and when the mesh link to the same entity comes back with",
-        "        // a fresh Replica; a follow left on the old one would go on republishing",
-        "        // what a caller is no longer entitled to, or nothing at all.",
+        "        // Drop the previous target before following another. A front is re-pointed when",
+        "        // the caller's scope moves to another tier, and when the mesh link returns with",
+        "        // a new Replica.",
         "        QObject::disconnect(m_synqtRelay.data(), nullptr, this, nullptr);",
     ]
     for model in contract.models:
@@ -1035,9 +1003,8 @@ def _relay_impl(contract: Contract, records, path) -> str:
             f"        set{cap}(QVariantList{{}});",
             "        return;",
             "    }",
-            "    // The property changes once, when the Replica initializes; everything after",
-            "    // that is the model's own doing, so this follows the model directly. Unique,",
-            "    // because this runs again on every one of those changes.",
+            "    // The property changes once, when the Replica initializes; after that follow",
+            "    // the model itself. Unique, because this runs on every change.",
         ]
         for signal in ("modelReset", "rowsInserted", "rowsRemoved", "rowsMoved",
                        "dataChanged", "layoutChanged"):
@@ -1055,15 +1022,10 @@ def _relay_impl(contract: Contract, records, path) -> str:
 def _gate_impl(contract: Contract, records, path) -> str:
     """The three methods behind a `<scope>` gate: ask, exempt, and publish again.
 
-    `synqtAllows` reaches SynQt::Caller::hasScope by name, the way everything else here
-    reaches the runtime, so a target that links no service runtime still compiles. It
-    answers false when there is no caller, which is what makes an ungated shared Source
-    have to say so rather than get the answer by accident.
-
-    `synqtRegate` runs when the caller's scope changes. Every gated member is published
-    again from what the owner last assigned, so one that has come into reach appears with
-    its current value, and one that has gone out of reach is withdrawn rather than left
-    sitting in the consumer's replica.
+    `synqtAllows` calls SynQt::Caller::hasScope by name, so a target without the service
+    runtime still compiles. It answers false when there is no caller. `synqtRegate` runs
+    when the caller scope changes and republishes every gated member from the owner's last
+    value: newly allowed members appear, newly denied ones are withdrawn.
     """
     name = contract.name
     helper = f"{name}SourceHelper"
@@ -1094,8 +1056,8 @@ def _gate_impl(contract: Contract, records, path) -> str:
     lines += [
         f"void {helper}::synqtHoldsSharedState()",
         "{",
-        "    // The one Source a shared entity answers everyone from. It holds every value",
-        "    // for every caller, and the mirrors are where each caller's gate is applied.",
+        "    // The one Source a shared entity answers everyone from. It holds every value; the",
+        "    // mirrors apply each caller's gate.",
         "    m_synqtUngated = true;",
         "    synqtRegate();",
         "}",
@@ -1119,11 +1081,8 @@ def _gate_impl(contract: Contract, records, path) -> str:
 
 
 def _bounded_prop_impl(class_name: str, prop, records, path) -> str:
-    """The setter that keeps a bounded prop inside its bound.
-
-    repc makes every property setter virtual, so overriding it is the whole
-    interception. The owner assigns in QML as usual, and a value that breaks the bound
-    never reaches the member the Source pushes from.
+    """The setter that keeps a bounded prop inside its bound. repc setters are virtual, so the
+    override intercepts every assignment.
     """
     ctype = cpp_type(prop.type, records, path=path, line=prop.line, col=prop.col)
     helper = f"{class_name}SourceHelper"
@@ -1131,9 +1090,8 @@ def _bounded_prop_impl(class_name: str, prop, records, path) -> str:
     lines = _bound_guard(prop.type, prop.name, where, prop.name, ["return;"], "    ")
     gate = _gate(prop)
     if gate:
-        # Remembered whether or not it may be published. The assignment is the owner's, and
-        # a gate that opens later publishes this, while one that closes puts the default
-        # back so the value stops being on the wire the moment the scope goes.
+        # Remembered even when not publishable. A closing gate restores the default on the
+        # wire.
         lines += [
             f"    m_synqt{_cap(prop.name)} = {prop.name};",
             f"    if (!synqtAllows({_gate_literal(gate)})) {{",
@@ -1149,16 +1107,13 @@ def _bounded_prop_impl(class_name: str, prop, records, path) -> str:
 def _emit_signal_impl(class_name: str, signal: Signal, records, path) -> str:
     params = _param_list(signal.params, records, path)
     args = ", ".join(p.name for p in signal.params)
-    # The owner is the one raising this, but a bound is a statement about what crosses the
-    # link, not about who wrote the value. An over-long reason string is refused on the way
-    # out too, so a consumer never receives something the contract says cannot arrive.
-    # Caller.emit<Signal>(...) lands here as well, so one guard covers both ways of sending.
+    # A bound limits what crosses the link, so an owner signal is checked too.
+    # Caller.emit<Signal>(...) comes through here as well.
     where = f"{class_name}.{signal.name}"
     lines: List[str] = []
     gate = _gate(signal)
     if gate:
-        # Every way of raising this comes through here, the shared Source's broadcast
-        # included (the mirror relays it into this method), so one check covers them all.
+        # Every way of raising this passes here, the shared broadcast included.
         lines += [
             f"    if (!synqtAllows({_gate_literal(gate)})) {{",
             "        return;",
@@ -1186,10 +1141,8 @@ def _set_model_impl(class_name: str, model: Model, records, path) -> str:
     ]
     gate = _gate(model)
     if gate:
-        # Remembered before the gate rather than after the commit, because these rows are
-        # what synqtRegate publishes if the scope arrives later. Denied, the model is
-        # emptied rather than left alone. Clearing it is what takes the rows a consumer
-        # already has back off them.
+        # Remembered before the gate, for synqtRegate. Denied, the model is emptied so
+        # consumers lose the rows.
         lines += [
             f"    m_{model.name}Rows = rows;",
             f"    if (!synqtAllows({_gate_literal(gate)})) {{",
@@ -1200,8 +1153,8 @@ def _set_model_impl(class_name: str, model: Model, records, path) -> str:
             "    }",
         ]
     lines += [
-        "    // Built first and committed at the end: a row that does not match the",
-        "    // contract refuses the whole publish, rather than leaving half of one.",
+        "    // Built first and committed at the end, so a row that does not match the contract",
+        "    // refuses the whole publish.",
         "    QList<QStandardItem *> items;",
         "    items.reserve(rows.size());",
         "    for (qsizetype rowIndex{0}; rowIndex < rows.size(); ++rowIndex) {",
@@ -1224,8 +1177,7 @@ def _set_model_impl(class_name: str, model: Model, records, path) -> str:
         f"        m_{model.name}Model.appendRow(item);",
         "    }",
         f"    {class_name}SimpleSource::set{_cap(model.name)}(&m_{model.name}Model);",
-        # Recorded after the commit, so a refused publish (an unconvertible role above)
-        # leaves the property reading what is on the wire.
+        # Recorded after the commit, so a refused publish leaves the property unchanged.
         f"    m_{model.name}Rows = rows;",
         f"    Q_EMIT {model.name}RowsChanged();",
         "}",
@@ -1234,19 +1186,16 @@ def _set_model_impl(class_name: str, model: Model, records, path) -> str:
 
 
 def _role_conversion(class_name: str, model: Model, role, index: int, records, path) -> List[str]:
-    """The lines that take one declared role off a row and put it on the item.
-
-    Only declared roles cross, so an undeclared field on the row is dropped by never
-    being read. A `var` role is stored as it arrives. Any other role is converted to
-    its declared type, and a value that will not convert refuses the publish.
+    """The lines that copy one declared role from a row onto the item. Undeclared fields are
+    never read. A `var` role is stored as is; others are converted, and a failed conversion
+    refuses the publish.
     """
     key = f'QStringLiteral("{role.name}")'
     where = f"{class_name}.{model.name}"
     refuse = ["qDeleteAll(items);", "return;"]
     if is_generic(role.type):
         lines = [
-            f"        // {role.name}: declared {role.type}, so whatever arrives is what "
-            "crosses.",
+            f"        // {role.name}: declared {role.type}, stored as it arrives.",
             f"        const QVariant {role.name}Value{{row.value({key})}};",
         ]
         lines += _bound_guard(role.type, f"{role.name}Value", where, role.name, refuse,
@@ -1290,29 +1239,22 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     params = _slot_params(syn, slot, records, path)
     head = f"{ret} {helper}::{slot.name}({params})"
 
-    # The owner implements the slot as a QML `function`, whose parameters are untyped
-    # (QVariant) and whose return is a QVariant. Marshal every argument as a QVariant so
-    # the invoke matches the QML method's signature, and convert a return back to its
-    # declared C++ type. (Passing Q_ARG(<cppType>, ...) would silently fail to match.)
-    arg_terms = [
-        f"Q_ARG(QVariant, QVariant::fromValue({p.name}))" for p in slot.params
-    ]
-    arg_suffix = ("".join(", " + term for term in arg_terms))
+    # The owner implements the slot as a QML `function`. Arguments go over as QVariants that
+    # synqtInvokeQmlSlot converts to the declared parameter types, and the result is
+    # converted to the slot's C++ type.
+    arguments = ("QVariantList{"
+                 + ", ".join(f"QVariant::fromValue({p.name})" for p in slot.params) + "}")
 
-    # Checked before the owner's QML ever sees the call. A bound in the contract is a rule
-    # about what a caller may send, so an over-long argument is refused here rather than
-    # handed on to be stored, echoed, or written to a column that is exactly that wide.
+    # Bounds are checked before the owner QML sees the call.
     where = f"{class_name}.{slot.name}"
     refuse = ["return;"] if is_void else [f"return {ret}{{}};"]
 
     lines: List[str] = []
     if syn.forwards_session:
-        # Who the calling entity says it is acting for, taken before anything else so that
-        # every check below already sees the right Caller, and before the span opens so
-        # the span continues the trace that arrived with this call rather than the one the
-        # previous call left on a reused Caller. Sent on every call, an empty one
-        # included, so a Caller reused by the next call never keeps the last one's session.
-        # A browser's Caller ignores it outright. See SynQt::Caller::assumeSession.
+        # Take the session the calling entity acts for first, so the checks below and the
+        # span see the right Caller. Sent on every call, empty included, so a reused Caller
+        # never keeps the previous session. A browser Caller ignores it
+        # (SynQt::Caller::assumeSession).
         lines += [
             "    if (m_synqtCaller) {",
             '        QMetaObject::invokeMethod(m_synqtCaller.data(), "assumeSession",',
@@ -1320,43 +1262,35 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
             f"                                  Q_ARG(QVariantMap, {SESSION_ARG}));",
             "    }",
         ]
-    # Opened before any way out and closed by its destructor, so every one of them is
-    # timed: the two refusals below, the relay, the shared Source, the owner's QML. Taking
-    # the session above is not a way out. It is what tells the span which story it is in.
+    # Opened before any return and closed by its destructor, so every path is timed.
     lines += [
         f'    SynqtCallSpan synqtSpan{{"{class_name}", "{slot.name}",',
         f"                            m_synqtCaller.data(), {len(slot.params)}}};",
     ]
     gate = _gate(slot)
     if gate:
-        # After the session a mesh caller is acting for is taken above, so the scope this
-        # asks about is the one the call is being made under. Refused here, before
-        # the owner's QML is reached and before any argument is even looked at.
+        # After the session is taken, so the scope is the one the call runs under. Refused
+        # before the owner QML or any argument is reached.
         lines += [
             f"    if (!synqtAllows({_gate_literal(gate)})) {{",
             f'        qWarning("%s: refused, the caller does not hold the scope it needs",',
             f'                 "{where}");',
             '        synqtSpan.refuse("scope");',
         ] + [f"        {line}" for line in refuse] + ["    }"]
-    # A refusal is what an operator wants to be told about, so each one names which check
-    # made it rather than leaving them all looking alike in the record.
+    # Each refusal names the check that made it.
     refuse_bound = ['synqtSpan.refuse("bound");'] + refuse
     for param in slot.params:
         lines += _bound_guard(param.type, param.name, where, param.name, refuse_bound, "    ")
     if getattr(slot, "capture", False):
-        # Only where the contract asked for it, and only after the bounds above have run:
-        # the values a monitor keeps have to be inside the contract's limits like every
-        # other value, or an argument refused for being too large would still be copied.
+        # Captured only where the contract asks, and only after the bounds have run.
         lines.append("    // `capture` on this member: the contract asked for the values.")
         for param in slot.params:
             lines.append(f'    synqtSpan.capture(QStringLiteral("{param.name}"),')
             lines.append(f"                      QVariant::fromValue({param.name}));")
-    # Whoever this slot is answering, for as long as it runs. A call the owner's
-    # implementation makes on to another entity carries them, so the chain keeps its person.
+    # The caller being answered, for as long as the slot runs, so onward calls carry it.
     lines.append(f"    const SynqtActingFor synqtActing{{m_synqtCaller.data()}};")
-    # A front implements nothing. The call belongs to the entity serving this caller's
-    # scope. Sent with the session this Source is answering for, which is what lets that
-    # entity authorize the person rather than the edge that carried them.
+    # A front relays the call to the entity serving this caller's scope, with the session,
+    # so that entity authorizes the person.
     session_arg = "Q_ARG(QVariantMap, synqtActingForSession())"
     relay_args = "".join(
         ",\n                                  Q_ARG(%s, %s)"
@@ -1374,8 +1308,7 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
         + (f",\n                                      {plain_args});" if slot.params else ");"),
         "        }",
     ] + [f"        {line}" for line in refuse] + ["    }"]
-    # A mirror of a shared Source answers nothing itself. It binds its caller and hands the
-    # call to the Source everybody shares, which is where the slot is implemented.
+    # A mirror binds its caller and hands the call to the shared Source.
     forward = f"m_synqtShared->{slot.name}({_slot_args(syn, slot)})"
     lines += [
         "    if (m_synqtShared) {",
@@ -1392,15 +1325,14 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     if is_void:
         lines += [
             "    if (index >= 0) {",
-            f"        metaObject()->method(index).invoke(this, Qt::DirectConnection{arg_suffix});",
+            f"        synqtInvokeQmlSlot(this, index, {arguments}, nullptr);",
             "    }",
         ]
     else:
         lines += [
             "    QVariant result{};",
             "    if (index >= 0) {",
-            "        metaObject()->method(index).invoke(this, Qt::DirectConnection,",
-            f"                                           Q_RETURN_ARG(QVariant, result){arg_suffix});",
+            f"        synqtInvokeQmlSlot(this, index, {arguments}, &result);",
             "    }",
             f"    return qvariant_cast<{ret}>(result);",
         ]
@@ -1408,15 +1340,13 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     return f"{head}\n{{\n{body}\n}}"
 
 
-# consumer side
+# Consumer side.
 #
-# The consumer facade is what the accessor family (Server, Database, ...) exposes for a
-# consumed connect point. It forwards the Replica's push properties, models and signals,
-# turns a returning slot into a Promise (`slot(args).then(...)`), and publishes itself to
-# the ConnectPointResolver so `<Contract>.on<Signal>` attached handlers find it. It is
-# Replica-type agnostic (it reflects through the metaobject), so one facade serves a typed
-# Replica on the client and a dynamic Replica on the mesh. Everything is guarded on the
-# runtime's <consumerbase.h>, so a Replica-only target compiles it away to nothing.
+# The consumer facade is what an accessor (Server, Database, ...) exposes for a consumed
+# connect point. It forwards the Replica props, models and signals, turns a returning slot
+# into a Promise (`slot(args).then(...)`), and registers with the ConnectPointResolver for
+# `<Contract>.on<Signal>` handlers. It reflects through the metaobject, so it serves typed
+# and dynamic Replicas alike. Guarded on <consumerbase.h>.
 
 
 def _types_csv(params, records, path) -> str:
@@ -1462,10 +1392,9 @@ def emit_consumer_header(syn: SynFile, lstem: str) -> str:
 def _consumer_class(contract: Contract, records, path) -> str:
     name = contract.name
     lines = [
-        f"// Consumer facade for {name}: what `{name}` is, in the QML of an entity that",
-        f"// consumes {name}'s connect point. One object serves all three ways a consumer",
-        f"// reaches it, because it is the attached object for the QML type `{name}` as well",
-        f"// as the accessor: `{name}.doThing()`, a binding on `{name}.someProp`, and",
+        f"// Consumer facade for {name}: what `{name}` is in the QML of an entity that consumes",
+        f"// {name}'s point. It is the accessor and also the attached object for the QML type",
+        f"// `{name}`, so `{name}.doThing()`, a binding on `{name}.someProp` and",
         f"// `{name}.onSomeSignal:` all resolve here.",
         f"class {name}Consumer : public SynQt::ConsumerBase",
         "{",
@@ -1488,8 +1417,7 @@ def _consumer_class(contract: Contract, records, path) -> str:
         "",
         "    QString contractName() const override;",
         "",
-        f"    // The live facade, not a new object: `{name}` in QML has to be the one",
-        "    // accessor the runtime installed, or a call would reach nothing.",
+        "    // The live facade the runtime installed, not a new object.",
         f"    static {name}Consumer *qmlAttachedProperties(QObject *object);",
         "",
     ]
@@ -1526,8 +1454,8 @@ def _consumer_class(contract: Contract, records, path) -> str:
         lines += [
             "",
             "private:",
-            "    // What a consumer is handed for each published model: a read-only view of",
-            "    // the Replica's, never the Replica's own (SynQt::ReadOnlyModel).",
+            "    // Each published model reaches a consumer as a read-only view of the Replica's",
+            "    // model (SynQt::ReadOnlyModel).",
         ]
         for model in contract.models:
             lines.append(f"    SynQt::ReadOnlyModel *m_{model.name}View{{nullptr}};")
@@ -1536,9 +1464,9 @@ def _consumer_class(contract: Contract, records, path) -> str:
 
 
 CONSUMER_RELAY_HELPER = """namespace {
-// Relay one signal to another by signature, tolerating a Replica that does not expose it
-// (a dynamic Replica has no model-changed property signal), connect only when both exist,
-// so nothing warns. Returns the connection so the facade can drop it on the next rebind.
+// Relay one signal to another by signature, connecting only when both exist (a dynamic
+// Replica has no model-changed signal). Returns the connection so the facade can drop
+// it on rebind.
 QMetaObject::Connection synqtRelay(QObject *from, const QByteArray &fromSignal,
                                    QObject *to, const QByteArray &toSignal)
 {
@@ -1559,8 +1487,7 @@ QMetaObject::Connection synqtRelay(QObject *from, const QByteArray &fromSignal,
 
 def emit_consumer_source(syn: SynFile, lstem: str) -> str:
     out: List[str] = [SPDX_CPP, f'#include "{lstem}_consumer.h"', "", "#if __has_include(<consumerbase.h>)"]
-    # moduleimports.h ships in the same library as consumerbase.h, so inside this guard it
-    # is there. No second guard of its own.
+    # moduleimports.h ships with consumerbase.h, so no second guard.
     out += ['#  include "actingfor.h"',
             '#  include "connectpointresolver.h"',
             '#  include "consumerfactory.h"',
@@ -1621,8 +1548,8 @@ def _consumer_impl(syn: SynFile, contract: Contract, records, path) -> str:
         "    Q_UNUSED(object);",
         f'    QObject *facade{{SynQt::ConnectPointResolver::instance()->resolve('
         f'QStringLiteral("{name}"))}};',
-        "    // Owned by the runtime that installed it and shared by every file that names",
-        "    // it, so the engine must not take it or delete it with a scope object.",
+        "    // Owned by the runtime and shared by every file that names it, so the engine must",
+        "    // not own it.",
         "    QQmlEngine::setObjectOwnership(facade, QQmlEngine::CppOwnership);",
         f"    return qobject_cast<{cls} *>(facade);",
         "}",
@@ -1654,8 +1581,7 @@ def _consumer_impl(syn: SynFile, contract: Contract, records, path) -> str:
             "    if (published == nullptr) {",
             "        return nullptr;",
             "    }",
-            "    // Re-sourced rather than rebuilt, so a reconnect keeps the object every",
-            "    // binding on this model already resolved.",
+            "    // Re-sourced, not rebuilt, so bindings survive a reconnect.",
             "    if (m_" + model.name + "View->sourceModel() != published) {",
             "        m_" + model.name + "View->setSourceModel(published);",
             "    }",
@@ -1708,10 +1634,7 @@ def _consumer_slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path
     params = _param_list(slot.params, records, path)
     qargs = _qarg_suffix(slot.params, records, path)
     if syn.forwards_session:
-        # The session this entity is acting for right now, filled by the framework rather
-        # than by the call site. The caller writes the arguments the contract declares, and
-        # who they are answering is not one of them. Empty in a browser, which has nobody
-        # else's session to be acting for.
+        # The session this entity acts for, filled by the framework. Empty in a browser.
         qargs = ", Q_ARG(QVariantMap, SynQt::ActingFor::current())" + qargs
     if slot.return_type is None:
         return "\n".join([
@@ -1724,9 +1647,8 @@ def _consumer_slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path
             "}",
         ])
     ret = cpp_type(slot.return_type, records, path=path, line=slot.line, col=slot.col)
-    # Both a typed Replica and a dynamic Replica expose a returning slot as a meta-method
-    # that returns QRemoteObjectPendingReply<T> with the concrete T, so one typed return arg
-    # captures either (QRemoteObjectPendingReply<T> is-a QRemoteObjectPendingCall).
+    # Typed and dynamic Replicas both return QRemoteObjectPendingReply<T> for a returning
+    # slot, and that is a QRemoteObjectPendingCall.
     return "\n".join([
         f"SynQt::Promise *{cls}::{slot.name}({params})",
         "{",
@@ -1757,15 +1679,10 @@ def emit_replica_source(syn: SynFile, lstem: str) -> str:
            f'#include "{lstem}_replica.h"', "",
            f'#include "{lstem}_rep.h"', "",
            "#include <QQmlEngine>", "",
-           "// When this Replica is built into a client that links the SynQt client runtime,"
-           " register a",
-           "// typed-Replica factory: a compile-time Replica carries its API and so syncs"
-           " reliably,",
-           "// including in the browser (a dynamic Replica's API-definition exchange does"
-           " not complete",
-           "// under single-threaded WASM). A minimal replica-only target that does not link"
-           " the",
-           "// runtime simply skips this and still builds.",
+           "// With the SynQt client runtime linked, register a typed-Replica factory. A",
+           "// compile-time Replica carries its API, so it syncs in the browser too, where a",
+           "// dynamic Replica's definition exchange does not complete under single-threaded",
+           "// WASM. A replica-only target without the runtime skips this.",
            "#if __has_include(<replicaregistry.h>)",
            "#  include <QRemoteObjectNode>",
            "#  include <replicaregistry.h>",

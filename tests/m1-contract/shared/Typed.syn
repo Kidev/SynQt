@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// An owner implements every slot as a QML function, with type annotations or without. A
+// typed function has a typed signature (`function note(count: int)` takes an int), so what
+// the generated Source hands it has to be converted first. Every scalar type is here, a
+// returning slot of each shape, and a `var` the owner narrows to something it cannot hold.
+
+contract Typed {
+    prop string heard
+    slot note(string text, int count, real ratio, bool on)
+    slot real half(real value)
+    slot string shout(string text)
+    slot int narrow(var anything)
+}

@@ -1,17 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M1 acceptance. Prove the generated contract layer compiles and behaves. The
-// generated Source and Replica headers compile (Todo's are #included here; Catalog's
-// compile in their own generated translation units and exercise records -> POD). The
-// rep must carry READPUSH props and declared-role-only models. The Source helper's
-// two ways into a model (the bindable <model>Rows property and set<Model>(rows)) must
-// replicate only declared roles, dropping undeclared row fields. A short in-process
-// QtRO round trip over a local socket exercises all four directions.
+// The generated contract layer compiles and behaves. The generated Source and Replica
+// headers compile (Todo's are #included here; Catalog's compile in their own generated
+// translation units and exercise records -> POD). The rep must carry READPUSH props and
+// declared-role-only models. The Source helper's two ways into a model (the bindable
+// <model>Rows property and set<Model>(rows)) must replicate only declared roles, dropping
+// undeclared row fields. A short in-process QtRO round trip over a local socket exercises
+// all four directions.
 //
-// Catalog's raw rep headers are intentionally NOT included here. A rep with a POD
-// defines it in both its _source.h and _replica.h, and a single owner-or-consumer
-// entity only ever includes one of them. Only the registration declarations are used.
+// Catalog's raw rep headers are NOT included here. A rep with a POD defines it in both its
+// _source.h and _replica.h, and a single owner-or-consumer entity only ever includes one of
+// them. Only the registration declarations are used.
 
 #include "todo_rep.h"              // repc classes (merged in this both-sided test target)
 #include "todo_sourcehelper.h"
@@ -19,6 +19,9 @@
 
 #include "catalog_sourcehelper.h"  // pulls the Catalog repc classes (with the ItemRow POD)
 #include "catalog_replica.h"       // registration declaration only
+
+#include "typed_sourcehelper.h"
+#include "typed_replica.h"
 
 #include <QAbstractItemModelReplica>
 #include <QCoreApplication>
@@ -30,8 +33,11 @@
 #include <QRemoteObjectNode>
 #include <QRemoteObjectPendingCall>
 #include <QRemoteObjectPendingReply>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTest>
+
+#include <memory>
 
 class TestM1 : public QObject
 {
@@ -191,6 +197,105 @@ private slots:
         const int textRole{model->roleNames().key(QByteArrayLiteral("text"), -1)};
         QVERIFY(textRole != -1);
         QTRY_COMPARE(model->index(1, 0).data(textRole).toString(), QStringLiteral("second"));
+    }
+
+    // An owner's QML function is called whether or not its parameters carry type
+    // annotations. A function written `function note(text: string, count: int)` has a typed
+    // signature that a QVariant argument does not match: QMetaMethod::invoke would refuse
+    // the call with a warning and the owner would never run, with nothing visible to the
+    // caller. So the generated Source hands each argument over in the type the function
+    // declares.
+    void ownerFunctionsAreCalledTypedOrNot_data()
+    {
+        QTest::addColumn<QByteArray>("owner");
+        QTest::newRow("typed") << QByteArray{
+            "import SynQt\n"
+            "Typed {\n"
+            "    id: owner\n"
+            "    function note(text: string, count: int, ratio: real, on: bool): void {\n"
+            "        owner.heard = [text, count, ratio, on].join('|');\n"
+            "    }\n"
+            "    function half(value: real): real { return value / 2; }\n"
+            "    function shout(text: string): string { return text.toUpperCase(); }\n"
+            "    function narrow(anything: int): int { return anything + 1; }\n"
+            "}\n"};
+        QTest::newRow("untyped") << QByteArray{
+            "import SynQt\n"
+            "Typed {\n"
+            "    id: owner\n"
+            "    function note(text, count, ratio, on) {\n"
+            "        owner.heard = [text, count, ratio, on].join('|');\n"
+            "    }\n"
+            "    function half(value) { return value / 2; }\n"
+            "    function shout(text) { return text.toUpperCase(); }\n"
+            "    function narrow(anything) { return Number(anything) + 1; }\n"
+            "}\n"};
+    }
+
+    void ownerFunctionsAreCalledTypedOrNot()
+    {
+        QFETCH(QByteArray, owner);
+        synqtRegisterTypedSources();
+
+        QQmlEngine engine;
+        QQmlComponent component{&engine};
+        component.setData(owner, QUrl{});
+        std::unique_ptr<QObject> object{component.create()};
+        QVERIFY2(object != nullptr, qPrintable(component.errorString()));
+        TypedSourceHelper *source{qobject_cast<TypedSourceHelper *>(object.get())};
+        QVERIFY(source != nullptr);
+
+        const QUrl url{QStringLiteral("local:m1typed-%1")
+                           .arg(QString::fromLatin1(QTest::currentDataTag()))};
+        QRemoteObjectHost host{url};
+        QVERIFY(host.enableRemoting<TypedSourceAPI>(source));
+        QRemoteObjectNode node{url};
+        QScopedPointer<TypedReplica> replica{node.acquire<TypedReplica>()};
+        QVERIFY(replica->waitForSource(3000));
+
+        // A fire and forget slot, every scalar type at once. The owner ran if it wrote
+        // what it was given, and it was given the values, converted, in order.
+        replica->note(QStringLiteral("hi"), 3, 0.5, true);
+        QTRY_COMPARE(replica->heard(), QStringLiteral("hi|3|0.5|true"));
+
+        // Returning slots. The answer comes back as the slot's declared type either way.
+        QRemoteObjectPendingReply<double> halved{replica->half(9.0)};
+        QVERIFY(halved.waitForFinished(3000));
+        QCOMPARE(halved.returnValue(), 4.5);
+        QRemoteObjectPendingReply<QString> shouted{replica->shout(QStringLiteral("quiet"))};
+        QVERIFY(shouted.waitForFinished(3000));
+        QCOMPARE(shouted.returnValue(), QStringLiteral("QUIET"));
+
+        // A `var` the owner narrowed to an int. A value that converts is converted.
+        QRemoteObjectPendingReply<int> narrowed{replica->narrow(QVariant{41})};
+        QVERIFY(narrowed.waitForFinished(3000));
+        QCOMPARE(narrowed.returnValue(), 42);
+    }
+
+    // What an owner's annotation cannot hold is refused before the owner runs, and said,
+    // rather than handed over as whatever the conversion produced.
+    void anArgumentTheOwnerCannotHoldIsRefused()
+    {
+        synqtRegisterTypedSources();
+        QQmlEngine engine;
+        QQmlComponent component{&engine};
+        component.setData("import SynQt\n"
+                          "Typed {\n"
+                          "    id: owner\n"
+                          "    function narrow(anything: int): int {\n"
+                          "        owner.heard = 'ran';\n"
+                          "        return anything;\n"
+                          "    }\n"
+                          "}\n", QUrl{});
+        std::unique_ptr<QObject> object{component.create()};
+        QVERIFY2(object != nullptr, qPrintable(component.errorString()));
+        TypedSourceHelper *source{qobject_cast<TypedSourceHelper *>(object.get())};
+        QVERIFY(source != nullptr);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{QStringLiteral(
+                                               "argument 0 cannot be converted to int")});
+        QCOMPARE(source->narrow(QVariant{QVariantList{1, 2}}), 0);
+        QVERIFY(source->heard().isEmpty());
     }
 
     void qmlRegistrationsAreEmitted()

@@ -1,9 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M1 acceptance: the contract generator, driven through the synqt_add_contract CMake
-# helper, feeding repc, with an in-process QtRO round trip proving the generated
-# layer compiles and behaves. Built with the native host Qt kit.
+# The contract generator through synqt_add_contract and repc, with a QtRO round trip.
 
 cmake_minimum_required(VERSION 3.21)
 project(synqt_m1_contract LANGUAGES CXX)
@@ -19,13 +17,12 @@ enable_testing()
 
 qt_add_executable(tst_m1 tst_m1.cpp)
 
-# ROLE both: this single test target hosts the Source and acquires the Replica, so
-# it generates and links both sides. A real client entity would use ROLE replica and
-# a service entity ROLE source, keeping the Source helper out of the client.
+# ROLE both: this target hosts the Source and acquires the Replica.
 synqt_add_contract(tst_m1 ROLE both SYN
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/Todo.syn"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/Catalog.syn"
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/Gated.syn"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Typed.syn"
 )
 
 target_compile_definitions(tst_m1 PRIVATE
@@ -43,9 +40,7 @@ target_link_libraries(tst_m1 PRIVATE
 
 add_test(NAME m1 COMMAND tst_m1)
 
-# What a consumer can do to a published model, over a real connection. Its own target
-# (and its own contract) so the question stays legible: this is the boundary, and these
-# are the only writes that cross it.
+# What a consumer can write into a published model, over a real connection.
 qt_add_executable(tst_modelwrite tst_modelwrite.cpp)
 
 synqt_add_contract(tst_modelwrite ROLE both SYN
@@ -62,10 +57,7 @@ target_link_libraries(tst_modelwrite PRIVATE
 
 add_test(NAME m1-modelwrite COMMAND tst_modelwrite)
 
-# The QML type-resolution rules `synqt build` is written against: a root object named after
-# its own file, with and without a type of that name in scope, and `import SynQt` carrying
-# QtQuick. Decisions taken in Python (synqt/qmlrewrite.py) about how a QML engine behaves,
-# checked here against a real one, because Python cannot check them.
+# The QML type-resolution rules synqt/qmlrewrite.py relies on, checked against a real engine.
 if(NOT TARGET SynQtConsumer)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/consumer"
                      "${CMAKE_BINARY_DIR}/SynQtConsumer")
@@ -85,11 +77,8 @@ target_link_libraries(tst_qmlrules PRIVATE
 # display would not run in CI.
 add_test(NAME m1-qmlrules COMMAND tst_qmlrules -platform offscreen)
 
-# What the rule above is worth to a host that never heard of it: registering a contract's
-# Sources, and nothing else, has to be enough for `import SynQt` to carry QtQuick. Its own
-# target because qmlRegisterModuleImport writes to a process-wide registry, so sharing a
-# process with tst_qmlrules (which installs the re-export by hand) would answer the question
-# for it.
+# Registering a contract's Sources alone must make `import SynQt` carry QtQuick. Its own
+# process: the module-import registry is process-wide.
 qt_add_executable(tst_qmlimport tst_qmlimport.cpp)
 
 synqt_add_contract(tst_qmlimport ROLE source SYN
