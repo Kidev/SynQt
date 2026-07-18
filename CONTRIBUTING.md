@@ -5,10 +5,10 @@ contributions, the header every source file needs, and the code style.
 
 ## License of contributions and the CLA
 
-SynQt's own code is licensed under Apache-2.0 (see LICENSE). To keep the project
+SynQt's own code is licensed under Apache-2.0 (see [LICENSE](LICENSE)). To keep the project
 free and open while preserving the ability to offer SynQt under other terms in the
 future (for example a commercial or dual license), every contributor must agree to
-the Contributor License Agreement in CLA.md before their contribution is merged.
+the Contributor License Agreement in [CLA.md](CLA.md) before their contribution is merged.
 
 In short, the CLA lets you keep ownership of your contribution while granting the
 project a broad license, including the right to relicense your contribution as part
@@ -42,7 +42,7 @@ CMake, shell, Python, YAML, and other `#` comment files:
 
 Do not put SPDX headers or copyright lines into files that a developer's built
 application will convey (for example generated client code): those artifacts are
-governed by Qt's license, not SynQt's. See docs/licensing.md.
+governed by Qt's license, not SynQt's. See [docs/licensing.md](docs/licensing.md).
 
 ## Code style
 
@@ -68,17 +68,19 @@ everywhere, without exception:
 Also: no exceptions and no RTTI (`dynamic_cast`/`typeid`); `Q_OBJECT` in every QObject
 subclass; `override` (not `virtual`) when reimplementing; keep lines under 100 columns.
 
-Document a class or a member with a `///` block directly above its declaration: those
-reach the generated [C++ API reference](docs/api-reference.md). A plain `//` comment
-stays a note to the next reader of that line, which is the right choice for a remark
-about one line of implementation.
+Document a class or a member with a `///` block directly above its declaration, or a
+member with a `///<` comment after it: those reach the
+[generated C++ reference](https://synqt.org/api/), whose conventions and local build are
+described in [docs/api-reference.md](docs/api-reference.md). A plain `//` comment stays a
+note to the next reader of that line, which is the right choice for a remark about one
+line of implementation.
 
 - Follow the repository formatters (clang-format for C++, qmlformat for QML).
 - Match the surrounding code and keep changes focused.
 
-`docs/development.md` maps the repository, names each runtime library and what it is
-responsible for, and lists every test suite and how to run it. Read it before your first
-change.
+[docs/development.md](docs/development.md) maps the repository, names each runtime
+library and what it is responsible for, and lists every test suite and how to run it.
+Read it before your first change.
 
 ## Before you open a pull request
 

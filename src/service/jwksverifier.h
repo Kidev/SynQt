@@ -38,7 +38,7 @@ private:
     bool ensureJwks(const QUrl &jwksUrl, QString *error);
 
     QNetworkAccessManager *m_network;
-    QHash<QString, QByteArray> m_jwksCache;  // jwksUrl -> raw JWKS JSON
+    QHash<QString, QByteArray> m_jwksCache; ///< jwksUrl -> raw JWKS JSON
 };
 
 } // namespace SynQt

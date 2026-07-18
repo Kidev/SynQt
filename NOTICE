@@ -11,3 +11,12 @@ Qt build used, not by SynQt. In particular, with open source Qt the browser clie
 is GPLv3 and is conveyed to every visitor, so its source must be made available
 under GPLv3. See docs/licensing.md for the full analysis and the obligations for
 open source and commercial Qt users.
+
+Third-party components bundled in this repository
+-------------------------------------------------
+
+doxygen-awesome-css (https://github.com/jothepro/doxygen-awesome-css), by jothepro,
+licensed under the MIT License, is vendored under tools/docs-hooks/doxygen-awesome/
+with its LICENSE and VERSION files. It styles the generated C++ reference on the
+documentation site. It is a documentation build asset and is not linked into or
+distributed with any SynQt binary.

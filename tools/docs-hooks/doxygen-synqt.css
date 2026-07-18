@@ -1,0 +1,130 @@
+/* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+   SPDX-License-Identifier: Apache-2.0
+
+   SynQt brand layer over doxygen-awesome-css. Loaded last, so it only overrides the
+   theme's custom properties rather than restating its rules. The values here are the
+   same ones the documentation site uses (docs/stylesheets/extra.css): the page gradient,
+   the #201335 header purple, and the #00a6ed accent from the SynQt wordmark, so moving
+   between the site and this reference does not look like moving between two projects.
+
+   The reference is dark only, matching the site's single palette entry (mkdocs.yml).
+   doxygen-header.html pins `html.dark-mode`, which is the class doxygen-awesome uses for
+   its dark variables, so the light rules below never apply in practice; they are kept so
+   the stylesheet stays valid if the pin is ever removed. */
+
+html {
+    /* Accent, used for links, the active tree item, and interactive highlights. */
+    --primary-color: #00a6ed;
+    --primary-dark-color: #0b7fb4;
+    --primary-light-color: #4cc4ff;
+    --primary-lighter-color: #163a52;
+    --primary-lightest-color: #10293a;
+
+    --page-background-color: #0d1224;
+    --page-foreground-color: #e6e6f0;
+    --page-secondary-foreground-color: #a8a8bd;
+
+    --side-nav-background: #150d24;
+    --side-nav-foreground: #ded9ea;
+    --separator-color: #2c2545;
+
+    --header-background: #201335;
+    --header-foreground: #ffffff;
+
+    --code-background: #161230;
+    --code-foreground: #e6e6f0;
+    --fragment-background: #161230;
+    --fragment-foreground: #e6e6f0;
+
+    --border-radius-small: 4px;
+    --border-radius-medium: 6px;
+    --border-radius-large: 8px;
+    --content-maxwidth: 1100px;
+    --spacing-medium: 12px;
+
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+        Arial, sans-serif;
+    --font-family-monospace: "Roboto Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* The site paints one fixed gradient behind every page (extra.css). Repeat it here so the
+   reference sits on the same background instead of a flat panel next to it. */
+body {
+    background: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
+    background-attachment: fixed;
+}
+
+#top,
+#nav-tree,
+#side-nav,
+div.contents,
+div.header {
+    background: transparent;
+}
+
+#titlearea {
+    background: rgba(32, 19, 53, 0.92);
+    border-bottom: 1px solid var(--separator-color);
+}
+
+#projectname a {
+    color: var(--header-foreground);
+    text-decoration: none;
+}
+
+/* The wordmark is drawn in #00414a and #46f477, a pairing meant for a light background:
+   on the dark header the teal half all but disappears. A light plate keeps the mark as
+   drawn instead of recolouring it, which is what the brand asset expects. */
+#projectlogo {
+    padding: var(--spacing-medium) 0 4px var(--spacing-medium);
+}
+
+#projectlogo img {
+    height: 40px;
+    width: auto;
+    background: #f2f4f8;
+    border-radius: var(--border-radius-medium);
+    padding: 4px 8px;
+}
+
+/* The two links back out of the reference: to the documentation page that introduces it,
+   and to the repository. Without them the generated pages are a dead end. */
+#synqt-backlink {
+    white-space: nowrap;
+    padding: 2px var(--spacing-medium) 6px var(--spacing-medium);
+}
+
+#synqt-backlink a {
+    color: var(--primary-light-color);
+    text-decoration: none;
+    font-size: 13px;
+    margin-right: 14px;
+}
+
+#synqt-backlink a:hover {
+    text-decoration: underline;
+}
+
+#synqt-search {
+    padding: 0 var(--spacing-medium) var(--spacing-medium) var(--spacing-medium);
+}
+
+/* The sidebar-only layout crops the header block to --top-height and hides the overflow.
+   The stock 120px fits a logo and a title; this header also carries the two backlinks and
+   the search box, so it needs the extra room or they are simply cut off. */
+@media screen and (min-width: 768px) {
+    html {
+        --top-height: 165px;
+    }
+}
+
+/* Doxygen renders the inheritance and collaboration graphs as SVG with a light
+   background baked in. Invert nothing (that would wreck the arrowheads); instead give
+   them a light plate so they stay legible on the dark page. */
+div.dyncontent div.center img,
+div.dyncontent div.center iframe,
+div.zoom {
+    background: #f4f4f8;
+    border-radius: var(--border-radius-medium);
+    padding: 8px;
+}

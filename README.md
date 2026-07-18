@@ -36,7 +36,7 @@ On Windows, in PowerShell: `irm https://get.synqt.org/install.ps1 | iex`.
 That one binary is all you install by hand. The first build downloads and pins the
 rest of the toolchain (the Qt SDK and the Emscripten compiler) into the project, so
 every machine gets the same versions. Full walkthrough in
-`docs/getting-started.md`.
+[`docs/getting-started.md`](docs/getting-started.md).
 
 ## Why SynQt exists
 
@@ -72,7 +72,7 @@ A SynQt project is a set of entities. Two are always present in a new project:
   browser. It is untrusted (anything in a browser is). It can only connect out,
   never listen. The same `client/` QML also builds to a native desktop app for
   Windows, macOS, and Linux against the same edge and security model
-  (`docs/desktop.md`).
+  ([`docs/desktop.md`](docs/desktop.md)).
 - `web` (a web edge): the native process that serves the client bundle and
   accepts the browser's connection. It is the only entity exposed to the
   internet.
@@ -100,7 +100,7 @@ When you do want a particular engine, an entity can be backed by it through a
 provider. The default database entity runs on an embedded engine with no setup;
 selecting `provider.name: postgres` or `provider.name: mongodb` masks that engine
 behind the same entity, so its connect points, and the whole security model around
-them, stay identical. Providers are the subject of `docs/providers.md`.
+them, stay identical. Providers are the subject of [`docs/providers.md`](docs/providers.md).
 
 ## Connect points: how entities talk
 
@@ -129,7 +129,7 @@ contract Todo {
 ```
 
 Full worked systems, including a three entity app with a database, are in
-`docs/examples.md`.
+[`docs/examples.md`](docs/examples.md).
 
 ## Security is built into every link
 
@@ -152,7 +152,7 @@ default:
   wires a provider with PKCE, a hardened session cookie, and CSRF protection,
   with no insecure middle state to forget about.
 
-The security model is the subject of `docs/security.md`. Read it before
+The security model is the subject of [`docs/security.md`](docs/security.md). Read it before
 deploying.
 
 ## Features
@@ -181,55 +181,57 @@ deploying.
 The full documentation site is at [synqt.org](https://synqt.org/). The same pages
 are in `docs/`.
 
-New to SynQt? Start with `docs/getting-started.md`, then the auction tutorial
-(`docs/tutorial.md`, one page per stage): a step by step build of a real time
+New to SynQt? Start with [`docs/getting-started.md`](docs/getting-started.md), then the auction tutorial
+([`docs/tutorial.md`](docs/tutorial.md), one page per stage): a step by step build of a real time
 auction that grows from a client and an edge into a three entity system with sign
-in and a database. The second tutorial (`docs/tutorial-multiplayer.md`) builds a
+in and a database. The second tutorial ([`docs/tutorial-multiplayer.md`](docs/tutorial-multiplayer.md)) builds a
 multiplayer arena in 2D Qt Quick, with server authoritative movement and a
 database backed leaderboard.
 
 The reference pages:
 
-- `docs/architecture.md`: the entity model, the planes (delivery, transport,
+- [`docs/architecture.md`](docs/architecture.md): the entity model, the planes (delivery, transport,
   objects), the mesh of links and their transports, and the rationale for every
   Qt technology chosen.
-- `docs/programming-model.md`: contracts, connect points (owner and consumers),
+- [`docs/programming-model.md`](docs/programming-model.md): contracts, connect points (owner and consumers),
   the `Server`, entity, `Caller`, and `Session` accessors, sessions, scopes, and
   cross entity calls.
-- `docs/entities.md`: the entity model in depth, the official blueprints
+- [`docs/entities.md`](docs/entities.md): the entity model in depth, the official blueprints
   (persistence, cache, gateway, jobs), and how to build a custom entity.
-- `docs/providers.md`: backing an entity with the embedded engine or a third
+- [`docs/providers.md`](docs/providers.md): backing an entity with the embedded engine or a third
   party one (PostgreSQL, MySQL, MongoDB, Redis, or your own) through a provider.
-- `docs/authentication.md`: user identity versus entity identity, the session
+- [`docs/authentication.md`](docs/authentication.md): user identity versus entity identity, the session
   lifecycle, and the secure by default provider wiring.
-- `docs/runtime-api.md`: the exact reference for the accessors the framework
+- [`docs/runtime-api.md`](docs/runtime-api.md): the exact reference for the accessors the framework
   injects into your QML (`Server`, `Session`, `Router`, `Caller`, `Client`, `App`,
   and the generated Source surface).
-- `docs/project-layout-and-config.md`: the directory layout and the complete
+- [`docs/project-layout-and-config.md`](docs/project-layout-and-config.md): the directory layout and the complete
   `synqt.yaml` schema.
-- `docs/build-system-and-cli.md`: the toolchain, the multi binary build, the
+- [`docs/build-system-and-cli.md`](docs/build-system-and-cli.md): the toolchain, the multi binary build, the
   Emscripten pipeline, the certificate tooling, and the `synqt` CLI.
-- `docs/desktop.md`: building the same `client/` QML as a native desktop app.
-- `docs/security.md`: the threat model and the security design across every link.
-- `docs/csp.md`: the Content-Security-Policy the edge emits, and how to widen it.
-- `docs/examples.md`: complete worked systems, from a single page app to a three
+- [`docs/desktop.md`](docs/desktop.md): building the same `client/` QML as a native desktop app.
+- [`docs/security.md`](docs/security.md): the threat model and the security design across every link.
+- [`docs/csp.md`](docs/csp.md): the Content-Security-Policy the edge emits, and how to widen it.
+- [`docs/examples.md`](docs/examples.md): complete worked systems, from a single page app to a three
   entity app with a database.
-- `docs/licensing.md`: the Qt module and platform licenses, what each entity's
+- [`docs/licensing.md`](docs/licensing.md): the Qt module and platform licenses, what each entity's
   built artifact is licensed as, and SynQt's own license (Apache-2.0).
 
-For working on SynQt itself: `docs/development.md` maps the codebase and the test
-suites, and `docs/browser-proofs.md` records the browser coverage.
+For working on SynQt itself: [`docs/development.md`](docs/development.md) maps the
+codebase and the test suites, [`docs/api-reference.md`](docs/api-reference.md) covers the
+generated [C++ class reference](https://synqt.org/api/), and
+[`docs/browser-proofs.md`](docs/browser-proofs.md) records the browser coverage.
 
 ## License and contributing
 
-SynQt's own source code is licensed under Apache-2.0 (see `LICENSE` and `NOTICE`).
+SynQt's own source code is licensed under Apache-2.0 (see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE)).
 The license of an application you build with SynQt is inherited from the Qt build
 you use: with open source Qt the browser client is GPLv3 and is served to every
 visitor, so its source must be published, while the server side stays private if you
 self host it; a commercial Qt license lets everything be proprietary. The full
-analysis, with diagrams, is in `docs/licensing.md`.
+analysis, with diagrams, is in [`docs/licensing.md`](docs/licensing.md).
 
-Contributions are welcome under the CLA in `CLA.md`; see `CONTRIBUTING.md` for the
+Contributions are welcome under the CLA in [`CLA.md`](CLA.md); see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
 SPDX header convention and code style.
 
 ## Target Qt version

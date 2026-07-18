@@ -103,7 +103,7 @@ private:
         QString accessToken;
         QString refreshToken;
         QString idToken;
-        qint64 expiresAtMs{0};  // 0 == unknown/never
+        qint64 expiresAtMs{0}; ///< 0 == unknown/never
     };
 
     QOAuth2AuthorizationCodeFlow *makeFlow(const IdentityProviderConfig &provider,
@@ -121,8 +121,8 @@ private:
     QTimer *m_refreshTimer{nullptr};
     int m_refreshMargin{0};
 
-    QHash<QString, Pending> m_pending;       // state -> pending login (verifier + nonce)
-    QHash<QString, TokenEntry> m_tokens;     // key -> stored tokens
+    QHash<QString, Pending> m_pending;      ///< state -> pending login (verifier + nonce)
+    QHash<QString, TokenEntry> m_tokens;    ///< key -> stored tokens
 };
 
 } // namespace SynQt

@@ -52,7 +52,7 @@ struct ConnectPointConfig
     QString contract;
     QString owner;
     QStringList consumers;
-    QString serverFile;   // the owner-side QML that implements the Source
+    QString serverFile;  ///< the owner-side QML that implements the Source
     ConnectPointInstance instance{ConnectPointInstance::Shared};
     MeshEndpoint endpoint;
 };

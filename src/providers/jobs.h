@@ -29,7 +29,7 @@ public:
     /// buffered without bound).
     Q_INVOKABLE bool enqueue(const QJSValue &job);
 
-    Q_INVOKABLE int queued() const;  // pending jobs, for backpressure/tests
+    Q_INVOKABLE int queued() const; ///< pending jobs, for backpressure/tests
 
 private:
     void drain();

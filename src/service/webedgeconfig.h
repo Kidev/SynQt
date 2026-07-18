@@ -26,8 +26,8 @@ struct WebEdgeConnectPoint
 {
     QString name;
     QString contract;
-    QString serverFile;   // the owner-side QML implementing the Source
-    QString scope;        // minimum session scope; empty == reachable by any session
+    QString serverFile;  ///< the owner-side QML implementing the Source
+    QString scope;       ///< minimum session scope; empty == reachable by any session
     InstanceMode instance{InstanceMode::Shared};
 };
 

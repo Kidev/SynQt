@@ -40,8 +40,8 @@ private slots:
 
 private:
     QList<ClientConnectPoint> m_connectPoints;
-    QHash<QObject *, QString> m_pending;  // raw replica -> connect-point name (fallback path)
-    QHash<QString, ConsumerBase *> m_facades;  // connect-point name -> stable facade
+    QHash<QObject *, QString> m_pending; ///< raw replica -> connect-point name (fallback path)
+    QHash<QString, ConsumerBase *> m_facades; ///< connect-point name -> stable facade
 };
 
 } // namespace SynQt

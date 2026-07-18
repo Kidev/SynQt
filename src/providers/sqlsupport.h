@@ -16,11 +16,12 @@ QT_END_NAMESPACE
 
 namespace SynQt {
 
-// Statement execution and migration logic shared by the external relational providers
-// (postgres, mysql). Both bind parameters through QSqlQuery::prepare + addBindValue (the
-// `?` placeholder is portable across Qt SQL drivers), so no provider is ever handed
-// concatenated SQL. Kept as free functions so the providers stay parallel final classes
-// rather than sharing a base.
+/// \file
+/// Statement execution and migration logic shared by the external relational providers
+/// (postgres, mysql). Both bind parameters through QSqlQuery::prepare + addBindValue (the
+/// `?` placeholder is portable across Qt SQL drivers), so no provider is ever handed
+/// concatenated SQL. Kept as free functions so the providers stay parallel final classes
+/// rather than sharing a base.
 
 /// Prepare + bind + run one statement. collectRows gathers a column-name map per row for a
 /// SELECT; otherwise it reports affected rows and the last insert id. Errors are returned in

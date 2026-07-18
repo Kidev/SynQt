@@ -86,14 +86,14 @@ QString unknownProviderMessage(const QString &family, const QString &configName,
 
 } // namespace SynQt
 
-// Register a custom provider at static initialization. `providerName` is the bare name as
-// it appears after `custom:` in the config; `ProviderClass` is constructible from a
-// `const ProviderConfig &`. Place one at namespace scope in the provider's .cpp:
-//
-//     SYNQT_REGISTER_PERSISTENCE_PROVIDER("MyEngine", MyEngineProvider)
-//
-// The object is `const` at namespace scope and so has internal linkage already; a custom
-// provider compiles directly into its entity, so the linker keeps it.
+/// Register a custom provider at static initialization. `providerName` is the bare name as
+/// it appears after `custom:` in the config; `ProviderClass` is constructible from a
+/// `const ProviderConfig &`. Place one at namespace scope in the provider's .cpp:
+///
+///     SYNQT_REGISTER_PERSISTENCE_PROVIDER("MyEngine", MyEngineProvider)
+///
+/// The object is `const` at namespace scope and so has internal linkage already; a custom
+/// provider compiles directly into its entity, so the linker keeps it.
 #define SYNQT_REGISTER_PERSISTENCE_PROVIDER(providerName, ProviderClass)                     \
     const SynQt::ProviderRegistration synqtRegister##ProviderClass{                          \
         SynQt::ProviderRegistry::registerPersistence(                                        \

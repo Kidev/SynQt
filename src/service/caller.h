@@ -65,12 +65,12 @@ public:
 
     bool isUser() const;
     bool isEntity() const;
-    bool isEntityVerified() const;  // entity: certificate-verified; colocation-trusted: false
+    bool isEntityVerified() const; ///< entity: certificate-verified; colocation-trusted: false
     QString id() const;
-    QVariant session() const;   // user: {id, scope, identity}; entity: null
-    QVariant identity() const;  // user: {sub, login, name, email} or null; entity: null
-    QString scope() const;      // user's granted scope; entity: empty
-    QString entity() const;     // verified entity name; user: empty
+    QVariant session() const;  ///< user: {id, scope, identity}; entity: null
+    QVariant identity() const; ///< user: {sub, login, name, email} or null; entity: null
+    QString scope() const;     ///< user's granted scope; entity: empty
+    QString entity() const;    ///< verified entity name; user: empty
 
     Q_INVOKABLE bool hasScope(const QString &scope) const;
     Q_INVOKABLE void setScope(const QString &scope,

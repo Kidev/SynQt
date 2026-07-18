@@ -53,7 +53,7 @@ private:
     SynClientConfig m_config;
     QString m_state{QStringLiteral("offline")};
     QVariant m_scope;
-    QVariant m_identity;  // null until authenticated (M8)
+    QVariant m_identity; ///< null until authenticated (M8)
 };
 
 } // namespace SynQt

@@ -25,7 +25,7 @@ struct SessionRecord
 {
     QByteArray id;
     QString scope;
-    QVariantMap identity;  // sub/login/name/email; empty == anonymous
+    QVariantMap identity; ///< sub/login/name/email; empty == anonymous
     qint64 createdMs{0};
 };
 
@@ -99,7 +99,7 @@ private:
     std::deque<std::pair<qint64, QByteArray>> m_expiryQueue;
     QString m_defaultScope;
     qint64 m_ttlMs;
-    QPointer<QObject> m_remote;  // the Session Replica when this is an edge cache
+    QPointer<QObject> m_remote; ///< the Session Replica when this is an edge cache
 };
 
 } // namespace SynQt

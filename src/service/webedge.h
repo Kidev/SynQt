@@ -93,7 +93,7 @@ private:
     IdentityProvider *m_identity{nullptr};
     quint16 m_port{0};
     QString m_errorString;
-    QList<QByteArray> m_scriptHashes;  // sha256 of the bundle's inline scripts, for the CSP
+    QList<QByteArray> m_scriptHashes; ///< sha256 of the bundle's inline scripts, for the CSP
     /// Strong ETag per bundle file, content-hashed once at start(): the bundle is static
     /// for the life of the process, so hashing per request would be pure waste. Keyed by
     /// canonical path.

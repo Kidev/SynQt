@@ -49,7 +49,7 @@ private:
 
     ProviderConfig m_config;
     std::unique_ptr<SqlConnectionPool> m_pool;
-    SqlConnectionPool::Lease m_txLease;   // valid only while a transaction is open
+    SqlConnectionPool::Lease m_txLease;  ///< valid only while a transaction is open
     bool m_inTransaction{false};
 };
 

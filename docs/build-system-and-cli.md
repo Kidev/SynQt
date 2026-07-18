@@ -253,33 +253,33 @@ Each library and each test suite is its own CMake project that finds Qt through
 
 ## Continuous integration
 
-The GitHub Actions workflows under `.github/workflows/` cover the framework across the
+The GitHub Actions workflows under [`.github/workflows/`](https://github.com/Kidev/SynQt/tree/main/.github/workflows) cover the framework across the
 operating systems it supports. Each is scoped to what it can prove on a hosted runner:
 
-- `tests.yml` runs the pure Python suites (the `synqt` CLI and the `synqtc` generator)
+- [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) runs the pure Python suites (the `synqt` CLI and the `synqtc` generator)
   on Linux, macOS, and Windows on every push and pull request. They assert on the
   emitted CMake, presets, topology, and config, so they need no Qt build or display and
   behave identically on all three runners.
-- `ctest.yml` builds and runs the native C++ suites. It provisions the pinned Qt 6.11.1
+- [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) builds and runs the native C++ suites. It provisions the pinned Qt 6.11.1
   host kit and its add on modules through aqtinstall, caches the kit between runs, and
   falls back to a source build for any add on the prebuilt kit omits (the same mechanism
   the WebAssembly job uses for QtRemoteObjects). It runs the runtime suites and the
   acceptance fixtures on Linux and macOS. Native Windows ctest is out of scope: the run
   scripts are POSIX shell and an MSVC Qt kit is a separate lift, and the Python suites
   already give Windows coverage.
-- `browser-matrix.yml` closes the WebKit and Safari column of the transport proof,
+- [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) closes the WebKit and Safari column of the transport proof,
   building QtRemoteObjects into the WebAssembly kit from source and driving Chromium,
   Firefox, and WebKit through every QtRemoteObjects over WebSockets direction and a
   reconnect.
-- `wasm-proofs.yml` runs what needs a WebAssembly kit the other workflows do not install:
+- [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs what needs a WebAssembly kit the other workflows do not install:
   the multi threaded client actually receiving SharedArrayBuffer under cross origin
   isolation (and provably losing it without the headers), Qt Quick 3D Physics building and
   booting on both kits, and a real `synqt build` of the arena producing a servable client
   bundle. That last one is the only job that drives the CLI through an Emscripten client
   build, so it asserts the artifacts rather than the exit code: a build that skips
   compilation still succeeds and says so in its summary.
-- `docs.yml` builds and publishes this documentation site on a push to `main`;
-  `check-get-installer.yml` guards that the get.synqt.org installer and its index copy
+- [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) builds and publishes this documentation site on a push to `main`;
+  [`check-get-installer.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/check-get-installer.yml) guards that the get.synqt.org installer and its index copy
   stay identical.
 
 The two WebAssembly workflows are manual first (`workflow_dispatch`) and otherwise run only
@@ -293,7 +293,7 @@ same validation.
 
 ## Releasing
 
-`release.yml` is a manual workflow that cuts a release of the `synqt` CLI. The person
+[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) is a manual workflow that cuts a release of the `synqt` CLI. The person
 running it does not type a version: they choose whether to bump the patch, minor, or
 major component of the most recent tag, and may add an optional pre release suffix such
 as `-alpha` or `-rc.1` (a non empty suffix marks the release as a pre release, so the

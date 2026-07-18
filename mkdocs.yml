@@ -140,4 +140,9 @@ nav:
       - Developer guide: development.md
       - C++ API reference: api-reference.md
       - Browser coverage: browser-proofs.md
+  # Straight into the generated Doxygen reference, so it is one click from every page
+  # rather than one click behind the page that introduces it. Absolute because the pages
+  # are generated into the built site by the hook above, not tracked as MkDocs sources
+  # (the same reason the Download entry below is absolute).
+  - C++ reference: https://synqt.org/api/
   - Download: https://get.synqt.org/

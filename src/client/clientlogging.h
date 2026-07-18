@@ -23,9 +23,9 @@ class ClientLogging
 {
 public:
     enum class Mode {
-        Console,  // route every message to the browser console (WASM) or stderr (desktop)
-        Qt,       // leave Qt's default handler untouched
-        Silent,   // drop debug and info; keep warnings and above (no console.log in production)
+        Console, ///< route every message to the browser console (WASM) or stderr (desktop)
+        Qt,      ///< leave Qt's default handler untouched
+        Silent,  ///< drop debug and info; keep warnings and above (no console.log in production)
     };
 
     /// Map a build.client_logging value to a Mode. Unknown or empty falls back to Console so

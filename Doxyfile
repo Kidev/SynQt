@@ -27,6 +27,9 @@ EXCLUDE_PATTERNS       = */build/* */generated/*
 # of the runtime rather than a partial one that silently omits whatever lacks a comment.
 EXTRACT_ALL            = YES
 EXTRACT_STATIC         = YES
+# Private members are implementation, not reference material: they are the one thing a
+# reader of this reference cannot call.
+EXTRACT_PRIVATE        = NO
 EXTRACT_LOCAL_CLASSES  = NO
 HIDE_UNDOC_MEMBERS     = NO
 HIDE_UNDOC_CLASSES     = NO
@@ -71,12 +74,30 @@ WARN_NO_PARAMDOC       = NO
 
 GENERATE_HTML          = YES
 HTML_OUTPUT            = html
-HTML_COLORSTYLE        = DARK
+
+# doxygen-awesome-css (MIT, vendored under tools/docs-hooks/doxygen-awesome, see the
+# VERSION and LICENSE files there), in its sidebar-only layout: the treeview is the only
+# navigation, which gives the content the full width. The theme requires
+# HTML_COLORSTYLE = LIGHT and FULL_SIDEBAR = NO; dark mode is not Doxygen's, it is the
+# theme's own, pinned on by `class="dark-mode"` in the header so the reference matches
+# the dark-only documentation site.
+HTML_HEADER            = tools/docs-hooks/doxygen-header.html
+HTML_EXTRA_STYLESHEET  = tools/docs-hooks/doxygen-awesome/doxygen-awesome.css \
+                         tools/docs-hooks/doxygen-awesome/doxygen-awesome-sidebar-only.css \
+                         tools/docs-hooks/doxygen-synqt.css
+HTML_EXTRA_FILES       = tools/docs-hooks/doxygen-awesome/doxygen-awesome-fragment-copy-button.js \
+                         tools/docs-hooks/doxygen-awesome/doxygen-awesome-paragraph-link.js \
+                         tools/docs-hooks/doxygen-awesome/doxygen-awesome-interactive-toc.js \
+                         tools/docs-hooks/doxygen-awesome/doxygen-awesome-tabs.js
+HTML_COLORSTYLE        = LIGHT
 HTML_DYNAMIC_SECTIONS  = YES
+HTML_COPY_CLIPBOARD    = NO
 GENERATE_TREEVIEW      = YES
-FULL_SIDEBAR           = NO
+TREEVIEW_WIDTH         = 335
 DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
 SEARCHENGINE           = YES
+
 GENERATE_LATEX         = NO
 GENERATE_XML           = NO
 

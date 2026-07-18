@@ -29,8 +29,8 @@ class OAuthBackend;
 struct CookiePolicy
 {
     QString name{QStringLiteral("synqt_session")};
-    bool sameSiteNone{false};  // split_origin -> SameSite=None; Secure
-    bool secure{true};         // set on TLS (and always under SameSite=None)
+    bool sameSiteNone{false}; ///< split_origin -> SameSite=None; Secure
+    bool secure{true};        ///< set on TLS (and always under SameSite=None)
 };
 
 /// The browser-facing half of easy auth on the web edge: the login/callback/logout routes,
@@ -98,7 +98,7 @@ private slots:
 private:
     struct PendingLogin
     {
-        QString csrfToken;   // bound to the initiating browser via a cookie (login CSRF)
+        QString csrfToken;  ///< bound to the initiating browser via a cookie (login CSRF)
         qint64 createdMs{0};
     };
 
@@ -120,12 +120,12 @@ private:
     QQmlEngine *m_engine;
     QString m_edgeOrigin;
     CookiePolicy m_cookie;
-    OAuthBackend *m_backend{nullptr};       // in-process engine (null when remote)
-    QPointer<QObject> m_remote;             // Identity Replica in provider_entity mode
+    OAuthBackend *m_backend{nullptr};      ///< in-process engine (null when remote)
+    QPointer<QObject> m_remote;            ///< Identity Replica in provider_entity mode
     QQmlComponent *m_mappingComponent{nullptr};
     QObject *m_mapping{nullptr};
 
-    QHash<QString, PendingLogin> m_pending;  // state -> browser CSRF binding
+    QHash<QString, PendingLogin> m_pending; ///< state -> browser CSRF binding
 
     /// Delegated results, keyed by request id, filled by the onBeginResult/onExchangeResult
     /// slots and consumed by the waiting route handler (provider_entity mode only).

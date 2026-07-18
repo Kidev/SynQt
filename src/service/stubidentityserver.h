@@ -41,8 +41,8 @@ public:
     ~StubIdentityServer() override;
 
     void setClientCredentials(const QString &clientId, const QString &clientSecret);
-    void setUser(const QVariantMap &user);   // the profile /userinfo returns
-    void setIssuer(const QString &issuer);    // iss for the ID token
+    void setUser(const QVariantMap &user);  ///< the profile /userinfo returns
+    void setIssuer(const QString &issuer);   ///< iss for the ID token
 
     bool start(quint16 port = 0);
     quint16 port() const;
@@ -67,9 +67,9 @@ private:
     QString m_clientSecret{QStringLiteral("stub-secret")};
     QVariantMap m_user;
     QString m_issuer;
-    QHash<QString, PendingCode> m_codes;       // code -> PKCE challenge + nonce
-    QHash<QString, QString> m_accessTokens;    // access token -> subject
-    QHash<QString, QString> m_refreshTokens;   // refresh token -> subject (for the refresh grant)
+    QHash<QString, PendingCode> m_codes;      ///< code -> PKCE challenge + nonce
+    QHash<QString, QString> m_accessTokens;   ///< access token -> subject
+    QHash<QString, QString> m_refreshTokens;  ///< refresh token -> subject (for the refresh grant)
 
     /// RSA signing material for the ID token, generated at start(). n/e feed the JWKS.
     void ensureKeys();
@@ -77,8 +77,8 @@ private:
     std::string m_publicKeyPem;
     std::string m_privateKeyPem;
     QString m_kid;
-    QString m_jwkModulus;   // base64url
-    QString m_jwkExponent;  // base64url
+    QString m_jwkModulus;  ///< base64url
+    QString m_jwkExponent; ///< base64url
 };
 
 } // namespace SynQt
