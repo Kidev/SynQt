@@ -22,7 +22,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import yaml
 
 from . import appmodel
-from . import clientshell, cmakegen, config as configmod, devidentities, profiles, toolchain
+from . import (clientshell, cmakegen, config as configmod, devidentities, mesh, profiles,
+               toolchain)
 
 
 def launch_env(root: Path) -> Dict[str, str]:
