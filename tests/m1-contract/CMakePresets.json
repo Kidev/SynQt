@@ -1,0 +1,19 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "m1",
+            "displayName": "M1 contract generator test (native host kit)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../../build/m1-contract",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_PREFIX_PATH": "/opt/Qt/6.11.1/gcc_64"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "m1", "configurePreset": "m1" }
+    ]
+}

@@ -1,0 +1,221 @@
+/* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+   SPDX-License-Identifier: Apache-2.0 */
+
+/* The Download modal.
+   The "Download" tab in the top nav (mkdocs.yml: `Download: https://get.synqt.org/`)
+   used to navigate to get.synqt.org, which served a small HTML download page.
+   get.synqt.org now serves the installer script itself (for `curl | sh`), so
+   that user-facing page lives here instead: docs/javascripts/download-modal.js
+   intercepts the tab and opens this modal. The nav link stays a working no-JS
+   fallback. Colors follow the brand custom properties set in extra.css
+   (--md-primary-fg-color #201335, --md-accent-fg-color #00a6ed). */
+
+.synqt-dl[hidden] {
+  display: none;
+}
+
+.synqt-dl {
+  position: fixed;
+  inset: 0;
+  z-index: 3000; /* above Material's sticky header (z-index around 2000) */
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(8, 5, 18, 0.66);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: synqt-dl-fade 0.15s ease-out;
+}
+
+@keyframes synqt-dl-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.synqt-dl__card {
+  position: relative;
+  width: 100%;
+  max-width: 40rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 2rem 1.75rem 1.75rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(165deg, #241a3d 0%, #1a1430 60%, #150d24 100%);
+  color: var(--md-typeset-color, #e6e1ef);
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.55);
+  animation: synqt-dl-rise 0.18s ease-out;
+}
+
+@keyframes synqt-dl-rise {
+  from { transform: translateY(0.75rem); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.synqt-dl__close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.synqt-dl__close:hover,
+.synqt-dl__close:focus-visible {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.synqt-dl__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.synqt-dl__sub {
+  margin: 0 0 1.5rem;
+  opacity: 0.78;
+  font-size: 1rem;
+}
+
+.synqt-dl__platform {
+  margin: 0 0 1rem;
+}
+
+.synqt-dl__platform strong {
+  font-weight: 700;
+}
+
+.synqt-dl__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 1rem 0 1.5rem;
+}
+
+.synqt-dl__btn {
+  display: inline-block;
+  padding: 0.65rem 1.1rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  background: var(--md-accent-fg-color, #00a6ed);
+  color: #06121b;
+  border: 1px solid transparent;
+  transition: filter 0.15s, background 0.15s;
+}
+
+.synqt-dl__btn:hover,
+.synqt-dl__btn:focus-visible {
+  filter: brightness(1.08);
+  outline: none;
+}
+
+.synqt-dl__btn--secondary {
+  background: transparent;
+  color: inherit;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.synqt-dl__btn--secondary:hover,
+.synqt-dl__btn--secondary:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  filter: none;
+}
+
+.synqt-dl__label {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.synqt-dl__sublabel {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  opacity: 0.72;
+}
+
+.synqt-dl__pre {
+  position: relative;
+  margin: 0 0 1.5rem;
+  padding: 0.9rem 3.5rem 0.9rem 1rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow-x: auto;
+}
+
+.synqt-dl__pre code {
+  font-family: var(--md-code-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.85rem;
+  white-space: pre;
+  color: #e6e1ef;
+}
+
+.synqt-dl__copy {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  opacity: 0.85;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.synqt-dl__copy:hover,
+.synqt-dl__copy:focus-visible {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+.synqt-dl__muted {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.72;
+}
+
+.synqt-dl__muted code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.3rem;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.9em;
+}
+
+/* Only prose links get the accent color. Excluding the buttons matters: this
+   selector is a class plus an element (more specific than the single-class
+   `.synqt-dl__btn`), so without the `:not()` it would override the primary
+   button's dark `color` with accent blue - blue text on the blue button. */
+.synqt-dl a:not(.synqt-dl__btn) {
+  color: var(--md-accent-fg-color, #00a6ed);
+}
+
+.synqt-dl a {
+  color: "#000000";
+  font-size: 0.75rem;
+}
+
+/* Keep the page from scrolling behind the open modal. */
+body.synqt-dl-open {
+  overflow: hidden;
+}

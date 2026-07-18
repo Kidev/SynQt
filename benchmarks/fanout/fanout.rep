@@ -1,0 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The contract for the edge fan-out baseline: one per-session view the arena's web edge
+// publishes to a browser each server tick (docs/tutorial-multiplayer-world.md). It carries:
+//   - revision: a push property bumped once per publish, so a consumer can detect "my tick
+//     arrived" cheaply and the harness can time propagation to every consumer;
+//   - visible:  the model of entities in this session's view; the per-session payload whose
+//     size interest management is meant to keep flat (k nearest) instead of the whole world (N).
+class SessionView
+{
+    PROP(quint64 revision READPUSH)
+    MODEL visible(id, x, y)
+}

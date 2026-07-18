@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// A trivial connect point for the M4 topology test: a push property the owner sets
+// (so the consumer can prove it acquired a live Replica) and a slot.
+contract Thing {
+    prop int value
+    slot poke(int n)
+}

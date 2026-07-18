@@ -1,0 +1,82 @@
+{#-
+  SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+  SPDX-License-Identifier: Apache-2.0
+
+  Override of material/partials/header.html. Two changes from stock:
+
+  1. `theme.logo` (docs/assets/synqt.svg) is tuned for a light background (the
+     home page banner, the nav drawer, favicons), and the site header's
+     background is always the indigo --md-primary-fg-color, so its dark teal
+     half nearly disappears there. Point the header specifically at
+     synqt-header.svg, the reversed variant with that half swapped to white;
+     every other use of the logo (nav.html) is untouched and keeps the light
+     variant.
+
+  2. The tabs bar (partials/tabs.html) is included right after the logo,
+     inside the same `.md-header__inner` row, instead of stock's placement
+     (its own full width row below the header, or - with
+     navigation.tabs.sticky, which mkdocs.yml enables so base.html's own
+     separate tabs block skips itself - still its own row, just stuck to the
+     header). Tabs to the right of the logo on one line instead of two rows;
+     the CSS side of this (stripping .md-tabs's own width/grid centering so
+     it behaves as a flex item here) is in extra.css.
+-#}
+{% set class = "md-header md-header--shadow md-header--lifted" %}
+<header class="{{ class }}" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="{{ lang.t('header') }}">
+    <a href="{{ config.extra.homepage | d(nav.homepage.url, true) | url }}" title="{{ config.site_name | e }}" class="md-header__button md-logo" aria-label="{{ config.site_name }}" data-md-component="logo">
+      <img src="{{ 'assets/synqt-header.svg' | url }}" alt="logo">
+    </a>
+    {% if "navigation.tabs" in features %}
+      {% include "partials/tabs.html" %}
+    {% endif %}
+    <label class="md-header__button md-icon" for="__drawer">
+      {% set icon = config.theme.icon.menu or "material/menu" %}
+      {% include ".icons/" ~ icon ~ ".svg" %}
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            {{ config.site_name }}
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            {% if page.meta and page.meta.title %}
+              {{ page.meta.title }}
+            {% else %}
+              {{ page.title }}
+            {% endif %}
+          </span>
+        </div>
+      </div>
+    </div>
+    {% if config.theme.palette %}
+      {% if not config.theme.palette is mapping %}
+        {% include "partials/palette.html" %}
+      {% endif %}
+    {% endif %}
+    {% if not config.theme.palette is mapping %}
+      {% include "partials/javascripts/palette.html" %}
+    {% endif %}
+    {% if config.extra.alternate %}
+      {% include "partials/alternate.html" %}
+    {% endif %}
+    {% if "material/search" in config.plugins %}
+      {% set search = config.plugins["material/search"] | attr("config") %}
+      {% if search.enabled %}
+        <label class="md-header__button md-icon" for="__search">
+          {% set icon = config.theme.icon.search or "material/magnify" %}
+          {% include ".icons/" ~ icon ~ ".svg" %}
+        </label>
+        {% include "partials/search.html" %}
+      {% endif %}
+    {% endif %}
+    {% if config.repo_url %}
+      <div class="md-header__source">
+        {% include "partials/source.html" %}
+      </div>
+    {% endif %}
+  </nav>
+</header>

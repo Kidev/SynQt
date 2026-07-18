@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The arena, the finished multiplayer game from docs/tutorial-multiplayer.md: a browser
+# client, a web edge that serves the client and owns the one authoritative arena (simulated
+# once in web/World.qml, sliced per player by web/Arena.qml), and a database that holds the
+# permanent all-time Hall of Fame the browser reaches only through the edge.
+project:
+  name: arena
+  version: 0.1.0
+  qt_version: 6.11.1
+  origin_model: same_origin
+
+# Signing in is not the same as being allowed in: only approved logins reach `player`
+# (web/identity/map.qml is the guest list), and the arena connect point requires it.
+scopes:
+  order: [anonymous, player]
+  hierarchical: true
+  default: anonymous
+
+security:
+  allowed_origins: [self]
+  cross_origin_isolation: false
+
+build:
+  client_threads: single
+
+# GitHub sign in (docs/tutorial-multiplayer-world.md). The client_id is public; the client
+# secret lives only in web/.env.
+identity:
+  providers:
+    - name: github
+      client_id: your-client-id-from-github
+      client_secret: env:GITHUB_CLIENT_SECRET
+  mapping: web/identity/map.qml
+
+entities:
+  - name: client
+    kind: client
+    targets: [wasm]
+
+  - name: web
+    kind: service
+    capability: web_edge
+    identity: true
+
+  - name: database
+    kind: service
+    blueprint: persistence
+
+connect_points:
+  # The whole live world. per_session gives each player their own private view (interest
+  # management): the edge simulates once in the World singleton and publishes each player
+  # only their slice. scope: player is the real barrier; an unapproved account never has
+  # `arena` acquired for it, so steer, ping, and the roster are out of reach.
+  - name: arena
+    contract: Arena
+    owner: web
+    consumers: [client]
+    server: web/Arena.qml
+    scope: player
+    instance: per_session
+
+  # The permanent scores: owned by the database, reachable only by the edge (never the
+  # browser; a client consumer here fails `synqt check`, since the database is not a web
+  # edge). The edge mirrors the standings into the `arena` model everyone already watches.
+  - name: scores
+    contract: Scores
+    owner: database
+    consumers: [web]
+    server: database/Scores.qml
+    instance: per_peer

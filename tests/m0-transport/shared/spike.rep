@@ -1,0 +1,18 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// M0 transport spike contract. Hand-written for the go/no-go gate; the .syn ->
+// .rep generator arrives in M1. It exercises all four QtRO directions so the
+// unsupported QtRO-over-QtWebSockets path can be proven end to end in a browser:
+//   PROP   -> property push (Source -> Replica); READPUSH is the SynQt default
+//   SIGNAL -> Source -> Replica event
+//   SLOT   -> Replica -> Source call, WITH a return value that resolves on the client
+//   MODEL  -> replicated item model limited to its declared role(s)
+
+class SpikeSource
+{
+    PROP(int counter=0 READPUSH)
+    SIGNAL(pinged(QString payload))
+    SLOT(QString echo(const QString &message))
+    MODEL rows(display)
+}

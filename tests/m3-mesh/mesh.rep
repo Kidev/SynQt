@@ -1,0 +1,11 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// A trivial contract for the M3 mesh acceptance test: one push property and one slot,
+// so each mesh transport can be shown to carry an owner->consumer update and a
+// consumer->owner call.
+class Mesh
+{
+    PROP(int value READPUSH)
+    SLOT(void poke(int n))
+}

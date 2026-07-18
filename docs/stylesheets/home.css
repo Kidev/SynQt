@@ -1,0 +1,768 @@
+/* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+   SPDX-License-Identifier: Apache-2.0 */
+
+/* The home page's own look: wide and centered instead of Material's centered
+   ~61rem column, sidebar free (docs/index.md sets `hide: navigation, toc`),
+   with a quieter, editorial feel in place of Material's boxed components.
+   Everything here is scoped under `.md-content--home`, the class
+   overrides/main.html adds to the content wrapper only when `page.is_homepage`
+   is true, so no other page is affected.
+
+   Titillium Web is the same face used (outlined, not live text) in
+   docs/assets/synqt.svg; loading it here for the hero headline ties the page's
+   one big piece of type back to the wordmark. Nothing about this @import is
+   affected by the reason synqt.svg's own text had to be outlined (an <img>
+   can't fetch external resources for the SVG it points to) - this is an
+   ordinary page level font load, not an SVG-embedded one. */
+@import url('https://fonts.googleapis.com/css2?family=Titillium+Web:wght@700&display=swap');
+
+/* --- Escape Material's centered column ------------------------------------- */
+
+.md-main__inner:has(.md-content--home) {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* No background here: extra.css puts the same fixed gradient behind every
+   page, home included, so .md-content--home only needs the text color. */
+.md-content--home {
+  width: 100%;
+  color: #c3c9ec;
+}
+
+.md-content--home .md-content__inner {
+  --synqt-gutter: clamp(1.5rem, 6vw, 5rem);
+  max-width: 74rem;
+  margin: 0 auto;
+  padding: 0 var(--synqt-gutter) 3rem;
+}
+
+.md-content--home .md-content__inner:before {
+  /* Material's own spacer above the article; the hero has its own top
+     padding, so this would just double it. */
+  content: none;
+}
+
+/* --- Hero -------------------------------------------------------------------- */
+
+/* No background here any more (the fixed body gradient in extra.css shows
+   straight through); this is just the two column layout, text left, the
+   wordmark large on the right in place of the old animated diagram (moved to
+   "What it looks like" below, where it illustrates something concrete instead
+   of just being decorative). Padding is asymmetric and smaller on top than
+   the old hero, so the eyebrow/headline sit close under the header rather
+   than centered in a tall band. */
+.synqt-hero__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
+  align-items: center;
+  gap: clamp(2rem, 5vw, 4rem);
+  padding: clamp(1.5rem, 4vw, 2.5rem) 0 clamp(2.5rem, 5vw, 3.5rem);
+}
+
+.synqt-hero__text {
+  min-width: 0;
+}
+
+/* .md-typeset img{max-width:100%} (Material's own base typeset rule, since
+   this img sits inside the article) is one class plus one element, more
+   specific than a plain .synqt-hero__mark class selector, and silently won
+   over the max-width below regardless of source order. On desktop this went
+   unnoticed because the grid column it sits in (.synqt-hero__inner's second
+   track, capped at 20rem) constrained it anyway; on the single column mobile
+   layout further down, nothing did, and it rendered at the full width of the
+   hero instead of the intended cap. */
+.md-typeset .synqt-hero__mark {
+  width: 100%;
+  max-width: 18rem;
+  height: auto;
+}
+
+.synqt-eyebrow {
+  margin: 0;
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #7dffa8;
+}
+
+/* Targets both the wrapper and its markdown-generated <p> - md_in_html always
+   wraps a markdown div's text content in a <p>, which the generic hero
+   paragraph rule below would otherwise win on specificity (it also matches
+   this same <p>, being inside .synqt-hero__text). */
+.synqt-headline,
+.md-typeset .synqt-hero__text .synqt-headline p {
+  font-family: "Titillium Web", var(--md-text-font-family, sans-serif);
+  font-weight: 700;
+  font-size: clamp(2rem, 3.6vw, 2.85rem);
+  line-height: 1.14;
+  letter-spacing: -.01em;
+  color: #fff;
+  margin: .5rem 0 1rem;
+}
+
+.md-typeset .synqt-hero__text p {
+  font-size: .85rem;
+  color: #c3c9ec;
+  max-width: 34rem;
+}
+
+/* Centered under the paragraph text block: the row is capped to the same 34rem
+   the paragraph uses (the headline has no cap and fills the wider grid column,
+   so centering against that pushed the button off to the right, past where the
+   text ends). Matching the paragraph box puts the button under its middle. */
+.synqt-hero__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+  max-width: 34rem;
+}
+
+/* The install snippet that used to only live in the "Get SynQt" section at
+   the very bottom of the page now also gets the space the shorter hero copy
+   freed up, so a visitor can copy-paste it without scrolling. */
+.synqt-hero__install {
+  margin-top: 1.5rem;
+  max-width: 30rem;
+}
+
+/* Each install box is now a flex row: a small platform icon (Linux / Windows)
+   marking which shell the command is for, then the command block itself. The
+   icon is a fixed-size, non-shrinking leading item; the `.highlight` takes the
+   rest of the row and keeps `min-width: 0` so its inner `code` (overflow: auto)
+   can still scroll on a narrow screen instead of forcing the box wider. */
+.synqt-hero__install {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.synqt-hero__install .highlight {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The real height of each box is the inner `<pre>`, which Material gives a
+   `margin: 1em 0` - ~2em of vertical margin that stays even after the code's own
+   padding is trimmed (that only shrinks the highlighted content, not the box).
+   Zero it so the box is exactly its one line of text, and so the gap between the
+   Linux and Windows boxes is only the `--stacked` margin, nothing else. */
+.synqt-hero__install .highlight pre {
+  margin: 0;
+}
+
+/* The icon inherits the hero's white text as its fill (Material renders these
+   inline icons with `fill: currentColor`) and is sized to match the shrunk
+   command box, not exceed it - otherwise the icon, not the box, sets the flex
+   row's height and the box looks padded top and bottom even after the code
+   padding is trimmed. `flex: none` keeps it from being squeezed when the command
+   is long. */
+.md-typeset .synqt-hero__install-icon {
+  flex: none;
+  font-size: 1rem;
+  opacity: .85;
+}
+
+/* The icons for each command sit in one leading `<p>` (md_in_html wraps the icon
+   line), which is the flex row's first item. The Linux/macOS line carries two
+   icons (both install with the same `curl | sh`), the Windows line one - left to
+   size to content, the two-icon paragraph would be wider and shove its command
+   box further right, so the boxes stop lining up. Pin the icon paragraph to
+   exactly one icon's width (Material renders each `.twemoji` at
+   `--md-icon-size: 1.125em`, and the icon font-size above is 1rem, so 1.125rem)
+   and right-align its contents: the trailing icon sits flush against the command
+   box and any extra icon overflows to the left of the slot. Every `.highlight`
+   then starts at the same x, so the boxes stay aligned and only the icons extend
+   leftward. */
+.synqt-hero__install > p {
+  flex: none;
+  width: 1.125rem;
+  margin: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: .3rem;
+  overflow: visible;
+}
+
+/* The Windows (PowerShell) install command sits directly under the Linux/macOS
+   one as a second box. It is the same box, just a member of the same pair, so it
+   drops the full 1.5rem hero spacing above it down to a tight gap that reads as
+   "the other platform's line" rather than a separate, unrelated block. Both
+   boxes keep the identical width and `code` styling above, so the two commands
+   line up flush on the left. */
+.synqt-hero__install--stacked {
+  margin-top: .05rem;
+}
+
+/* The install command is long enough to run the full width of the box on a
+   narrow screen, most of the way under the always visible copy button
+   (`.md-code__nav`, absolutely positioned top right by Material, with its own
+   opaque background so it never looks broken, just slightly over the last
+   character or two - the same thing already happens to the PowerShell
+   command on the getting-started page). Shrinking the font keeps the overlap
+   to a couple of characters instead of a whole word; `code` is already
+   `overflow:auto`, so the full command is always one swipe away regardless. */
+@media screen and (max-width: 30em) {
+  .md-typeset .synqt-hero__install code {
+    font-size: .65rem;
+  }
+}
+
+@media screen and (max-width: 26.25em) {
+  .synqt-hero__actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+}
+
+.synqt-hero__actions .md-button {
+  margin: 0;
+}
+
+/* The primary "Get started" call to action (adapted from a Uiverse.io design by
+   mobinkakei). Colored from the site palette: the accent blue (#00a6ed) fills the
+   button and the mint-green highlight (#7dffa8/#46f477) casts the drop shadow -
+   both read cleanly on the deep-purple hero gradient. On hover the fill deepens to
+   #0079b8 (keeping the white label high-contrast) and the green shadow grows, so
+   the button lifts toward the viewer. */
+.synqt-hero__actions .cta {
+  display: flex;
+  align-items: center;
+  padding: 11px 33px;
+  text-decoration: none;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #00a6ed;
+  transition: 1s;
+  box-shadow: 6px 6px 0 #7dffa8;
+  transform: skewX(-15deg);
+  border: none;
+  cursor: pointer;
+}
+
+.synqt-hero__actions .cta:focus {
+  outline: none;
+}
+
+.synqt-hero__actions .cta:hover {
+  transition: 0.5s;
+  color: #fff;
+  background: #0079b8;
+  box-shadow: 8px 8px 0 #46f477;
+}
+
+/* Fixed-width arrow slot: the chevrons spread inside it via transform on hover, so
+   the button never changes size and the "Explore" link beside it stays put. */
+.synqt-hero__actions .cta .second {
+  transition: 0.5s;
+  width: 50px;
+  margin-left: 24px;
+  position: relative;
+  top: 12%;
+  display: inline-flex;
+}
+
+.synqt-hero__actions .cta .span {
+  transform: skewX(15deg);
+}
+
+/* Chevrons stay white at rest and on hover; only their position animates -
+   stacked at rest, spreading out to the right when hovered. */
+.synqt-hero__actions .cta svg path {
+  fill: #fff;
+}
+
+.synqt-hero__actions .cta .one {
+  transition: 0.4s;
+  transform: translateX(-60%);
+}
+
+.synqt-hero__actions .cta .two {
+  transition: 0.5s;
+  transform: translateX(-30%);
+}
+
+/* On hover the chevrons spread out and pulse through a lighter blue (#5cc8f5,
+   distinct from the #0079b8 hover fill), staggered so the pulse ripples outward. */
+.synqt-hero__actions .cta:hover .three {
+  animation: synqt-cta-arrow 1s infinite 0.2s;
+}
+
+.synqt-hero__actions .cta:hover .two {
+  transform: translateX(0);
+  animation: synqt-cta-arrow 1s infinite 0.4s;
+}
+
+.synqt-hero__actions .cta:hover .one {
+  transform: translateX(0);
+  animation: synqt-cta-arrow 1s infinite 0.6s;
+}
+
+@keyframes synqt-cta-arrow {
+  0% {
+    fill: #fff;
+  }
+
+  50% {
+    fill: #5cc8f5;
+  }
+
+  100% {
+    fill: #fff;
+  }
+}
+
+@media screen and (max-width: 59.9375em) {
+  .synqt-hero__inner {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .synqt-hero__text {
+    order: 1;
+  }
+
+  .md-typeset .synqt-hero__mark {
+    margin: 0 auto;
+  }
+
+  .synqt-hero__install {
+    margin-left: auto;
+    margin-right: auto;
+    text-align: left;
+  }
+}
+
+/* --- "What it looks like": an animated version of the same diagram --------- */
+
+.synqt-flow {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+/* The hotspots below are positioned by percentage, matching the SVG's own
+   viewBox coordinates (0 0 440 300) converted to %, so they line up with the
+   nodes underneath regardless of how wide the diagram is actually rendered -
+   that only works if this stage is exactly the SVG's own box, hence the
+   separate wrapper from .synqt-flow (which centers the stage, and could in
+   principle be wider than its max-width on a very wide screen). */
+.synqt-flow__stage {
+  position: relative;
+  width: 100%;
+  max-width: 32rem;
+}
+
+.synqt-flow__stage svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Invisible hover/focus targets over each node, sized a little larger than
+   the node itself so they're easy to hit. Position and size are both in %,
+   derived from the SVG's own cx/cy/r at viewBox 440x300 (e.g. the hub is at
+   220,150 r=26 -> 50%, 50%; database at 390,80 r=18 -> 88.64%, 26.67%). */
+.synqt-flow__hotspot {
+  position: absolute;
+  width: 12%;
+  height: 17%;
+  transform: translate(-50%, -50%);
+}
+
+.synqt-flow__hotspot--user {
+  left: 11.36%;
+  top: 50%;
+}
+
+.synqt-flow__hotspot--hub {
+  left: 50%;
+  top: 50%;
+  width: 14%;
+  height: 20%;
+}
+
+.synqt-flow__hotspot--database {
+  left: 88.64%;
+  top: 26.67%;
+}
+
+.synqt-flow__hotspot--api {
+  left: 88.64%;
+  top: 73.33%;
+}
+
+/* Centered on the small document glyph below the "login+request" line (see
+   the SVG), not the whole line/label - the icon is the visible affordance,
+   so the hover target matches its size rather than the wider area around it. */
+.synqt-flow__hotspot--contract {
+  left: 30%;
+  top: 54.67%;
+  width: 9%;
+  height: 11%;
+}
+
+.synqt-flow__tooltip {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + .5rem);
+  transform: translateX(-50%);
+  width: max-content;
+  /* Wide enough to hold the longest snippet line at the .68rem code size, so
+     the tooltip sizes to its content and never has to scroll. width:max-content
+     makes the box exactly as wide as the widest line (up to this cap), so as
+     long as no line exceeds this, the code pre below has nothing to overflow. */
+  max-width: 24rem;
+  background: #0d1224;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: .3rem;
+  padding: .6rem .8rem;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .15s ease;
+  z-index: 5;
+  box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .45);
+}
+
+/* The leftmost and rightmost nodes anchor their tooltip to the edge of the
+   hotspot that faces inward, rather than centering it, so it opens toward
+   the middle of the diagram instead of off the edge of the page. */
+.synqt-flow__hotspot--user .synqt-flow__tooltip {
+  left: 0;
+  transform: none;
+}
+
+.synqt-flow__hotspot--database .synqt-flow__tooltip,
+.synqt-flow__hotspot--api .synqt-flow__tooltip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.synqt-flow__hotspot:hover .synqt-flow__tooltip,
+.synqt-flow__hotspot:focus .synqt-flow__tooltip,
+.synqt-flow__hotspot:focus-within .synqt-flow__tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.synqt-flow__tooltip strong {
+  display: block;
+  color: #fff;
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: .5rem;
+}
+
+/* The snippet is real Pygments output (same "qml" lexer and span classes as
+   every fenced ```qml block elsewhere on the site - generated once with
+   `pygments.highlight(...)` and pasted in as static HTML, since this is raw
+   content, not a markdown fence), so token colors come for free from
+   Material's own `--md-code-hl-*` variables. Only the block level styling
+   (background, margins, the base/fallback text color for tokens Pygments
+   doesn't color, like plain identifiers) needs resetting here, to fit a
+   small tooltip instead of a full width page code block. */
+.synqt-flow__tooltip .highlight {
+  margin: 0;
+}
+
+.synqt-flow__tooltip pre {
+  margin: 0;
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: .68rem;
+  line-height: 1.5;
+  white-space: pre;
+  /* Material's base `.highlight pre` is `overflow:auto`, which would add a
+     horizontal scrollbar the moment a line reached the tooltip's max-width.
+     The snippets are sized to fit that width, so nothing needs to scroll. */
+  overflow: visible;
+}
+
+.synqt-flow__tooltip code {
+  background: none;
+  color: #d7dafa;
+  padding: 0;
+}
+
+/* "What it looks like" config peek: a cog + synqt.yaml chip sitting just above
+   the mesh diagram that reveals the example project config on hover or focus.
+   The config is what actually produces the mesh drawn below it. Reuses the flow
+   tooltip's dark card treatment. */
+.synqt-config {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  margin: 1.75rem 0 -0.25rem;
+}
+
+.synqt-config__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .35rem .75rem;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: 2rem;
+  background: rgba(255, 255, 255, .04);
+  color: #c3c9ec;
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: .8rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color .2s ease, border-color .2s ease, background .2s ease;
+}
+
+.synqt-config:hover .synqt-config__trigger,
+.synqt-config:focus-within .synqt-config__trigger {
+  color: #fff;
+  border-color: #00a6ed;
+  background: rgba(0, 166, 237, .12);
+}
+
+.synqt-config__icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  transition: transform .5s ease;
+}
+
+.synqt-config:hover .synqt-config__icon,
+.synqt-config:focus-within .synqt-config__icon {
+  transform: rotate(90deg);
+}
+
+.synqt-config__tooltip {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + .4rem);
+  transform: translateX(-50%) translateY(-.3rem);
+  width: max-content;
+  max-width: min(92vw, 30rem);
+  background: #0d1224;
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: .3rem;
+  padding: .2rem .8rem;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .15s ease, transform .15s ease;
+  z-index: 6;
+  box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .45);
+}
+
+.synqt-config:hover .synqt-config__tooltip,
+.synqt-config:focus-within .synqt-config__tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.synqt-config__tooltip .highlight {
+  margin: 0;
+  background: none;
+}
+
+.synqt-config__tooltip pre {
+  margin: 0;
+  background: none;
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: .68rem;
+  line-height: 1.5;
+  overflow: visible;
+}
+
+.synqt-config__tooltip code {
+  background: none;
+  padding: 0;
+}
+
+/* No copy button inside the peek - it would sit over the first config line in
+   such a small card (the QML flow tooltips avoid this by being raw HTML). */
+.synqt-config__tooltip .md-clipboard {
+  display: none;
+}
+
+.synqt-flow__lines line {
+  stroke: #6a5b99;
+  stroke-opacity: .35;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 5;
+}
+
+.synqt-flow__node {
+  fill: #1a1033;
+  stroke: #6a5b99;
+  stroke-width: 1.5;
+}
+
+.synqt-flow__node--user {
+  stroke: #46f477;
+}
+
+.synqt-flow__node--hub {
+  fill: #241848;
+  stroke: #e5e7ff;
+}
+
+.synqt-flow__node--service {
+  stroke: #8890c0;
+}
+
+.synqt-flow__labels text {
+  fill: #9a94c4;
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.synqt-flow__edges text {
+  fill: #6a5b99;
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: 9.5px;
+}
+
+/* --- Sections ------------------------------------------------------------- */
+
+.synqt-section {
+  padding: clamp(2rem, 5vw, 3rem) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .1);
+}
+
+.synqt-section:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.synqt-section > h2 {
+  margin-top: 0;
+  color: #fff;
+}
+
+.md-typeset .synqt-section a {
+  color: #5cc8f5;
+}
+
+.md-typeset .synqt-section a:hover {
+  color: #00a6ed;
+}
+
+.md-typeset .synqt-section code {
+  background-color: rgba(255, 255, 255, .08);
+  color: #d7dafa;
+}
+
+/* --- "A closer look": three deeper dives with a learn-more link each ------- */
+
+.synqt-deepdive {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2.5rem;
+  margin-top: 1.5rem;
+}
+
+.synqt-deepdive__item h3 {
+  margin-top: 0;
+  font-size: 1rem;
+  color: #fff;
+}
+
+.synqt-deepdive__item p {
+  color: #a7ade0;
+}
+
+.synqt-deepdive__item a {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media screen and (max-width: 44.9375em) {
+  .synqt-deepdive {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+}
+
+/* --- "Why SynQt": a quiet divided row instead of Material's boxed cards ---- */
+
+/* A fixed column count (not Material's auto-fit) so which item starts a new
+   row is known up front; auto-fit's wrap point depends on viewport width, and
+   whichever card lands first in a wrapped row would still get a hairline
+   `border-left` from the rule below with nothing to its left to divide from. */
+.md-content--home .md-typeset .grid.cards {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  column-gap: 0;
+  row-gap: 2rem;
+  margin-top: 1.5rem;
+}
+
+.md-content--home .md-typeset .grid.cards strong {
+  color: #fff;
+}
+
+.md-content--home .md-typeset .grid.cards > ul > li {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0 1.25rem;
+  transition: none;
+}
+
+.md-content--home .md-typeset .grid.cards > ul > li:first-child {
+  padding-left: 0;
+}
+
+.md-content--home .md-typeset .grid.cards > ul > li:not(:first-child) {
+  border-left: 1px solid rgba(255, 255, 255, .12);
+}
+
+.md-content--home .md-typeset .grid.cards > ul > li:focus-within,
+.md-content--home .md-typeset .grid.cards > ul > li:hover {
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow: none;
+}
+
+.md-content--home .md-typeset .grid.cards > ul > li:not(:first-child):focus-within,
+.md-content--home .md-typeset .grid.cards > ul > li:not(:first-child):hover {
+  border-left-color: rgba(255, 255, 255, .12);
+}
+
+@media screen and (max-width: 59.9375em) {
+  .md-content--home .md-typeset .grid.cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .md-content--home .md-typeset .grid.cards > ul > li:nth-child(2n+1) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media screen and (max-width: 44.9375em) {
+  .md-content--home .md-typeset .grid.cards {
+    grid-template-columns: 1fr;
+  }
+
+  .md-content--home .md-typeset .grid.cards > ul > li {
+    padding: 1.25rem 0;
+    border-left: 0 !important;
+    border-top: 1px solid rgba(255, 255, 255, .12);
+  }
+
+  .md-content--home .md-typeset .grid.cards > ul > li:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+}

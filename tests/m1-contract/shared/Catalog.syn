@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// Exercises records (-> POD), a record-typed slot parameter, and a model whose
+// declared roles are a strict subset of the row's fields: ownerSub is an owner-only
+// field and must be dropped at the boundary (never crosses to a consumer).
+record ItemRow(string text, string author, string ownerSub)
+
+contract Catalog {
+    model rows(text, author)             // ownerSub is deliberately NOT declared
+    slot insert(ItemRow row)
+    signal changed()
+}

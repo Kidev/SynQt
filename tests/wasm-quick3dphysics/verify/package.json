@@ -1,0 +1,13 @@
+{
+    "name": "synqt-quick3dphysics-verify",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright harness that proves Qt Quick 3D Physics builds, loads, and boots under WebAssembly.",
+    "scripts": {
+        "verify": "node verify-phys.mjs"
+    },
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}

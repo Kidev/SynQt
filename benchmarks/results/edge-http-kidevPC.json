@@ -1,0 +1,292 @@
+{
+    "benchmark": "edge-http",
+    "suite": "techempower",
+    "tool": "node-keepalive-loader",
+    "note": "TechEmpower test types on SynQt's QHttpServer + QSQLITE edge stack. Load: dependency-free keep-alive loader; methodology matches TechEmpower/wrk (warm up, sweep connections, report req/s and latency percentiles).",
+    "qt_version": "6.11.1",
+    "host": "Arch Linux",
+    "target_host": "127.0.0.1",
+    "arch": "x64",
+    "cpus": 32,
+    "connections_swept": [
+        16,
+        64,
+        256
+    ],
+    "warmup_seconds": 2,
+    "measure_seconds": 6,
+    "query_count": 20,
+    "generated": "2026-07-13T11:42:48.160Z",
+    "results": [
+        {
+            "test": "plaintext",
+            "path": "/plaintext",
+            "connections": 16,
+            "requests_per_sec": 36274,
+            "throughput_bytes_per_sec": 471558,
+            "latency_ms": {
+                "p50": 0.395,
+                "p90": 0.572,
+                "p99": 0.857,
+                "mean": 0.437,
+                "max": 2.911
+            },
+            "errors": 0
+        },
+        {
+            "test": "plaintext",
+            "path": "/plaintext",
+            "connections": 64,
+            "requests_per_sec": 36108,
+            "throughput_bytes_per_sec": 469404,
+            "latency_ms": {
+                "p50": 1.705,
+                "p90": 1.904,
+                "p99": 3.384,
+                "mean": 1.769,
+                "max": 6.494
+            },
+            "errors": 0
+        },
+        {
+            "test": "plaintext",
+            "path": "/plaintext",
+            "connections": 256,
+            "requests_per_sec": 35036,
+            "throughput_bytes_per_sec": 455468,
+            "latency_ms": {
+                "p50": 7.177,
+                "p90": 7.615,
+                "p99": 10.246,
+                "mean": 7.303,
+                "max": 20.107
+            },
+            "errors": 0
+        },
+        {
+            "test": "json",
+            "path": "/json",
+            "connections": 16,
+            "requests_per_sec": 35546,
+            "throughput_bytes_per_sec": 959729,
+            "latency_ms": {
+                "p50": 0.41,
+                "p90": 0.508,
+                "p99": 0.883,
+                "mean": 0.446,
+                "max": 5.061
+            },
+            "errors": 0
+        },
+        {
+            "test": "json",
+            "path": "/json",
+            "connections": 64,
+            "requests_per_sec": 35777,
+            "throughput_bytes_per_sec": 965984,
+            "latency_ms": {
+                "p50": 1.697,
+                "p90": 1.989,
+                "p99": 3.366,
+                "mean": 1.785,
+                "max": 6.359
+            },
+            "errors": 0
+        },
+        {
+            "test": "json",
+            "path": "/json",
+            "connections": 256,
+            "requests_per_sec": 35636,
+            "throughput_bytes_per_sec": 962168,
+            "latency_ms": {
+                "p50": 7.009,
+                "p90": 7.543,
+                "p99": 10.851,
+                "mean": 7.18,
+                "max": 20.116
+            },
+            "errors": 0
+        },
+        {
+            "test": "single_query",
+            "path": "/db",
+            "connections": 16,
+            "requests_per_sec": 36779,
+            "throughput_bytes_per_sec": 1132220,
+            "latency_ms": {
+                "p50": 0.389,
+                "p90": 0.597,
+                "p99": 0.859,
+                "mean": 0.431,
+                "max": 3.899
+            },
+            "errors": 0
+        },
+        {
+            "test": "single_query",
+            "path": "/db",
+            "connections": 64,
+            "requests_per_sec": 36666,
+            "throughput_bytes_per_sec": 1128701,
+            "latency_ms": {
+                "p50": 1.634,
+                "p90": 1.897,
+                "p99": 3.365,
+                "mean": 1.742,
+                "max": 7.391
+            },
+            "errors": 0
+        },
+        {
+            "test": "single_query",
+            "path": "/db",
+            "connections": 256,
+            "requests_per_sec": 35618,
+            "throughput_bytes_per_sec": 1096415,
+            "latency_ms": {
+                "p50": 6.914,
+                "p90": 7.595,
+                "p99": 13.934,
+                "mean": 7.184,
+                "max": 19.999
+            },
+            "errors": 0
+        },
+        {
+            "test": "multiple_queries",
+            "path": "/queries?queries=20",
+            "connections": 16,
+            "requests_per_sec": 19282,
+            "throughput_bytes_per_sec": 12275615,
+            "latency_ms": {
+                "p50": 0.813,
+                "p90": 0.856,
+                "p99": 1.176,
+                "mean": 0.825,
+                "max": 2.033
+            },
+            "errors": 0
+        },
+        {
+            "test": "multiple_queries",
+            "path": "/queries?queries=20",
+            "connections": 64,
+            "requests_per_sec": 19866,
+            "throughput_bytes_per_sec": 12647813,
+            "latency_ms": {
+                "p50": 3.243,
+                "p90": 3.457,
+                "p99": 4.235,
+                "mean": 3.218,
+                "max": 6
+            },
+            "errors": 0
+        },
+        {
+            "test": "multiple_queries",
+            "path": "/queries?queries=20",
+            "connections": 256,
+            "requests_per_sec": 18947,
+            "throughput_bytes_per_sec": 12062293,
+            "latency_ms": {
+                "p50": 14.078,
+                "p90": 14.651,
+                "p99": 15.668,
+                "mean": 13.513,
+                "max": 24.932
+            },
+            "errors": 0
+        },
+        {
+            "test": "updates",
+            "path": "/updates?queries=20",
+            "connections": 16,
+            "requests_per_sec": 13253,
+            "throughput_bytes_per_sec": 8436253,
+            "latency_ms": {
+                "p50": 1.178,
+                "p90": 1.244,
+                "p99": 1.779,
+                "mean": 1.203,
+                "max": 2.268
+            },
+            "errors": 0
+        },
+        {
+            "test": "updates",
+            "path": "/updates?queries=20",
+            "connections": 64,
+            "requests_per_sec": 13711,
+            "throughput_bytes_per_sec": 8727937,
+            "latency_ms": {
+                "p50": 4.641,
+                "p90": 5.272,
+                "p99": 6.019,
+                "mean": 4.665,
+                "max": 7.978
+            },
+            "errors": 0
+        },
+        {
+            "test": "updates",
+            "path": "/updates?queries=20",
+            "connections": 256,
+            "requests_per_sec": 13104,
+            "throughput_bytes_per_sec": 8341545,
+            "latency_ms": {
+                "p50": 20.152,
+                "p90": 21.599,
+                "p99": 23.377,
+                "mean": 19.543,
+                "max": 31.526
+            },
+            "errors": 0
+        },
+        {
+            "test": "fortunes",
+            "path": "/fortunes",
+            "connections": 16,
+            "requests_per_sec": 35066,
+            "throughput_bytes_per_sec": 42991325,
+            "latency_ms": {
+                "p50": 0.361,
+                "p90": 0.681,
+                "p99": 0.97,
+                "mean": 0.452,
+                "max": 3.714
+            },
+            "errors": 0
+        },
+        {
+            "test": "fortunes",
+            "path": "/fortunes",
+            "connections": 64,
+            "requests_per_sec": 34594,
+            "throughput_bytes_per_sec": 42411631,
+            "latency_ms": {
+                "p50": 1.673,
+                "p90": 2.391,
+                "p99": 3.647,
+                "mean": 1.846,
+                "max": 8.583
+            },
+            "errors": 0
+        },
+        {
+            "test": "fortunes",
+            "path": "/fortunes",
+            "connections": 256,
+            "requests_per_sec": 33209,
+            "throughput_bytes_per_sec": 40713825,
+            "latency_ms": {
+                "p50": 7.218,
+                "p90": 8.491,
+                "p99": 15.226,
+                "mean": 7.705,
+                "max": 20.211
+            },
+            "errors": 0
+        }
+    ]
+}

@@ -1,0 +1,193 @@
+{
+    "arch": "x86_64",
+    "benchmark": "capstone",
+    "host": "Arch Linux",
+    "hz": 30,
+    "interest_k": 16,
+    "path": "arena-end-to-end-over-qtro-ws",
+    "qt_version": "6.11.1",
+    "recorded": "2026-07-15T02:46:38Z",
+    "seconds_per_size": 8,
+    "sweep": [
+        {
+            "players": 10,
+            "publish_cpu": {
+                "max": 0.742615,
+                "mean": 0.46474071250000015,
+                "min": 0.434508,
+                "name": "publish_cpu",
+                "p50": 0.459482,
+                "p95": 0.512157,
+                "p99": 0.5321366,
+                "samples": 240,
+                "unit": "ms"
+            },
+            "rows_per_session": 10,
+            "rows_per_tick": 100,
+            "rss_mb": 159.72265625,
+            "snapshot_rate_hz": 30,
+            "target_rate_hz": 30,
+            "tick_jitter": {
+                "max": 0.937,
+                "mean": 0.06738333333333334,
+                "min": 0,
+                "name": "tick_jitter",
+                "p50": 0.028,
+                "p95": 0.37154999999999744,
+                "p99": 0.8903799999999992,
+                "samples": 240,
+                "unit": "ms"
+            }
+        },
+        {
+            "players": 25,
+            "publish_cpu": {
+                "max": 2.035748,
+                "mean": 1.7480309916666674,
+                "min": 1.682949,
+                "name": "publish_cpu",
+                "p50": 1.736625,
+                "p95": 1.8515419499999999,
+                "p99": 1.9564315899999987,
+                "samples": 240,
+                "unit": "ms"
+            },
+            "rows_per_session": 16,
+            "rows_per_tick": 400,
+            "rss_mb": 161.45703125,
+            "snapshot_rate_hz": 30,
+            "target_rate_hz": 30,
+            "tick_jitter": {
+                "max": 4.821,
+                "mean": 0.6976749999999999,
+                "min": 0,
+                "name": "tick_jitter",
+                "p50": 0.0325,
+                "p95": 4.34915,
+                "p99": 4.645949999999998,
+                "samples": 240,
+                "unit": "ms"
+            }
+        },
+        {
+            "players": 50,
+            "publish_cpu": {
+                "max": 4.300164,
+                "mean": 3.7215157916666675,
+                "min": 3.491549,
+                "name": "publish_cpu",
+                "p50": 3.632708,
+                "p95": 4.089569,
+                "p99": 4.169380799999999,
+                "samples": 240,
+                "unit": "ms"
+            },
+            "rows_per_session": 16,
+            "rows_per_tick": 800,
+            "rss_mb": 163.46875,
+            "snapshot_rate_hz": 29.985,
+            "target_rate_hz": 30,
+            "tick_jitter": {
+                "max": 9.149,
+                "mean": 0.7744583333333336,
+                "min": 0,
+                "name": "tick_jitter",
+                "p50": 0.0365,
+                "p95": 4.05125,
+                "p99": 8.274379999999994,
+                "samples": 240,
+                "unit": "ms"
+            }
+        },
+        {
+            "players": 100,
+            "publish_cpu": {
+                "max": 8.10325,
+                "mean": 7.246854074999996,
+                "min": 6.915838,
+                "name": "publish_cpu",
+                "p50": 7.215561,
+                "p95": 7.6867015,
+                "p99": 7.947618189999999,
+                "samples": 240,
+                "unit": "ms"
+            },
+            "rows_per_session": 16,
+            "rows_per_tick": 1600,
+            "rss_mb": 168.50390625,
+            "snapshot_rate_hz": 30,
+            "target_rate_hz": 30,
+            "tick_jitter": {
+                "max": 20.787,
+                "mean": 6.366495833333331,
+                "min": 0,
+                "name": "tick_jitter",
+                "p50": 4.1955,
+                "p95": 17.625049999999987,
+                "p99": 20.521119999999993,
+                "samples": 240,
+                "unit": "ms"
+            }
+        },
+        {
+            "players": 200,
+            "publish_cpu": {
+                "max": 17.283844,
+                "mean": 15.28331676666666,
+                "min": 14.264892,
+                "name": "publish_cpu",
+                "p50": 15.263427,
+                "p95": 16.030998999999998,
+                "p99": 16.5532365,
+                "samples": 240,
+                "unit": "ms"
+            },
+            "rows_per_session": 16,
+            "rows_per_tick": 3200,
+            "rss_mb": 634.72265625,
+            "snapshot_rate_hz": 12.3125,
+            "target_rate_hz": 30,
+            "tick_jitter": {
+                "max": 102.975,
+                "mean": 48.534383333333366,
+                "min": 0.7,
+                "name": "tick_jitter",
+                "p50": 48.5075,
+                "p95": 91.50394999999999,
+                "p99": 96.96284999999999,
+                "samples": 240,
+                "unit": "ms"
+            }
+        },
+        {
+            "players": 400,
+            "publish_cpu": {
+                "max": 33.996871,
+                "mean": 31.679838079166668,
+                "min": 29.36747,
+                "name": "publish_cpu",
+                "p50": 31.492002,
+                "p95": 33.124888049999996,
+                "p99": 33.554622599999995,
+                "samples": 240,
+                "unit": "ms"
+            },
+            "rows_per_session": 16,
+            "rows_per_tick": 6400,
+            "rss_mb": 2121.19140625,
+            "snapshot_rate_hz": 85.125,
+            "target_rate_hz": 30,
+            "tick_jitter": {
+                "max": 196.374,
+                "mean": 87.1360875,
+                "min": 0.44,
+                "name": "tick_jitter",
+                "p50": 76.66749999999999,
+                "p95": 189.2962,
+                "p99": 195.18399999999997,
+                "samples": 240,
+                "unit": "ms"
+            }
+        }
+    ]
+}

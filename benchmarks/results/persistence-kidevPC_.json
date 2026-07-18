@@ -1,0 +1,80 @@
+{
+    "arch": "x86_64",
+    "benchmark": "persistence",
+    "host": "Arch Linux",
+    "latency": [
+        {
+            "max": 0.0448,
+            "mean": 0.009410163999999992,
+            "min": 0.00808,
+            "name": "sqlite_write_autocommit",
+            "p50": 0.00921,
+            "p95": 0.010252999999999998,
+            "p99": 0.01268991,
+            "samples": 1000,
+            "unit": "ms"
+        },
+        {
+            "max": 0.04866,
+            "mean": 0.004836134449999889,
+            "min": 0.00463,
+            "name": "sqlite_read_point",
+            "p50": 0.00477,
+            "p95": 0.00485,
+            "p99": 0.00707,
+            "samples": 20000,
+            "unit": "ms"
+        },
+        {
+            "max": 18.316902,
+            "mean": 0.01902910650000006,
+            "min": 0.00823,
+            "name": "sqlite_write_contended",
+            "p50": 0.0091,
+            "p95": 0.01282,
+            "p99": 0.0162702,
+            "samples": 2000,
+            "unit": "ms"
+        }
+    ],
+    "path": "sqliteprovider-wal-and-memorycache",
+    "qt_version": "6.11.1",
+    "recorded": "2026-07-13T23:24:49Z",
+    "scalars": [
+        {
+            "name": "sqlite_write_autocommit_rate",
+            "unit": "rows/s",
+            "value": 106268.07354260785
+        },
+        {
+            "name": "sqlite_write_batched_rate",
+            "unit": "rows/s",
+            "value": 411674.86535000254
+        },
+        {
+            "name": "sqlite_contended_competitor_writes",
+            "unit": "rows",
+            "value": 2033
+        },
+        {
+            "name": "cache_get_hit",
+            "unit": "ns/op",
+            "value": 88.551626
+        },
+        {
+            "name": "cache_get_miss",
+            "unit": "ns/op",
+            "value": 65.751832
+        },
+        {
+            "name": "cache_set",
+            "unit": "ns/op",
+            "value": 97.623832
+        },
+        {
+            "name": "cache_set_under_eviction",
+            "unit": "ns/op",
+            "value": 1207.9855
+        }
+    ]
+}

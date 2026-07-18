@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="190 42 284 150" width="284" height="150" role="img" aria-label="SynQt logo">
+  <title>SynQt</title>
+  <defs>
+    <path id="hexFrag" d="M -13.86,-8 L 0,-16 L 13.86,-8 L 13.86,8"/>
+  </defs>
+  
+  <g class="motion" fill="none" stroke="#46F477" stroke-width="3" stroke-linecap="round" stroke-linejoin="square" transform="translate(255,125) scale(-1.35) rotate(30)">
+    <use href="#hexFrag">
+      <animateTransform attributeName="transform" type="scale" values="1;2.4" dur="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="1;0.8;0" dur="2s" repeatCount="indefinite"/>
+    </use>
+    <use href="#hexFrag">
+      <animateTransform attributeName="transform" type="scale" values="1;2.4" begin="-0.67s" dur="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="1;0.8;0" begin="-0.67s" dur="2s" repeatCount="indefinite"/>
+    </use>
+    <use href="#hexFrag">
+      <animateTransform attributeName="transform" type="scale" values="1;2.4" begin="-1.33s" dur="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="1;0.8;0" begin="-1.33s" dur="2s" repeatCount="indefinite"/>
+    </use>
+  </g>
+  
+  <g class="motion" fill="none" stroke="#00414a" stroke-width="3" stroke-linecap="round" stroke-linejoin="square" transform="translate(265,120) scale(1.35) rotate(30)">
+    <use href="#hexFrag">
+      <animateTransform attributeName="transform" type="scale" values="1;2.4" dur="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="1;0.8;0" dur="2s" repeatCount="indefinite"/>
+    </use>
+    <use href="#hexFrag">
+      <animateTransform attributeName="transform" type="scale" values="1;2.4" begin="-0.67s" dur="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="1;0.8;0" begin="-0.67s" dur="2s" repeatCount="indefinite"/>
+    </use>
+    <use href="#hexFrag">
+      <animateTransform attributeName="transform" type="scale" values="1;2.4" begin="-1.33s" dur="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="1;0.8;0" begin="-1.33s" dur="2s" repeatCount="indefinite"/>
+    </use>
+  </g>
+</svg>

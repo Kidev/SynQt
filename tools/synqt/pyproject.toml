@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synqt"
+version = "0.1.0"
+description = "The SynQt CLI. M8 ships 'synqt add auth'; M10 extends it to the full toolchain."
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+synqt = "synqt.cli:main"
+
+[tool.setuptools]
+packages = ["synqt"]
+
+# The default client loading-page logo. Without this it is absent from an installed
+# synqt, and every generated bundle fails to render its own loading page.
+[tool.setuptools.package-data]
+synqt = ["assets/*.svg"]

@@ -1,0 +1,45 @@
+{#-
+  SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+  SPDX-License-Identifier: Apache-2.0
+
+  Override of material/partials/nav.html. Two changes from stock:
+
+  1. The stock partial puts the site name ("SynQt") as plain text next to the
+     logo link, at the top of the left nav drawer, but that text itself isn't
+     part of the link, so it reads as a dead label. Drop the text and keep
+     only the logo link (still points home).
+
+  2. That drawer title bar has the same indigo --md-primary-fg-color
+     background as the header (`.md-nav--primary .md-nav__title[for=__drawer]`
+     is styled that way by Material itself, not by us), so it needs the same
+     dark-background logo variant the header uses - synqt-header.svg, not
+     `theme.logo` (docs/assets/synqt.svg, tuned for a light background) via
+     the stock partials/logo.html include. See overrides/partials/header.html
+     for the fuller version of this same reasoning.
+-#}
+{% import "partials/nav-item.html" as item with context %}
+{% set class = "md-nav md-nav--primary" %}
+{% if "navigation.tabs" in features %}
+  {% set class = class ~ " md-nav--lifted" %}
+{% endif %}
+{% if "toc.integrate" in features %}
+  {% set class = class ~ " md-nav--integrated" %}
+{% endif %}
+<nav class="{{ class }}" aria-label="{{ lang.t('nav') }}" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="{{ config.extra.homepage | d(nav.homepage.url, true) | url }}" title="{{ config.site_name | e }}" class="md-nav__button md-logo" aria-label="{{ config.site_name }}" data-md-component="logo">
+      <img src="{{ 'assets/synqt-header.svg' | url }}" alt="logo">
+    </a>
+  </label>
+  {% if config.repo_url %}
+    <div class="md-nav__source">
+      {% include "partials/source.html" %}
+    </div>
+  {% endif %}
+  <ul class="md-nav__list" data-md-scrollfix>
+    {% for nav_item in nav.items %}
+      {% set path = "__nav_" ~ loop.index %}
+      {{ item.render(nav_item, path, 1) }}
+    {% endfor %}
+  </ul>
+</nav>

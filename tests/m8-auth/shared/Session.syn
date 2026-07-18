@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The session connect point, owned by a dedicated auth entity when
+// identity.provider_entity is set (docs/authentication.md "Where identity runs"). The
+// edges consume it over the mesh: they write sessions to the authoritative store with the
+// slots and keep a local read cache from the signals (so the upgrade verifier stays
+// synchronous). Row changes are announced as signals with scalar params, which replicate
+// reliably over the mesh; identity travels as a JSON string.
+contract Session {
+    slot putSession(string token, string scope, string identityJson, real createdMs)
+    slot removeSession(string token)
+    signal sessionUpserted(string token, string scope, string identityJson, real createdMs)
+    signal sessionRemoved(string token)
+}

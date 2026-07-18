@@ -1,0 +1,143 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+#
+# SynQt documentation site (MkDocs + Material).
+# Build locally: pip install -r requirements.txt && mkdocs serve
+# Deploy:         pushed to main, built and published by .github/workflows/docs.yml
+
+site_name: SynQt
+site_description: Build complete web systems in Qt and QML, with no third party servers to stand up.
+site_url: https://synqt.org/
+site_author: Kidev
+repo_url: https://github.com/Kidev/SynQt
+repo_name: Kidev/SynQt
+edit_uri: edit/main/docs/
+copyright: (c) 2026 SynQt - kidev
+
+theme:
+  name: material
+  language: en
+  logo: assets/synqt.svg
+  favicon: assets/synqt.ico
+  # overrides/partials/nav.html: drops the unclickable "SynQt" text label from the
+  # top of the left nav drawer (Material's stock partial puts the site name there
+  # as plain text next to the logo link, not as a link itself).
+  custom_dir: overrides
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+    - search.suggest
+    - search.highlight
+  # Single scheme, no toggle: SynQt's docs are dark themed only (see extra.css
+  # for the actual brand hex values; primary/accent here just need to be valid
+  # Material color names, since --md-primary-fg-color and --md-accent-fg-color
+  # are overridden unconditionally right after). Not "black": Material special
+  # cases that one with a hardcoded `[data-md-color-primary=black] .md-header`
+  # background rule that bypasses --md-primary-fg-color entirely, so the
+  # override below would have no visible effect on the header.
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: light-blue
+
+extra_css:
+  - stylesheets/extra.css
+  - stylesheets/home.css
+  - stylesheets/download-modal.css
+
+# The "Download" nav entry below points at https://get.synqt.org/. That URL now
+# serves the installer script itself (for `curl | sh`), so the user-facing
+# download page it used to serve lives here: download-modal.js intercepts the
+# nav link and opens a modal instead, falling back to the plain link with JS off.
+extra_javascript:
+  - javascripts/download-modal.js
+
+extra:
+  generator: false
+
+# Generates the Doxygen C++ reference into the built site under /api/ (see
+# docs/api-reference.md). Skipped with a warning when doxygen is not installed.
+hooks:
+  - tools/docs-hooks/doxygen.py
+
+plugins:
+  - search
+  # Converts GitHub style alerts (> [!NOTE], > [!TIP], ...) into Material
+  # admonitions at build time, so the source markdown stays unchanged and keeps
+  # rendering on GitHub too. aliases:false keeps IMPORTANT and CAUTION as their own
+  # types (styled in stylesheets/extra.css) instead of folding them into tip/warning.
+  - callouts:
+      aliases: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.highlight:
+      anchor_linenums: true
+      # Route ```qml code blocks through the SynQt QML lexer (tools/pygments-synqt),
+      # so a Contract.onSignal: attached handler colors the same way as the hand
+      # authored home page tooltip. The built-in `qml` alias would otherwise win.
+      extend_pygments_lang:
+        - name: qml
+          lang: synqt-qml
+  - pymdownx.superfences:
+      custom_fences:
+        # Renders ```mermaid fenced blocks as diagrams.
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - Getting started: getting-started.md
+      - The auction:
+          - Overview: tutorial.md
+          - The base case: tutorial-base-auction.md
+          - Real bidders: tutorial-sign-in.md
+          - A permanent Hall of Fame: tutorial-hall-of-fame.md
+          - Where to go next: tutorial-next-steps.md
+      - The multiplayer game:
+          - Overview: tutorial-multiplayer.md
+          - The arena the edge owns: tutorial-multiplayer-world.md
+          - See the others: tutorial-multiplayer-client.md
+          - The round and the Hall of Fame: tutorial-multiplayer-rounds.md
+          - Only what you can see: tutorial-multiplayer-run.md
+  - Framework:
+      - Architecture: architecture.md
+      - Programming model: programming-model.md
+      - Entities: entities.md
+      - Providers: providers.md
+      - Authentication: authentication.md
+      - Runtime API reference: runtime-api.md
+      - Project layout and config: project-layout-and-config.md
+      - Build system and CLI: build-system-and-cli.md
+      - Desktop clients: desktop.md
+      - Security: security.md
+      - Content-Security-Policy: csp.md
+      - Examples: examples.md
+      - Licensing: licensing.md
+  - Contributing:
+      - Developer guide: development.md
+      - C++ API reference: api-reference.md
+      - Browser coverage: browser-proofs.md
+  - Download: https://get.synqt.org/

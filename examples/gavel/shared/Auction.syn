@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The shape of the auction the browser and the edge share (docs/tutorial-base-auction.md
+// and docs/tutorial-sign-in.md). Properties flow owner -> consumers; a slot flows the
+// other way (a consumer asks, the owner decides). The bidder is not an argument: the edge
+// stamps the high bidder from the caller's verified identity, never from a typed name.
+contract Auction {
+    prop string itemName        // what is up for auction
+    prop int highBid            // the current highest bid
+    prop string highBidder      // who holds the high bid right now
+    slot placeBid(int amount)   // the edge knows who you are; only signed-in users may bid
+    slot closeLot(string nextItem)   // an auctioneer (admin) closes a lot and opens the next
+    signal bidRejected(string reason)
+}

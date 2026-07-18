@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The persistence contract (owned by the database entity, consumed by the web edge over
+// the mesh). It carries ownerSub because the edge is a trusted entity; the edge is what
+// strips ownerSub before anything reaches a browser. The database authorizes the calling
+// entity (Caller.entity), never a user. Row changes are announced as signals (scalar
+// params replicate reliably) and the edge maintains its view from them.
+contract Items {
+    prop int count                                            // number of stored rows
+    slot insert(string text, string author, string ownerSub)
+    slot remove(int id)
+    signal itemAdded(int id, string text, string author, string ownerSub)
+    signal itemRemoved(int id)
+}

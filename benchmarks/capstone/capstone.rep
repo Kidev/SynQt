@@ -1,0 +1,17 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The per-player view the arena's web edge publishes each server tick
+// (docs/tutorial-multiplayer-world.md). One Source exists per connected player
+// (instance: per_session), and each publishes only that player's interest-managed
+// slice, never the whole world. It carries:
+//   * tick:    a push counter bumped once per publish, so a player can tell "my snapshot
+//              arrived" without diffing the model, and the harness can count delivered
+//              snapshots per second from the wire.
+//   * visible: the model of blobs inside this player's view (id, position, radius). Its
+//              row count is the per-session payload interest management holds flat.
+class PlayerView
+{
+    PROP(quint64 tick READPUSH)
+    MODEL visible(id, x, y, r)
+}

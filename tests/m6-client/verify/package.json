@@ -1,0 +1,10 @@
+{
+    "name": "synqt-m6-verify",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright end-to-end test: the counter runs in a browser against the real edge, two tabs stay in sync.",
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}

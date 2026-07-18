@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synqtc"
+version = "0.1.0"
+description = "The SynQt contract generator: lowers .syn contracts to QtRO rep files and QML registrations."
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+
+[project.scripts]
+synqtc = "synqtc.cli:main"
+
+[tool.setuptools]
+packages = ["synqtc"]

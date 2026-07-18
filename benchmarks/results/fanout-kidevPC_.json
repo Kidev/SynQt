@@ -1,0 +1,432 @@
+{
+    "arch": "x86_64",
+    "benchmark": "fanout",
+    "host": "Arch Linux",
+    "interest_k": 16,
+    "path": "edge-per-session-publish-over-qtro-ws",
+    "qt_version": "6.11.1",
+    "recorded": "2026-07-14T09:42:14Z",
+    "sweep": [
+        {
+            "consumers": 1,
+            "mode": "shared",
+            "propagation": {
+                "max": 12.210963,
+                "mean": 3.69196058,
+                "min": 3.535005,
+                "name": "propagation",
+                "p50": 3.605994,
+                "p95": 3.9995875499999998,
+                "p99": 4.713301599999999,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 0.128799,
+                "mean": 0.07382521999999997,
+                "min": 0.0626,
+                "name": "publish_cpu",
+                "p50": 0.072439,
+                "p95": 0.08807045,
+                "p99": 0.10759059999999993,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 1,
+            "rows_per_tick": 1
+        },
+        {
+            "consumers": 1,
+            "mode": "per_session_naive",
+            "propagation": {
+                "max": 42.037031,
+                "mean": 38.97117595499999,
+                "min": 0.589396,
+                "name": "propagation",
+                "p50": 40.996653499999994,
+                "p95": 41.0892475,
+                "p99": 41.5182766,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 0.02972,
+                "mean": 0.015150754999999995,
+                "min": 0.00869,
+                "name": "publish_cpu",
+                "p50": 0.013305,
+                "p95": 0.0239115,
+                "p99": 0.02633959999999999,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 1,
+            "rows_per_tick": 1
+        },
+        {
+            "consumers": 1,
+            "mode": "per_session_interest",
+            "propagation": {
+                "max": 42.099361,
+                "mean": 39.17934327500002,
+                "min": 1.320721,
+                "name": "propagation",
+                "p50": 41.001138999999995,
+                "p95": 41.9853665,
+                "p99": 42.07385921,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 0.036479,
+                "mean": 0.01638902500000001,
+                "min": 0.01003,
+                "name": "publish_cpu",
+                "p50": 0.01458,
+                "p95": 0.02532844999999999,
+                "p99": 0.028747609999999976,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 1,
+            "rows_per_tick": 1
+        },
+        {
+            "consumers": 10,
+            "mode": "shared",
+            "propagation": {
+                "max": 50.153234,
+                "mean": 14.935506575,
+                "min": 7.1077,
+                "name": "propagation",
+                "p50": 12.4672215,
+                "p95": 43.79336454999998,
+                "p99": 47.1568189,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 0.768554,
+                "mean": 0.4495987749999997,
+                "min": 0.329388,
+                "name": "publish_cpu",
+                "p50": 0.43668700000000005,
+                "p95": 0.5866655,
+                "p99": 0.6563256999999997,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 10,
+            "rows_per_tick": 10
+        },
+        {
+            "consumers": 10,
+            "mode": "per_session_naive",
+            "propagation": {
+                "max": 43.668481,
+                "mean": 38.50033182499999,
+                "min": 2.023006,
+                "name": "propagation",
+                "p50": 41.971823,
+                "p95": 42.5619855,
+                "p99": 43.4632791,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 0.485546,
+                "mean": 0.3757690050000001,
+                "min": 0.337398,
+                "name": "publish_cpu",
+                "p50": 0.365083,
+                "p95": 0.43878799999999996,
+                "p99": 0.45338839999999986,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 10,
+            "rows_per_tick": 100
+        },
+        {
+            "consumers": 10,
+            "mode": "per_session_interest",
+            "propagation": {
+                "max": 43.027315,
+                "mean": 38.111612875,
+                "min": 1.976516,
+                "name": "propagation",
+                "p50": 41.9486225,
+                "p95": 42.203134,
+                "p99": 42.42916965999999,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 0.433337,
+                "mean": 0.360125755,
+                "min": 0.332058,
+                "name": "publish_cpu",
+                "p50": 0.356683,
+                "p95": 0.39205149999999983,
+                "p99": 0.4230102,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 10,
+            "rows_per_tick": 100
+        },
+        {
+            "consumers": 25,
+            "mode": "shared",
+            "propagation": {
+                "max": 63.691028,
+                "mean": 34.65465138500001,
+                "min": 23.655292,
+                "name": "propagation",
+                "p50": 30.3174205,
+                "p95": 55.57905934999999,
+                "p99": 59.03280584999997,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 1.558449,
+                "mean": 1.0863925499999998,
+                "min": 0.761575,
+                "name": "publish_cpu",
+                "p50": 1.0905619999999998,
+                "p95": 1.4014955,
+                "p99": 1.4514979899999993,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 25,
+            "rows_per_tick": 25
+        },
+        {
+            "consumers": 25,
+            "mode": "per_session_naive",
+            "propagation": {
+                "max": 14.418288,
+                "mean": 9.046087339999993,
+                "min": 8.786578,
+                "name": "propagation",
+                "p50": 8.903871500000001,
+                "p95": 9.481387999999999,
+                "p99": 10.793787409999977,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 2.436272,
+                "mean": 2.0987195049999983,
+                "min": 2.053516,
+                "name": "publish_cpu",
+                "p50": 2.087285,
+                "p95": 2.1680574999999997,
+                "p99": 2.310087399999999,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 25,
+            "rows_per_tick": 625
+        },
+        {
+            "consumers": 25,
+            "mode": "per_session_interest",
+            "propagation": {
+                "max": 7.125699,
+                "mean": 6.004049794999997,
+                "min": 5.874899,
+                "name": "propagation",
+                "p50": 5.959823,
+                "p95": 6.173205,
+                "p99": 6.808221579999998,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 1.54224,
+                "mean": 1.381518585,
+                "min": 1.34852,
+                "name": "publish_cpu",
+                "p50": 1.375495,
+                "p95": 1.422236,
+                "p99": 1.4597896999999995,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 16,
+            "rows_per_tick": 400
+        },
+        {
+            "consumers": 50,
+            "mode": "shared",
+            "propagation": {
+                "max": 78.750762,
+                "mean": 59.900942509999965,
+                "min": 49.507499,
+                "name": "propagation",
+                "p50": 58.56749,
+                "p95": 65.99699014999997,
+                "p99": 70.77212732999996,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 2.82416,
+                "mean": 2.3071157550000008,
+                "min": 2.087705,
+                "name": "publish_cpu",
+                "p50": 2.293839,
+                "p95": 2.4880110499999994,
+                "p99": 2.63519919,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 50,
+            "rows_per_tick": 50
+        },
+        {
+            "consumers": 50,
+            "mode": "per_session_naive",
+            "propagation": {
+                "max": 57.86757,
+                "mean": 40.51283450500002,
+                "min": 33.222444,
+                "name": "propagation",
+                "p50": 36.932153,
+                "p95": 52.274101949999995,
+                "p99": 53.727996239999975,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 9.975619,
+                "mean": 8.381451874999996,
+                "min": 8.062373,
+                "name": "publish_cpu",
+                "p50": 8.339231,
+                "p95": 8.826663499999999,
+                "p99": 9.263616679999997,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 50,
+            "rows_per_tick": 2500
+        },
+        {
+            "consumers": 50,
+            "mode": "per_session_interest",
+            "propagation": {
+                "max": 15.130723,
+                "mean": 11.992860175000002,
+                "min": 11.681547,
+                "name": "propagation",
+                "p50": 11.797542,
+                "p95": 12.995545949999999,
+                "p99": 14.708058379999997,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 3.048759,
+                "mean": 2.6786305199999987,
+                "min": 2.615191,
+                "name": "publish_cpu",
+                "p50": 2.6612615,
+                "p95": 2.8025814999999996,
+                "p99": 3.03233569,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 16,
+            "rows_per_tick": 800
+        },
+        {
+            "consumers": 100,
+            "mode": "shared",
+            "propagation": {
+                "max": 144.568427,
+                "mean": 117.66116882499989,
+                "min": 99.970272,
+                "name": "propagation",
+                "p50": 117.165211,
+                "p95": 124.26000195,
+                "p99": 126.05581928999999,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 5.371322,
+                "mean": 4.585730304999999,
+                "min": 3.924962,
+                "name": "publish_cpu",
+                "p50": 4.5486830000000005,
+                "p95": 5.185488449999999,
+                "p99": 5.3478862,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 100,
+            "rows_per_tick": 100
+        },
+        {
+            "consumers": 100,
+            "mode": "per_session_naive",
+            "propagation": {
+                "max": 184.130638,
+                "mean": 156.26206622500007,
+                "min": 144.421588,
+                "name": "propagation",
+                "p50": 154.534487,
+                "p95": 169.03758530000002,
+                "p99": 176.54713186999996,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 41.294468,
+                "mean": 34.819002495000014,
+                "min": 33.568623,
+                "name": "publish_cpu",
+                "p50": 34.628115,
+                "p95": 36.630454500000006,
+                "p99": 38.92163379999999,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 100,
+            "rows_per_tick": 10000
+        },
+        {
+            "consumers": 100,
+            "mode": "per_session_interest",
+            "propagation": {
+                "max": 61.088879,
+                "mean": 26.04744361500001,
+                "min": 22.023254,
+                "name": "propagation",
+                "p50": 24.877404499999997,
+                "p95": 29.78282889999997,
+                "p99": 50.97318449999995,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "publish_cpu": {
+                "max": 7.973294,
+                "mean": 5.651937275,
+                "min": 5.310022,
+                "name": "publish_cpu",
+                "p50": 5.616709999999999,
+                "p95": 5.9777065,
+                "p99": 6.638591789999999,
+                "samples": 200,
+                "unit": "ms"
+            },
+            "rows_per_session": 16,
+            "rows_per_tick": 1600
+        }
+    ],
+    "ticks": 200
+}

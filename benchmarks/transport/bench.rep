@@ -1,0 +1,16 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The contract for the client-to-edge transport baseline (the M0 path: QtRemoteObjects
+// over QtWebSockets). One of each QtRO direction so the harness can measure them all:
+//   - roundTrip: a returning slot (consumer -> owner -> reply), for slot RTT and throughput;
+//   - tick:      a push property (owner -> consumer), for property-push propagation;
+//   - pong:      a signal (owner -> consumer), for signal propagation;
+//   - rows:      a model (owner -> consumer), for model replication cost by row count.
+class Bench
+{
+    PROP(qint64 tick READPUSH)
+    SLOT(QByteArray roundTrip(QByteArray payload))
+    SIGNAL(pong(qint64 stamp))
+    MODEL rows(value)
+}

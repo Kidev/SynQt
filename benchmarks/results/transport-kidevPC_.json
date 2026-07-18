@@ -1,0 +1,77 @@
+{
+    "arch": "x86_64",
+    "benchmark": "transport",
+    "host": "Arch Linux",
+    "latency": [
+        {
+            "max": 0.03663,
+            "mean": 0.023494578999999936,
+            "min": 0.02306,
+            "name": "slot_round_trip_64B",
+            "p50": 0.02328,
+            "p95": 0.02403349999999998,
+            "p99": 0.028964199999999902,
+            "samples": 3000,
+            "unit": "ms"
+        },
+        {
+            "max": 0.05646,
+            "mean": 0.027293139000000015,
+            "min": 0.02658,
+            "name": "slot_round_trip_4096B",
+            "p50": 0.02689,
+            "p95": 0.028490999999999995,
+            "p99": 0.032320299999999996,
+            "samples": 3000,
+            "unit": "ms"
+        },
+        {
+            "max": 40.827124,
+            "mean": 0.028412092000000066,
+            "min": 0.01456,
+            "name": "property_push_propagation",
+            "p50": 0.01473,
+            "p95": 0.01488,
+            "p99": 0.01849029999999999,
+            "samples": 3000,
+            "unit": "ms"
+        },
+        {
+            "max": 0.0206,
+            "mean": 0.014199131333333276,
+            "min": 0.01395,
+            "name": "signal_propagation",
+            "p50": 0.01412,
+            "p95": 0.01426,
+            "p99": 0.017800099999999996,
+            "samples": 3000,
+            "unit": "ms"
+        }
+    ],
+    "model_replication": [
+        {
+            "ms": 0.107869,
+            "rows": 1
+        },
+        {
+            "ms": 0.542837,
+            "rows": 100
+        },
+        {
+            "ms": 24.977663,
+            "rows": 10000
+        }
+    ],
+    "path": "qtro-over-qtwebsockets-loopback-ws",
+    "qt_version": "6.11.1",
+    "recorded": "2026-07-12T06:44:47Z",
+    "samples": 3000,
+    "throughput": [
+        {
+            "name": "slot_throughput_64B",
+            "unit": "calls/s",
+            "value": 176001.03610636614
+        }
+    ],
+    "warmup": 500
+}

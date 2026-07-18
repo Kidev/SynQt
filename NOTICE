@@ -1,0 +1,13 @@
+SynQt
+Copyright 2026 Kidev
+
+This product is licensed under the Apache License, Version 2.0. You may obtain a
+copy of the License in the LICENSE file distributed with this work.
+
+SynQt is built on the Qt framework (https://www.qt.io). SynQt's own source code is
+Apache-2.0, but applications built with SynQt link Qt modules and the Qt for
+WebAssembly platform, and the license of each resulting binary is determined by the
+Qt build used, not by SynQt. In particular, with open source Qt the browser client
+is GPLv3 and is conveyed to every visitor, so its source must be made available
+under GPLv3. See docs/licensing.md for the full analysis and the obligations for
+open source and commercial Qt users.

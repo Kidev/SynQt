@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The shared live counter contract: an edge-owned value every client reads, and two
+// requests the edge performs.
+contract Counter {
+    prop int value          // edge owned; clients read, edge writes
+    slot increment()        // a request; the edge performs the change
+    slot decrement()
+}

@@ -1,0 +1,19 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The arena the edge owns and every browser mirrors (docs/tutorial-multiplayer-world.md and
+// -rounds.md). Only the declared model roles cross to a browser; the edge keeps more per
+// player (a GitHub sub, an aim point, timestamps) that never leaves it. `steer` takes intent
+// (an aim point), never a position; the edge integrates every blob's motion itself, so
+// there is no position for a client to forge.
+contract Arena {
+    prop real roundEndsAt                         // edge clock (ms) when the round ends
+    model blobs(id, name, x, y, mass, online)     // players in view, for drawing
+    model board(name, mass)                       // the live leaderboard, biggest first
+    model pellets(id, x, y)                       // food in view
+    model champions(name, points)                 // all-time Hall of Fame, from the DB
+    slot steer(real x, real y)                    // "I am aiming at this spot" (a goal)
+    slot real ping()                              // the edge clock in ms, for latency
+    signal eaten(string prey, string predator)    // one blob swallowed another
+    signal roundEnded(string winner)              // the round closed; winner named
+}

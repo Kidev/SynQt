@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The contract under test for the mesh-transport benchmark: a returning slot (so a full
+// consumer -> owner -> reply round trip can be timed), a push property (one-way owner ->
+// consumer propagation), and a signal, so the same directions the transport benchmark
+// exercises over the browser link are exercised here over the mesh links.
+class MeshBench
+{
+    PROP(qint64 tick READPUSH)
+    SLOT(QByteArray roundTrip(QByteArray payload))
+    SIGNAL(pong(qint64 stamp))
+}

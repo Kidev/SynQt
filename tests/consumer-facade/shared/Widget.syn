@@ -1,0 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// A contract that exercises every consumer-facade surface at once: a push property, a
+// model, a fire-and-forget slot, a returning slot (for the `.then(...)` promise), a slot
+// that makes the owner emit, and the signal itself (for the `Widget.on<Signal>` handler).
+contract Widget {
+    prop int count                     // owner push property
+    model rows(label)                  // owner model, one declared role
+    slot bump(int by)                  // fire-and-forget: owner count += by
+    slot int compute(int seed)         // returning: resolves seed*2 on the caller
+    slot ping(int value)               // owner reacts by emitting pinged(value)
+    signal pinged(int value)           // owner -> consumer event
+}
