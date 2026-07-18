@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Run the deterministic checks (the synqt CLI, the synqtc contract generator, and the docs'
+# mermaid diagrams) on every push and pull request. The suites are pure Python and run across the
+# three desktop operating systems SynQt supports as native targets (Linux, macOS, Windows; see
+# docs/desktop.md): they drive the generators and CLI and assert on the emitted CMake, presets,
+# topology, and config, so they need no Qt build or display and run identically on all three
+# runners. The mesh-CA tests shell out to openssl, which ships on all three GitHub runner images.
+#
+# The heavier, platform-specific checks live elsewhere and are not duplicated here: the WASM
+# QtRO-over-WebSockets browser matrix is browser-matrix.yml, and the C++ ctest suites need a full
+# Qt 6.11.1 build (and, for several, a display, generated certs, or the WASM kit), which the
+# per-entity CMake projects build on demand rather than in this fast cross-OS gate.
+
+name: Run the Python test suites
+
+on:
+  push:
+  pull_request:
+
+# A newer push to the same ref supersedes an in-flight run.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install the CLI and contract generator (editable) plus test deps
+        # brotli lets the bundle-precompress test produce the .br copy (the CLI skips it gracefully
+        # without the package, but the test asserts it, so install it here).
+        run: python -m pip install --upgrade pip && python -m pip install -e ./tools/synqt -e ./tools/synqtc pytest brotli
+
+      - name: Confirm openssl is available (the mesh-CA tests use it)
+        run: openssl version
+
+      - name: Run the test suites
+        run: python -m pytest tools/synqt/tests tools/synqtc/tests -q
+
+  mermaid:
+    # One runner: the diagrams are the same text everywhere, and this parses them rather than
+    # rendering them. It is a separate job from pytest because nothing else here needs node.
+    name: mermaid diagrams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      # Same floating major the docs theme loads at runtime (unpkg.com/mermaid@11), so this
+      # checks the diagrams against the parser the live page actually uses. --no-save: there is
+      # no node package here to add a dependency to, only this check.
+      - name: Install mermaid (the version the docs site loads) and a DOM for it
+        run: npm install --no-save mermaid@11 jsdom
+
+      - name: Parse every diagram in docs/
+        run: node tools/check-mermaid/check-mermaid.mjs docs

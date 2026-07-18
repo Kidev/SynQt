@@ -1,0 +1,206 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Close the WebKit / Safari column of the M0 browser matrix on hosts the primary dev machine
+# (Arch Linux) cannot run: Playwright's WebKit needs Debian/Ubuntu system libraries, and real
+# Safari needs macOS. This workflow provisions the pinned toolchain (Qt 6.11.1 + Emscripten
+# 4.0.7, with QtRemoteObjects built from source into the WASM kit; the prebuilt kit does not
+# ship it, see tests/m0-transport/README.md finding 1), then runs the M0 verifier, which drives
+# Chromium + Firefox + WebKit through all four QtRO-over-WebSockets directions and reconnect.
+#
+#   * ubuntu  -> Playwright WebKit (Safari's engine) with its Linux deps installed;
+#   * macOS   -> Playwright WebKit on macOS, the closest automatable stand-in for Safari.app
+#     (real Safari.app would need safaridriver + `safaridriver --enable`; that is a follow-up).
+#
+# It is manual-first (workflow_dispatch) because the WASM toolchain build is heavy; it also runs
+# when the M0 spike or this file changes. NOTE: this workflow is authored to run on GitHub's
+# runners and cannot be validated on the Arch dev box; the aqtinstall arch/module names and the
+# per-OS Qt install directory are the most likely first-run adjustments.
+
+name: Run the browser matrix (Chromium, Firefox, WebKit)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tests/m0-transport/**"
+      - ".github/workflows/browser-matrix.yml"
+
+concurrency:
+  group: browser-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # aqtinstall, pinned to a reviewed commit. See the install step for why it comes from the
+  # repository at all. Keep this SHA identical in ctest.yml and wasm-proofs.yml.
+  AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
+
+jobs:
+  m0:
+    name: M0 transport (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: webkit-linux
+            qt_host_arch: linux_gcc_64
+            qt_host_dir: gcc_64
+          - os: macos-15
+            label: webkit-macos
+            qt_host_arch: clang_64
+            qt_host_dir: macos
+    env:
+      QT_VERSION: "6.11.1"
+      EM_VERSION: "4.0.7"
+      QT_ROOT: ${{ github.workspace }}/Qt
+      M0_HEADLESS: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Install build tools (CMake + Ninja)
+        uses: lukka/get-cmake@latest
+
+      - name: Install the native dependencies Qt needs to configure (Linux)
+        # Qt6GuiConfig hard-requires WrapOpenGL, so without the OpenGL dev files Qt6Gui sets
+        # Qt6Gui_FOUND to FALSE and find_package(Qt6) fails with "Failed to find required Qt
+        # component Gui" while pointing at a Qt6GuiConfig.cmake that plainly exists -- which is
+        # what makes this one slow to read: the file it names is not the file that is missing.
+        # libgl1-mesa-dev pulls the libglvnd dev files, covering CMake's OPENGL_opengl_LIBRARY,
+        # OPENGL_glx_LIBRARY, and OPENGL_INCLUDE_DIR. macOS has OpenGL in the SDK and needs
+        # none of this, which is why only the Linux column ever failed here.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -eu
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev
+
+      - name: Cache the Qt kit
+        # The whole kit tree, kits plus the QtRemoteObjects we build from source into the WASM
+        # kit below: that build installs into the kit prefix, so one cache of QT_ROOT covers both
+        # the download and the from-source build, and every Qt install/build step is skipped on a
+        # hit. Keyed on the workflow file so a change to the pinned Qt/aqt/emsdk versions (all env
+        # here) or the install steps invalidates it. Same pattern as ctest.yml.
+        id: qt-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-${{ matrix.label }}-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/browser-matrix.yml') }}
+
+      - name: Install aqtinstall
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        # From the repository, not PyPI: the released line (3.1.x) predates the current Qt
+        # repository layout and does not know the all_os/wasm host and target the WASM kit is
+        # published under, so it cannot install this workflow's kit at any version. The release
+        # that does is not published yet; pin this back to a version once it is.
+        #
+        # Pinned to a commit, never to the branch: an unpinned git ref runs whatever upstream's
+        # default branch holds at the moment the job starts, inside a job that holds a token and
+        # produces the artifacts we then trust. The pin is what makes this reproducible and what
+        # keeps an upstream change from silently becoming ours. Moving it is a reviewed edit:
+        # read the diff, then bump the SHA here and in ctest.yml and wasm-proofs.yml together.
+        run: |
+          python -m pip install \
+            "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ env.AQT_COMMIT }}"
+
+      - name: Install Qt host kit (desktop) + WebSockets + RemoteObjects
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m aqt install-qt ${{ runner.os == 'macOS' && 'mac' || 'linux' }} desktop \
+            "$QT_VERSION" ${{ matrix.qt_host_arch }} \
+            -m qtwebsockets qtremoteobjects \
+            --outputdir "$QT_ROOT"
+
+      - name: Install Qt WASM kit (single-threaded) + WebSockets
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        # all_os/wasm, not <host>/desktop: the WASM kit is one host-independent build published
+        # under its own host and target, and asking for it under the desktop target fails with
+        # "Failed to locate XML data for Qt version" -- which reads like the version is gone
+        # rather than like the coordinates are wrong.
+        run: |
+          python -m aqt install-qt all_os wasm \
+            "$QT_VERSION" wasm_singlethread \
+            -m qtwebsockets \
+            --outputdir "$QT_ROOT"
+          bash .github/scripts/fix-wasm-kit-permissions.sh \
+            "$QT_ROOT/$QT_VERSION/wasm_singlethread"
+
+      - name: Install Qt sources for QtRemoteObjects
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m aqt install-src ${{ runner.os == 'macOS' && 'mac' || 'linux' }} \
+            "$QT_VERSION" --archives qtremoteobjects --outputdir "$QT_ROOT"
+
+      - name: Cache Emscripten
+        # emsdk is downloaded and pinned to EM_VERSION on every run otherwise; the SDK version is
+        # fixed, so cache the whole tree and re-source emsdk_env.sh on a hit. Independent of the
+        # Qt cache: a later WASM compile needs emsdk present even when the kit was restored.
+        id: emsdk-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ runner.os }}-${{ env.EM_VERSION }}-${{ hashFiles('.github/workflows/browser-matrix.yml') }}
+
+      - name: Install and activate Emscripten ${{ env.EM_VERSION }}
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install "$EM_VERSION"
+          "$HOME/emsdk/emsdk" activate "$EM_VERSION"
+
+      - name: Build QtRemoteObjects into the WASM kit
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        # The prebuilt WASM kit ships QtWebSockets but not QtRemoteObjects; build it from the
+        # pinned source with the kit's qt-cmake (its qt-configure-module is broken on Linux) and
+        # install it into the kit prefix so the M0 client can link it.
+        run: |
+          source "$HOME/emsdk/emsdk_env.sh"
+          QT_WASM="$QT_ROOT/$QT_VERSION/wasm_singlethread"
+          SRC="$QT_ROOT/$QT_VERSION/Src/qtremoteobjects"
+          # QT_HOST_PATH: a cross-compiled Qt must be told where its host tools are. The kit
+          # carries Qt's own build-machine path (/home/qt/work/install), and only a
+          # host-specific aqt install rewrites it -- which the host-independent all_os/wasm kit
+          # is not, so it has to be named here.
+          export QT_HOST_PATH="$QT_ROOT/$QT_VERSION/${{ matrix.qt_host_dir }}"
+          "$QT_WASM/bin/qt-cmake" -S "$SRC" -B "$RUNNER_TEMP/qtro-wasm" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$QT_WASM"
+          cmake --build "$RUNNER_TEMP/qtro-wasm"
+          cmake --install "$RUNNER_TEMP/qtro-wasm"
+
+      - name: Install Playwright engines (WebKit + Chromium + Firefox)
+        working-directory: tests/m0-transport/verify
+        run: |
+          npm install --no-audit --no-fund
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            npx --yes playwright install-deps webkit chromium firefox
+          fi
+          npx --yes playwright install webkit chromium firefox
+
+      - name: Run the M0 browser matrix (Chromium + Firefox + WebKit, ws + wss, reconnect)
+        env:
+          QT_HOST: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.qt_host_dir }}
+          QT_WASM: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/wasm_singlethread
+          # run-m0.sh configures the client through the wasm kit's qt-cmake, which needs the
+          # host tools named (see the QtRemoteObjects build step).
+          QT_HOST_PATH: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.qt_host_dir }}
+        run: |
+          source "$HOME/emsdk/emsdk_env.sh"
+          tests/m0-transport/verify/run-m0.sh
+
+      - name: Archive the headless run log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: m0-${{ matrix.label }}-log
+          path: build/m0-verify.log
+          if-no-files-found: ignore

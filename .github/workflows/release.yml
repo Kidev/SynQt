@@ -1,0 +1,308 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Cut a SynQt release: freeze the synqt CLI into a single self-contained binary per operating
+# system and architecture, then publish a GitHub release with those assets. get.synqt.org's
+# install.sh downloads synqt-<os>-<arch>.<ext> from /releases/latest/download, so the asset
+# names here are a contract with that script; do not rename them without updating the installer.
+#
+# Manual only. The runner does not type a raw version: they pick whether this release bumps the
+# patch, minor, or major component of the most recent v* tag (1.4.7 + minor -> 1.5.0, + patch ->
+# 1.4.8, + major -> 2.0.0), and may append an optional pre-release suffix such as -alpha or
+# -rc.1. A non-empty suffix marks the release as a pre-release, so /releases/latest (and thus the
+# installer) keeps resolving to the last stable build.
+#
+# NOTE: authored for GitHub's hosted runners; it cannot be exercised on the dev box. Each asset is
+# a true native binary for its row (no cross build), but the Linux and native rows are built two
+# different ways on purpose:
+#   * Linux (build-linux): built INSIDE the pypa manylinux_2_28 container, which fixes an explicit
+#     glibc 2.28 floor. glibc is backward- but not forward-compatible, so the binary's floor is set
+#     by the glibc it is built against; pinning the container (rather than an ubuntu-XX.04 runner
+#     image) keeps that floor stable and documented instead of drifting whenever GitHub retires an
+#     older runner image. A binary built here runs on any distro with glibc >= 2.28 (Debian 10+,
+#     Ubuntu 18.10+, RHEL/Alma/Rocky 8+). The arm64 row runs the aarch64 image natively on an
+#     arm runner, so there is no emulation.
+#   * macOS/Windows (build-native): built directly on the runner; their compatibility floor comes
+#     from the setup-python interpreter's deployment target, not the runner OS, so they do not have
+#     the same image-rot problem.
+# Every row smoke-tests its own frozen binary (help + a toolchain-free scaffold + the providers
+# registry) in the environment it was built in -- so the Linux artifact is exercised ON its glibc
+# floor, which is the point of building it there.
+
+name: Publish a release of the synqt CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Which version component to bump from the latest v* tag"
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      suffix:
+        description: "Optional pre-release suffix appended verbatim, e.g. -alpha or -rc.1 (leave empty for a stable release)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run: build and smoke-test every artifact but create no tag and publish no release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Resolve the next version from the latest tag and the chosen bump. Inputs are passed through
+  # the environment, never interpolated into the script, so a crafted suffix cannot inject shell.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      tag: ${{ steps.compute.outputs.tag }}
+      prerelease: ${{ steps.compute.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # need the full tag history to find the latest v* tag
+
+      - name: Compute the next version
+        id: compute
+        env:
+          BUMP: ${{ inputs.bump }}
+          SUFFIX: ${{ inputs.suffix }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -eu
+          latest="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n1)"
+          # First release: with no v* tag yet, seed 0.0.0 so the first build is the natural
+          # start of each track -- patch -> 0.0.1, minor -> 0.1.0, major -> 1.0.0.
+          first="false"
+          if [ -z "$latest" ]; then
+            latest="v0.0.0"
+            first="true"
+          fi
+          core="${latest#v}"
+          core="${core%%-*}" # drop any pre-release suffix on the existing tag
+          major="${core%%.*}"
+          rest="${core#*.}"
+          minor="${rest%%.*}"
+          patch="${rest#*.}"
+          case "$BUMP" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+            *) echo "::error::unknown bump: $BUMP"; exit 1 ;;
+          esac
+          version="${major}.${minor}.${patch}${SUFFIX}"
+          if [ -n "$SUFFIX" ]; then
+            prerelease="true"
+          else
+            prerelease="false"
+          fi
+          if [ "$first" = "true" ]; then
+            echo "No existing v* tag: first release -> new version: $version (prerelease=$prerelease)"
+          else
+            echo "Latest tag: $latest -> new version: $version (prerelease=$prerelease)"
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::Dry run: v$version will be built and smoke-tested but NOT tagged or published"
+          fi
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+  # Linux: build in the manylinux_2_28 container so the glibc floor is explicit (2.28) and stable.
+  # The container is run directly (not as the job `container:`) so the Actions themselves run on the
+  # host runner's modern glibc, and only the freeze + smoke-test happen inside the old-glibc image.
+  build-linux:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch_tag: x86_64
+            image: quay.io/pypa/manylinux_2_28_x86_64
+          - runner: ubuntu-24.04-arm
+            arch_tag: arm64
+            image: quay.io/pypa/manylinux_2_28_aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Freeze and smoke-test inside manylinux_2_28 (glibc 2.28 floor)
+        env:
+          IMAGE: ${{ matrix.image }}
+        # Everything below runs against glibc 2.28: install the CLI (pulling its PyYAML dependency),
+        # freeze it with PyInstaller (a tiny launcher is the entry point; --collect-submodules pulls
+        # every synqt.* command module, even the ones cli.py imports lazily by name), then smoke-test
+        # the frozen binary ON this floor. The smoke test exercises the parts a onefile freeze most
+        # often gets wrong -- arg parsing, the scaffold (its templating and packaged data files), and
+        # the providers registry -- while touching no Qt or toolchain (that is what `dev`/`build`
+        # need, not `new`/`providers`).
+        #
+        # The interpreter is the AlmaLinux 8 system python (dnf) referenced BY ABSOLUTE PATH, NOT
+        # the manylinux /opt/python one: the /opt/python CPythons are built --disable-shared (static
+        # libpython), which PyInstaller refuses to freeze ("Python was built without a shared
+        # library"). The dnf python (python3.12-libs ships libpython3.12.so) is built against this
+        # image's glibc, so the 2.28 floor is unchanged. The absolute /usr/bin path is deliberate:
+        # manylinux puts /opt/python/cpXXX/bin ahead of /usr/bin on PATH, so `command -v python3.12`
+        # resolves to the STATIC one and PyInstaller fails; /usr/bin/python3.12 is the dnf shared-lib
+        # build. Try 3.12, fall back to 3.11; both are in the Alma 8 appstream on x86_64 and aarch64.
+        run: |
+          set -eu
+          docker run --rm -v "$PWD:/io" -w /io "$IMAGE" bash -euo pipefail -c '
+            dnf install -y python3.12 python3.12-pip || dnf install -y python3.11 python3.11-pip
+            if [ -x /usr/bin/python3.12 ]; then py=/usr/bin/python3.12; else py=/usr/bin/python3.11; fi
+            "$py" -m pip install --upgrade pip
+            "$py" -m pip install ./tools/synqt pyinstaller
+            printf "import sys\nfrom synqt.cli import main\nif __name__ == \"__main__\":\n    sys.exit(main())\n" > synqt_entry.py
+            "$py" -m PyInstaller --onefile --name synqt --collect-submodules synqt synqt_entry.py
+            ./dist/synqt --help
+            tmp="$(mktemp -d)"
+            ./dist/synqt new smoketest --parent-dir "$tmp"
+            test -f "$tmp/smoketest/synqt.yaml"
+            ./dist/synqt providers
+          '
+
+      - name: Package the asset
+        id: package
+        run: |
+          set -eu
+          asset="synqt-linux-${{ matrix.arch_tag }}.tar.gz"
+          mkdir -p out
+          tar -C dist -czf "out/$asset" synqt
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.asset }}
+          path: out/${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+
+  # macOS and Windows: native runner builds. Their compatibility floor is the setup-python
+  # interpreter's deployment target, not the runner OS, so they do not need the container treatment.
+  build-native:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-15-intel is the current Intel macOS runner (the older macos-13 Intel image is being
+        # retired and frequently fails to find a runner); macos-15 is arm64. Two rows keep both the
+        # x86_64 and arm64 macOS assets that install.sh downloads.
+        include:
+          - os: macos-15-intel
+            os_tag: macos
+            arch_tag: x86_64
+            ext: tar.gz
+          - os: macos-15
+            os_tag: macos
+            arch_tag: arm64
+            ext: tar.gz
+          - os: windows-latest
+            os_tag: windows
+            arch_tag: x86_64
+            ext: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install the CLI and PyInstaller
+        # Installing the package (not just its sources) pulls its PyYAML dependency and makes the
+        # synqt package importable, so PyInstaller can trace and freeze it.
+        run: python -m pip install --upgrade pip && python -m pip install ./tools/synqt pyinstaller
+
+      - name: Freeze synqt into a single binary
+        shell: bash
+        # A tiny launcher is the PyInstaller entry point; --collect-submodules pulls every
+        # synqt.* command module even the ones cli.py imports lazily by name.
+        run: |
+          set -eu
+          printf 'import sys\nfrom synqt.cli import main\nif __name__ == "__main__":\n    sys.exit(main())\n' > synqt_entry.py
+          pyinstaller --onefile --name synqt --collect-submodules synqt synqt_entry.py
+
+      - name: Smoke-test the frozen binary
+        shell: bash
+        # Same coverage as the Linux row (help + a toolchain-free scaffold + providers), so every
+        # shipped binary is proven to launch and load its packaged data in its own environment.
+        run: |
+          set -eu
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            bin=./dist/synqt.exe
+          else
+            bin=./dist/synqt
+          fi
+          "$bin" --help
+          # A relative workspace dir, not mktemp: under Git bash on Windows an MSYS temp path is
+          # rewritten differently for the native .exe than for the shell's own `test`, so a
+          # relative path (resolved against the same CWD by both) is the portable choice.
+          mkdir -p smoke-out
+          "$bin" new smoketest --parent-dir smoke-out
+          test -f smoke-out/smoketest/synqt.yaml
+          "$bin" providers
+
+      - name: Package the asset
+        id: package
+        shell: bash
+        run: |
+          set -eu
+          asset="synqt-${{ matrix.os_tag }}-${{ matrix.arch_tag }}.${{ matrix.ext }}"
+          mkdir -p out
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # Compress-Archive is the portable zip on the Windows runner; the archive holds the
+            # bare synqt.exe so the download page's extract-and-run instructions stay simple.
+            powershell -NoProfile -Command "Compress-Archive -Path dist/synqt.exe -DestinationPath out/$asset -Force"
+          else
+            tar -C dist -czf "out/$asset" synqt
+          fi
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.asset }}
+          path: out/${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+
+  # Publishing is the only step a dry run skips: `build-linux`/`build-native` still run, so a dry
+  # run fully exercises the build and smoke tests and leaves the artifacts on the run for download,
+  # but no tag is created and no release is published. A skipped job does not fail the workflow.
+  release:
+    needs: [version, build-linux, build-native]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag and publish the release
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download all build assets
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true # flatten the per-asset artifacts into one directory
+
+      - name: List the assets to publish
+        run: ls -la dist
+
+      - name: Publish the release and tag the build commit
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: SynQt ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ needs.version.outputs.prerelease }}
+          generate_release_notes: true
+          files: dist/*

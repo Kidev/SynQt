@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+#
+# get.synqt.org serves the installer script at both the root and /install.sh.
+# GitHub Pages needs the root document to be index.html, so index.html is kept
+# as a byte for byte copy of install.sh. This guard fails the build if the two
+# ever drift apart, so a change to one is never silently published without the
+# other.
+name: Check the get.synqt.org installer
+
+on:
+  push:
+    paths:
+      - deploy/get.synqt.org/install.sh
+      - deploy/get.synqt.org/index.html
+      - .github/workflows/check-get-installer.yml
+  pull_request:
+    paths:
+      - deploy/get.synqt.org/install.sh
+      - deploy/get.synqt.org/index.html
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: index.html must be identical to install.sh
+        run: |
+          if ! diff -u deploy/get.synqt.org/install.sh deploy/get.synqt.org/index.html; then
+            echo "::error::deploy/get.synqt.org/index.html must be a byte for byte copy of install.sh (run: cp deploy/get.synqt.org/install.sh deploy/get.synqt.org/index.html)"
+            exit 1
+          fi

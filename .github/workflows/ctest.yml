@@ -1,0 +1,391 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Build and run the native C++ ctest suites (M1 through M9 plus the client-update, consumer-facade,
+# auction, arena, provider, custom-provider, and app-generator fixtures). The pytest workflow covers
+# the pure-Python CLI and generator on all
+# three operating systems; this one covers the compiled framework, which needs the pinned Qt
+# 6.11.1 host kit and its add-on modules.
+#
+# Two of these suites build what a tool emits rather than what the repository stores
+# (appgen-native compiles the generated entity mains, custom-provider compiles the scaffolded
+# provider skeletons). They are what catch a generator whose output no longer compiles, which
+# no test of the generated strings can.
+#
+# Qt comes from aqtinstall and is cached between runs, keyed on the operating system and the
+# module set. The desktop kit ships QtWebSockets, QtRemoteObjects, QtHttpServer, and QtNetworkAuth
+# as prebuilt add-ons, so unlike the WASM kit (browser-matrix.yml, where QtRemoteObjects has to be
+# built from source) no source build is normally needed here. The install step still verifies each
+# required module is present and falls back to a source build for any the prebuilt kit happens to
+# omit, so a missing prebuilt add-on degrades to a slower build rather than a hard failure.
+#
+# Runs on all three desktop platforms SynQt targets (docs/desktop.md): the suites are driven by
+# bash run scripts with Ninja, which is how the framework is actually built. Linux (gcc_64) is the
+# reference column; macOS and Windows do not block the others (fail-fast is off). Windows runs the
+# same bash scripts under the runner's Git Bash, against the MSVC kit with cl.exe put on PATH so
+# the -G Ninja line needs no per-platform variant.
+#
+# The suites are portable but the host is not, and that asymmetry has bitten twice: an assertion
+# of `file ... | grep -q ELF` reported three freshly linked executables as MISSING on macOS, and
+# the deploy folder was hard-coded to client-desktop/linux/ on every platform. Where a suite has
+# to know the host, it asks (tests/lib/native-binary.sh, build.desktop_platform()) rather than
+# assume Linux.
+#
+# Two suites cannot run everywhere and say so out loud rather than quietly passing: m6-client's
+# WASM/browser phases need a kit this workflow does not install (they belong to
+# browser-matrix.yml), so it runs its native half and announces the skip.
+#
+# A CMake warning fails this workflow. See the note on the warning check in the run step.
+#
+# NOTE on the Windows column, updated as it earns it. Confirmed by real runs: the setup half
+# (MSVC on PATH, the OpenSSL probe finding C:\Program Files\OpenSSL with no install needed, the
+# jwt-cpp clone, python3 through setup-python's shim), the MSVC Qt kit installing with every
+# add-on module present, and m1 configuring and compiling clean through cl.exe and Ninja.
+#
+# What has still never happened is a suite *running* to completion here. The last attempt got
+# as far as "Start 1: m1" and then hung for 78 minutes: the test binary could not resolve
+# Qt6Core.dll (see the PATH note in the run step) and died behind an error dialog. So the
+# compile path is now real evidence and the run path is not. Treat the first green Windows
+# column as the first evidence that these suites run on Windows at all.
+
+name: Build and test the C++ runtime
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "cmake/**"
+      - "tools/synqtc/**"
+      - ".github/workflows/ctest.yml"
+
+concurrency:
+  group: ctest-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # aqtinstall, pinned to a reviewed commit (see browser-matrix.yml for why it comes from the
+  # repository at all, and never from an unpinned branch). Keep this SHA in step with the
+  # other two Qt workflows.
+  AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
+
+jobs:
+  ctest:
+    name: ctest (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    # The full column takes about 20 minutes. This is not that budget, it is the blast radius of
+    # a hang: a test process that stops making progress otherwise sits here for the default six
+    # hours. One already did (see the PATH note in the run step) and had to be cancelled by hand
+    # after 80 minutes, which is 80 minutes that produced no evidence. CTest's own per-test
+    # timeout is not enough on its own -- it waits on the test's output pipe, which a crashed
+    # process's error-reporting child can hold open after the test itself is gone.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+            aqt_host: linux
+            aqt_arch: linux_gcc_64
+            kit_dir: gcc_64
+          - os: macos-15
+            label: macos
+            aqt_host: mac
+            aqt_arch: clang_64
+            kit_dir: macos
+          - os: windows-2025
+            label: windows
+            aqt_host: windows
+            aqt_arch: win64_msvc2022_64
+            kit_dir: msvc2022_64
+    env:
+      QT_VERSION: "6.11.1"
+      QT_ROOT: ${{ github.workspace }}/Qt
+      # qttasktree is not linked by anything here: Qt6QmlConfig pulls in its QML plugin packages,
+      # one of which (Qt6QmlAssetDownloaderPrivate) depends on Qt6TaskTree, so every configure
+      # that finds Qml warns it could not be found. Installing it costs one small archive and
+      # removes the warning at its source rather than muting it.
+      QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree"
+      # jwt-cpp v0.7.1 is the floor, not a preference: JwksVerifier builds the RSA public key
+      # from the JWK modulus/exponent with jwt::helper::create_public_key_from_rsa_components,
+      # which does not exist before v0.7.1. v0.7.2 is what the vcpkg baseline resolves to, so
+      # this matches what the code is actually developed against.
+      JWT_CPP_VERSION: "v0.7.2"
+      # Qt Quick needs a platform plugin even for a boot-and-quit; offscreen keeps the QML fixtures
+      # (the auction, the arena, the desktop client) headless.
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install the CLI's Python dependencies
+        # Several suites (appgen-native, desktop-client, m8-auth, custom-provider, m1-contract)
+        # drive the synqt package over PYTHONPATH to generate what they then compile, so this
+        # workflow needs the CLI's runtime deps even though the Python suites themselves live in
+        # tests.yml. Without them two suites died on ModuleNotFoundError: No module named 'yaml'
+        # -- a failure that reads like a broken generator and is really a missing package.
+        #
+        # The `python3` check is for Windows: those scripts all invoke `python3`, which is the
+        # only name that exists on Linux/macOS but is a shim setup-python provides on Windows.
+        # Asserting it here fails in one obvious place if that ever stops being true, instead of
+        # as a "command not found" in the middle of whichever suite happens to run first.
+        shell: bash
+        run: |
+          set -eu
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            echo "::error::python3 does not resolve to the interpreter the run scripts need"
+            exit 1
+          fi
+          echo "python3 -> $(python3 --version) with pyyaml"
+
+      - name: Install build tools (CMake + Ninja)
+        uses: lukka/get-cmake@latest
+
+      - name: Put MSVC on PATH (Windows)
+        # The run scripts configure with -G Ninja on every platform, which keeps one build
+        # recipe rather than a second Windows-only one; Ninja needs cl.exe already on PATH, which
+        # is what this does (the Visual Studio generator would find MSVC itself, but only by
+        # making Windows configure differently from the other two). Pinned to the commit behind
+        # the 1.3.1 tag rather than the floating v1, for the reason given in browser-matrix.yml.
+        if: runner.os == 'Windows'
+        uses: mlocati/setup-msvc@ade6aff3df872d66c12a63dcacdddf0041cb2693
+        with:
+          architecture: x64
+
+      - name: Install the native dependencies Qt needs to configure
+        # OpenSSL: SynQtService links it (mesh mutual TLS) and the mesh tests shell out to the
+        # openssl CLI to mint throwaway certs. Linux gets the apt dev package; macOS gets
+        # Homebrew's and exports OPENSSL_ROOT_DIR so CMake's find_package(OpenSSL) resolves the
+        # keg, not the headerless system LibreSSL. Windows takes the runner image's own
+        # Shining Light build, whose location is probed rather than assumed (the image has moved
+        # it between OpenSSL-Win64 and OpenSSL across versions) so a miss fails here, naming the
+        # problem, instead of inside a find_package 20 minutes later.
+        #
+        # OpenGL (Linux only): Qt6GuiConfig hard-requires WrapOpenGL, so without the dev files
+        # Qt6Gui sets Qt6Gui_FOUND to FALSE and every component that depends on it (Qml, Quick,
+        # NetworkAuth) disappears with it -- find_package fails naming the dependent component,
+        # not the missing library, which is what makes this one slow to read. libgl1-mesa-dev
+        # pulls the libglvnd dev files, so it covers all three of CMake's OPENGL_opengl_LIBRARY,
+        # OPENGL_glx_LIBRARY, and OPENGL_INCLUDE_DIR. macOS has OpenGL in the SDK, and the
+        # Windows kit ships the opengl32sw software rasteriser.
+        shell: bash
+        run: |
+          set -eu
+          case "${{ runner.os }}" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install -y libssl-dev libgl1-mesa-dev
+              ;;
+            macOS)
+              brew install openssl@3
+              echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+              ;;
+            Windows)
+              found=""
+              for root in "/c/Program Files/OpenSSL-Win64" "/c/Program Files/OpenSSL"; do
+                if [ -f "$root/include/openssl/ssl.h" ]; then
+                  found="$root"
+                  break
+                fi
+              done
+              if [ -z "$found" ]; then
+                echo "installing OpenSSL (not present on the image)"
+                choco install openssl --no-progress --yes
+                for root in "/c/Program Files/OpenSSL-Win64" "/c/Program Files/OpenSSL"; do
+                  if [ -f "$root/include/openssl/ssl.h" ]; then
+                    found="$root"
+                    break
+                  fi
+                done
+              fi
+              if [ -z "$found" ]; then
+                echo "::error::no OpenSSL development headers found on this Windows image"
+                exit 1
+              fi
+              # CMake needs a native path, not the MSYS one bash just matched with. cygpath -m
+              # gives C:/... with forward slashes: -w would give backslashes, which CMake treats
+              # as escapes inside a string.
+              echo "OPENSSL_ROOT_DIR=$(cygpath -m "$found")" >> "$GITHUB_ENV"
+              echo "using OpenSSL at $found"
+              ;;
+          esac
+
+      - name: Provide jwt-cpp headers
+        # jwt-cpp (MIT, header-only) verifies OIDC ID-token signatures in the M8 auth path.
+        # The headers stay where they are cloned and the path is exported, rather than copied into
+        # /usr/local/include and left for CMake to stumble on: that implicit system prefix is
+        # searched on the Linux runner but not on the macOS one, so every macOS suite that links
+        # SynQtService failed on headers that were sitting on disk the whole time. An exported
+        # path is also the same mechanism OPENSSL_ROOT_DIR uses above, and needs no sudo.
+        shell: bash
+        run: |
+          set -eu
+          git clone --depth 1 --branch "$JWT_CPP_VERSION" https://github.com/Thalhammer/jwt-cpp "$RUNNER_TEMP/jwt-cpp"
+          include="$RUNNER_TEMP/jwt-cpp/include"
+          # As with OPENSSL_ROOT_DIR: hand CMake a native C:/... path, since the MSYS /d/a/_temp
+          # form bash uses here means nothing to it.
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            include="$(cygpath -m "$include")"
+          fi
+          echo "JWT_CPP_INCLUDE_DIR=$include" >> "$GITHUB_ENV"
+
+      - name: Cache the Qt kit
+        id: qt-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-${{ matrix.label }}-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/ctest.yml') }}
+
+      - name: Install aqtinstall
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        # From the repository at a pinned commit, not PyPI: the release that knows the current Qt
+        # 6.11 layout is not published yet, and the last released line (3.1.x) cannot resolve the
+        # WASM kit at all (see browser-matrix.yml, which explains the pin). Installing every
+        # workflow's aqt identically keeps the three from drifting onto different Qt-repository
+        # knowledge. Revisit once it ships.
+        #
+        # shell: bash is load-bearing, not house style. Without it this step runs under the
+        # Windows runner's default shell, PowerShell, where a trailing backslash is not a line
+        # continuation: pwsh ran `pip install \` (which reported: Directory '\' is not
+        # installable) and then tried to execute the package spec as its own command. Every step
+        # in this workflow that spans lines therefore names its shell.
+        shell: bash
+        run: |
+          python -m pip install \
+            "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ env.AQT_COMMIT }}"
+
+      - name: Install the Qt host kit and its add-on modules
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -eu
+          host="${{ matrix.aqt_host }}"
+          arch="${{ matrix.aqt_arch }}"
+          kit="$QT_ROOT/$QT_VERSION/${{ matrix.kit_dir }}"
+
+          python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" --outputdir "$QT_ROOT"
+          for m in $QT_MODULES; do
+            python -m aqt install-qt "$host" desktop "$QT_VERSION" "$arch" -m "$m" --outputdir "$QT_ROOT" \
+              || echo "prebuilt $m unavailable; will try a source build"
+          done
+
+          # Verify every required module resolved; source-build any the prebuilt kit omitted. This
+          # is the same mechanism browser-matrix.yml uses for QtRemoteObjects on the WASM kit.
+          pkg_for() {
+            case "$1" in
+              qtwebsockets)   echo Qt6WebSockets ;;
+              qtremoteobjects) echo Qt6RemoteObjects ;;
+              qthttpserver)   echo Qt6HttpServer ;;
+              qtnetworkauth)  echo Qt6NetworkAuth ;;
+              qttasktree)     echo Qt6TaskTree ;;
+            esac
+          }
+          for m in $QT_MODULES; do
+            pkg="$(pkg_for "$m")"
+            # An unmapped module would resolve to an empty package name, whose Config.cmake can
+            # never exist, so the check below would silently "fall back" to a source build for a
+            # module that is probably installed fine. Fail on the typo instead.
+            if [ -z "$pkg" ]; then
+              echo "::error::QT_MODULES lists '$m' but pkg_for() has no package name for it"
+              exit 1
+            fi
+            if [ -f "$kit/lib/cmake/$pkg/${pkg}Config.cmake" ]; then
+              echo "$m present ($pkg)"
+              continue
+            fi
+            echo "$m missing; building it from source into the kit"
+            python -m aqt install-src "$host" "$QT_VERSION" --archives "$m" --outputdir "$QT_ROOT"
+            src="$QT_ROOT/$QT_VERSION/Src/$m"
+            # qt-cmake is a shell script everywhere except Windows, where it is qt-cmake.bat.
+            qt_cmake="$kit/bin/qt-cmake"
+            [ -f "$qt_cmake" ] || qt_cmake="$kit/bin/qt-cmake.bat"
+            "$qt_cmake" -S "$src" -B "$RUNNER_TEMP/$m-build" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$kit"
+            cmake --build "$RUNNER_TEMP/$m-build"
+            cmake --install "$RUNNER_TEMP/$m-build"
+          done
+
+      - name: Run the native ctest suites
+        shell: bash
+        env:
+          QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/${{ matrix.kit_dir }}
+        run: |
+          # pipefail matters below: each suite is piped into tee to capture its log, and without
+          # it the `if` would test tee's exit status (always 0) and every failing suite would
+          # report PASS.
+          set -u -o pipefail
+          suites="
+            tests/m1-contract/run-m1.sh
+            tests/m2-transport/run-m2.sh
+            tests/m3-mesh/run-m3.sh
+            tests/m4-topology/run-m4.sh
+            tests/m5-webedge/run-m5.sh
+            tests/m6-client/run-m6.sh
+            tests/m6-clientupdate/run-m6u.sh
+            tests/consumer-facade/run-consumer.sh
+            tests/m7-caller/run-m7.sh
+            tests/m8-auth/run-m8.sh
+            tests/m9-providers/run-m9.sh
+            tests/prov4-runtime/run-prov4.sh
+            tests/custom-provider/run-customprovider.sh
+            tests/fix1-auction/run-fix1.sh
+            tests/fix2-arena/run-fix2.sh
+            tests/appgen-native/run-appgen-native.sh
+            tests/desktop-client/run-desktop-client.sh
+          "
+          # m6-client's phases 2 and 3 need the WebAssembly kit and a browser, which this
+          # workflow does not install (browser-matrix.yml and wasm-proofs.yml own that
+          # toolchain). Pointing QT_WASM at a path that cannot exist makes the suite run its
+          # native half and announce the skip, rather than half-find a kit and fail obscurely.
+          export QT_WASM="$RUNNER_TEMP/no-wasm-kit-in-this-workflow"
+
+          # Windows resolves a DLL through the executable's own directory and then PATH; it has
+          # no RPATH, which is the only reason the other two columns need nothing here. A freshly
+          # linked tst_m1.exe sits in build/ and Qt6Core.dll sits in the kit's bin, so without
+          # this the loader finds nothing and the process dies before main() -- and the runner
+          # blocks on the resulting error dialog instead of reporting it. That is exactly what
+          # happened: m1 printed "Start 1: m1" and hung for 78 minutes until the job was
+          # cancelled, having compiled perfectly. The build itself was never affected because
+          # linking reads the .lib import libraries, and repc.exe and qmlimportscanner.exe run
+          # fine from inside the kit's bin, next to the DLLs they need.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH="$(cygpath -u "$QT_HOST")/bin:$PATH"
+          fi
+          fail=0
+          failed=""
+          warned=""
+          for s in $suites; do
+            echo "::group::$s"
+            log="$RUNNER_TEMP/$(basename "$(dirname "$s")").log"
+            if bash "$s" 2>&1 | tee "$log"; then
+              echo "PASS $s"
+            else
+              echo "FAIL $s"
+              fail=1
+              failed="$failed $s"
+            fi
+            # A warning is a defect here, not decoration: the two this gate was built for were a
+            # real incomplete-linking report (SynQt libraries publicly link Qt modules that the
+            # consumer's scope could not resolve) and a Qt module missing from the kit. Both had
+            # been scrolling past in green builds for as long as the workflow has existed.
+            if grep -q "CMake Warning" "$log"; then
+              echo "::warning::$s produced CMake warnings"
+              warned="$warned $s"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$warned" ]; then
+            echo "::error::suites with CMake warnings:$warned"
+            fail=1
+          fi
+          if [ -n "$failed" ]; then
+            echo "::error::failing suites:$failed"
+          fi
+          exit "$fail"
