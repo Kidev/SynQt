@@ -21,7 +21,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import (appgen, appmodel, clientbuild, clientcache, clientshell,
+from . import (appgen, appmodel, clientbuild, clientcache, clientmodules, clientshell,
                config as configmod, deploy as deploymod, licenses, manifest, presets,
                profiles, run, toolchain, topologywriter, writer)
 
@@ -435,7 +435,8 @@ def compile_incremental(project_dir: os.PathLike[str] | str, config: Dict[str, A
     ``synqt dev``'s watcher (cmake --build is incremental). Returns the compile note plus
     the host and client target lists that were built."""
     root = Path(project_dir).resolve()
-    resolved = toolchain.resolve(root, threads=clientbuild.client_threads(config))
+    resolved = toolchain.resolve(root, threads=clientbuild.client_threads(config),
+                                 add_ons=clientmodules.for_project(config, root))
     appgen.generate(root, config, dev_tools=dev_tools)
     presets.write(root, config, profile_name=profile_name, dev_tools=dev_tools)
     topologywriter.write(root, config)  # the machine topology each service reads at startup
@@ -695,7 +696,8 @@ def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
     config = clientbuild.with_threads(load_config(root, profile), threads)
     build_dir = root / "build"
     build_dir.mkdir(exist_ok=True)
-    resolved = toolchain.resolve(root, threads=clientbuild.client_threads(config))
+    resolved = toolchain.resolve(root, threads=clientbuild.client_threads(config),
+                                 add_ons=clientmodules.for_project(config, root))
     selected = _selected_entities(config, entity)
 
     # Regenerate the app from the current topology so a connect-point change is reflected
@@ -749,7 +751,8 @@ def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
                 out.mkdir(parents=True, exist_ok=True)
                 (out / "THIRD-PARTY-LICENSES").write_text(
                     licenses.generate(entity, target=target,
-                                      qt_license_mode=qt_license_mode, config=config))
+                                      qt_license_mode=qt_license_mode, config=config,
+                                      project_dir=root))
                 # The desktop client compiles on the host. Place it beside its licenses.
                 # Installed before the note is written, so the note can name the artifact that
                 # is there rather than the one this build expected to produce.

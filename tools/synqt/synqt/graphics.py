@@ -3,20 +3,13 @@
 
 """Decide which routes need Qt's accelerated scene graph.
 
-Qt Quick renders through the RHI (WebGL in the browser) by default and through a raster
-adaptation when told to. Most 2D content works either way. A few types do not work at all
-without the accelerated pipeline, and Qt reports that by declining to draw them rather than
-by failing. A client on a browser with no WebGL therefore runs software-rendered, and this
-module decides which routes cannot be shown that way.
+Qt Quick renders through the RHI (WebGL in the browser) by default, or through a raster
+adaptation. A few types draw nothing without the accelerated pipeline, silently. A browser
+with no WebGL runs software-rendered, and this module decides which routes cannot be shown
+that way. The client and the edge carry its answer and never compute one.
 
-It is the only implementation of that rule. The client and the edge carry the answer it
-produces and never compute one, so there is nothing to drift.
-
-The scan reads QML the way the QML lexer does, which a line-based scan gets wrong: "\\r"
-alone ends a statement, ";" ends one too, a leading byte order mark is skipped, and comments
-and string literals hold no imports. Those rules live in `qmlscan`, so everything here that
-reads QML reads it the same way. `src/client/qmlpalette.cpp` documents them on the C++ side,
-where they guard which imports a delivered page may use.
+QML is read through `qmlscan`, which follows the lexer rules; `src/client/qmlpalette.cpp`
+applies the same rules on the C++ side.
 """
 
 from __future__ import annotations
@@ -33,38 +26,22 @@ ANY = "software"
 
 VALUES = (ACCELERATED, ANY)
 
-# Modules whose visual types need the accelerated pipeline. Importing one is not proof that a
-# page uses it, so this errs towards the notice. A page that imports QtQuick3D and draws no
-# 3D is rare, and a page that draws 3D and shows nothing is the failure being prevented.
+# Modules whose visual types need the accelerated pipeline. An import counts, erring towards
+# the notice.
 ACCELERATED_IMPORTS = frozenset({
     "QtQuick3D",
     "QtQuick.Effects",
     "QtQuick.Particles",
 })
 
-# Types that need it while living in a module that does not, so an import scan alone misses
-# them. Kept short. A type belongs here only once
-# tests/graphics/tst_softwarebackend.cpp has rendered it under the raster adaptation and
-# counted no pixels.
-#
-# ShaderEffect is the reason this list exists at all. It draws nothing there AND says
-# nothing: QQuickShaderEffectPrivate::handleUpdatePaintNode returns early because the
-# raster adaptation supplies no shader effect manager, so it never reaches the "No shader
-# effect node" warning. The runtime net cannot see it, which leaves this scan as the only
-# thing that can.
+# Types that need it from modules that do not, so an import scan misses them. A type is
+# listed only after tests/graphics/tst_softwarebackend.cpp rendered it under the raster
+# adaptation with no pixels. ShaderEffect draws nothing and warns nothing there
+# (QQuickShaderEffectPrivate::handleUpdatePaintNode returns early), so only this scan sees
+# it.
 ACCELERATED_TYPES = frozenset({
     "ShaderEffect",
 })
-
-
-def _statements(body: str) -> List[str]:
-    """Split the way the lexer ends a statement: at a line terminator and at a semicolon."""
-    statements: List[str] = []
-    for chunk in body.replace(";", "\n").split("\n"):
-        text = chunk.strip()
-        if text:
-            statements.append(text)
-    return statements
 
 
 def _is_identifier_character(character: str) -> bool:
@@ -85,24 +62,10 @@ def _mentions_word(body: str, word: str) -> bool:
         start = found + 1
 
 
-def _imported_modules(body: str) -> List[str]:
-    modules: List[str] = []
-    for statement in _statements(body):
-        if not statement.startswith("import"):
-            continue
-        rest = statement[len("import"):]
-        if rest and _is_identifier_character(rest[0]):
-            continue  # "importer", not the keyword
-        parts = rest.split()
-        if parts:
-            modules.append(parts[0])
-    return modules
-
-
 def scan_source(source: str) -> bool:
     """True when this QML needs the accelerated pipeline."""
     body = qmlscan.stripped(source)
-    for module in _imported_modules(body):
+    for module in qmlscan.imported_modules(body):
         if module in ACCELERATED_IMPORTS:
             return True
     for name in ACCELERATED_TYPES:
@@ -111,19 +74,16 @@ def scan_source(source: str) -> bool:
     return False
 
 
-#: Where a resolved requirement is stashed on a route. Leading underscore because the build
-#: derives it. Nobody writes it in synqt.yaml.
+#: Where a resolved requirement is stored on a route. Derived by the build, never written.
 RESOLVED_KEY = "_graphics"
 
 
 def resolve(config: Dict[str, Any],
             project_dir: os.PathLike[str] | str) -> Tuple[Dict[str, Any], List[str]]:
-    """A copy of config whose routes carry their resolved requirement, plus what the scan
-    wants to say about how it got there.
+    """A copy of config whose routes carry their resolved requirement, plus the scan's notes.
 
-    Called once, before anything renders, so the client's route table and the edge's page
-    list are generated from one decision rather than two. Mirrors
-    `appmodel.with_auth_connect_points`, which expands the topology the same way.
+    Called once before rendering, so the client route table and the edge page list agree.
+    Mirrors `appmodel.with_auth_connect_points`.
     """
     root = Path(project_dir)
     _, edge_dir = route_dirs(config, project_dir)
@@ -143,10 +103,7 @@ def resolve(config: Dict[str, Any],
         return annotated
 
     top = config.get("routes")
-    # A client entity may hold its own table (appmodel.routes_for), and each one resolves
-    # its views against its own folder. Two clients naming Home.qml name two files, and
-    # scanning both against one directory would report the wrong requirement for one of
-    # them.
+    # Each client resolves its views against its own folder.
     own = [entity for entity in appmodel.entities(config)
            if appmodel.is_client(entity) and isinstance(entity.get("routes"), list)]
     if not isinstance(top, list) and not own:
@@ -173,12 +130,7 @@ def resolve(config: Dict[str, Any],
 
 def route_dirs(config: Dict[str, Any],
                 project_dir: os.PathLike[str] | str) -> Tuple[Optional[Path], Optional[Path]]:
-    """The two folders a route can name a file in. The client's, and the edge's.
-
-    A route names a view the client compiles in or a page the edge delivers, and each of
-    those sits in its own entity's folder, so where to look is a question about the
-    topology rather than about the route.
-    """
+    """The two folders a route can name a file in: the client's and the edge's."""
     root = Path(project_dir)
     client = appmodel.client_entity(config)
     edges = [entity for entity in appmodel.entities(config) if appmodel.is_edge(entity)]
@@ -194,8 +146,9 @@ def declared(route: Dict[str, Any]) -> Optional[str]:
 
 def route_file(route: Dict[str, Any], client_dir: Optional[Path],
                edge_dir: Optional[Path]) -> Optional[Path]:
-    """Where the route's QML lives. The client's compiled-in view, or the page the edge
-    delivers. None for a route that names neither, or whose entity is not there."""
+    """Where the route QML lives: the client view or the edge-delivered page. None when neither
+    exists.
+    """
     view = route.get("view")
     if isinstance(view, str) and view.strip():
         return client_dir / view.strip() if client_dir is not None else None
@@ -209,10 +162,8 @@ def route_requirement(route: Dict[str, Any], client_dir: Optional[Path],
                       edge_dir: Optional[Path]) -> Tuple[str, List[str]]:
     """This route's requirement and any notes on how it was reached.
 
-    A declaration always wins, including over a scan that disagrees with it, because the
-    author can see something the scan cannot. A Loader that pulls in a 3D scene, or a type
-    the list does not know. A disagreement still gets a warning, since one of the two is
-    wrong and only the author can say which.
+    A declaration always wins over the scan (a Loader pulling in a 3D scene is invisible to
+    it). A disagreement is reported as a warning.
     """
     path = route.get("path", "")
     messages: List[str] = []

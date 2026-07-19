@@ -3,18 +3,11 @@
 
 """Read QML the way the QML lexer does.
 
-Several parts of the tooling look at QML source without compiling it: the graphics scan
-asks which modules a route imports, and the contract inference asks what an owner
-publishes. A line-based scan gets all of them wrong in the same ways, so the rules live
-here once: a lone "\\r" ends a statement, ";" ends one too, a leading byte order mark is
-skipped, and comments and string literals hold neither imports nor calls.
-
-`src/client/qmlpalette.cpp` states the same rules on the C++ side, where they decide which
-imports a delivered page may use. Two implementations, one behaviour, because that one is
-a security control on a page the framework did not write and this one is not.
-
-There is no attempt at a parser here. Callers match shapes in the token stream, which is
-enough to say what a file mentions, and it is a heuristic.
+The graphics scan and the contract inference read QML without compiling it. The rules live
+here once: a lone "\\r" ends a statement, so does ";", a leading byte order mark is skipped,
+and comments and string literals hold neither imports nor calls. `src/client/qmlpalette.cpp`
+applies the same rules on the C++ side, where they are a security control. This is only a
+token scanner.
 """
 
 from __future__ import annotations
@@ -26,26 +19,21 @@ _BYTE_ORDER_MARK = "\ufeff"
 
 _QUOTES = ("\"", "'", "`")
 
-#: Every kind `tokenize` emits. "punct" is one character. An operator spelled with two
-#: (`==`, `=>`) arrives as two tokens, which no caller here needs to tell apart.
+#: Every kind `tokenize` emits. "punct" is one character; `==` is two tokens.
 KINDS = ("ident", "punct", "string", "int", "real", "bool", "null")
 
 _KEYWORD_KINDS = {"true": "bool", "false": "bool", "null": "null"}
 
-#: What each literal kind is called in a `.syn` contract. Anything not a literal, `null`
-#: included, is `var`: the token says nothing about the type, and guessing is worse than
-#: the escape hatch.
+#: The `.syn` type of each literal kind. Anything else, `null` included, is `var`.
 _SYN_TYPES = {"string": "string", "int": "int", "real": "real", "bool": "bool"}
 
 
 @dataclasses.dataclass(frozen=True)
 class Token:
-    """One token, with the line it started on so a finding can point at it.
+    """One token and the line it started on.
 
-    `text` is the source slice, so a string keeps its quotes and its escapes. A caller
-    that wants the value unquotes it itself rather than being handed a guess at one.
-    `offset` is where it starts in the source that was tokenized, which is what lets a
-    caller cut a run of tokens back out of the file exactly as it was written.
+    `text` is the source slice, quotes and escapes included. `offset` is its start in the
+    source, so a run of tokens can be cut back out exactly.
     """
 
     kind: str
@@ -55,8 +43,9 @@ class Token:
 
 
 def stripped(source: str) -> str:
-    """The source with comments gone, string literals emptied, every line terminator the
-    lexer honors written as "\\n", and the byte order mark dropped."""
+    """The source with comments removed, string literals emptied, every line terminator as
+    "\\n", and the byte order mark dropped.
+    """
     body: List[str] = []
     index = 0
     size = len(source)
@@ -89,6 +78,25 @@ def stripped(source: str) -> str:
     return "".join(body)
 
 
+def imported_modules(body: str) -> List[str]:
+    """The module URIs a file imports, in order, from source `stripped` already read.
+    Statements end at a line terminator or a semicolon. Quoted directory imports are not
+    modules.
+    """
+    modules: List[str] = []
+    for chunk in body.replace(";", "\n").split("\n"):
+        statement = chunk.strip()
+        if not statement.startswith("import"):
+            continue
+        rest = statement[len("import"):]
+        if rest and is_identifier_character(rest[0]):
+            continue  # "importer", not the keyword
+        parts = rest.split()
+        if parts and not parts[0].startswith(_QUOTES):
+            modules.append(parts[0])
+    return modules
+
+
 def is_identifier_character(character: str) -> bool:
     return character.isalnum() or character in ("_", "$")
 
@@ -99,11 +107,8 @@ def literal_type(token: Token) -> str:
 
 
 def root_type(source: str) -> Optional[str]:
-    """The type of a QML file's root object, or None when there is no object in it.
-
-    The name in front of the first brace, which is the root by construction: imports and
-    pragmas open no block, and every object in the file after that one is inside it. A
-    dotted name (`QtQuick.Item`) comes back whole, because that is what the file says.
+    """The type of a QML file root object, or None. The name before the first brace; a dotted
+    name (`QtQuick.Item`) comes back whole.
     """
     tokens = tokenize(source)
     for index, token in enumerate(tokens):
@@ -123,11 +128,7 @@ def root_type(source: str) -> Optional[str]:
 
 
 def tokenize(source: str) -> List[Token]:
-    """The token stream, with the lexer's comment, terminator and byte order mark rules.
-
-    Comments and the insides of string literals produce no tokens, so a call written in a
-    comment is not a call and a module named in a string is not an import.
-    """
+    """The token stream. Comments and string contents produce no tokens."""
     tokens: List[Token] = []
     index = 0
     line = 1

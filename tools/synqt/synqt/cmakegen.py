@@ -1,21 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Render the app's multi-binary build from the declared topology.
+"""Render the app multi-binary build from the declared topology.
 
-Two files: the project's root ``CMakeLists.txt``, which is four lines and written once,
-and ``generated/synqt.cmake``, which holds every target and is rewritten on every build.
-
-Every entity is a CMake target that links the matching SynQt runtime library
-(``SynQtClient`` for the client, and one of ``SynQtService`` / ``SynQtIdentity`` /
-``SynQtEdge`` for a service, per :func:`appmodel.service_libraries`) and wires in its
-contracts through ``synqt_add_contract``: the client generates typed Replicas, an owner
-generates the Source helper. Services are built inside ``if(NOT EMSCRIPTEN)``, so the
-WebAssembly configure never sees a target that links HttpServer, NetworkAuth or Sql.
-
-Deterministic string rendering, unit-testable without a compiler. What the topology says
-is read through :mod:`synqt.appmodel`. The actual compilation runs through the CMake
-presets in :mod:`synqt.build`.
+Two files: the project root ``CMakeLists.txt`` (four lines, written once) and
+``generated/synqt.cmake`` (every target, rewritten on every build). Each entity is a target
+linking its SynQt runtime library (``SynQtClient``, or the one
+:func:`appmodel.service_libraries` names) and its contracts through ``synqt_add_contract``.
+Services are inside ``if(NOT EMSCRIPTEN)``. Rendering is deterministic and needs no
+compiler; compilation runs through the presets in :mod:`synqt.build`.
 """
 
 from __future__ import annotations
@@ -24,27 +17,19 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import appmodel, clientbuild, toolchain
+from . import appmodel, clientbuild, clientmodules, toolchain
 
 _HEADER_CMAKE = ("# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                  "# SPDX-License-Identifier: Apache-2.0\n")
 
 
 def render_project_cmakelists(config: Dict[str, Any]) -> str:
-    """The project's own ``CMakeLists.txt``, at the root beside ``synqt.yaml``.
+    """The project ``CMakeLists.txt``, at the root beside ``synqt.yaml``.
 
-    Four lines that hand the whole build to the generated tree, and the reason they are at
-    the root rather than inside it is qmlcachegen. It names each compiled QML file after
-    that file's path *relative to the directory of the CMakeLists that declared the module*
-    (Qt6QmlMacros.cmake, `file(RELATIVE_PATH ...)`), so a module declared from
-    ``generated/`` over sources in ``client/app/`` compiles into
-    ``.rcc/qmlcache/app_../client/app/Main_qml.cpp``. That path is legal on Unix and
-    unusable on Windows, where a name ending in dots (``app_..``) is not a directory
-    anything can create. Every Windows build of every project died in ninja's mkdir. Rooted
-    here, the same file is ``client/app/Main.qml``, with no ``..`` to encode.
-
-    Written once and never overwritten, because it is the one CMake file in the project a
-    person may extend. Add a target below the include and it survives every later build.
+    Four lines that include the generated tree. The module must be declared from the root,
+    because qmlcachegen names each compiled file after its path relative to that directory,
+    and a ``..`` component (``app_../client``) is not a directory Windows can create.
+    Written once and never overwritten, so targets added below the include survive.
     """
     name = str((config.get("project") or {}).get("name") or "app")
     return "\n".join([
@@ -52,15 +37,13 @@ def render_project_cmakelists(config: Dict[str, Any]) -> str:
         "",
         f"# {name}, built by SynQt.",
         "#",
-        "# Everything `synqt build` generates lands in generated/, which this hands the",
-        "# build to. This file is yours: anything added below the include is kept.",
+        "# `synqt build` writes everything it generates into generated/, included below. This",
+        "# file is yours: anything added after the include is kept.",
         "",
         "cmake_minimum_required(VERSION 3.21)",
         "",
-        "# Here rather than in the generated file below it: CMake asks for a literal,",
-        "# direct project() in the top-level file and warns when it finds one only inside",
-        "# an include. It is also the one line here worth editing, if this build ever grows",
-        "# a language beyond C++.",
+        "# project() is here because CMake wants it directly in the top-level file. Edit it if",
+        "# the build needs a language beyond C++.",
         f"project({name} LANGUAGES CXX)",
         "",
         'include("${CMAKE_CURRENT_LIST_DIR}/generated/synqt.cmake")',
@@ -71,13 +54,9 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                            project_dir: os.PathLike[str] | str | None = None) -> str:
     """The multi-binary build for the whole topology, as ``generated/synqt.cmake``.
 
-    Included by the project's root ``CMakeLists.txt`` (:func:`render_project_cmakelists`),
-    so every path a target names is rooted at the project rather than at this file, and no
-    source ends up addressed through a ``..`` the toolchain has to encode into a filename.
-
-    `project_dir` is the app the CMake is being written for. Given it, the client's QML
-    module gets every QML file under the client entity's directory, not only the views
-    the routes name, so a view's helper components and singletons are in the module too.
+    Included by the root ``CMakeLists.txt`` (:func:`render_project_cmakelists`), so target
+    paths are rooted at the project. Given `project_dir`, the client QML module gets every
+    QML file in the client directory, not only the route views.
     """
     project = config.get("project", {})
     name = project.get("name", "app")
@@ -85,27 +64,26 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
     services = [e for e in appmodel.entities(config) if appmodel.is_service(e)]
 
     lines: List[str] = [_HEADER_CMAKE, "",
-                        "# Generated by `synqt build` into the project's generated/ tree.",
-                        "# Do not edit: it is rewritten from synqt.yaml on every build. The",
-                        "# sources it names are one directory up, in the entity folders,",
-                        "# where their authors wrote them.",
+                        "# Generated by `synqt build` into generated/. Do not edit: it is",
+                        "# rewritten from synqt.yaml on every build. The sources it names are in",
+                        "# the entity folders one level up.",
                         "",
                         '# project() is in the root CMakeLists.txt that includes this,',
                         '# because CMake wants that call literal and in the top-level file.',
                         'set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")', "",
-                        "# Where this file is (<project>/generated) and the project root",
-                        "# above it. Taken from CMAKE_CURRENT_LIST_DIR rather than from the",
-                        "# source directory, because the root CMakeLists includes this file",
-                        "# rather than adding it: the source directory is the project.",
+                        "# This directory (<project>/generated) and the project root above it.",
+                        "# Taken from CMAKE_CURRENT_LIST_DIR, since the root CMakeLists includes",
+                        "# this file.",
                         'set(SYNQT_GENERATED "${CMAKE_CURRENT_LIST_DIR}")',
                         'get_filename_component(SYNQT_APP_ROOT "${SYNQT_GENERATED}/.."',
                         "                       ABSOLUTE)", "",
-                        "# The SynQt framework source tree (src/ runtime libraries + cmake/ helpers).",
-                        "# Baked at scaffold time; override with -DSYNQT_ROOT=... to point at another checkout.",
+                        "# The SynQt framework sources (src/ runtime libraries, cmake/ helpers).",
+                        "# Set at scaffold time; override with -DSYNQT_ROOT=... to use another",
+                        "# checkout.",
                         f'set(SYNQT_ROOT "{Path(synqt_root).as_posix()}" '
                         'CACHE PATH "SynQt framework source root")',
-                        "# The language version, the warnings that stop the build, and what release is",
-                        "# allowed to strip: the same file the framework compiles itself with.",
+                        "# The language version, the warnings that fail the build, and what",
+                        "# release strips: the same settings the framework uses.",
                         'include("${SYNQT_ROOT}/cmake/SynQtBuildFlags.cmake")',
                         'include("${SYNQT_ROOT}/cmake/SynQtContracts.cmake")', "",
                         f"find_package(Qt6 {qt_version} REQUIRED COMPONENTS "
@@ -116,8 +94,7 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                if appmodel.is_client(entity)]
     if clients:
         root = Path(project_dir) if project_dir is not None else None
-        # Once, however many clients there are. The runtime library is one target and
-        # CMake refuses the same source directory added twice under one binary directory.
+        # Once, however many clients: CMake refuses one source directory added twice.
         lines += ["# The client runtime, shared by every client entity below.",
                   'add_subdirectory("${SYNQT_ROOT}/src/client"'
                   ' "${CMAKE_BINARY_DIR}/SynQtClient")',
@@ -134,9 +111,8 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                   "if(NOT EMSCRIPTEN)",
                   f"    find_package(Qt6 {qt_version} REQUIRED COMPONENTS Sql)"]
         lines += _runtime_library_cmake(config, services)
-        # A blueprint/provider entity also links the provider library. SynQtService already
-        # pulls SynQtProviders in (it PUBLIC-links it), so guard on the target to avoid
-        # claiming the same binary directory twice.
+        # A provider entity also links the provider library. SynQtService already links it
+        # PUBLIC, so guard on the target.
         if any(appmodel.entity_type(e) in appmodel.TYPE_HELPERS or e.get("provider")
                for e in services):
             lines += ['    if(NOT TARGET SynQtProviders)',
@@ -157,12 +133,9 @@ def _runtime_library_cmake(config: Dict[str, Any],
                            services: List[Dict[str, Any]]) -> List[str]:
     """Add only the SynQt runtime libraries this topology needs.
 
-    Not an optimization. Qt HTTP Server and Qt Network Authorization are GPLv3-only, so a
-    project with no web edge and no auth entity must neither link them nor require them to
-    be installed. Adding src/edge unconditionally would do both, and its
-    THIRD-PARTY-LICENSES would be wrong about it. Each directory guards its own
-    dependencies with `if(NOT TARGET ...)`, so listing several here is safe and the order
-    only decides which scope creates a target.
+    Qt HTTP Server and Qt Network Authorization are GPLv3-only, so a project without a web
+    edge or auth entity must not require them. Each directory guards its dependencies with
+    `if(NOT TARGET ...)`.
     """
     needed = {library for entity in services
               for library in appmodel.service_libraries(config, entity)}
@@ -181,18 +154,12 @@ def _runtime_library_cmake(config: Dict[str, Any],
 
 def _tests_cmake(config: Dict[str, Any], qt_version: str,
                  project_dir: Optional[Path]) -> List[str]:
-    """Wire in the application's own test target, when it has tests to build.
+    """Wire in the application test target, when it has tests.
 
-    `enable_testing()` is unconditional. Without it there is no CTestTestfile.cmake and
-    `synqt test` cannot tell a project with no tests from a project that was never
-    configured for them. With it, no tests is a real zero.
-
-    The target itself is defined in its own directory rather than here, and that is not
-    tidiness. repc emits `moc_rep_<contract>_source.cpp` into the *directory's* binary dir,
-    not the target's, so a second target in this directory generating the same contract at
-    the same role collides with the first: "Files to be generated by multiple different
-    commands". The test target owns every contract at ROLE source, and so does each service
-    entity, so the two cannot share a directory.
+    `enable_testing()` is unconditional, so `synqt test` can tell no tests from not
+    configured. The target lives in its own directory because repc writes
+    `moc_rep_<contract>_source.cpp` into the directory's binary dir, and services also
+    generate every contract at role source.
     """
     lines = ["", "enable_testing()"]
     if not appmodel.test_qml_files(project_dir):
@@ -200,8 +167,8 @@ def _tests_cmake(config: Dict[str, Any], qt_version: str,
 
     return lines + [
         "",
-        "# The application's own tests: QML, driven through the SynQt.Test harness. Host",
-        "# only, because a test runs where the entity runs, never in a browser.",
+        "# The application tests: QML, run through the SynQt.Test harness. Host only: a test runs",
+        "# where the entity runs.",
         "if(NOT EMSCRIPTEN)",
         f"    find_package(Qt6 {qt_version} REQUIRED COMPONENTS QuickTest)",
         # Its own directory under generated/, for the repc reason spelled out above.
@@ -211,33 +178,28 @@ def _tests_cmake(config: Dict[str, Any], qt_version: str,
     ]
 
 
-#: The application test executable the generated `generated/tests/CMakeLists.txt` defines.
-#: Named here rather than spelled twice, because `synqt test` builds it before it runs it
-#: and a runner asking for a target the writer no longer emits fails as "no such target".
+#: The application test executable `generated/tests/CMakeLists.txt` defines; `synqt test`
+#: builds it by this name.
 TESTS_TARGET = "app_tests"
 
 
 def render_tests_cmakelists(config: Dict[str, Any]) -> str:
-    """The generated `generated/tests/CMakeLists.txt` defining the app test target.
-
-    It reads `SYNQT_APP_ROOT` from the parent scope for the paths that are in the source
-    tree (the contracts and the tests themselves), because its own directory holds nothing
-    but generated files.
+    """The generated `generated/tests/CMakeLists.txt` defining the app test target. Source-tree
+    paths come from `SYNQT_APP_ROOT` in the parent scope.
     """
     contracts = appmodel.contract_paths(config)
     lines = [_HEADER_CMAKE, "",
              "# Generated by `synqt build`. Do not edit; it is rewritten from synqt.yaml.",
              "#",
-             "# A directory of its own so repc's per-directory output does not collide with",
-             "# the service entities generating the same contracts at the same role.",
+             "# In its own directory so repc's per-directory output does not collide with the",
+             "# service entities, which generate the same contracts at the same role.",
              "",
              "if(NOT TARGET SynQtTesting)",
              '    add_subdirectory("${SYNQT_ROOT}/src/testing" "${CMAKE_BINARY_DIR}/SynQtTesting")',
              "endif()",
              "",
              f"qt_add_executable({TESTS_TARGET} tests_main.cpp)"]
-    # Every contract's Source half, because a test drives an owner and any connect point in
-    # the project may be the one under test.
+    # Every contract's Source half: any point may be under test.
     forwarding = appmodel.session_forwarding_contracts(config)
     for contract, relative in contracts.items():
         carries = " FORWARDS_SESSION" if contract in forwarding else ""
@@ -245,16 +207,15 @@ def render_tests_cmakelists(config: Dict[str, Any]) -> str:
                      f'SYN "${{SYNQT_APP_ROOT}}/{relative}")')
     lines += [
         "",
-        "# Qt Quick Test discovers the tst_*.qml files by directory at run time, so adding",
-        "# a test file needs no rebuild of anything but the list ctest reports.",
+        "# Qt Quick Test finds the tst_*.qml files by directory at run time, so a new test file",
+        "# needs no rebuild.",
         f"target_compile_definitions({TESTS_TARGET} PRIVATE",
         '    QUICK_TEST_SOURCE_DIR="${SYNQT_APP_ROOT}/tests")',
         f"target_link_libraries({TESTS_TARGET} PRIVATE",
         "    SynQtTesting Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickTest",
         "    Qt6::RemoteObjects)",
         "",
-        "# offscreen: a slot draws nothing, and a test target that needed a display would",
-        "# not run in CI.",
+        "# offscreen: tests draw nothing and must run in CI without a display.",
         f"add_test(NAME app-tests COMMAND {TESTS_TARGET} -platform offscreen)",
     ]
     return "\n".join(lines) + "\n"
@@ -265,24 +226,17 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
     name = client.get("name", "client")
     consumed = appmodel.consumed_by(config, name)
     contracts = appmodel.contracts_of(consumed)
-    # The window, every view a route names, and every other QML file the client entity
-    # holds. A file outside the module is not in the resource system, so neither the URL
-    # the route table carries nor a view's own `Card {}` would resolve to anything.
+    # The window, every route view, and every other client QML file, so views and their
+    # components are in the resource system.
     views = appmodel.client_qml_files(config, client_dir, client)
     folder = appmodel.entity_dir(client)
-    # From the mirror under generated/, not from the entity folder. That is the copy whose
-    # root objects are loadable (synqt.qmlrewrite). It changes nothing about where a view
-    # ends up in the resource system, because every file below is given an explicit
-    # QT_RESOURCE_ALIAS of its bare name, which is what the route table and
-    # loadFromModule() address it by.
+    # From the mirror under generated/, whose root objects load (synqt.qmlrewrite). Each
+    # file gets an explicit QT_RESOURCE_ALIAS, so its resource path is unchanged.
     qml_files = ['"${SYNQT_GENERATED}/%s/%s"' % (folder, view) for view in views]
     lines = [f"# Client '{name}' (browser WASM and native desktop, from one QML)"]
-    # Each file is listed by absolute path, and each has to land where it sits in the
-    # entity directory: the module root is where loadFromModule() looks for Main and
-    # where the compiled route table points (qrc:/qt/qml/<Uri>/<view>). Without an alias
-    # the entity directory would become part of the resource path and neither would
-    # resolve. A `pragma Singleton` file is also marked as one, or the module would
-    # register it as an ordinary type and a view reading `Theme.color` would not compile.
+    # Each file by absolute path, aliased to its place in the entity directory, where
+    # loadFromModule() and the route table (qrc:/qt/qml/<Uri>/<view>) look. `pragma Shared`
+    # files are marked QT_QML_SINGLETON_TYPE.
     for view, qml_file in zip(views, qml_files):
         singleton = (client_dir is not None
                      and appmodel.declares_singleton(client_dir / view))
@@ -303,10 +257,8 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
     forwarding = appmodel.session_forwarding_contracts(config)
     for contract in contracts:
         carries = " FORWARDS_SESSION" if contract in forwarding else ""
-        # A framework contract (the monitoring console's) ships with the runtime rather than
-        # with the project, so the compiler is pointed at the checkout. No project carries
-        # an `export:` for it, which is what keeps the console independent of the topology
-        # it watches.
+        # A framework contract (the console's) ships with the runtime, so the compiler reads
+        # it from the checkout.
         framework = appmodel.framework_contract_path(contract)
         source = (f"${{SYNQT_ROOT}}/{framework}" if framework
                   else f"${{SYNQT_APP_ROOT}}/{paths[contract]}")
@@ -315,19 +267,27 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
     lines += [f'target_compile_definitions({name} PRIVATE SYNQT_EDGE_URL="${{SYNQT_EDGE_URL}}")',
               f"target_link_libraries({name} PRIVATE",
               "    SynQtClient Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2",
-              "    Qt6::Network Qt6::RemoteObjects Qt6::WebSockets)",
-              "if(EMSCRIPTEN)",
-              "    # Read window.location through Embind (no eval) and drop the eval-based",
-              "    # Emscripten runtime, so the edge's strict CSP (no 'unsafe-eval') holds.",
+              "    Qt6::Network Qt6::RemoteObjects Qt6::WebSockets)"]
+    # Modules the client QML imports beyond the base (clientmodules.py). The WebAssembly
+    # build links a QML plugin only when its package was found.
+    add_ons = clientmodules.for_client(client_dir, views)
+    if add_ons:
+        qt_version = config.get("project", {}).get("qt_version", toolchain.QT_VERSION)
+        lines += [f"# Imported by this client's QML: {', '.join(a.uri for a in add_ons)}",
+                  f"find_package(Qt6 {qt_version} REQUIRED COMPONENTS "
+                  + " ".join(add_on.component for add_on in add_ons) + ")",
+                  f"target_link_libraries({name} PRIVATE "
+                  + " ".join(add_on.target for add_on in add_ons) + ")"]
+    lines += ["if(EMSCRIPTEN)",
+              "    # Read window.location through Embind and drop the eval-based Emscripten",
+              "    # runtime, for the edge CSP (no 'unsafe-eval').",
               f'    target_link_options({name} PRIVATE "-lembind" "-sDYNAMIC_EXECUTION=0")']
     if clientbuild.client_asyncify(config):
         lines += [
-            "    # build.client_asyncify: link with asyncify, so the main thread suspends",
-            "    # inside processEvents() and any browser event drives a posted-event sweep,",
-            "    # instead of the single zero-delay wakeup callback being the only one that",
-            "    # can. -Os is Emscripten's own recommendation for asyncify, and the stack is",
-            "    # raised from the 4 KB default because the suspend point sits under the whole",
-            "    # Qt event-dispatch stack.",
+            "    # build.client_asyncify: with asyncify the main thread suspends in",
+            "    # processEvents(), so any browser event sweeps the posted events. -Os is",
+            "    # Emscripten's recommendation for asyncify; the stack is raised from 4 KB",
+            "    # because the suspend point sits under Qt's event dispatch.",
             f'    target_link_options({name} PRIVATE',
             '        "-sASYNCIFY" "-sASYNCIFY_STACK_SIZE=131072" "-Os")']
     lines += ["endif()"]
@@ -339,17 +299,9 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
 def _linux_rpath_cmake(name: str) -> List[str]:
     """Let the Linux desktop client find the Qt that `--deploy` puts beside it.
 
-    Without this the only rpath is the absolute path of the kit it was built against, so the
-    deployed binary run directly (rather than through the generated launcher, which sets
-    LD_LIBRARY_PATH and therefore wins over any rpath) silently loads the build machine's Qt
-    and looks fine there, while on any other machine it finds nothing at all.
-
-    BUILD_RPATH rather than INSTALL_RPATH, because nothing here runs `cmake --install`: the
-    build copies the binary out of the build tree (build.py `_install_binary`), so the install
-    rpath would never be applied and this would be a setting that reads correct and does
-    nothing. CMake appends this after the kit path it derives from the link line, which is the
-    right order either way. On the build machine the kit answers first and is the same Qt, and
-    everywhere else it does not exist and `$ORIGIN/lib` does.
+    Adds `$ORIGIN/lib` to BUILD_RPATH, after the kit path CMake derives. BUILD_RPATH,
+    because the binary is copied out of the build tree (build.py `_install_binary`) and
+    never installed.
     """
     return ["if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)",
             f"    set_target_properties({name} PROPERTIES",
@@ -358,19 +310,11 @@ def _linux_rpath_cmake(name: str) -> List[str]:
 
 
 def _macos_bundle_cmake(config: Dict[str, Any], name: str) -> List[str]:
-    """Make the macOS desktop client an .app bundle rather than a bare executable.
+    """Make the macOS desktop client an .app bundle.
 
-    Not cosmetic, and not the deployment step docs/desktop.md leaves to the
-    developer. `macdeployqt` takes an .app and nothing else, so a bare Mach-O makes that
-    documented hand-off impossible to perform at all. The developer would have to rewrite the
-    generated CMake before they could run the command DEPLOY.txt tells them to run. A bare
-    executable is also not an app in the sense macOS means it (no Info.plist, so no name in the
-    menu bar, no icon slot, and nothing to sign or notarize later).
-
-    The identifier is a cache variable rather than a config key. docs/desktop.md
-    places bundle identifiers with signing in the deployment step, so this stays out of
-    synqt.yaml. A CMake cache entry is the escape hatch for someone who needs to set it before
-    they sign, and it defaults to a placeholder that is obviously meant to be replaced.
+    `macdeployqt` accepts only an .app, and a bundle has the Info.plist that signing and
+    notarization need. The bundle identifier is a CMake cache variable with a placeholder
+    default, since docs/desktop.md leaves it to the deployment step.
     """
     project = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
     app = project.get("name") or name
@@ -389,14 +333,11 @@ def _macos_bundle_cmake(config: Dict[str, Any], name: str) -> List[str]:
 
 def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     name = entity.get("name")
-    # Framework connect points are filtered out on both sides. Their contracts live in
-    # the runtime libraries and are compiled into them, so an app has no
-    # `Identity.syn` of its own to point a synqt_add_contract at. That is what makes
-    # promoting identity to its own entity a one-line change to synqt.yaml and nothing else.
+    # Framework points are skipped on both sides; their contracts are compiled into the
+    # runtime libraries.
     owned = appmodel.app_points(appmodel.owned_by(config, name))
     consumed = appmodel.app_points(appmodel.mesh_consumed(config, name))
-    # SynQtService, SynQtIdentity or SynQtEdge, by what this entity is. The same call
-    # decides what its THIRD-PARTY-LICENSES says it links (licenses.py).
+    # SynQtService, SynQtIdentity or SynQtEdge. licenses.py reads the same call.
     libs = list(appmodel.service_libraries(config, entity))
     if appmodel.entity_type(entity) in appmodel.TYPE_HELPERS or entity.get("provider"):
         libs.append("SynQtProviders")
@@ -404,17 +345,15 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     paths = appmodel.contract_paths(config)
     lines = ["", f"    qt_add_executable({name} "
              f'"${{SYNQT_GENERATED}}/{folder}/main.cpp")']
-    # Whether a contract's slots carry a forwarded session is the topology's answer, not the
-    # contract's, and both sides of a link read it from here so they cannot disagree.
+    # Session forwarding is decided by the topology; both sides read it here.
     forwarding = appmodel.session_forwarding_contracts(config)
     for role, points in (("source", owned), ("replica", consumed)):
         for contract in appmodel.contracts_of(points):
             carries = " FORWARDS_SESSION" if contract in forwarding else ""
             lines.append(f"    synqt_add_contract({name} ROLE {role}{carries} "
                          f'SYN "${{SYNQT_APP_ROOT}}/{paths[contract]}")')
-    # Qt6::Gui for the edge because its main runs a QGuiApplication. A service runs a
-    # QCoreApplication and gets Gui only if it owns a connect point, where it arrives with
-    # SynQtContract (the published model is a QStandardItemModel).
+    # Qt6::Gui for the edge (QGuiApplication). A service gets Gui only through SynQtContract
+    # when it owns a point (QStandardItemModel).
     qt_modules = "Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml" if appmodel.is_edge(entity) \
         else "Qt6::Core Qt6::Network Qt6::Qml"
     link = " ".join(libs)
@@ -428,17 +367,10 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
 def _custom_provider_cmake(entity: Dict[str, Any], name: str) -> List[str]:
     """Compile `providers/custom/` into an entity that selects a `custom:` provider.
 
-    A custom provider is only reachable once its registration macro has run, and that macro
-    runs because the file is linked into the entity. Nothing else picks these files up:
-    this file rewrites the root CMakeLists on every build, so a hand-added `target_sources`
-    would not survive one. Globbing is what makes `synqt add provider` complete, since what it writes
-    is compiled with no further step, and CONFIGURE_DEPENDS means a provider added later is
-    picked up by the next build rather than needing CMake re-run by hand.
-
-    Every file in the directory goes into every entity that selects a custom provider. A
-    registration only publishes a name under `custom:`, and a family factory looks up the
-    one name that entity's config selected, so an entity carrying a registration it does not
-    use has a symbol it never reaches, not a provider it did not ask for.
+    A registration macro runs only if its file is linked. Globbed with CONFIGURE_DEPENDS, so
+    a provider added by `synqt add provider` builds with no further step. Every file goes
+    into every entity that selects a custom provider; each looks up only its configured
+    name.
     """
     provider = entity.get("provider") or {}
     if not str(provider.get("name", "")).startswith("custom:"):

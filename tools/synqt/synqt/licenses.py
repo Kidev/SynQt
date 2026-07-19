@@ -16,9 +16,11 @@ ones ``cmakegen`` links. A module cannot appear in one and not the other.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import appmodel
+from . import appmodel, clientmodules
 
 # Qt module -> its open-source license. LGPLv3 modules keep an entity LGPLv3; a GPLv3-only
 # module makes its entity GPLv3.
@@ -60,18 +62,28 @@ _THIRD_PARTY = {
 
 
 def entity_modules(entity: Dict[str, Any], target: str = "wasm",
-                   config: Optional[Dict[str, Any]] = None) -> List[str]:
+                   config: Optional[Dict[str, Any]] = None,
+                   project_dir: Optional[os.PathLike[str] | str] = None) -> List[str]:
     """The Qt modules an entity links, from its `type:`, its provider, and what it runs.
 
     `config` is what tells an auth entity apart from any other service, since nothing on
     the entity itself says so. `identity.provider_entity` names it from the project block.
     Without it the entity is read as a plain service, which is what it is in every project
     that does not promote identity.
+
+    `project_dir` is where a client's QML is read from, for the add-ons its imports make it
+    link (clientmodules.py), which is what the build links too. Without it only the base set
+    is known.
     """
     entity_type = appmodel.entity_type(entity)
 
     if entity_type == "client":
         modules = list(CLIENT_MODULES.values())
+        if project_dir is not None:
+            client_dir = Path(project_dir) / appmodel.entity_dir(entity)
+            files = appmodel.client_qml_files(config or {}, client_dir, entity)
+            modules += [add_on.notice
+                        for add_on in clientmodules.for_client(client_dir, files)]
         # The WASM platform port is GPLv3; a native desktop build links the desktop kit.
         if target == "wasm":
             modules.append("Qt for WebAssembly platform")
@@ -137,10 +149,11 @@ def effective_license(modules: List[str], qt_license_mode: str = "open_source") 
 
 def generate(entity: Dict[str, Any], *, target: str = "wasm",
              qt_license_mode: str = "open_source",
-             config: Optional[Dict[str, Any]] = None) -> str:
+             config: Optional[Dict[str, Any]] = None,
+             project_dir: Optional[os.PathLike[str] | str] = None) -> str:
     """The THIRD-PARTY-LICENSES text for one entity/target."""
     name = entity.get("name", "entity")
-    modules = entity_modules(entity, target, config)
+    modules = entity_modules(entity, target, config, project_dir)
     third_party = entity_third_party(entity, config, target)
     effective = effective_license(modules, qt_license_mode)
 

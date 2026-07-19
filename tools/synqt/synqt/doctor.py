@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import (appmodel, clientbuild, config as configmod, licenses, toolchain,
+from . import (appmodel, clientbuild, clientmodules, config as configmod, licenses, toolchain,
                version as versionmod)
 
 QT_VERSION = toolchain.QT_VERSION
@@ -19,15 +19,12 @@ def report(project_dir: os.PathLike[str] | str,
            qt_license_mode: str = "open_source",
            profile: Optional[str] = None) -> str:
     root = Path(project_dir)
-    # The version block leads the report. A question about a build is nearly always a
-    # question about which synqt, Qt, and Emscripten produced it, so it belongs before
-    # everything else rather than buried in the toolchain section below.
+    # The version block leads the report.
     lines: List[str] = list(versionmod.version_lines())
     lines.append("")
     lines.append("synqt doctor:")
 
-    # The resolved configuration, not the base file: doctor reports on the deployment as
-    # it will run, and a profile or a SYNQT_ override is part of that.
+    # The resolved configuration, profile and SYNQT_ overrides included.
     resolved = configmod.resolve(root, profile=profile)
     config: Dict[str, Any] = resolved.config
     for source in resolved.sources:
@@ -66,7 +63,8 @@ def report(project_dir: os.PathLike[str] | str,
                      "so console.log never ships).")
 
     # Toolchain (resolved from synqt/toolchain, then a system install).
-    for line in toolchain.report(root, threads=threads).splitlines():
+    for line in toolchain.report(root, threads=threads,
+                                 add_ons=clientmodules.for_project(config, root)).splitlines():
         lines.append("  " + line)
 
     # Mesh certificates vs the topology.
@@ -93,9 +91,8 @@ def report(project_dir: os.PathLike[str] | str,
     return "\n".join(lines)
 
 
-# The Qt SQL driver plugin each SQL-backed provider loads at run time, by platform file
-# name. A provider whose plugin is absent builds and starts fine and then fails on its
-# first query, so doctor is the right place to say so.
+# The Qt SQL driver plugin each SQL provider loads at run time, by platform file name. A
+# missing plugin fails only at the first query.
 SQL_DRIVER_PLUGINS = {
     "postgres": ("QPSQL", "qsqlpsql"),
     "mysql": ("QMYSQL", "qsqlmysql"),
@@ -115,13 +112,8 @@ def _sql_driver_plugin(host_qt: Optional[str], stem: str) -> Optional[Path]:
 
 
 def _provider_dependency_lines(provider: str, host_qt: Optional[str]) -> List[str]:
-    """What this provider needs beyond synqt's own build, reported in full.
-
-    `synqt build` compiles SynQt against the client libraries it finds. It does not
-    install an engine client, and for the SQL families it does not produce the Qt SQL
-    driver plugin either. Saying "synqt build resolves it" was wrong on both counts, and
-    wrong in the direction that matters. It sends someone whose queries fail at run time
-    looking in the build for a run-time plugin problem.
+    """What this provider needs beyond synqt's own build. `synqt build` installs no engine
+    client and builds no Qt SQL driver plugin.
     """
     if provider in ("mongodb", "redis"):
         library = "the MongoDB C driver (mongo-c-driver)" if provider == "mongodb" \
@@ -139,20 +131,17 @@ def _provider_dependency_lines(provider: str, host_qt: Optional[str]) -> List[st
                      + (f" ({host_qt}/plugins/sqldrivers)" if host_qt else "")
                      + "; queries will fail at run time until it is on QT_PLUGIN_PATH.")
     elif provider == "mysql":
-        # Not "present": on a stock kit this file IS the unusable prebuilt
-        # one, and reporting it as present would be the reassuring half of the truth.
+        # On a stock kit this file is the unusable prebuilt plugin; do not report it as
+        # present.
         lines.append(f"{driver} plugin: a plugin file is in the Qt kit ({plugin}), which "
                      "settles nothing on its own; what matters is the client it was "
                      "built against.")
     else:
         lines.append(f"{driver} plugin: present ({plugin}).")
     if provider == "mysql":
-        # The one case where the plugin being present is not good news. Qt's prebuilt
-        # QMYSQL is linked against Oracle's libmysqlclient (with its versioned symbols,
-        # so no MariaDB Connector/C shim can satisfy it), and conveying that alongside
-        # the LGPLv3 Qt modules is not permitted at all (docs/licensing.md). doctor
-        # cannot tell the two builds apart from the file alone, so it says so plainly
-        # rather than reporting "present" and leaving it there.
+        # Qt's prebuilt QMYSQL links Oracle's libmysqlclient, which cannot be conveyed with
+        # the LGPLv3 Qt modules (docs/licensing.md). doctor cannot tell the builds apart
+        # from the file, so it says so.
         lines.append("the plugin must be built against MariaDB Connector/C (LGPLv2.1). "
                      "Qt's prebuilt QMYSQL links Oracle's GPLv2-only libmysqlclient, "
                      "which cannot be conveyed with the LGPLv3 Qt modules in this entity, "
