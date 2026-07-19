@@ -520,6 +520,13 @@ export function schemaSql() {
         + "                    text TEXT NOT NULL, author TEXT NOT NULL);\n";
 }
 
+// A monitor's console window: the file an operator opens, and so the one the canvas writes
+// under a monitor and the pane opens when one is selected. The monitor has no QML of its own
+// (entityFiles), and the sign-in page it does have is only what an anonymous visitor gets.
+export function consoleQmlPath(monitor) {
+    return entityQmlPath(consoleFor(monitor));
+}
+
 // The file an entity *is*, as opposed to the connect points it exposes. A client's is the
 // window. Every other entity's is a `pragma Shared` file named after it, which is where state
 // that belongs to the whole entity goes and what its Sources reach for it by name.

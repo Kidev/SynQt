@@ -30,7 +30,7 @@
 // cannot fall out of step with it.
 
 import { SCOPES, entityType, frontsOf, gatesOf, runsSignIn } from "./rules.js";
-import { linkEnds } from "./project.js";
+import { consoleQmlPath, linkEnds } from "./project.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -45,7 +45,7 @@ const ZONE_PAD = {x: 72, top: 84, bottom: 88};
 // Where the name in a box's corner sits inside that band.
 const ZONE_TITLE_Y = 22;
 
-// The three sides of a system, in the order a request travels. `of` is the question each box
+// The sides of a system, in the order a request travels, and the monitor watching all of them. `of` is the question each box
 // answers about an entity, and the order here is the order they are drawn and read.
 // `held` is whether the box itself can be picked up and moved, carrying everything inside it.
 // The browser and the entity facing the internet are one or two entities each, so their box is
@@ -68,7 +68,17 @@ const ZONES = [
     {name: "mesh", title: "Mesh",
      note: "Mutual TLS on every link, verified against the project CA. No browser reaches "
          + "any of it.",
-     of: (role) => role !== "client" && role !== "edge", held: false},
+     of: (role) => role !== "client" && role !== "edge" && role !== "monitor", held: false},
+    // A box of its own, outside the other three. Inside the mesh box it read as one more
+    // service in the mesh, and the mesh box ends where the edge begins, so a monitor drawn
+    // there looked like something the edge was not reporting to. It watches all three boxes,
+    // the edge included, and it is held like the two small boxes because it is one entity
+    // somebody puts wherever the drawing has room.
+    {name: "ops", title: "Watches every entity",
+     note: "The monitor. Every other entity reports to it over its own mutual TLS link, "
+         + "because monitoring.entity names it, so none of those links is drawn. Its "
+         + "console is served on a loopback port.",
+     of: (role) => role === "monitor", held: true},
 ];
 
 // Roughly how wide a zone's name is, per character, at the size it is set in. Estimated
@@ -169,10 +179,12 @@ const GLYPHS = {
         {tag: "path", d: "M 0,-3.5 V 0.5 L 3,2.5", fill: "none", stroke: "currentColor",
          "stroke-width": 1.4, "stroke-linecap": "round", "stroke-linejoin": "round"},
     ],
+    // An eye, because what a monitor does is watch. It was a pulse trace, which read as
+    // "health" and said nothing about the entity being the one place every other reports to.
     monitor: [
-        {tag: "path", d: "M -7.5,0 H -4 L -1.5,-5.5 L 1.5,5.5 L 4,0 H 7.5", fill: "none",
-         stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round",
-         "stroke-linejoin": "round"},
+        {tag: "path", d: "M -7.5,0 Q 0,-7.4 7.5,0 Q 0,7.4 -7.5,0 Z", fill: "none",
+         stroke: "currentColor", "stroke-width": 1.4, "stroke-linejoin": "round"},
+        {tag: "circle", cx: 0, cy: 0, r: 2.6, fill: "currentColor"},
     ],
     service: [
         {tag: "path", d: "M -2,-6 L -6,0 L -2,6", fill: "none", stroke: "currentColor",
@@ -516,7 +528,12 @@ export function describe(entity) {
 // point it owns where it owns any, because that is where the behaviour is, and its own file
 // otherwise. Where there are several the first is named and the rest are counted, because a
 // node is a disc and not a list.
-function caption(files) {
+function caption(files, entity) {
+    // A monitor's is its console. The file an operator opens is the console window, and the
+    // sign-in page beside it is only what an anonymous visitor is handed instead.
+    if (entity && linksAreDerived(entity)) {
+        return consoleQmlPath(entity).replace(/\.qml$/, "");
+    }
     if (!files.length) {
         return "";
     }
@@ -770,10 +787,14 @@ function alertMark(at, size) {
     return group;
 }
 
-// Where that mark sits on a node. The top right of a disc, or the top of a wedge's back edge.
-function alertAt(front) {
-    return front ? {x: FRONT_BACK - 4, y: -FRONT_HALF + 2}
-                 : {x: NODE_RADIUS * 0.72, y: -NODE_RADIUS * 0.72};
+// Where that mark sits on a node. The top right of a disc, the top right corner of a
+// monitor's square, or the top of a wedge's back edge.
+function alertAt(front, square) {
+    if (front) {
+        return {x: FRONT_BACK - 4, y: -FRONT_HALF + 2};
+    }
+    return square ? {x: NODE_RADIUS - 2, y: -NODE_RADIUS + 2}
+                  : {x: NODE_RADIUS * 0.72, y: -NODE_RADIUS * 0.72};
 }
 
 // The mark on a web edge that runs the sign-in flow. The one entity in a project that turns
@@ -790,8 +811,13 @@ function alertAt(front) {
 // through the rim rather than a colour of its own, and everything in it is the entity's.
 // The alert rides the opposite corner, so an edge with a finding against it shows both
 // without either sitting on the other.
-function signInMark(at, size) {
+//
+// It answers the pointer with a card of its own (tip.js), because a mark nobody can ask about
+// is a mark a reader has to already know. `edge` is the entity it is on, which is what the
+// card is about.
+function signInMark(at, size, edge) {
     const group = element("g", {class: "signin", transform: `translate(${at.x},${at.y})`});
+    group.dataset.signin = edge;
     group.append(element("circle", {class: "signin__disc", r: size}));
     // The drawing is written in a box of 4.2 either way, and the disc has to hold its
     // corners. At size/6.6 the door frame sat on the rim rather than inside it.
@@ -809,6 +835,55 @@ function signInMark(at, size) {
 function signInAt(front) {
     return front ? {x: FRONT_BACK - 4, y: FRONT_HALF - 2}
                  : {x: -NODE_RADIUS * 0.72, y: -NODE_RADIUS * 0.72};
+}
+
+// The rim slot the mark sits on, on a disc: the top left, seven eighths of the way round from
+// the top. Every ring size has it. The mark answers the pointer, so the handle under it is
+// not drawn. A handle nobody can reach is worse than none, because the ring says it is there.
+const SIGN_IN_SLOT = (SLOT_RING * 7) / 8;
+
+// The same mark on its own, for the head of its card. One drawing, so the mark in the card is
+// the mark that was pointed at.
+export function signInSvg() {
+    const svg = element("svg", {class: "glyph signin-glyph", viewBox: "-8 -8 16 16",
+                                "aria-hidden": "true", focusable: "false"});
+    const mark = signInMark({x: 0, y: 0}, 7, "");
+    delete mark.dataset.signin;
+    svg.append(mark);
+    return svg;
+}
+
+// The mark again, written beside a line from an edge that signs people in to a client, with
+// the call that leads there. Drawn on every such line and hidden, then shown by the stylesheet
+// while the line, the edge or the mark is hovered (light.js puts `is-signin` on the line). The
+// highlight runs off pointer moves and never redraws, so what it shows has to be drawn already.
+//
+// On the other side of the line from what the link carries, so the two never sit on each
+// other. It is the answer to "what is that mark on the edge", put on the one line the answer
+// is about: the browser at the far end of it is who `Session.login()` sends to this edge.
+const SIGN_IN_HINT = "Session.login() signs in here";
+const SIGN_IN_HINT_GAP = 14;
+
+function signInHint(edge, middle, across) {
+    const at = {x: middle.x + (across.x * SIGN_IN_HINT_GAP),
+                y: middle.y + (across.y * SIGN_IN_HINT_GAP)};
+    const group = element("g", {class: "link__signin"});
+    group.dataset.signin = edge;
+    // Which side of the mark the words go on. Away from the line, whichever way it runs: a
+    // line running up the page has its side to the left or the right, and words centred over
+    // the mark would be written across the line itself.
+    const sideways = Math.abs(across.x) > Math.abs(across.y);
+    // The words are estimated at the members' own width per character, and the page this
+    // is drawn on may set the mono face a little wider, so the box keeps a margin past them.
+    const width = (SIGN_IN_HINT.length * MEMBER_CHAR) + 30;
+    const left = sideways ? (across.x > 0 ? at.x - 8 : at.x - width + 8) : at.x - (width / 2);
+    group.append(element("rect", {class: "link__signin-box", x: left, y: at.y - 8,
+                                  width, height: 16, rx: 8}));
+    group.append(signInMark({x: left + 8, y: at.y}, 5.4, edge));
+    const words = element("text", {class: "link__signin-text", x: left + 17, y: at.y + 2.8});
+    words.textContent = SIGN_IN_HINT;
+    group.append(words);
+    return group;
 }
 
 // One path drawn at another size. The sign-in mark is written at the size it was drawn at
@@ -857,7 +932,7 @@ function nameNode(group, entity, files, front) {
 
     const file = element("text", {class: "node__file", y: NODE_RADIUS + 29 + drop,
                                   "text-anchor": "middle"});
-    file.textContent = caption(files);
+    file.textContent = caption(files, entity);
     group.append(file);
 }
 
@@ -920,6 +995,14 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
     group.dataset.entity = entity.name;
     if (front) {
         group.append(element("path", {class: "node__disc node__wedge", d: frontOutline()}));
+    } else if (linksAreDerived(entity)) {
+        // Square, because nothing is drawn to or from it. Every other entity is a disc with a
+        // ring of handles on its rim. A monitor has none (below), and a different outline
+        // says so before anybody reaches for one.
+        group.append(element("rect", {class: "node__disc node__square",
+                                      x: -NODE_RADIUS, y: -NODE_RADIUS,
+                                      width: NODE_RADIUS * 2, height: NODE_RADIUS * 2,
+                                      rx: 7}));
     } else {
         group.append(element("circle", {class: "node__disc", r: NODE_RADIUS}));
     }
@@ -927,10 +1010,10 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
     nameNode(group, entity, files, front);
     roleLabels(group, front);
     if (signsIn) {
-        group.append(signInMark(signInAt(front), 6.6));
+        group.append(signInMark(signInAt(front), 6.6, entity.name));
     }
     if (level) {
-        group.append(alertMark(alertAt(front), 6.5));
+        group.append(alertMark(alertAt(front, linksAreDerived(entity)), 6.5));
     }
     if (front) {
         // A wedge has no ring to seat contracts on. Its two sides are its two jobs. The
@@ -938,6 +1021,11 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
         // carries a seat per scope, and those are what a link to an entity behind it lands
         // on. So the rim slots below are not drawn at all.
         group.append(frontSeats(entity, front));
+        return group;
+    }
+    if (linksAreDerived(entity)) {
+        // No handles. A line pulled off one would be refused (linkRefusal), so a monitor offers
+        // nothing to pull. Its links are `monitoring.entity` and `console: true`.
         return group;
     }
 
@@ -952,6 +1040,9 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
     for (const slot of slotsOf(size)) {
         if (held.has(slot)) {
             continue;               // a contract lives there. The badge is drawn on the link
+        }
+        if (signsIn && slot === SIGN_IN_SLOT) {
+            continue;               // under the sign-in mark, which answers for itself
         }
         const inner = slotPoint(slot, NODE_RADIUS - SLOT_DASH);
         const outer = slotPoint(slot, NODE_RADIUS + SLOT_DASH);
@@ -1552,6 +1643,9 @@ function line(link, from, to, options) {
     // reader following a line came for, so it is what the line carries.
     const across = {x: -edge.uy, y: edge.ux};
     group.append(memberNames(link, middle, across));
+    if (options.signIn) {
+        group.append(signInHint(link.owner, middle, across));
+    }
 
     // Nothing is written at the arrival end. The scope is on the seat the line lands on,
     // where it stays whether or not anything is wired to it, and writing it a second time
@@ -1678,6 +1772,9 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             const consumer = item.target ? item.target.name : "";
             const options = {...item.options, offset, arrives: item.arrives, consumer,
                              broken: Boolean(item.broken),
+                             // The browser's way to the sign-in. See signInHint.
+                             signIn: Boolean(item.target) && runsSignIn(item.owner)
+                                 && roleOf(item.target) === "client",
                              selected: item.options.wholePoint
                                  || Boolean(selected && selected.kind === "link"
                                             && selected.name === item.link.name

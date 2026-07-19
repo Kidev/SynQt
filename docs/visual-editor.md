@@ -73,21 +73,25 @@ here writes all of them. The copy on this site carries the same
 templates [`synqt add entity ops --type monitor`](monitoring.md) uses, and the project you
 export runs without being finished by hand.
 
-A monitor is drawn like any other entity, and the canvas leaves it
-unwired on purpose, because the link every service opens to it comes from the one `monitoring.entity`
-line rather than from a line anybody draws. A second monitor beside it is marked, because
-that line names one entity and nothing would ever report to the other.
+A monitor is drawn as a square with an eye in it, and the canvas leaves it unwired on
+purpose, because the link every service opens to it comes from the one `monitoring.entity`
+line rather than from a line anybody draws. Under it is its console,
+`client/ops-console/Main`, which is also the file selecting it opens. A second monitor
+beside it is marked, because that line names one entity and nothing would ever report to
+the other.
 
-For the same reason you cannot draw a line to one or from one. The editor says so where the
-gesture is made, rather than drawing a line it would have to report a moment later, and it
-leaves the monitor out of the consumer menu and the panel's own lists. A project that
+For the same reason you cannot draw a line to one or from one. It has no handles on its
+rim, a line dropped on it is refused where the gesture is made, and the editor leaves the
+monitor out of the consumer menu and the panel's own lists. A project that
 arrives with one already written is not quietly edited. A point naming a monitor as a
 consumer is marked, and `synqt check` refuses it too, because entities report to a monitor
 and it reaches none of them.
 
 The boxes behind the nodes are the three sides of a system, and they are drawn from what each
-entity is rather than from where it sits: CLIENTS, FACES THE INTERNET, and MESH. Hovering a
-box's name says what it means. Under each node is the file to open next: `client/app/Main`,
+entity is rather than from where it sits: CLIENTS, FACES THE INTERNET, and MESH. A monitor
+gets a fourth box of its own, WATCHES EVERY ENTITY, outside the other three, because every
+entity in all three reports to it, the edge included. Hovering a box's name says what it
+means. Under each node is the file to open next: `client/app/Main`,
 `web/edge/Edge`, `db/relational/store/Store`.
 
 Entities settle onto a grid as you drag them, so a drawing lines up without anyone nudging
@@ -95,8 +99,14 @@ it, and a box picked up by its own background carries everything in it by the sa
 
 Hovering anything says the rest. An entity's card gives what it is, what can reach it, the
 connect points it owns and consumes, and its files. A connect point's gives its owner, its
-consumers, how it is carried, and every member that crosses it. Anything the rules have
-against it is on the same card.
+consumers, how it is carried, its scope, and every member that crosses it. Anything the
+rules have against it is on the same card.
+
+A web edge that runs sign-in (`identity: true`) carries a small door mark on its rim, and
+hovering the mark opens a card of its own: what starts a sign-in, what runs on the edge,
+what the browser is handed back, and what decides the scope. Hovering the edge, or a line
+from it to a client, writes the same mark beside that line with `Session.login() signs in
+here`, so the call in the client and the entity it reaches are one thing to look at.
 
 A connect point is drawn from the entity that owns it to the one that consumes it.
 Bring the pointer near a node and its rim fills with handles. Drag any of them and drop the
@@ -117,10 +127,10 @@ coloured the way the same contract is coloured in the file pane below, a shade b
 small mark at the start of the row says which of the four kinds it is. Hover anywhere on a
 row, the mark or the prototype, and it says the rest, the kind, the full declaration with
 the parameter names the row has no room for, what a model's rows carry, what a call answers
-with, and which callers reach it. A member held above the point's own scope says so on the
-row, in the notation the `export:` block gates it in, `erase(int) <admin>`, after the
-declaration and in the warning colour, so which scope is a thing to read rather than a
-thing to go and ask for.
+with, and its scope, set apart as `<admin>` the way the row writes it. A member held above
+the point's own scope says so on the row, in the notation the `export:` block gates it in,
+`erase(int) <admin>`, after the declaration and in the warning colour, so which scope is a
+thing to read rather than a thing to go and ask for.
 
 Hovering anything on the canvas lights it, in a colour of its own rather than the one selection
 uses, so moving the pointer across a busy drawing never costs sight of what you are working on.

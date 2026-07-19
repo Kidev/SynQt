@@ -127,9 +127,24 @@ async function discCentre(page, name) {
 
 // Dragging is the only way an entity reaches the canvas, so it is the only way this test can
 // put one there. `dragTo` is the HTML5 drag the page listens for, not a synthesised click.
+//
+// The synthesised drag does not always deliver its drop, which left a case waiting for an
+// entity that was never made. So the drop is confirmed by the entity count and the gesture
+// tried again, three times at most: a page that refuses the drop still fails, on the count.
 async function dropEntity(page, label, at) {
-    await page.locator(".palette__item", { hasText: label })
-        .dragTo(page.locator("#canvas"), { targetPosition: at });
+    const before = await page.locator("#nodes [data-entity]").count();
+    for (let attempt = 0; attempt < 3; ++attempt) {
+        await page.locator(".palette__item", { hasText: label })
+            .dragTo(page.locator("#canvas"), { targetPosition: at });
+        try {
+            await page.waitForFunction(
+                (count) => document.querySelectorAll("#nodes [data-entity]").length > count,
+                before, { timeout: 3000 });
+            return;
+        } catch (error) {
+            // Not delivered. Try the gesture again.
+        }
+    }
 }
 
 // The project is read-only until it is opened for editing. The pane holds the entities' own
@@ -1686,6 +1701,119 @@ async function theProjectsScopes() {
     }
 }
 
+// Hover the middle of what `selector` finds, arriving from a little way off. A single jump
+// onto the spot sends no pointermove to the drawing, which is what the card answers.
+async function hoverOn(page, selector, dx = 0, dy = 0) {
+    const box = await page.locator(selector).first().boundingBox();
+    if (!box) {
+        throw new Error(`nothing on the page matches ${selector}`);
+    }
+    const x = box.x + (box.width / 2) + dx;
+    const y = box.y + (box.height / 2) + dy;
+    await page.mouse.move(x - 30, y + 30);
+    await page.mouse.move(x, y, { steps: 6 });
+    await page.waitForTimeout(250);
+}
+
+async function cardText(page) {
+    const card = page.locator(".tip");
+    return (await card.isVisible()) ? (await card.textContent()) : "";
+}
+
+// The chat room, drawn by the copy the site publishes, for the cases below.
+async function onTheChatRoom(what, run) {
+    console.log(`\n${what}`);
+    const server = await serveAssets();
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const refused = [];
+    page.on("pageerror", (error) => refused.push(String(error)));
+    try {
+        await page.goto(`${origin}/index.html#example=demo`);
+        await waitForDrawingBoard(page);
+        await page.waitForSelector('[data-entity="edge"]');
+        await run(page);
+        check(refused.length === 0, `the page reported no errors ${refused.join(" | ")}`);
+    } finally {
+        await browser.close();
+        server.close();
+    }
+}
+
+// A monitor has no drawn links, so it is a square with no handles on its rim, in a box of its
+// own outside the mesh (inside the mesh box it read as an edge nobody watched), and what it
+// opens is its console.
+async function theMonitorStandsApart() {
+    await onTheChatRoom("A monitor, drawn apart from the mesh", async (page) => {
+        await dropEntity(page, "Monitor", { x: 900, y: 430 });
+        await page.waitForSelector('[data-entity="ops"]');
+        const monitor = page.locator('[data-entity="ops"]');
+        check(await monitor.locator(".node__square").count() === 1,
+              "a monitor is drawn as a square");
+        check(await monitor.locator(".node__slot-grab, .node__slot").count() === 0,
+              "with no handle on it to pull a line from");
+        check(/ops-console\/Main/.test(await monitor.locator(".node__file").textContent()),
+              "and its console written under it");
+        check(await page.locator(".zone--ops .zone__title").count() === 1
+              && await page.locator(".zone--ops .zone__title").textContent()
+                 === "Watches every entity",
+              "in a box of its own, outside the mesh");
+        check((await page.locator(".zone--ops").getAttribute("data-inside")) === "ops",
+              "which holds the monitor and nothing else");
+        const square = await discCentre(page, "ops");
+        await page.mouse.click(square.x, square.y);
+        await page.waitForTimeout(300);
+        check(/ops-console\/Main\.qml$/.test(await page.locator("#source-name").textContent()),
+              "selecting it opens the console rather than the sign-in page");
+        check(!/What this entity declares/i.test(await page.locator("#inspector").textContent()),
+              "and its panel offers nothing to declare on a Source that is the framework's");
+        await dragLink(page, "store", "ops");
+        await waitForHint(page, "'ops' is a monitor");
+        check(true, "a line dropped on it is refused, and says why");
+    });
+}
+
+// The mark on an edge that signs people in has a card of its own, and the line from that edge
+// to a browser says where `Session.login()` goes while the edge or the mark is hovered.
+async function theSignInIsExplained() {
+    await onTheChatRoom("The sign-in, explained where it is drawn", async (page) => {
+        await hoverOn(page, '[data-entity="edge"] .signin');
+        const signIn = await cardText(page);
+        check(/Sign-in/.test(signIn) && /Session\.login\(\)/.test(signIn),
+              "the mark on the edge opens a card of its own");
+        check(await page.locator(".link.is-signin .link__signin").count() === 1,
+              "and shows the sign-in on the edge's line to the client");
+        await page.mouse.move(5, 5);
+        await page.waitForTimeout(200);
+        check(await page.locator(".link.is-signin").count() === 0,
+              "which goes again when the pointer leaves");
+        await hoverOn(page, '[data-entity="edge"] .node__disc', 0, 12);
+        check(await page.locator(".link.is-signin .link__signin").count() === 1,
+              "hovering the edge itself shows it too");
+    });
+}
+
+// A member's scope is set apart in its card as the `<scope>` the row writes, rather than as a
+// quoted word in a sentence.
+async function theScopeIsWrittenAsTheRowWritesIt() {
+    await onTheChatRoom("A member's scope, in its card", async (page) => {
+        await hoverOn(page, 'text.link__member[data-member="erase"]');
+        check(await page.locator(".tip .tip__scope.is-scoped").count() === 1
+              && await page.locator(".tip .tip__scope.is-scoped").textContent() === "<admin>",
+              "a member held above its point's scope shows it as the <admin> the row writes");
+        await page.mouse.move(5, 5);
+        await hoverOn(page, 'text.link__member[data-member="say"]');
+        check(await page.locator(".tip .tip__scope").count() > 0
+              && await page.locator(".tip .tip__scope").first().textContent() === "<user>",
+              "and a member at the point's own scope shows that one, <user>");
+        await page.mouse.move(5, 5);
+        await hoverOn(page, '[data-contract="edge"]');
+        check(await page.locator(".tip .tip__help--key .tip__scope").count() === 1,
+              "the contract's card says what a <scope> after a member means");
+    });
+}
+
 async function part(run) {
     try {
         await run();
@@ -1705,6 +1833,9 @@ await part(theProjectALinkHandsYou);
 await part(theFrontThatSplitsCallers);
 await part(typingIntoTheProject);
 await part(theProjectsScopes);
+await part(theMonitorStandsApart);
+await part(theSignInIsExplained);
+await part(theScopeIsWrittenAsTheRowWritesIt);
 
 console.log("");
 if (failures.length) {

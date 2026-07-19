@@ -176,7 +176,8 @@ you allow can reach it.
 A visitor who has not signed in gets a sign-in page. The room is absent rather than hidden,
 because the point that carries it is gated `scope: user`, so their session never acquires
 it and there is nothing on their side to get past. Signing in fills the same window with
-the room. A moderator gets one member more than everybody else, `erase`. The contract
+the room. The door on the edge's rim is where that sign-in runs. Hover it for what it does,
+or hover the edge and the line to the client says the same thing. A moderator gets one member more than everybody else, `erase`. The contract
 grants it, so the client has no say in offering it.
 
 Seven files are the whole system: one configuration file that says what crosses each link,

@@ -37,7 +37,8 @@ from . import newproject
 VERSION = 1
 
 # Canvas places for a node nobody has dragged yet. Three columns in the order a request
-# travels, so a topology reads left to right before anyone has moved anything.
+# travels, so a topology reads left to right before anyone has moved anything, and a fourth
+# past them for the monitor, which watches all three and sits in a box of its own.
 #
 # Every one of these is a multiple of the 16 the editor snaps a dragged entity to (design.js
 # GRID_SNAP), so a project that has never been opened is already on the grid. Off it, the
@@ -46,6 +47,7 @@ VERSION = 1
 _CLIENT_X = 64
 _EDGE_X = 384
 _SERVICE_X = 704
+_MONITOR_X = 1024
 _FIRST_Y = 64
 _ROW_HEIGHT = 192
 
@@ -146,6 +148,8 @@ def _column(entity: Dict[str, Any]) -> int:
         return _CLIENT_X
     if entity["type"] == "web_edge":
         return _EDGE_X
+    if entity["type"] == "monitor":
+        return _MONITOR_X
     return _SERVICE_X
 
 

@@ -12,7 +12,7 @@
 
 import { behindOf, entityType, scopesOf } from "./rules.js";
 import { ROLE_HELP, accessorName, codeLine, codeParts, codeWord, contractSvg,
-         endsToOffer, glyphSvg, linkTitleNode, memberCode, memberMarkSvg,
+         endsToOffer, glyphSvg, linkTitleNode, linksAreDerived, memberCode, memberMarkSvg,
          roleOf } from "./canvas.js";
 import { linkTitle } from "./project.js";
 import { baseType, declarations } from "./source.js";
@@ -273,9 +273,9 @@ function renameEntity(design, entity, wanted) {
     for (const link of design.links || []) {
         if (link.owner === before) {
             // A connect point has no name of its own. The owner is the name, so all three
-            // move together. Leaving `name` behind left the point keyed under an entity that
-            // no longer existed, and every selection, every finding and every file in the
-            // pane looked it up by that key.
+            // move together; a `name` left behind would key the point under an entity that
+            // no longer exists, and every selection, finding and pane file looks it up by
+            // that key.
             link.owner = wanted;
             link.name = wanted;
             link.id = wanted;
@@ -313,7 +313,7 @@ function entityPanel(design, entity, actions) {
         }), {help: "The name the rest of the project reaches this by: its folder on disk, "
                    + "the accessor other entities write in their QML, and the connect point "
                    + "it owns. Typing a new one here carries it into all of them at once."}),
-        // Stated, not offered. What an entity is was decided when it was dragged off the
+        // Shown as fixed text. What an entity is was decided when it was dragged off the
         // palette, and everything drawn since means what it means because of that.
         group("Kind", tag("p", {class: "field__fixed"}, KIND_LABELS[role]),
               {help: "What this entity is, chosen when it was dragged off the palette. It "
@@ -397,7 +397,11 @@ function entityPanel(design, entity, actions) {
                                  + "environment, so they stay on this side of the mesh."]}));
     }
 
-    if (role !== "client") {
+    // A monitor's Source and its QML are the framework's own, so there is no instancing to
+    // choose and nothing of its own to declare. Offering either would write settings and
+    // members onto something that has no file to hold them.
+    const frameworks = linksAreDerived(entity);
+    if (role !== "client" && !frameworks) {
         const shared = typeof entity.shared === "boolean" ? entity.shared : true;
         // `rebuild` and not `changed`: what the switch means depends on where it is, so the
         // panel is built again around it. A switch whose surroundings do not move is a
@@ -413,14 +417,18 @@ function entityPanel(design, entity, actions) {
                    + "as `shared: false` on this entity."]}));
     }
 
-    panel.append(section("How it runs",
-                         "How this entity behaves once it is running, and what it is built "
-                         + "to link. Everything here is written onto this entity in "
-                         + "synqt.yaml.", how));
+    if (how.childElementCount) {
+        panel.append(section("How it runs",
+                             "How this entity behaves once it is running, and what it is "
+                             + "built to link. Everything here is written onto this entity "
+                             + "in synqt.yaml.", how));
+    }
 
     panel.append(wiredPanel(design, entity, actions));
 
-    panel.append(declaresPanel(design, entity, actions));
+    if (!frameworks) {
+        panel.append(declaresPanel(design, entity, actions));
+    }
 
     const actionsRow = tag("div", {class: "inspector__actions"});
     const remove = tag("button", {type: "button", class: "button button--danger"},
@@ -468,6 +476,13 @@ function wiredPanel(design, entity, actions) {
     const about = "Who is at the other end of every line this entity is on. The same two "
         + "words synqt.yaml uses: an owner answers a connect point and decides what crosses "
         + "it, a consumer acquires a replica of it.";
+    if (!owned.length && !owners.length && linksAreDerived(entity)) {
+        return section("Wired to", about,
+            note("Every entity. Each one reports to this monitor because monitoring.entity "
+                 + "names it, and its console reaches it because that client is marked "
+                 + "console: true. Both are configuration, so there is no line to draw.",
+                 true));
+    }
     if (!owned.length && !owners.length) {
         return section("Wired to", about,
             note("Nothing yet. Drag from a handle on this entity's rim to another entity to "
@@ -527,22 +542,19 @@ function wiredPanel(design, entity, actions) {
 //
 // This is the same gesture as writing the line into the file in the Files pane, and it is
 // the pool every connect point this entity owns ticks its contract from. A member reaches a
-// consumer because somebody ticked it there, and it is offered there because it was declared
-// here. Reading is by the same parser the pane uses, so what is listed is exactly what the
-// file says and never a second record of it kept alongside. Every control writes the line
-// back, so the file stays the one record of it.
+// consumer because somebody ticked it there, and it is offered there because it was
+// declared here. Reading uses the pane's parser, so what is listed is exactly what the file
+// says, never a second record kept alongside. Every control writes the line back, so the
+// file stays the one record.
 //
-// Every part of a declaration that comes out of a fixed list is chosen from that list. Three
-// buttons that each append a line with a placeholder name and a
-// guessed type would leave the spelling of everything else to be typed into the file, a type
-// list the contract compiler is the authority on, and a bracketed size whose grammar is not
-// written anywhere near where somebody would be typing it.
+// Every part of a declaration that comes from a fixed list is chosen from that list, so
+// nobody has to type a type the contract compiler is the authority on, or a bracketed size
+// whose grammar is written nowhere near the file.
 //
-// A model is here too. It has no QML declaration form, so it is not read out of the file. It
-// is written straight onto the connect point this entity owns, which is the only place a
-// model can live. It belongs on the entity all the same. It is one of the four things an
-// entity can declare, and being the odd one out of the four is not a reason to make somebody
-// look for it somewhere else.
+// A model is here too. It has no QML declaration form, so it is not read out of the file;
+// it is written straight onto the connect point this entity owns, the only place a model
+// can live. It is one of the four things an entity can declare, so it is listed with the
+// other three.
 function declaresPanel(design, entity, actions) {
     const box = tag("div", {class: "block members"});
     blockHead(box, "What this entity declares",
@@ -867,11 +879,8 @@ function partsPanel(member, key, label, actions, sized) {
 // One member as the contract carries it. `prop`, `model`, `signal`, `slot`, which is the
 // vocabulary of the `export:` block and of the canvas.
 //
-// One vocabulary down the whole list, whichever half of the pair a member came from. It used
-// to say `function recordWinner(item: var)` for a member read out of the owner's QML and
-// `slot recordWinner(var item)` for one that only exists on the point, so a single list mixed
-// two words for the same thing and read as two lists that had been shuffled together. The
-// entity's own panel is where the QML form belongs, and it says it there.
+// One vocabulary down the whole list, whichever half of the pair a member came from. The
+// QML form belongs to the entity's own panel.
 // The contract as a list to tick, out of what the owner entity already declares.
 //
 // This is the reading half of the same fact the entity panel writes. A member is declared on
@@ -879,7 +888,7 @@ function partsPanel(member, key, label, actions, sized) {
 // ticked it here. Nothing is offered that the owner has not got, so a member cannot reach a
 // contract without the file that implements it gaining the line first.
 //
-// One list, not one per consumer. The point has a single contract and every consumer gets the
+// One list for every consumer. The point has a single contract and every consumer gets the
 // same one, which is what the drawing says too: every line leaves the one icon.
 function ticksPanel(design, link, actions) {
     const box = tag("div", {class: "block members"});
@@ -890,11 +899,11 @@ function ticksPanel(design, link, actions) {
                "The list is what the owner entity declares, so a member reaches a consumer "
                + "because somebody ticked it here, and the file that implements it already "
                + "has the line."]);
-    // And how much of it. The contract says what crosses. The one thing it did not say was
-    // how big that is, which is what decides whether a property is pushed on a keystroke or
-    // on a timer. The number is a ceiling worked out from the sizes in the contract itself
-    // (a `string[60]` is four bytes of length and at most sixty UTF-16 characters), never a
-    // measurement of anything running, and it says so.
+    // And how much of it. The contract says what crosses and, through its sizes, how big
+    // that is, which decides whether a property is pushed on a keystroke or on a timer. The
+    // number is a ceiling worked out from the sizes in the contract itself (a `string[60]`
+    // is four bytes of length and at most sixty UTF-16 characters), never a measurement of
+    // anything running, and it says so.
     head.append(wireSize(link));
     const owner = (design.entities || []).find((one) => one.name === link.owner);
     if (!owner) {
@@ -903,12 +912,11 @@ function ticksPanel(design, link, actions) {
     }
 
     // Everything the owner declares, and everything the point already carries. The two are
-    // nearly the same list and neither one alone is it. A model has no QML declaration form
-    // and would never be offered, and a member an owner writes in a form this reader does not
+    // nearly the same list and neither alone is it: a model has no QML declaration form and
+    // would never be offered, and a member an owner writes in a form this reader does not
     // follow (a property set from a binding, a signal raised through `Caller`) is on the
-    // contract and was missing from the panel, with no way to see it or take it off.
-    // `synqt check` reads all of those and holds the owner to them. Until this listed them
-    // the panel showed a contract with members it had quietly left out.
+    // contract all the same. `synqt check` reads all of those and holds the owner to them,
+    // so the panel lists every one, with a way to take it off.
     const declared = declarations(owner.qml || "");
     const carriedOnly = (link.members || [])
         .filter((one) => !declared.some((member) => member.name === one.name));
@@ -927,23 +935,22 @@ function ticksPanel(design, link, actions) {
             actions.tick(link, member, on);
         }, {code: true}));
         // The two things about a ticked member that are not in the owner's file, so the two
-        // things this list sets. Offered only once the member is on the contract: either one
-        // on something that does not cross is a setting with no effect.
+        // things this list sets. Offered only once the member is on the contract: either
+        // one on something that does not cross is a setting with no effect.
         //
-        // Under the member rather than beside it, each behind a label of its own. Beside it
-        // they were two unlabelled controls competing with the member's own name for one
-        // panel's width, and the drop-down, being a full-width control in a flex row, won:
-        // the row showed a scope selector and no sign of which member it was on.
+        // Under the member, each behind a label of its own. Beside it, two unlabelled
+        // controls would compete with the member's own name for one panel's width, and a
+        // full-width drop-down in a flex row would crowd the name out.
         const carried = (link.members || []).find((one) => one.name === member.name);
         if (!carried) {
             list.append(row);
             continue;
         }
-        // What the point adds to this member: a gate, and where the type takes one, a limit.
-        // Both are set on most members and never on the rest, so the row says what they are
-        // in a line and offers the controls when that line is pressed. Left open, every
-        // ticked member cost two labelled drop-downs, and a contract of eight was a column of
-        // sixteen controls with the contract lost between them.
+        // What the point adds to this member: a gate, and where the type takes one, a
+        // limit. Both are set on some members and never on the rest, so the row says what
+        // they are in a line and offers the controls when that line is pressed. Left open,
+        // a contract of eight would be a column of sixteen controls with the contract lost
+        // between them.
         const key = `${link.owner}\ntick\n${member.name}`;
         const sized = carried.kind === "prop" && SIZED[baseType(carried.type)];
         if (opened.has(key)) {
@@ -1055,15 +1062,13 @@ function wireSize(link) {
 //
 // On the edge, with the rest of what an edge is. It sits beside "runs the sign-in flow"
 // because it is the same kind of fact about the same entity, and an edge is where a reader
-// goes to ask what the edge does. It was on the connect point, which is where the flag is
-// written in synqt.yaml but not where anybody looks for it. The point's panel is about what
-// crosses the link, and an entity's whole job was one panel further away than the smallest
-// thing about it.
+// asks what the edge does. The point's panel is about what crosses the link, even though
+// synqt.yaml writes the flag on the point.
 //
 // Only the switch. A front is drawn as a wedge with a seat per scope along its back, and a
 // scope is handed to an entity by dragging between the two. The routing is read off the
-// picture rather than out of a list of drop-downs, which is the whole reason to draw a
-// system instead of writing it.
+// picture rather than out of a list of drop-downs, which is the reason to draw a system
+// instead of writing it.
 function frontPanel(design, entity, actions) {
     const box = document.createDocumentFragment();
     const clients = new Set((design.entities || [])

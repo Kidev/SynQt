@@ -30,7 +30,7 @@ import { tipFor, whatIsUnder } from "./tip.js";
 import { makeEditor } from "./editor.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
-import { contractOf, entityDir, entityFiles, entityQml, entityQmlPath,
+import { consoleQmlPath, contractOf, entityDir, entityFiles, entityQml, entityQmlPath,
          projectFiles } from "./project.js";
 import { declarationLine, declarations, references, rewritten,
          withoutDeclaration, withoutNotice } from "./source.js";
@@ -39,11 +39,12 @@ import { zipBytes } from "./zip.js";
 
 // The three columns a topology reads in, the same ones designdoc.py lays a project out in:
 // the browser on the left, the edge it reaches in the middle, and everything it must not
-// reach on the right.
+// reach on the right. The monitor gets a fourth past them, because it watches all three and
+// is drawn in a box of its own (canvas.js ZONES).
 // Every one of these is a multiple of GRID_SNAP below, so an entity the page places itself
-// lands where a dragged one would settle. designdoc.py holds the same three columns for a
+// lands where a dragged one would settle. designdoc.py holds the same columns for a
 // project read off disk. The node checker asserts the two agree.
-const COLUMNS = {client: 64, edge: 384, service: 704};
+const COLUMNS = {client: 64, edge: 384, service: 704, monitor: 1024};
 const FIRST_Y = 64;
 const ROW_HEIGHT = 192;
 
@@ -524,6 +525,15 @@ function holderOf(file) {
 function fileOf(what, files) {
     if (!what) {
         return "";
+    }
+    // A monitor opens its console. It has no QML of its own, and the sign-in page it does
+    // have is what an anonymous visitor gets, not what an operator reads.
+    const monitor = what.kind === "entity" ? entityNamed(what.name) : null;
+    if (monitor && linksAreDerived(monitor)) {
+        const consolePath = consoleQmlPath(monitor);
+        if (files.some((file) => inProject(file.name) === consolePath)) {
+            return consolePath;
+        }
     }
     // A contract and a line into it open the same file: the point's Source is where both of
     // them are implemented, whichever of the two was clicked.
@@ -2065,6 +2075,9 @@ function column(role) {
     if (role === "client") {
         return COLUMNS.client;
     }
+    if (role === "monitor") {
+        return COLUMNS.monitor;
+    }
     return role === "edge" ? COLUMNS.edge : COLUMNS.service;
 }
 
@@ -2102,6 +2115,12 @@ function addEntity(item, at) {
     state.design.entities.push(entity);
     touched();
     select({kind: "entity", name: entity.name});
+    if (linksAreDerived(entity)) {
+        say(`Added '${entity.name}', and its console ${consoleQmlPath(entity)} with it. Every `
+            + "entity reports to it because monitoring.entity names it, so it has no lines "
+            + "to draw.");
+        return entity;
+    }
     say(`Added '${entity.name}', and ${entityQmlPath(entity)} with it. Drag a handle on its `
         + "edge to another entity to connect them.");
     return entity;

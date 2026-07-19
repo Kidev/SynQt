@@ -18,7 +18,7 @@
 import { frontsOf, gatesOf, runsSignIn } from "./rules.js";
 import { MEMBER_KINDS, ROLE_HELP, aboveTheScope, accessorName, describe, endsOfPoint,
          glyphSvg, linkTitleNode, memberCode, memberMarkSvg, memberParts, roleOf, scopeGate,
-         seatsOfFront } from "./canvas.js";
+         seatsOfFront, signInSvg } from "./canvas.js";
 import { entityFiles, isShared } from "./project.js";
 
 // A page with no checker behind it has no findings, which is not the same as having none to
@@ -41,6 +41,36 @@ function tipRow(label, value) {
     said.textContent = value;
     row.append(name, said);
     return row;
+}
+
+// The same row with a value built from parts, so a scope inside it can be the chip below and
+// not a quoted word in the middle of a sentence.
+function tipRowOf(label, ...parts) {
+    const row = tipRow(label, "");
+    const value = row.querySelector(".tip__value");
+    value.append(...parts);
+    return row;
+}
+
+// A scope, written the way the `export:` block gates a member (`<admin>`) and set apart as a
+// chip. In a sentence ("Callers holding 'admin', and nobody else") the scope was one quoted
+// word among ten, and the notation the canvas writes beside the member was never tied to it.
+// `raised` is a member gated above its connect point, which takes the warning colour the row
+// on the canvas takes.
+function scopeChip(scope, raised) {
+    const chip = document.createElement("span");
+    chip.className = `tip__scope${raised ? " is-scoped" : ""}`;
+    chip.textContent = `<${scope}>`;
+    return chip;
+}
+
+// What the `<scope>` after a row means, said once under a list that has one.
+function scopeKey() {
+    const note = document.createElement("p");
+    note.className = "tip__help tip__help--key";
+    note.append(scopeChip("scope", false),
+                " after a member is the scope a caller must hold to reach it.");
+    return note;
 }
 
 // A rule across the tip with a word on it, so the parts of a card are parts and not one column
@@ -184,17 +214,21 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         // gated point is saying it of nothing.
         const raised = aboveTheScope(member, link);
         const gate = member.scope || link.scope;
-        box.append(tipRow("reaches", raised
-            ? `Callers holding '${member.scope}', and nobody else`
+        box.append(raised
+            ? tipRowOf("scope", scopeChip(member.scope, true),
+                       " on this member. Only a caller holding it reaches it.")
             : (gate
-                ? `Callers holding '${gate}', the connect point's own gate`
-                : "Any caller, anonymous included")));
+                ? tipRowOf("scope", scopeChip(gate, false),
+                           " from the connect point, the same as its other members.")
+                : tipRow("scope", "None. Any caller reaches it, anonymous included.")));
         box.append(tipHelp(said.says(ends.owner, ends.consumers)));
         if (raised) {
-            box.append(tipHelp(`Raised above ${link.scope ? `'${link.scope}'`
-                                                          : "the connect point's own scope"}, `
-                               + "so this member alone is held back from callers the rest of "
-                               + `'${link.owner}' answers.`));
+            const note = tipHelp("");
+            note.append("Raised above ",
+                        link.scope ? scopeChip(link.scope, false) : "the connect point's scope",
+                        `, so this member alone is held back from callers the rest of `
+                        + `'${link.owner}' answers.`);
+            box.append(note);
         }
         return box;
     }
@@ -231,6 +265,41 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
               + `writes is ${accessorName(what.name)}, whoever is behind it.`
             : `Drag from here to the entity that serves callers holding '${what.scope}', or `
               + "from that entity to here. Either way round draws the same routing."));
+        return box;
+    }
+    // The sign-in mark, on an edge or beside a line from one to a browser. What it means, in
+    // the order somebody new to it asks: what happens, where the secrets stay, what the
+    // browser ends up holding, and who decides what a signed-in person may reach.
+    if (what.kind === "signin") {
+        const edge = entityNamed(design, what.name);
+        if (!edge) {
+            return null;
+        }
+        const head = document.createElement("div");
+        head.className = "tip__head tip__head--edge";
+        head.append(signInSvg());
+        const title = document.createElement("span");
+        title.textContent = "Sign-in";
+        head.append(title);
+        const kind = document.createElement("span");
+        kind.className = "tip__kind";
+        kind.textContent = `on '${edge.name}'`;
+        head.append(kind);
+        box.append(head);
+        box.append(tipRow("started by", "Session.login() in a client, which sends the "
+                                        + "browser to this edge"));
+        box.append(tipRow("runs", "The OAuth exchange with the provider (PKCE, a state it "
+                                  + "checks, the ID token verified), here on the edge"));
+        box.append(tipRow("keeps", "The client secret and the provider's tokens. Neither "
+                                   + "ever reaches a browser"));
+        box.append(tipRow("hands back", "A session cookie the page script cannot read, and "
+                                        + "nothing else"));
+        box.append(tipRow("decides the scope", "The identity mapping hook that "
+                                               + "identity.mapping names in synqt.yaml"));
+        box.append(tipHelp("Every scope above the default is reached through here, so every "
+                           + "gated connect point, every gated member and every bundle past "
+                           + "the first hangs off this mark. Under synqt dev, the development "
+                           + "sign-in and the scope picker stand in for the provider."));
         return box;
     }
     // A box around a group of entities. Its name is on the canvas and what it means is here,
@@ -409,9 +478,10 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
     box.append(tipRow("carried over", link.transport === "local"
         ? "A local socket, so the caller is trusted by colocation"
         : "Mutual TLS, verified against the project CA"));
-    box.append(tipRow("gated behind", link.scope
-        ? `'${link.scope}', and a browser below it never acquires it`
-        : "Nothing, so any session reaches it"));
+    box.append(link.scope
+        ? tipRowOf("scope", scopeChip(link.scope, false),
+                   " on the whole point. A browser below it never acquires it.")
+        : tipRow("scope", "None on the point, so any session acquires it"));
     const behind = seatsOfFront(frontsOf(design).get(link.owner))
         .filter((seat) => seat.tier);
     if (behind.length) {
@@ -428,6 +498,9 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
             list.append(tipMember(member, link));
         }
         box.append(list);
+        if (members.some((member) => scopeGate(member, link))) {
+            box.append(scopeKey());
+        }
     } else {
         box.append(tipHelp(link.owner
             ? `Nothing crosses it yet. Tick what '${link.owner}' declares onto the contract, `
@@ -484,6 +557,12 @@ export function whatIsUnder(target) {
     if (broke) {
         return {kind: "break", name: broke.dataset.break,
                 consumer: broke.dataset.breakConsumer || ""};
+    }
+    // The sign-in mark, before the node it rides on and the line it is written beside. It is
+    // the smaller thing under the pointer, and it answers a question neither of them does.
+    const signin = target.closest("[data-signin]");
+    if (signin && signin.dataset.signin) {
+        return {kind: "signin", name: signin.dataset.signin};
     }
     // A scope on a front's back, before the node it is drawn in. It is the seat, and what it
     // says is where callers of that scope go.

@@ -1385,10 +1385,42 @@ h2 {
    page punched through the rim with the entity's own colour on it rather than a colour of
    its own. The alert above rides the opposite corner and is the loud one. */
 .signin {
-  /* Not a target. The rim is the ring of handles a link is pulled out of, and every
-     position on it has one. A mark that took the pointer would sit on top of a handle and
-     answer for it. What it is gets said on the node's own card, which hovering the node
-     opens either way, so there is nothing here to reach for. */
+  /* A target, with a card of its own (tip.js). The rim is the ring of handles a link is
+     pulled out of, so the one handle this sits on is not drawn (canvas.js SIGN_IN_SLOT),
+     rather than left under a mark that would answer for it. */
+  pointer-events: all;
+  cursor: help;
+}
+
+/* The mark again beside a line from that edge to a browser, with the call that leads there.
+   Drawn on every such line and shown only while the line, the edge or the mark is hovered,
+   because it is the answer to a question and a canvas carrying every answer at once is a
+   canvas nobody can read. light.js puts `is-signin` on the line. */
+.link__signin {
+  display: none;
+  color: var(--edge);
+}
+
+.link.is-signin .link__signin {
+  display: inline;
+}
+
+.link__signin-box {
+  fill: var(--page);
+  stroke: var(--edge);
+  stroke-width: 0.8;
+  stroke-opacity: 0.7;
+}
+
+.link__signin-text {
+  fill: var(--ink);
+  font-family: var(--mono);
+  font-size: 8px;
+  pointer-events: none;
+}
+
+/* The same mark at the head of its card, standing on the card rather than on a node. */
+.signin-glyph .signin {
   pointer-events: none;
 }
 
@@ -3186,6 +3218,30 @@ select:focus {
 
 .tip__member.is-scoped .tip__tok--scope {
   color: var(--warn);
+}
+
+/* A scope in a sentence, as the chip it is: the notation the canvas writes beside a member,
+   in a box, so it reads as the scope and not as one more word. */
+.tip__scope {
+  display: inline-block;
+  padding: 0 .3rem;
+  border: 1px solid var(--line);
+  border-radius: .25rem;
+  background: var(--panel-high);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tip__scope.is-scoped {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.tip__help--key .tip__scope {
+  font-weight: 400;
 }
 
 .tip__member.is-scoped .mark {
