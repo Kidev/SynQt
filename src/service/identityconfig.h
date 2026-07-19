@@ -64,7 +64,8 @@ struct IdentityConfig
 
     QList<IdentityProviderConfig> providers;
 
-    /// Server-side access-token refresh (docs/authentication.md "Session lifecycle": Refresh).
+    /// Server-side access-token refresh (see "Session lifecycle" in
+    /// [Authentication](https://synqt.org/authentication/)).
     /// Every `refreshIntervalSeconds` the engine refreshes any token within
     /// `refreshMarginSeconds` of expiry, using its refresh token, without the browser. A
     /// non-positive interval disables the periodic sweep.

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/synqt-header.svg" alt="SynQt" width="360">
+  <img src="docs/assets/synqt.svg" alt="SynQt" width="360">
 </p>
 
 # SynQt

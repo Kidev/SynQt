@@ -22,6 +22,8 @@ class ConsumerBase;
 /// on it by name (Server.\<name\>), as a live Replica. Replicas are acquired in C++ (the
 /// QtRO QML Node type cannot take an externally connected transport). Exposed to QML as
 /// the well-known `Server`.
+///
+/// \sa \ref qmlserver "the Server accessor page"
 class ServerAccessor : public QQmlPropertyMap
 {
     Q_OBJECT

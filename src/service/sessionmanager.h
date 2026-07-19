@@ -60,7 +60,7 @@ public:
     /// are forwarded to the authoritative store behind the given Session Replica, and the
     /// authoritative store's echoed changes are applied back into the local read cache. The
     /// cache keeps lookup()/isLive() synchronous (as the upgrade verifier needs). See
-    /// docs/authentication.md "Where identity runs".
+    /// "Where identity runs" in [Authentication](https://synqt.org/authentication/).
     void attachRemote(QObject *sessionReplica);
 
     /// The full live session table, for replaying to a newly-connected consumer (late join).

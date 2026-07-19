@@ -20,9 +20,9 @@ namespace SynQt {
 /// entity env only and are never logged. Parameters are always bound (`?`), never
 /// concatenated. Connections are drawn from a bounded SqlConnectionPool (poolSize).
 ///
-/// Licensing (docs/licensing.md): the QMYSQL plugin is built against MariaDB Connector/C
-/// (LGPLv2.1), never Oracle's GPLv2-only libmysqlclient, which cannot be legally conveyed
-/// alongside the LGPLv3 Qt modules in the same entity.
+/// Licensing (see [Licensing](https://synqt.org/licensing/)): the QMYSQL plugin is built
+/// against MariaDB Connector/C (LGPLv2.1), never Oracle's GPLv2-only libmysqlclient,
+/// which cannot be legally conveyed alongside the LGPLv3 Qt modules in the same entity.
 class MysqlProvider final : public IPersistenceProvider
 {
 public:

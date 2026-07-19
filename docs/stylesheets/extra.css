@@ -8,7 +8,7 @@
    Primary is the dark purple used for the header (see
    overrides/partials/header.html) and the home page hero gradient (see
    home.css); accent is the blue half of the synqt.svg wordmark
-   (docs/assets/synqt-header.svg), used for links and interactive highlights
+   (docs/assets/synqt.svg), used for links and interactive highlights
    site wide. There is only one palette entry (mkdocs.yml) so these are the
    site's only colors, light or dark.
 
@@ -163,9 +163,9 @@ body {
    buttons: 1.2rem icon + .8rem padding + .4rem margin) for the image, without
    growing the banner. The contrast problem this used to work around (the
    wordmark's dark teal half disappearing against the header's indigo
-   background) is now fixed at the source: overrides/partials/header.html
-   points the header specifically at synqt-header.svg, a reversed variant with
-   that half swapped to white, instead of a backdrop chip behind the logo. */
+   background) is now fixed at the source: synqt.svg draws that half in the
+   #00a6ed accent, which reads on the header, instead of needing a backdrop
+   chip behind the logo. */
 .md-header__button.md-logo {
   margin: 0;
   padding: 0;

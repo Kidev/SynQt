@@ -212,8 +212,9 @@ QByteArray WebEdge::computeCsp() const
         // Chromium or Firefox. blob: is kept as a deliberate margin, not a present need:
         // WebKit is a version 1 target that could not be measured here, a future emsdk may
         // go back to blob: workers, and the exposure is near zero (constructing a blob:
-        // worker already needs script execution, which script-src governs). See docs/csp.md;
-        // do not restate the blob: need as fact without a Safari measurement.
+        // worker already needs script execution, which script-src governs). See
+        // <https://synqt.org/csp/>; do not restate the blob: need as fact without a
+        // Safari measurement.
         //
         // Naming the directive at all is for explicitness rather than permission (worker-src
         // already falls back through child-src to script-src 'self'), but it documents the

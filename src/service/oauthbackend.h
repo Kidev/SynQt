@@ -26,8 +26,8 @@ class JwksVerifier;
 /// the authorization URL (PKCE + state), performs the server-side token exchange, verifies
 /// and normalizes the identity (userinfo or a JWKS-verified ID token), and owns the stored
 /// access/refresh/ID tokens with their expiry. It also refreshes an access token before it
-/// expires, server-side, using the refresh token (docs/authentication.md "Session
-/// lifecycle": Refresh).
+/// expires, server-side, using the refresh token (see "Session lifecycle" in
+/// [Authentication](https://synqt.org/authentication/)).
 ///
 /// This engine is deliberately free of any browser I/O: it exposes no cookies and no HTTP
 /// routes. The web edge's IdentityProvider drives it for the in-process case; a dedicated

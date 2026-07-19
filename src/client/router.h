@@ -13,11 +13,14 @@ namespace SynQt {
 
 class Session;
 
-/// Scope-gated navigation over the route table (docs/runtime-api.md). A route guard is
+/// Scope-gated navigation over the route table (see the
+/// [runtime API reference](https://synqt.org/runtime-api/)). A route guard is
 /// a redirect rule, NOT a secrecy mechanism: every view's QML ships to every visitor,
 /// so a guard only steers navigation, while the data behind a privileged view still
 /// arrives only through scope-gated connect points the edge refuses to an under-scoped
 /// session.
+///
+/// \sa \ref qmlrouter "the Router accessor page"
 class Router : public QObject
 {
     Q_OBJECT

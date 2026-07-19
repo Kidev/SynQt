@@ -42,17 +42,29 @@ class ResolveTest(unittest.TestCase):
         self.assertIn("</svg>", markup)
 
     def test_default_logo_is_the_variant_that_reads_on_the_dark_default(self):
-        # The mark ships in two variants and the naming is a trap. The light-background
-        # one paints its wordmark in dark teal #00414a, which all but vanishes on the
-        # default gradient; the site hit the same trap and documented it in
-        # overrides/partials/header.html. The default background here is dark, so the
-        # default logo must be the reversed variant. Checked against paint attributes
-        # rather than the raw text, which mentions the colour in a comment.
+        # The light-background variant of the mark paints one half in dark teal #00414a,
+        # which all but vanishes on the default gradient. The default background here is
+        # dark, so the default logo must be the reversed variant. Checked against paint
+        # attributes rather than the raw text, which mentions the colour in a comment.
         markup = loadingpage.logo_svg({}, Path("."))
         paints = [paint.lower()
                   for paint in re.findall(r'(?:fill|stroke)="([^"]+)"', markup)]
         self.assertTrue(paints)
         self.assertNotIn("#00414a", paints)
+
+    def test_default_logo_is_square_and_cropped_to_its_drawing(self):
+        # The loading page centers the logo in a column, so the default is the square
+        # signal mark, not the wide wordmark. Transparent margin inside the viewBox would
+        # defeat that just as surely as a wrong aspect ratio, so assert the box is square
+        # and that the drawing's own transforms sit inside it.
+        markup = loadingpage.logo_svg({}, Path("."))
+        box = re.search(r'viewBox="([-\d.\s]+)"', markup)
+        self.assertIsNotNone(box)
+        minx, miny, width, height = [float(part) for part in box.group(1).split()]
+        self.assertAlmostEqual(width, height)
+        for x, y in re.findall(r"translate\((-?[\d.]+),(-?[\d.]+)\)", markup):
+            self.assertTrue(minx <= float(x) <= minx + width)
+            self.assertTrue(miny <= float(y) <= miny + height)
 
     def test_logo_key_inlines_the_projects_file(self):
         with tempfile.TemporaryDirectory() as tmp:

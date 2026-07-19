@@ -28,6 +28,8 @@ namespace SynQt {
 /// certificate-verified entity name. emitSignal delivers a contract signal to this one
 /// caller (the per-connection instance has a single consumer, so emitting on it targets the
 /// caller alone).
+///
+/// \sa \ref qmlcaller "the Caller accessor page", \ref qmlclient "the Client alias"
 class Caller : public QObject
 {
     Q_OBJECT

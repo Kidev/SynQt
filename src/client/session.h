@@ -13,10 +13,13 @@
 
 namespace SynQt {
 
-/// Read-only session state plus the two actions that change it (docs/runtime-api.md).
+/// Read-only session state plus the two actions that change it (see the
+/// [runtime API reference](https://synqt.org/runtime-api/)).
 /// It never exposes a secret: the raw session id and any token live at the edge, not in
 /// the client. The framework, not app code, drives state/scope/identity; login/logout
 /// are surfaced to QML.
+///
+/// \sa \ref qmlsession "the Session accessor page"
 class Session : public QObject
 {
     Q_OBJECT

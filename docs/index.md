@@ -43,7 +43,7 @@ irm https://get.synqt.org/install.ps1 | iex
 
 </div>
 
-<img src="assets/synqt-header.svg" alt="SynQt" class="synqt-hero__mark">
+<img src="assets/synqt.svg" alt="SynQt" class="synqt-hero__mark">
 
 </div>
 

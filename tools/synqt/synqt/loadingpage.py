@@ -86,11 +86,14 @@ def logo_svg(config: Dict[str, Any], project_dir) -> str:
     """The SVG markup to inline: ``build.loading.logo`` when set, else the SynQt mark.
 
     The packaged default is a copy of the website's mark rather than a reference to it:
-    ``docs/`` is the website and ships in no wheel.
+    ``docs/`` is the website and ships in no wheel. It is the square signal mark
+    (assets/synqt-square.svg), not the wordmark: the loading page centers its logo in a
+    column, where a square animating mark holds the eye and a wide wordmark does not, and
+    the page already spells the project name out in text below it.
     """
     value = _loading(config).get("logo")
     if isinstance(value, str) and value.strip():
         source = Path(project_dir) / value
     else:
-        source = _ASSETS / "synqt.svg"
+        source = _ASSETS / "synqt-square.svg"
     return _PROLOG.sub("", source.read_text(encoding="utf-8")).strip()
