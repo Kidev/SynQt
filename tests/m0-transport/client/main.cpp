@@ -78,7 +78,7 @@ int main(int argc, char *argv[])
     // and the frame-size instrument): the frame-size logging already proved the 69-byte
     // reply frame ARRIVES at the client, yet the returning-slot PendingCall never resolves
     // (watcher `finished` never fires, no error). The next question is where inside QtRO it
-    // dies, and QtRO answers it itself at debug level -- with no rebuild of the kit -- through
+    // dies, and QtRO answers it itself at debug level (with no rebuild of the kit) through
     // two lines under the qt.remoteobjects category that carry the serial the client SENT and
     // the serial each reply ACKs:
     //   "Sent InvokePacket with serial id: N"                         (uplink invoke)

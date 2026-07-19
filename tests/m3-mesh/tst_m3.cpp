@@ -43,7 +43,7 @@ namespace {
 
 // A crash-safe progress trace. On Windows a piped standard stream is block-buffered, so a hard
 // termination (an access violation, not a failed QVERIFY) discards everything QtTest printed and
-// the failure reaches the ctest log as "***Failed" in half a second with no output at all -- not
+// the failure reaches the ctest log as "***Failed" in half a second with no output at all, not
 // even QtTest's own "Start testing" banner, which is why unbuffering stdout alone did not reveal
 // the crash site. This writes each step to a file that is reopened, flushed, and closed per line,
 // so whatever is on disk after the process dies is exactly the last step it reached. QFile, not
@@ -104,7 +104,7 @@ QSslKey loadKey(const QString &name)
 // rather than assumed because both vary by host and neither is visible from a failed
 // handshake: Qt picks its backend from what it can load at runtime (OpenSSL where it is
 // available, the platform stack otherwise), and the certificates are generated on the host
-// by whichever `openssl` is on PATH -- which on macOS is LibreSSL, not OpenSSL. A mutual-TLS
+// by whichever `openssl` is on PATH, which on macOS is LibreSSL, not OpenSSL. A mutual-TLS
 // test that fails on one platform and passes on another is unreadable without these two
 // facts, and reading them out of a green run is how they stay trustworthy.
 void reportTlsEnvironment()
@@ -170,7 +170,7 @@ private slots:
     }
 
     // Run before and after every test function. The last "enter" with no matching "leave" in the
-    // trace names the clause the process died in -- the one fact the empty ctest log could not
+    // trace names the clause the process died in: the one fact the empty ctest log could not
     // give. A failed QVERIFY still reaches "leave" (QtTest runs cleanup after a failure), so an
     // "enter" with no "leave" is specifically a hard crash, not an assertion failure.
     void init()
@@ -403,7 +403,7 @@ private slots:
 // unbuffered before the run. On Windows a piped standard stream is block-buffered, so a
 // hard termination (an access violation or an abort, the kind a failed QVERIFY never
 // produces) discards everything QtTest had printed into the buffer and the failure reaches
-// the log as zero output -- which is exactly how m3 first surfaced: "***Failed" in half a
+// the log as zero output, which is exactly how m3 first surfaced: "***Failed" in half a
 // second with not one PASS or QWARN line to say where. Unbuffering flushes each line as it
 // is written, so the last line before a crash is the crash site. It costs nothing on a green
 // run and nothing on the other platforms, where a pipe is line-buffered already.

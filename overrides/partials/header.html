@@ -4,14 +4,13 @@
 
   Override of material/partials/header.html. One change from stock:
 
-  The tabs bar (partials/tabs.html) is included right after the logo,
-     inside the same `.md-header__inner` row, instead of stock's placement
-     (its own full width row below the header, or - with
-     navigation.tabs.sticky, which mkdocs.yml enables so base.html's own
-     separate tabs block skips itself - still its own row, just stuck to the
-     header). Tabs to the right of the logo on one line instead of two rows;
-     the CSS side of this (stripping .md-tabs's own width/grid centering so
-     it behaves as a flex item here) is in extra.css.
+  The tabs bar (partials/tabs.html) is included right after the logo, inside
+  the same `.md-header__inner` row, instead of stock's placement (its own full
+  width row below the header, or, with navigation.tabs.sticky, which mkdocs.yml
+  enables so base.html's own separate tabs block skips itself, still its own
+  row, just stuck to the header). Tabs to the right of the logo on one line
+  instead of two rows; the CSS side of this (stripping .md-tabs's own
+  width/grid centering so it behaves as a flex item here) is in extra.css.
 -#}
 {% set class = "md-header md-header--shadow md-header--lifted" %}
 <header class="{{ class }}" data-md-component="header">

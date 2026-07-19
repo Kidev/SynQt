@@ -16,11 +16,11 @@
 //                      fits the tick budget);
 //   * publish_cpu   -- owner-side time to build every player's visible slice and bump its tick
 //                      (the edge CPU per server tick);
-//   * snapshot_rate -- snapshots per second actually delivered to a connected player over the
+//   * snapshot_rate: snapshots per second actually delivered to a connected player over the
 //                      wire, averaged across players (should track the target rate until the loop
 //                      saturates);
 //   * rss_mb        -- resident memory at the end of the window (memory per connection as N grows);
-//   * rows_per_session -- the interest-managed payload one player receives, which stays flat at k
+//   * rows_per_session: the interest-managed payload one player receives, which stays flat at k
 //                      once N passes k. The N where it stops being flat is the honest point the
 //                      plan asks us to find and report.
 //
@@ -598,7 +598,7 @@ int main(int argc, char *argv[])
     // dispatcher is gone, and every one warns. First sever each socket's signals so no inbound
     // host frame is routed into QtRO wiring whose replica is about to go, which otherwise logs
     // "connectionToSource is null" during the drain. Then delete the node (it takes the replica
-    // children and the heartbeat timer), the unparented transport, and the socket -- nothing
+    // children and the heartbeat timer), the unparented transport, and the socket; nothing
     // timer-bearing is left for application teardown to destroy.
     for (Player &player : players) {
         player.socket->disconnect();

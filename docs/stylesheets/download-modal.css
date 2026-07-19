@@ -205,7 +205,7 @@
 /* Only prose links get the accent color. Excluding the buttons matters: this
    selector is a class plus an element (more specific than the single-class
    `.synqt-dl__btn`), so without the `:not()` it would override the primary
-   button's dark `color` with accent blue - blue text on the blue button. */
+   button's dark `color` with accent blue: blue text on the blue button. */
 .synqt-dl a:not(.synqt-dl__btn) {
   color: var(--md-accent-fg-color, #00a6ed);
 }

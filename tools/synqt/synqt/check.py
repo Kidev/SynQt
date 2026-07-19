@@ -289,7 +289,7 @@ def lint_contracts(project_dir) -> List[str]:
 # they fail the check. `property-override`: shadowing a FINAL member (the classic case is a
 # delegate taking a model role named x or y as a required property, against the x/y every
 # Item already declares FINAL) makes the whole component fail to load with "Cannot override
-# FINAL property" - a blank page, not a style nit.
+# FINAL property": a blank page, not a style nit.
 _QML_FATAL_CATEGORIES = ("property-override",)
 
 
@@ -302,7 +302,7 @@ def qt_tool_path(tool: str) -> Optional[str]:
     The executable suffix is resolved rather than assumed: only Windows adds one, and
     shutil.which() applies PATHEXT for us while a hand-built path does not. Naming the
     bare tool there finds nothing, and this function's contract is that None means "no
-    linter installed" -- so an unresolved suffix would quietly downgrade `synqt check`
+    linter installed", so an unresolved suffix would quietly downgrade `synqt check`
     to skipping the QML lint on every Windows machine.
     """
     found = shutil.which(tool)

@@ -73,7 +73,7 @@ jobs:
       - name: Install the native dependencies Qt needs to configure (Linux)
         # Qt6GuiConfig hard-requires WrapOpenGL, so without the OpenGL dev files Qt6Gui sets
         # Qt6Gui_FOUND to FALSE and find_package(Qt6) fails with "Failed to find required Qt
-        # component Gui" while pointing at a Qt6GuiConfig.cmake that plainly exists -- which is
+        # component Gui" while pointing at a Qt6GuiConfig.cmake that plainly exists, which is
         # what makes this one slow to read: the file it names is not the file that is missing.
         # libgl1-mesa-dev pulls the libglvnd dev files, covering CMake's OPENGL_opengl_LIBRARY,
         # OPENGL_glx_LIBRARY, and OPENGL_INCLUDE_DIR. macOS has OpenGL in the SDK and needs
@@ -125,7 +125,7 @@ jobs:
         if: steps.qt-cache.outputs.cache-hit != 'true'
         # all_os/wasm, not <host>/desktop: the WASM kit is one host-independent build published
         # under its own host and target, and asking for it under the desktop target fails with
-        # "Failed to locate XML data for Qt version" -- which reads like the version is gone
+        # "Failed to locate XML data for Qt version", which reads like the version is gone
         # rather than like the coordinates are wrong.
         run: |
           python -m aqt install-qt all_os wasm \
@@ -169,7 +169,7 @@ jobs:
           SRC="$QT_ROOT/$QT_VERSION/Src/qtremoteobjects"
           # QT_HOST_PATH: a cross-compiled Qt must be told where its host tools are. The kit
           # carries Qt's own build-machine path (/home/qt/work/install), and only a
-          # host-specific aqt install rewrites it -- which the host-independent all_os/wasm kit
+          # host-specific aqt install rewrites it, which the host-independent all_os/wasm kit
           # is not, so it has to be named here.
           export QT_HOST_PATH="$QT_ROOT/$QT_VERSION/${{ matrix.qt_host_dir }}"
           "$QT_WASM/bin/qt-cmake" -S "$SRC" -B "$RUNNER_TEMP/qtro-wasm" -G Ninja \

@@ -91,7 +91,7 @@ def _qt_kit(project_dir: os.PathLike[str] | str, kit: str) -> Optional[Path]:
     qtdir = os.environ.get("QTDIR")
     if qtdir:
         # QTDIR conventionally points at a kit directory, so its siblings are the other
-        # kits of the same Qt version -- which is how the WASM kit is found next to the
+        # kits of the same Qt version, which is how the WASM kit is found next to the
         # host one. Accept QTDIR itself only when it *is* the kit being asked for: a bare
         # append would hand back the host kit to a caller asking for the WASM one.
         if Path(qtdir).name == kit:

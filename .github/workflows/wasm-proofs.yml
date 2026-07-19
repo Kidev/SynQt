@@ -323,7 +323,7 @@ jobs:
       - name: Provide jwt-cpp headers
         # The arena builds its web edge, which links SynQtService, which verifies OIDC ID-token
         # signatures with jwt-cpp (MIT, header-only). Without it the host configure dies on
-        # "jwt-cpp not found" -- which is what it did: the client bundle compiled, the edge did
+        # "jwt-cpp not found", which is what it did: the client bundle compiled, the edge did
         # not, and this job reported it as a missing bundle rather than as the build error it
         # was. Kept in step with the same step in ctest.yml.
         shell: bash

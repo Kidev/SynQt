@@ -5,7 +5,7 @@
   Override of material/partials/content.html: the stock partial injects an
   `<h1>{{ page.title }}</h1>` whenever the page's rendered content has no `<h1>`
   of its own. The home page (docs/index.md) deliberately has no text h1 - the
-  synqt.svg banner is its title - so skip the injection there. Every other page
+  synqt.svg banner is its title, so skip the injection there. Every other page
   starts with its own `# Heading`, so this only ever changes the home page.
 -#}
 {% include "partials/tags.html" %}

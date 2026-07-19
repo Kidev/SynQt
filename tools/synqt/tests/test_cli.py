@@ -63,7 +63,7 @@ class ContractLintTest(unittest.TestCase):
 class QtToolPathTest(unittest.TestCase):
     def test_a_windows_kits_exe_suffix_is_resolved_not_assumed_away(self):
         """qt_tool_path returns None to mean "no linter installed", so an unresolved .exe
-        does not fail loudly -- it silently downgrades `synqt check` to skipping the QML
+        does not fail loudly; it silently downgrades `synqt check` to skipping the QML
         lint on every Windows machine where qmllint is not also on PATH."""
         kit = Path(tempfile.mkdtemp())
         (kit / "bin").mkdir()

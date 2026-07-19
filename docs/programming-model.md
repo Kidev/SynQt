@@ -210,7 +210,7 @@ global object. The caller is one of two things.
 
 `Client` remains available on web edge connect points as a convenience alias for
 `Caller` when the caller is a browser user, so existing edge code reads
-naturally (`Client.hasScope`, `Client.identity`, `Client.emit<Signal>`, and
+directly (`Client.hasScope`, `Client.identity`, `Client.emit<Signal>`, and
 `Client.id` for the session id). The general mechanism is `Caller`.
 
 Outside a call that originated from a consumer (for example an owner side timer

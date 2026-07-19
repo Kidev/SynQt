@@ -17,7 +17,7 @@
    the `primary`/`accent` names set in mkdocs.yml), not `:root`: Material sets
    these custom properties directly on `<body>` via that attribute, and a
    directly matching rule on body always beats an inherited value from a
-   `:root` rule on html, regardless of specificity - so overriding `:root`
+   `:root` rule on html, regardless of specificity, so overriding `:root`
    alone was silently losing. */
 [data-md-color-primary="indigo"] {
   --md-primary-fg-color: #201335;
@@ -43,7 +43,7 @@
    `.md-container`/`.md-main`/`.md-content` set a background of their own, so
    they show this straight through. The header stays its own opaque #201335
    (overrides/partials/header.html) rather than also going transparent,
-   because it's `position:sticky` with page content scrolling underneath it -
+   because it's `position:sticky` with page content scrolling underneath it;
    letting the gradient show through there would make scrolled text bleed
    into the header instead of being hidden by it. */
 body {
@@ -158,7 +158,7 @@ body {
    Material's default `.md-header__button.md-logo` box is bigger than the image
    it wraps (.2rem margin + .4rem padding on every side), which caps how large
    the image can get before it inflates the header bar itself. Strip that
-   margin/padding so the button hugs the image - same size, basically - which
+   margin/padding so the button hugs the image (same size, basically), which
    frees up the full header row height (2.4rem, set by the other header
    buttons: 1.2rem icon + .8rem padding + .4rem margin) for the image, without
    growing the banner. The contrast problem this used to work around (the
@@ -189,7 +189,7 @@ body {
    Trims a whole row of height off the top of every page. .md-tabs ships
    styled for that separate full width row (100% wide, its own centered
    .md-grid, a taller item height with the link's text nudged down within
-   it) - all of that gets stripped here so it instead behaves as a plain
+   it); all of that gets stripped here so it instead behaves as a plain
    flex item alongside the logo, drawer toggle, search, and repo link. */
 .md-header__inner .md-tabs {
   width: auto;
@@ -235,7 +235,7 @@ body {
    `overflow-y: auto` plus a viewport-clipped `max-height`, which turns the
    left nav and the right table of contents into independently scrolling
    panes whenever they are a touch taller than the fold. Drop both: the
-   scrollwrap takes its natural height and the page itself scrolls if ever
+   scrollwrap takes its full height and the page itself scrolls if ever
    needed, so nothing in either menu is hidden behind a scroll. Applies to
    `--primary` (left nav) and `--secondary` (right TOC) alike. */
 .md-sidebar__scrollwrap {
@@ -249,7 +249,7 @@ body {
    (`Session.state`), a value, a field, or a Source surface (`setItems(rows)`).
    Those must read as one token, but Material's default table cells wrap on any
    break opportunity, so `setItems(rows)` splits after the `(` into `setItems(rows`
-   + `)` on the next line whenever the column is a touch narrow - unreadable for a
+   + `)` on the next line whenever the column is a touch narrow, unreadable for a
    lookup column. Pin the first column's inline code to a single line; the wider,
    prose second and third columns still wrap normally. Material tables already
    live inside `.md-typeset__scrollwrap` (overflow-x: auto), so on a genuinely

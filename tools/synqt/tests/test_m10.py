@@ -58,7 +58,7 @@ class MeshTest(unittest.TestCase):
         with no extendedKeyUsage at all; OpenSSL only enforces an EKU that is *present*,
         so it returns OK for both sslserver and sslclient on an EKU-less cert (measured,
         not assumed). Apple's verifier instead requires the matching usage OID, so those
-        certs were fine on Linux and untrusted on macOS -- every suite that verified a
+        certs were fine on Linux and untrusted on macOS; every suite that verified a
         peer failed there, and the ones that skipped verification passed. An EKU-less
         cert is not "unrestricted" everywhere; it is unusable on a strict verifier.
 

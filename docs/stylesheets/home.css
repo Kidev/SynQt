@@ -12,7 +12,7 @@
    docs/assets/synqt.svg; loading it here for the hero headline ties the page's
    one big piece of type back to the wordmark. Nothing about this @import is
    affected by the reason synqt.svg's own text had to be outlined (an <img>
-   can't fetch external resources for the SVG it points to) - this is an
+   can't fetch external resources for the SVG it points to); this is an
    ordinary page level font load, not an SVG-embedded one. */
 @import url('https://fonts.googleapis.com/css2?family=Titillium+Web:wght@700&display=swap');
 
@@ -160,7 +160,7 @@
 
 /* The icon inherits the hero's white text as its fill (Material renders these
    inline icons with `fill: currentColor`) and is sized to match the shrunk
-   command box, not exceed it - otherwise the icon, not the box, sets the flex
+   command box, not exceed it; otherwise the icon, not the box, sets the flex
    row's height and the box looks padded top and bottom even after the code
    padding is trimmed. `flex: none` keeps it from being squeezed when the command
    is long. */
@@ -172,7 +172,7 @@
 
 /* The icons for each command sit in one leading `<p>` (md_in_html wraps the icon
    line), which is the flex row's first item. The Linux/macOS line carries two
-   icons (both install with the same `curl | sh`), the Windows line one - left to
+   icons (both install with the same `curl | sh`), the Windows line one: left to
    size to content, the two-icon paragraph would be wider and shove its command
    box further right, so the boxes stop lining up. Pin the icon paragraph to
    exactly one icon's width (Material renders each `.twemoji` at
@@ -205,7 +205,7 @@
    narrow screen, most of the way under the always visible copy button
    (`.md-code__nav`, absolutely positioned top right by Material, with its own
    opaque background so it never looks broken, just slightly over the last
-   character or two - the same thing already happens to the PowerShell
+   character or two; the same thing already happens to the PowerShell
    command on the getting-started page). Shrinking the font keeps the overlap
    to a couple of characters instead of a whole word; `code` is already
    `overflow:auto`, so the full command is always one swipe away regardless. */
@@ -229,7 +229,7 @@
 
 /* The primary "Get started" call to action (adapted from a Uiverse.io design by
    mobinkakei). Colored from the site palette: the accent blue (#00a6ed) fills the
-   button and the mint-green highlight (#7dffa8/#46f477) casts the drop shadow -
+   button and the mint-green highlight (#7dffa8/#46f477) casts the drop shadow;
    both read cleanly on the deep-purple hero gradient. On hover the fill deepens to
    #0079b8 (keeping the white label high-contrast) and the green shadow grows, so
    the button lifts toward the viewer. */
@@ -276,7 +276,7 @@
   transform: skewX(15deg);
 }
 
-/* Chevrons stay white at rest and on hover; only their position animates -
+/* Chevrons stay white at rest and on hover; only their position animates:
    stacked at rest, spreading out to the right when hovered. */
 .synqt-hero__actions .cta svg path {
   fill: #fff;
@@ -353,7 +353,7 @@
 
 /* The hotspots below are positioned by percentage, matching the SVG's own
    viewBox coordinates (0 0 440 300) converted to %, so they line up with the
-   nodes underneath regardless of how wide the diagram is actually rendered -
+   nodes underneath regardless of how wide the diagram is actually rendered;
    that only works if this stage is exactly the SVG's own box, hence the
    separate wrapper from .synqt-flow (which centers the stage, and could in
    principle be wider than its max-width on a very wide screen). */
@@ -403,7 +403,7 @@
 }
 
 /* Centered on the small document glyph below the "login+request" line (see
-   the SVG), not the whole line/label - the icon is the visible affordance,
+   the SVG), not the whole line/label; the icon is the visible affordance,
    so the hover target matches its size rather than the wider area around it. */
 .synqt-flow__hotspot--contract {
   left: 30%;
@@ -468,7 +468,7 @@
 }
 
 /* The snippet is real Pygments output (same "qml" lexer and span classes as
-   every fenced ```qml block elsewhere on the site - generated once with
+   every fenced ```qml block elsewhere on the site, generated once with
    `pygments.highlight(...)` and pasted in as static HTML, since this is raw
    content, not a markdown fence), so token colors come for free from
    Material's own `--md-code-hl-*` variables. Only the block level styling
@@ -588,7 +588,7 @@
   padding: 0;
 }
 
-/* No copy button inside the peek - it would sit over the first config line in
+/* No copy button inside the peek; it would sit over the first config line in
    such a small card (the QML flow tooltips avoid this by being raw HTML). */
 .synqt-config__tooltip .md-clipboard {
   display: none;

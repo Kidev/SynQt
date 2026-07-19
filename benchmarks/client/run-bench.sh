@@ -65,14 +65,14 @@ echo "== [2/3] Single-threaded kit (the default WASM client) =="
 if [ -x "$QT_WASM_ST/bin/qt-cmake" ]; then
     build_measure_drive "single" "$QT_WASM_ST/bin/qt-cmake"
 else
-    echo "  single-threaded WASM kit not found at $QT_WASM_ST -- skipping" >&2
+    echo "  single-threaded WASM kit not found at $QT_WASM_ST; skipping" >&2
 fi
 
 echo "== [3/3] Multi-threaded kit (cross-origin isolated, SharedArrayBuffer) =="
 if [ -x "$QT_WASM_MT/bin/qt-cmake" ]; then
     build_measure_drive "multi" "$QT_WASM_MT/bin/qt-cmake" -DQT_WASM_PTHREAD_POOL_SIZE=8
 else
-    echo "  multi-threaded WASM kit not found at $QT_WASM_MT -- skipping" >&2
+    echo "  multi-threaded WASM kit not found at $QT_WASM_MT; skipping" >&2
 fi
 
 echo "== done. baselines under ${RESULTS_DIR}/client-*-${HOST_TAG}.json =="

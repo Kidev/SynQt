@@ -215,7 +215,7 @@ function pageUrl(scheme, port) {
 //
 // Every one of these lines was already being collected and then dropped on the floor: a
 // failure reported five booleans and a counter array, which say which path did not work and
-// nothing whatsoever about why. That is not enough to act on -- firefox-on-Linux has failed
+// nothing whatsoever about why. That is not enough to act on; firefox-on-Linux has failed
 // here with reply=false through two rounds of investigation, and each round had to start by
 // guessing what the page had done, because the one artefact that knew was discarded at the
 // moment it became interesting. The console carries the client's own account (M0 slot error,

@@ -13,7 +13,7 @@
 #
 # The kind is read from the file's magic number rather than from `file`'s prose. `file` is not in
 # every Git-for-Windows install, and its wording is neither stable across versions nor the same on
-# two platforms -- which is exactly how `file -b ... | grep -q ELF` came to report MISSING on macOS
+# two platforms, which is exactly how `file -b ... | grep -q ELF` came to report MISSING on macOS
 # for three executables that had just linked successfully: the assertion only ever recognised
 # Linux, so the one thing it proved was that the test ran on Linux.
 
@@ -36,7 +36,7 @@ native_exe_path() {
     fi
 }
 
-# Echo a short human-readable binary kind (ELF, Mach-O, PE), or nothing if the file is not a
+# Echo a short binary kind label (ELF, Mach-O, PE), or nothing if the file is not a
 # native executable for any platform we build for.
 native_exe_kind() {
     magic="$(od -A n -t x1 -N 4 "$1" 2>/dev/null | tr -d ' \n')"

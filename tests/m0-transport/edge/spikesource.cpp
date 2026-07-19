@@ -28,7 +28,7 @@ QString SpikeSource::echo(const QString &message)
     // reached the edge" from "the reply never came back", so the edge says so itself: the verify
     // harness prints the edge's stdout as "[edge] ...", and the browser cases run one at a time,
     // so an invocation logged inside the failing case's window means the uplink works and the
-    // reply is what is lost -- and none logged means the invoke never arrived at all.
+    // reply is what is lost, and none logged means the invoke never arrived at all.
     qInfo().noquote() << QStringLiteral("M0 EDGE echo invoked message=%1").arg(message);
     return QStringLiteral("echo:") + message;
 }

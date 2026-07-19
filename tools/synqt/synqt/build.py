@@ -167,7 +167,7 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
             # QT_HOST_PATH is passed explicitly, never left to the kit: a cross-compiled Qt has
             # to be told where its host tools (moc, rcc, qmlcachegen) live. The kit bakes in the
             # path from the machine Qt itself was built on (/home/qt/work/install), and aqt
-            # rewrites that only when it installs a host-specific kit -- the WebAssembly kit is
+            # rewrites that only when it installs a host-specific kit; the WebAssembly kit is
             # published host-independently (all_os/wasm), so nothing rewrites it and the
             # configure dies on "please set the QT_HOST_PATH cache variable". We already
             # resolved the host kit, so say so rather than depend on an installer's patching.
@@ -274,7 +274,7 @@ def _install_binary(build_dir: Path, entity_name: str, dest: Path) -> bool:
 
     The suffix is resolved rather than assumed (run.host_binary): Windows links `<name>.exe`, so
     looking only for the bare name there finds nothing, and this returns False for a binary that
-    built perfectly well -- a deploy directory that is silently missing its executable.
+    built perfectly well: a deploy directory that is silently missing its executable.
     """
     compiled = run.host_binary(build_dir.parent, entity_name)
     if compiled is None:

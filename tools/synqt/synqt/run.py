@@ -29,7 +29,7 @@ def launch_env(root: Path) -> Dict[str, str]:
     build/host/ cannot see Qt6Core.dll in the kit's bin and dies before main(), typically
     behind an error dialog rather than a message. Linux and macOS bake the kit's path into the
     binary at link time and need nothing here, which is why this only ever shows up on the one
-    platform, and only when running -- never when building.
+    platform, and only when running, never when building.
     """
     env = dict(os.environ)
     # Asked, not assumed, and asked of the one function that answers it: a second way to
@@ -348,7 +348,7 @@ def _hot_reload(root: Path, state: Dict[str, Any], port: int, client: str,
 
     # A failed rebuild is fatal to `synqt build` and merely news to `synqt dev`: the whole
     # point of the watcher is that you fix the typo and save again, so the running system
-    # stays up and the error is reported. (`build` raises for the opposite reason -- it must
+    # stays up and the error is reported. (`build` raises for the opposite reason: it must
     # never report success for a binary it did not produce.)
     try:
         note, _, _ = buildmod.compile_incremental(root, config, client=client)

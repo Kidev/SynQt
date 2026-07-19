@@ -192,7 +192,7 @@ ProxySource {
 In the client, read and set it with `Server.proxy.maxBid` and
 `Server.proxy.setMax(...)`. Because the connect point is `per_session`, there is no
 shared object through which one user could ever see another's maximum. From here,
-making `placeBid` automatically raise a user up to their stored maximum is a natural
+making `placeBid` automatically raise a user up to their stored maximum is an obvious
 next step, now that the value has a safe, private home.
 
 ## Recap

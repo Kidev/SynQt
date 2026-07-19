@@ -35,7 +35,7 @@ class ToolchainTest(unittest.TestCase):
         # parse is a broken instruction, not cosmetic. Both were wrong: the host arch was named
         # by its install directory (gcc_64) rather than its arch (linux_gcc_64), and the WASM kit
         # was requested under the desktop target, which fails with "Failed to locate XML data for
-        # Qt version" -- an error about the version, for a mistake in the coordinates.
+        # Qt version": an error about the version, for a mistake in the coordinates.
         #
         # The host hint is per platform: it named the Linux kit on every host, so `synqt
         # doctor` on a Mac printed a command that installs the wrong Qt. The WASM hint is
@@ -58,7 +58,7 @@ class ToolchainTest(unittest.TestCase):
         # The kit directory Qt installs into differs per platform. It was hard-coded to
         # gcc_64, so on macOS and Windows the resolver looked for a Linux kit, never found
         # one, and every `synqt build` reported "toolchain incomplete" and skipped the
-        # compile -- reporting a missing toolchain on a machine where Qt was installed.
+        # compile: reporting a missing toolchain on a machine where Qt was installed.
         for platform, expected in [("win32", "msvc2022_64"), ("darwin", "macos"),
                                    ("linux", "gcc_64"), ("freebsd14", "gcc_64")]:
             with self.subTest(sys_platform=platform):
@@ -490,7 +490,7 @@ class DeployedBinaryTest(unittest.TestCase):
 
 class LaunchEnvTest(unittest.TestCase):
     """What an entity binary is launched with. Windows has no RPATH, so a built entity cannot
-    see Qt6Core.dll in the kit's bin and dies before main() -- behind an error dialog, which
+    see Qt6Core.dll in the kit's bin and dies before main(), behind an error dialog, which
     on CI reads as a hang rather than a failure. Linux and macOS bake the path in at link
     time, which is why this is invisible on two hosts out of three."""
 
@@ -526,7 +526,7 @@ class HotReloadTest(unittest.TestCase):
         # `synqt build` raises on a failed compile, because it must never claim an artifact it
         # did not produce. The watcher wants the opposite: you fix the typo and save again, so
         # a broken rebuild is news, not the end of the session. Both behaviours come from the
-        # same _cmake_build, so this pins the seam between them -- without it the two are one
+        # same _cmake_build, so this pins the seam between them; without it the two are one
         # edit away from collapsing into each other, and the failure mode (a traceback that
         # kills a running dev server on a syntax error) is a miserable one to rediscover.
         state = {"config": {"entities": []}, "processes": []}

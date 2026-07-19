@@ -108,7 +108,7 @@ def init(project_dir: os.PathLike[str] | str, *, dev: bool = False, force: bool 
     # is the same route the entity certs below take: the extension file is the only source
     # of extensions, so the profile is identical on every host's openssl.
     #
-    # keyUsage is the addition over the default v3_ca profile -- a CA whose key usage is
+    # keyUsage is the addition over the default v3_ca profile: a CA whose key usage is
     # unstated is one a strict verifier may decline to build a chain through.
     csr = mesh / "ca.csr"
     ext = mesh / "ca.ext"
@@ -155,8 +155,8 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
     # developer's Linux box and makes `synqt mesh cert` fail outright there.
     #
     # Both key usages are deliberate. A mesh entity is a TLS server on the links it owns
-    # and a TLS client on the links it consumes -- the same certificate authenticates it
-    # in both directions -- so it needs serverAuth and clientAuth. Naming them (rather
+    # and a TLS client on the links it consumes, and the same certificate authenticates it
+    # in both directions, so it needs serverAuth and clientAuth. Naming them (rather
     # than omitting extendedKeyUsage entirely) is what keeps the certificate portable:
     # OpenSSL only enforces an EKU that is present, so an EKU-less cert passes on Linux,
     # while Apple's verifier requires TLS certificates to carry the matching usage OID.

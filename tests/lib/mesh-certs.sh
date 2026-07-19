@@ -18,14 +18,14 @@
 # It did NOT fix macOS, and the instrument added in tst_m3.cpp to find out why has since
 # answered it. macOS runs Qt on the Secure Transport backend, and it was rejecting our own
 # trust anchor: "The root CA certificate is not trusted for this purpose". The dump showed the
-# CA carrying *two* basicConstraints extensions -- which RFC 5280 4.2 forbids ("A certificate
+# CA carrying *two* basicConstraints extensions, which RFC 5280 4.2 forbids ("A certificate
 # MUST NOT include more than one instance of a particular extension") and Apple's verifier
 # enforces, while OpenSSL shrugs and keeps the Linux column green.
 #
 # The duplicate came from issuing the CA with `req -x509 -addext`: -addext *adds* to whatever
 # the host's openssl.cnf already puts in its x509_extensions section (typically a v3_ca that
 # sets basicConstraints), it does not replace it. OpenSSL 3 happens to collapse the two;
-# LibreSSL -- which is what `openssl` is on macOS -- emits both. So the certificate was
+# LibreSSL (which is what `openssl` is on macOS) emits both. So the certificate was
 # malformed only on the host that then refused it, which is why this took a backend dump to
 # see. The CA is now issued the same way the leaves always were, through `x509 -req -extfile`,
 # where the extension file is the only source of extensions and the host's configuration
@@ -67,7 +67,7 @@ synqt_mark_certs() { # marker-file
 # said. Every call here used to end in `>/dev/null 2>&1`, which reads like tidiness and is not:
 # it discards the diagnostic and the exit status goes unremarked, so a step that half-worked
 # produced a subtly wrong certificate and the first sign of it was a TLS handshake failing three
-# suites later. Capturing rather than passing stderr through keeps a green run quiet -- openssl
+# suites later. Capturing rather than passing stderr through keeps a green run quiet; openssl
 # reports "Certificate request self-signature ok" on stderr as a matter of course.
 #
 # MSYS2_ARG_CONV_EXCL is for Git Bash on Windows. Its runtime rewrites arguments that look
@@ -92,7 +92,7 @@ _synqt_openssl() {
 # that is not one program: macOS ships LibreSSL under the name, Windows runners have their
 # own build, and the extension flags below are exactly the area where those implementations
 # have differed. A certificate that silently comes out without its extensions does not fail
-# here -- it fails later, as a TLS handshake that times out on one platform with no reason
+# here; it fails later, as a TLS handshake that times out on one platform with no reason
 # given, which is a much more expensive way to learn the same thing.
 #
 #   synqt_assert_cert_ext <cert> <text-that-must-appear-in-the-x509-dump>
@@ -110,8 +110,8 @@ synqt_assert_cert_ext() {
 # Presence is not the whole profile. RFC 5280 4.2 forbids a certificate from carrying the same
 # extension twice, and Apple's verifier holds it to that: a CA with two basicConstraints is
 # refused as a trust anchor, so every macOS suite that pinned it failed while OpenSSL-based
-# hosts accepted the same file. synqt_assert_cert_ext could not see it -- a duplicate matches
-# "is it there?" twice over -- so the malformed certificate passed its own profile check and
+# hosts accepted the same file. synqt_assert_cert_ext could not see it: a duplicate matches
+# "is it there?" twice over, so the malformed certificate passed its own profile check and
 # only spoke up as a TLS handshake failing on one platform. Counting is the difference.
 #
 #   synqt_assert_cert_ext_once <cert> <extension-name-as-openssl-prints-it>
@@ -131,7 +131,7 @@ synqt_assert_cert_ext_once() {
 #
 # Self-signed through a CSR and an extension file rather than in one `req -x509 -addext` step.
 # The one-step form inherits the host openssl.cnf's x509_extensions section and adds to it, so
-# the resulting CA carried whatever that section said *plus* what we asked for -- on LibreSSL,
+# the resulting CA carried whatever that section said *plus* what we asked for; on LibreSSL,
 # two basicConstraints, which macOS then refused as an anchor (see the header). `x509 -req`
 # takes its extensions only from -extfile, so this is the same profile on every host's openssl.
 synqt_gen_ca() { # name

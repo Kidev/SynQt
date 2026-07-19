@@ -47,7 +47,7 @@ M0Controller::M0Controller(const QUrl &edgeUrl, QObject *parent)
 
     // Poll-fallback for the firefox-on-WASM reply path (CONFIRMED in CI): notifyAboutReply
     // (replica.cpp) sets error=NoError and returnValue SYNCHRONOUSLY from the socket read callback,
-    // so isFinished() flips the instant the reply frame is processed -- independent of the watcher's
+    // so isFinished() flips the instant the reply frame is processed, independent of the watcher's
     // finished() signal, which QtRO fires over a Qt::QueuedConnection (qremoteobjectpendingcall.cpp
     // 32-34) that needs the posted-event pump to drain. On firefox-WASM in CI that pump is starved,
     // so the watcher never fires though the reply data is present and correct. This timer resolves
