@@ -11,10 +11,10 @@
 namespace SynQt {
 
 /// The base of every generated per-contract consumer facade (`<Contract>Consumer`). The
-/// facade is what the accessor family (Server, Database, ...) actually exposes for a consumed
-/// connect point: it forwards the replica's push properties, models and signals, turns a
-/// returning slot into a Promise (`slot(args).then(...)`), and publishes itself to the
-/// ConnectPointResolver so `<Contract>.on<Signal>` attached handlers can find it.
+/// facade is what the accessor family (\qmlServer, Database, ...) actually exposes for a
+/// consumed connect point: it forwards the replica's push properties, models and signals,
+/// turns a returning slot into a Promise (`slot(args).then(...)`), and publishes itself to
+/// the ConnectPointResolver so `<Contract>.on<Signal>` attached handlers can find it.
 ///
 /// The facade is stable across reconnects: the runtime creates it once and calls setReplica()
 /// again with the freshly acquired Replica, so QML bindings to the accessor entry stay valid.

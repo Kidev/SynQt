@@ -7,7 +7,10 @@
   credit with the project's own logo. That credit is not information a reader of this
   reference needs, and the tool that produced the pages is already named on the page that
   introduces them (docs/api-reference.md). What replaces it is the one thing a footer here
-  can usefully carry: the license, and the way back to the rest of the documentation.
+  still has to carry now that the site header menu covers the way back out: the license.
+  It rides inside the breadcrumb strip, which in this layout is pinned to the bottom of
+  the window; see the note on #synqt-footer in doxygen-synqt.css for why it cannot simply
+  follow the content.
 
   The `$` tokens are Doxygen substitutions; do not rename them. Regenerate the stock footer
   to compare against a new Doxygen release with:
@@ -15,19 +18,12 @@
 -->
 <!--BEGIN GENERATE_TREEVIEW-->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
+  <div id="synqt-footer">SynQt is Apache-2.0. Built artifacts inherit Qt's license; see
+    <a href="/licensing/">Licensing</a>.</div>
   <ul>
     $navpath
   </ul>
 </div>
 <!--END GENERATE_TREEVIEW-->
-<div id="synqt-footer">
-  <span>SynQt is Apache-2.0. Built artifacts inherit Qt's license; see
-    <a href="/licensing/">Licensing</a>.</span>
-  <span>
-    <a href="/api-reference/">About this reference</a>
-    <a href="/">synqt.org</a>
-    <a href="https://github.com/Kidev/SynQt">GitHub</a>
-  </span>
-</div>
 </body>
 </html>

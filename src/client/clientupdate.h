@@ -9,8 +9,8 @@
 
 namespace SynQt {
 
-/// The QML `App` accessor: the running client itself, as opposed to `Server` (the connect
-/// points), `Session` (who the user is), and `Router` (where they are).
+/// The QML \qmlApp accessor: the running client itself, as opposed to \qmlServer (the
+/// connect points), \qmlSession (who the user is), and \qmlRouter (where they are).
 ///
 /// The client is conveyed to every visitor, so a deploy can leave someone running an old
 /// build for as long as their tab stays open. The shell cache notices and tells the page;
@@ -44,7 +44,7 @@ protected:
     virtual void reloadPage();
 };
 
-/// The `App` QML surface: the attached object behind `App.onUpdateReady` and
+/// The \qmlApp QML surface: the attached object behind `App.onUpdateReady` and
 /// `App.applyUpdate()`.
 ///
 /// It is the whole surface rather than half of it. Registering `App` as a QML type is what
@@ -65,7 +65,7 @@ signals:
     void updateReady();
 };
 
-/// The attaching type, registered under the QML name "App" so `App.onUpdateReady`
+/// The attaching type, registered under the QML name \qmlApp so `App.onUpdateReady`
 /// resolves. It does nothing but provide the attached object, mirroring the generated
 /// `<Contract>` attaching types.
 class ClientUpdateAttachedType : public QObject
@@ -80,7 +80,7 @@ public:
     { return new ClientUpdateAttached{object}; }
 };
 
-/// Register the `App` attached type. The generated client main.cpp calls this before
+/// Register the \qmlApp attached type. The generated client main.cpp calls this before
 /// loading QML; the context property named `App` is bound separately and is the same
 /// object the attached one relays.
 void registerClientUpdate();

@@ -56,14 +56,19 @@ Everything else lives in [`Doxyfile`](https://github.com/Kidev/SynQt/blob/main/D
 the input set, the Qt macro handling, and the theme. The pages are styled with
 [doxygen-awesome-css](https://github.com/jothepro/doxygen-awesome-css) (MIT), vendored
 under [`tools/docs-hooks/doxygen-awesome/`](https://github.com/Kidev/SynQt/tree/main/tools/docs-hooks/doxygen-awesome)
-so a docs build needs no network, in its base layout: the tab bar across the top is the
-primary navigation and carries the search box, with the class tree beside the content.
-On top of it sit a
+so a docs build needs no network, in its sidebar layout: the class tree down the left is
+the primary navigation and carries the search box, with the page outline on the right. On
+top of it sit a
 [SynQt brand layer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-synqt.css),
 a [custom header](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-header.html)
-that links back here, and a
+carrying this site's header menu across the top, and a
 [custom footer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-footer.html)
 carrying the license instead of a generator credit.
+
+The header menu is a static copy of the six top-level entries in
+[`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml), because Doxygen
+generates those pages and never sees the MkDocs template. Renaming or reordering a
+top-level entry means editing the header to match.
 
 To generate it on its own, into `build/apidocs/html/index.html`:
 

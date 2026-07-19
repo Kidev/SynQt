@@ -62,6 +62,9 @@ extra_javascript:
 
 extra:
   generator: false
+  # The home page's <title> (overrides/main.html). Kept short enough to survive a browser
+  # tab and a search result, where the bare site name says nothing about what SynQt is.
+  tagline: build complete web systems in Qt and QML
 
 # Generates the Doxygen C++ reference into the built site under /api/ (see
 # docs/api-reference.md). Skipped with a warning when doxygen is not installed.

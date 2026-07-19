@@ -42,9 +42,20 @@ html {
     --content-maxwidth: 1100px;
     --spacing-medium: 12px;
 
-    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-        Arial, sans-serif;
+    --font-family: Roboto, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
     --font-family-monospace: "Roboto Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+    /* The site header sits above the whole Doxygen layout, which measures itself in
+       viewport heights, so every one of those measurements owes it this much room. */
+    --synqt-topbar-height: 80px;
+
+    /* MUST match TREEVIEW_WIDTH in the Doxyfile: doxygen-awesome-sidebar-only.css sizes
+       the sidebar from this, and Doxygen's own resize script from that. */
+    --side-nav-fixed-width: 300px;
+
+    /* What the theme reserves at the head of the sidebar, which here holds the name of
+       the reference and the search box under it, and nothing else. */
+    --top-height: 92px;
 }
 
 /* The site paints one fixed gradient behind every page (extra.css). Repeat it here so the
@@ -54,59 +65,157 @@ body {
     background-attachment: fixed;
 }
 
-#top,
-#nav-tree,
-#side-nav,
 div.contents,
 div.header {
     background: transparent;
 }
 
-#titlearea {
-    background: rgba(32, 19, 53, 0.92);
-    border-bottom: 1px solid var(--separator-color);
+/* The documentation site's header menu (doxygen-header.html), reproduced from the
+   values MkDocs Material computes for the real one: an 80px #201335 bar, a centered
+   1220px row, the wordmark at the row's full height, and 48px tab items at 14px. It is
+   in the page flow rather than fixed, which is enough to keep it on screen at all times
+   because the layout below scrolls #doc-content, not the window. */
+#synqt-sitebar {
+    background: #201335;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.1), 0 4px 8px rgba(0, 0, 0, 0.2);
+    color: #ffffff;
+    position: relative;
+    z-index: 100;
 }
 
-#projectname a {
-    color: var(--header-foreground);
-    text-decoration: none;
+#synqt-sitebar .md-header__inner {
+    display: flex;
+    align-items: center;
+    max-width: 1220px;
+    height: var(--synqt-topbar-height);
+    margin: 0 auto;
+    padding: 0 4px;
 }
 
-/* docs/assets/synqt.svg is the dark-background variant of the wordmark, drawn in #00a6ed
-   and #46f477, so it needs no plate behind it here. */
-#projectlogo {
-    padding: var(--spacing-medium) 0 4px var(--spacing-medium);
-}
-
-#projectlogo img {
-    height: 40px;
+#synqt-sitebar .md-logo img {
+    height: var(--synqt-topbar-height);
     width: auto;
+    display: block;
 }
 
-/* The two links back out of the reference: to the documentation page that introduces it,
-   and to the repository. Without them the generated pages are a dead end. */
-#synqt-backlink {
-    white-space: nowrap;
-    padding: 2px var(--spacing-medium) 6px var(--spacing-medium);
+#synqt-sitebar .md-tabs__list {
+    display: flex;
+    align-items: center;
+    list-style: none;
+    margin: 0;
+    padding: 0;
 }
 
-#synqt-backlink a {
-    color: var(--primary-light-color);
+#synqt-sitebar .md-tabs__item {
+    display: flex;
+    align-items: center;
+    height: 48px;
+    padding: 0 12px;
+}
+
+#synqt-sitebar .md-tabs__link {
+    color: #ffffff;
+    font-size: 14px;
     text-decoration: none;
+    opacity: 0.7;
+}
+
+#synqt-sitebar .md-tabs__link:hover,
+#synqt-sitebar .md-tabs__item--active .md-tabs__link {
+    opacity: 1;
+}
+
+/* Pushed to the right edge by the auto margin, where the site puts its repository link. */
+#synqt-sitebar .md-header__source {
+    margin-left: auto;
+    padding-right: 12px;
+    color: #ffffff;
+    font-size: 14px;
+    text-decoration: none;
+    opacity: 0.7;
+}
+
+#synqt-sitebar .md-header__source:hover {
+    opacity: 1;
+}
+
+/* On a phone the six entries do not fit across the row. The site collapses them into a
+   drawer at this width, which needs the MkDocs template this page does not have, so they
+   scroll sideways instead of being cut off at the edge. */
+@media screen and (max-width: 767px) {
+    #synqt-sitebar .md-header__inner {
+        overflow-x: auto;
+    }
+}
+
+/* The side layout, restated for this Doxygen against this theme. Two things have to be
+   corrected here, and neither is optional.
+
+   Doxygen 1.16 nests the sidebar head inside the sidebar (#top inside #side-nav);
+   doxygen-awesome-sidebar-only.css was written when the two were siblings, so its trick
+   for stacking them, a negative bottom margin on #top the height of the head, now pulls
+   the tree up over the head instead of up beside it.
+
+   And every height in that layout is measured against the viewport, which the site header
+   is now taking 80px out of. Without subtracting it the page comes out exactly 80px too
+   tall and grows a second, outer scrollbar next to the one the content pane already has.
+   The heights carry !important because navtree.js writes its own computed heights inline.
+
+   The media query is the theme's own: below 768px it drops to a stacked layout that needs
+   none of this. */
+@media screen and (min-width: 768px) {
+    #top {
+        margin-bottom: 0;
+    }
+
+    #side-nav {
+        top: var(--synqt-topbar-height);
+        height: calc(100vh - var(--synqt-topbar-height)) !important;
+    }
+
+    #nav-tree {
+        height: calc(100vh - var(--synqt-topbar-height) - var(--top-height)) !important;
+    }
+
+    #doc-content {
+        height: calc(100vh - var(--synqt-topbar-height) - 31px) !important;
+    }
+}
+
+/* The head of the sidebar: the reference's own name, and under it the search box, which
+   Doxygen emits into the title area in this layout. */
+#titlearea {
+    background: transparent;
+    border-bottom: none;
+}
+
+#synqt-sidebar-head {
+    padding: var(--spacing-medium) var(--spacing-medium) 0 var(--spacing-medium);
+}
+
+#synqt-sidebar-title {
+    color: var(--page-secondary-foreground-color);
     font-size: 13px;
-    margin-right: 14px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding-bottom: 8px;
 }
 
-#synqt-backlink a:hover {
-    text-decoration: underline;
+/* The theme parks the tree's sync toggle at the sidebar's bottom edge, measured from the
+   left of the window, which lands it a few pixels past the sidebar and on top of the
+   breadcrumb. Pull it back inside. */
+#nav-sync {
+    left: calc(var(--side-nav-fixed-width) - 44px);
 }
 
-/* The tab bar is the primary navigation in the base layout and carries the search box.
-   Let the page gradient show through it rather than stacking another flat panel on the
-   title area above it. */
-#main-nav,
-#main-menu,
-.sm-dox {
+/* The sidebar carries the navigation now, so it is the panel that has to read as one:
+   the same purple as the site header, slightly translucent over the page gradient. */
+#side-nav,
+#top {
+    background: rgba(32, 19, 53, 0.92);
+}
+
+#nav-tree {
     background: transparent;
 }
 
@@ -135,34 +244,68 @@ div.memitem {
     border-color: var(--separator-color);
 }
 
+/* Between the theme's mobile breakpoint and about 1200px the tree and the page outline
+   together take more than half the window, and what is left is too narrow for a reference
+   table to fit in. Drop the outline first: it is a convenience, the tree is navigation.
+   The rule needs !important because navtree.js writes the grid columns inline. */
+@media screen and (max-width: 1200px) {
+    #page-nav {
+        display: none;
+    }
+
+    #container {
+        grid-template-columns: auto !important;
+    }
+}
+
+/* A wide table in a narrow pane scrolls sideways on its own rather than being clipped by
+   the pane, which is what happens without this. */
+#doc-content div.contents {
+    overflow-x: auto;
+}
+
+/* The QML accessor pages are reference tables whose first column is always one identifier
+   (`Caller.hasScope(name)`), and the content pane here is narrower than a full page
+   because the tree and the page outline flank it. Let the table have all of that width
+   and keep the identifier on one line, so what wraps is the prose column, which is the
+   one that can afford to. The documentation site does the same for the same tables. */
+table.markdownTable {
+    width: 100%;
+}
+
+table.markdownTable td:first-child {
+    white-space: nowrap;
+}
+
+/* A qualified C++ name is one unbreakable token to the browser, so a column of them takes
+   as much width as the longest one and the prose column gets whatever is left. Only the
+   links break: letting every cell break puts a word like "object" across two lines. */
+table.markdownTable td a {
+    overflow-wrap: anywhere;
+}
+
 /* The breadcrumb strip above the footer, which the theme paints as its own opaque panel. */
 #nav-path ul {
     background: transparent;
     border-color: var(--separator-color);
 }
 
-/* Replaces the stock "Generated by doxygen" credit (tools/docs-hooks/doxygen-footer.html). */
+/* Replaces the stock "Generated by doxygen" credit (tools/docs-hooks/doxygen-footer.html).
+   It rides in the breadcrumb strip rather than under the content: in this layout that
+   strip is pinned to the bottom of the window and the content scrolls inside its own
+   pane, so a footer after the content would be a block the page has to grow to fit, and
+   the growing is what puts a second scrollbar on the window. */
 #synqt-footer {
-    max-width: var(--content-maxwidth);
-    margin: 0 auto;
-    padding: var(--spacing-medium) var(--spacing-large) 32px var(--spacing-large);
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--spacing-medium);
-    justify-content: space-between;
-    border-top: 1px solid var(--separator-color);
+    float: right;
+    padding-right: var(--spacing-medium);
     color: var(--page-secondary-foreground-color);
-    font-size: 13px;
+    font-size: 12px;
+    line-height: 30px;
 }
 
 #synqt-footer a {
     color: var(--primary-light-color);
     text-decoration: none;
-    margin-left: 14px;
-}
-
-#synqt-footer a:first-child {
-    margin-left: 0;
 }
 
 #synqt-footer a:hover {

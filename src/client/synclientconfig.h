@@ -20,7 +20,7 @@ struct RouteConfig
 };
 
 /// One connect point the client consumes: its name (how it is acquired and exposed as
-/// Server.\<name\>) and its contract (which selects the typed-Replica factory; empty falls
+/// \qmlServer) and its contract (which selects the typed-Replica factory; empty falls
 /// back to a dynamic Replica).
 struct ClientConnectPoint
 {

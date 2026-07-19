@@ -1,8 +1,10 @@
+@mainpage The C++ runtime reference
+
 <!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-
-SynQt C++ runtime reference {#mainpage}
-===========================
+<!-- @mainpage has to be the first thing in the file: anything above it, a comment
+     included, makes Doxygen generate a second page for the file itself, which then shows
+     up in the navigation tree next to this one. -->
 
 @tableofcontents
 
@@ -52,9 +54,8 @@ Where to start
   alphabetically, and the search box in the tab bar above resolves a partial symbol name.
 - <b class="tab-title">By QML accessor</b> If you arrived from an application knowing a
   QML name rather than a class name, start at @ref qmlaccessors "QML accessors": one page
-  per accessor (@ref qmlapp "App", @ref qmlserver "Server", @ref qmlsession "Session",
-  @ref qmlrouter "Router", @ref qmlcaller "Caller", @ref qmlclient "Client"), each naming
-  the class behind it.
+  per accessor (\qmlApp, \qmlServer, \qmlSession, \qmlRouter, \qmlCaller, \qmlClient),
+  each listing every member it puts into QML and the class behind each one.
 - <b class="tab-title">By boundary</b> The library list above is the trust model: pick the
   side of the boundary you are working on, then its entry point (SynQt::SynClient for a
   client, SynQt::EntityRuntime for a service, SynQt::WebEdge for an edge).

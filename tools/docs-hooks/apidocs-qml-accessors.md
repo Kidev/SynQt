@@ -3,108 +3,234 @@
 <!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
+@tableofcontents
+
 Most of this runtime exists to put six names into QML. An application never constructs
 the C++ classes below; it writes `Server.chat.send(text)` or `Caller.hasScope("admin")`
 and the runtime binds the object behind the name. The name and the class are not the
 same thing, and searching this reference for `Server` finds a class that is not called
-`Server`, so each accessor gets a page of its own here: what the name is, which class
-implements it, and where the full member list lives.
+`Server`, so each accessor gets a page of its own here: every member it puts into QML,
+the class that implements each one, and which side of the trust boundary it links into.
 
-The authoritative reference for the members themselves is the runtime API page on
-<https://synqt.org/runtime-api/>, written for the QML that calls them. These pages are
-the bridge from that name to this C++.
+The narrative version, written for the QML that calls these rather than for the C++ that
+implements them, is the runtime API page on <https://synqt.org/runtime-api/>.
 
-- @subpage qmlapp
-- @subpage qmlserver
-- @subpage qmlsession
-- @subpage qmlrouter
-- @subpage qmlcaller
-- @subpage qmlclient
+| Accessor | Available in | Implemented by |
+|----------|--------------|----------------|
+| @subpage qmlapp | client entity QML | SynQt::ClientUpdateAttached |
+| @subpage qmlserver | client entity QML | SynQt::ServerAccessor |
+| @subpage qmlsession | client entity QML | SynQt::Session |
+| @subpage qmlrouter | client entity QML | SynQt::Router |
+| @subpage qmlcaller | any owner slot, any entity | SynQt::Caller |
+| @subpage qmlclient | web edge owner slots | SynQt::Caller |
 
 @page qmlapp App
 
-`App` is the running client itself, as opposed to \ref qmlserver "Server", which is
-everything the client reaches over the wire. It carries the client update surface:
-`App.onUpdateReady` fires when the edge has published a newer bundle than the one this
-tab is running, and `App.applyUpdate()` reloads into it.
+`App` is the running client itself, as opposed to \qmlServer, which is everything the
+client reaches over the wire. The client is conveyed to every visitor, so a deploy can
+leave someone running an old build for as long as their tab stays open; `App` is how the
+application finds out and decides when to reload.
 
-Implemented by SynQt::ClientUpdate, with SynQt::ClientUpdateAttached as the attached
-object behind the handler and SynQt::ClientUpdateAttachedType as the attaching type
-registered under the name. It is registered as a QML type rather than bound as a context
-property because an attached handler and a context property of the same name cannot
-coexist: QML resolves the attaching type first, and the context property would be
-shadowed inside JS expressions.
+@section qmlapp_members Members
 
-Links into the client only (SynQtClient). Available on both the WebAssembly and the
-native desktop build.
+| Member | Type | Implemented by | Description |
+|--------|------|----------------|-------------|
+| `App.onUpdateReady` | attached signal handler | SynQt::ClientUpdateAttached::updateReady | The edge has published a newer client than the one this tab is running, and it is already cached and ready to apply. |
+| `App.applyUpdate()` | action | SynQt::ClientUpdateAttached::applyUpdate | Reload onto the new build. It is immediate: the shell cache fetched the new bundle before the signal was raised. |
+
+@section qmlapp_notes Notes
+
+Handling `updateReady` takes ownership of the timing. Handling nothing reloads the client
+the moment an update lands, on the grounds that an update nobody applies is worse than an
+interruption. That default is a mechanism rather than a convention:
+SynQt::ClientUpdate::notifyUpdateReady counts the receivers connected to the signal and
+reloads through SynQt::ClientUpdate::reloadPage when there are none.
+
+It needs `build.client_cache: service_worker`, which is the default. Under `http` the
+signal never fires, because there is no cache to have fetched the new build ahead of
+time; a new build arrives on the next load instead.
+
+@section qmlapp_implementation Behind the name
+
+SynQt::ClientUpdate holds the state and does the reloading, SynQt::ClientUpdateAttached is
+the attached object each `App.onUpdateReady` handler binds to, and
+SynQt::ClientUpdateAttachedType is the attaching type registered under the QML name.
+SynQt::registerClientUpdate performs that registration.
+
+It is a QML type rather than a context property because an attached handler and a context
+property of the same name cannot coexist: QML resolves the attaching type first, and the
+context property is then shadowed inside every JavaScript expression that names it.
+
+Links into the client only (SynQtClient). Available on both the WebAssembly and the native
+desktop build.
 
 @page qmlserver Server
 
 `Server` is the client's view of the connect points its edge owns. `Server.chat` is the
-Replica for the connect point named `chat`; the client can only ever see connect points
-its own entity declares as consumed, and only those the session's scope allows, so the
-object is the authorization boundary as much as it is the accessor.
+Replica for the connect point named `chat` in `synqt.yaml`. The client can only ever see
+connect points its own entity declares as consumed, and only those the session's scope
+allows, so the object is an authorization boundary as much as it is an accessor.
 
-Implemented by SynQt::ServerAccessor, a `QQmlPropertyMap` so a connect point can be added
-by name at runtime as it is acquired. The replicas themselves come from the typed factory
-registry (SynQt::acquireReplica) rather than from `acquireDynamic`, because a dynamic
-Replica does not propagate property changes in the WebAssembly client.
+@section qmlserver_members Members
 
-`Server` is a client-side name. The service-side equivalent, an entity's view of another
-entity's connect points, is the owner name capitalized: an entity called `database`
-appears to its consumers as `Database`. Those come from SynQt::EntityRuntime.
+| Member | Type | Description |
+|--------|------|-------------|
+| `Server.<name>` | Replica | The live Replica of the connect point named `<name>`. Its properties and models are read-only mirrors of the owner's Source; its slots are callable, and every call is a request the owner may refuse. |
+
+There is no fixed member list beyond that, which is the point of the class:
+SynQt::ServerAccessor is a `QQmlPropertyMap`, so a connect point appears on it under its
+own name at the moment its Replica is acquired, and QML bindings that named it before then
+hold their defaults until it arrives.
+
+A connect point whose `scope` the session does not hold is never acquired at all, so
+`Server.<name>` stays absent rather than arriving empty. Bindings to it hold their
+defaults and resume on reconnect.
+
+@section qmlserver_implementation Behind the name
+
+SynQt::ServerAccessor, bound to the node by SynQt::ServerAccessor::bindNode and populated
+from SynQt::ServerAccessor::onReplicaInitialized as each Replica reports ready.
+
+The replicas come from the typed factory registry (SynQt::acquireReplica) rather than from
+`QRemoteObjectNode::acquireDynamic`, because a dynamic Replica does not propagate property
+changes in the WebAssembly client.
+
+`Server` is a client-side name, and a well-known alias: whatever the edge entity is
+actually called, the client addresses it as `Server`. The service-side equivalent, one
+entity's view of another's connect points, is the owner's entity name capitalized, so an
+entity called `database` appears to its consumers as `Database`. Those are set up by
+SynQt::EntityRuntime, not by this class.
 
 Links into the client only (SynQtClient).
 
 @page qmlsession Session
 
-`Session` is the signed-in state of the browser, read only from QML apart from the two
-verbs: `Session.state`, `Session.identity`, `Session.scope`, `Session.hasScope(name)`,
-`Session.login()`, and `Session.logout()`.
+`Session` is the signed-in state of the browser: read only from QML apart from the two
+verbs that change it. It holds no token. The browser's whole credential is the session
+cookie, and every value here is state the edge pushed down after it authorized the
+connection, which is why nothing on this object can be forged into an authorization. The
+check that matters runs on the owner, against \qmlCaller.
 
-Implemented by SynQt::Session. It holds no token. The browser's whole credential is the
-session cookie, and every value on this object is state the edge pushed down after it
-authorized the connection, which is why nothing here can be forged into an authorization:
-the check that matters runs on the owner, against \ref qmlcaller "Caller".
+@section qmlsession_members Members
+
+| Member | Type | Implemented by | Description |
+|--------|------|----------------|-------------|
+| `Session.state` | string | SynQt::Session::state | The connection and authorization state: one of the values below. |
+| `Session.scope` | string \| list | SynQt::Session::scope | The granted scope: a single name under hierarchical scopes (the default), the set of granted names under set-based scopes. Prefer `hasScope` to comparing it. |
+| `Session.identity` | object \| null | SynQt::Session::identity | The normalized identity when authenticated, `null` when anonymous. |
+| `Session.isAuthenticated` | bool | SynQt::Session::isAuthenticated | Convenience for `Session.identity !== null`. |
+| `Session.hasScope(name)` | bool | SynQt::Session::hasScope | Whether the session holds `name`. Under hierarchical scopes a higher scope satisfies a lower one. |
+| `Session.login(provider)` | action | SynQt::Session::login | Start the edge login flow. `provider` is optional; pass it when more than one identity provider is configured. |
+| `Session.logout()` | action | SynQt::Session::logout | End the session. The scope returns to the anonymous default and any Replica above it is released. |
+
+`Session.state` is one of `connecting`, `connected`, `reconnecting`, `denied`, or
+`offline`. `denied` is the one that is not a transport state: it means the edge rejected
+the session credential as expired or revoked, so the client routes back through login
+rather than retrying.
+
+@section qmlsession_implementation Behind the name
+
+SynQt::Session. The setters (SynQt::Session::setState, SynQt::Session::setScope,
+SynQt::Session::setIdentity) are C++ only, called by the client runtime as the edge
+reports state; QML sees the properties as read-only. `login()` and `logout()` do not act
+directly either: they raise SynQt::Session::loginRequested and
+SynQt::Session::logoutRequested for SynQt::SynClient to carry out.
 
 Links into the client only (SynQtClient). The service-side counterpart, the session store
 the edge actually keeps, is SynQt::SessionManager.
+
+@section qmlsession_warning Client-side scope checks are for the interface only
+
+Hiding a control with `Session.hasScope(...)` is a convenience, never the boundary. Every
+privileged action is checked again on the owner, inside the slot, against \qmlCaller. The
+duplication is deliberate.
 
 @page qmlrouter Router
 
 `Router` applies the `routes` list and the `router` fallback from the client config, and
 redirects to the fallback when a route names a scope the session lacks.
 
-Implemented by SynQt::Router. Route guards are navigation, not secrecy: they decide which
-view is shown, and nothing more. Data reaches the browser only through scope-gated
-connect points, so a user who edits their way past a guard finds the view empty rather
-than finding data they should not have.
+@section qmlrouter_members Members
+
+| Member | Type | Implemented by | Description |
+|--------|------|----------------|-------------|
+| `Router.path` | string | SynQt::Router::path | The current route path. Read-only from QML; it changes as a result of `go()`. |
+| `Router.go(path)` | action | SynQt::Router::go | Navigate to `path`. When the matched route declares a scope the session lacks, the router goes to the configured fallback instead. |
+
+@section qmlrouter_implementation Behind the name
+
+SynQt::Router, which holds the route table as a list of SynQt::RouteConfig and notifies
+QML through SynQt::Router::pathChanged.
+
+A route guard is a redirect rule, not a secrecy mechanism. The client is one compiled
+bundle, so every view's QML ships to every visitor; guards decide which view is shown and
+nothing more. The data behind a privileged view arrives only through scope-gated connect
+points, so a user who edits their way past a guard finds the view empty rather than
+finding data they should not have.
 
 Links into the client only (SynQtClient).
 
 @page qmlcaller Caller
 
-`Caller` is who is calling, present in every connect point slot on the owner side. It
-answers the two questions authorization needs and keeps them apart: `Caller.isUser` with
-`Caller.session`, `Caller.identity`, `Caller.scope`, and `Caller.hasScope(name)` for a
-browser call; `Caller.isEntity` with `Caller.entity`, the name from the verified peer
-certificate, for a mesh call.
+`Caller` is whoever is calling, present in every connect point slot on the owner side. It
+answers the two questions authorization needs and keeps them apart: a browser user, or
+another entity. Which of the two it is, is always explicit, and the two are never
+interchangeable.
 
-Implemented by SynQt::Caller. The two identities are never interchangeable. A user-supplied
-value is never an entity identity, and on an opt-in local-socket link `Caller.entity` is
-trusted by colocation rather than authenticated, which SynQt::Caller reports separately as
-`isEntityVerified`.
+@section qmlcaller_members Members
+
+| Member | Type | Implemented by | Description |
+|--------|------|----------------|-------------|
+| `Caller.isUser` | bool | SynQt::Caller::isUser | True when the call came from a browser client, which is only possible on a web edge connect point. |
+| `Caller.isEntity` | bool | SynQt::Caller::isEntity | True when the call came from another entity over a mesh link. |
+| `Caller.isEntityVerified` | bool | SynQt::Caller::isEntityVerified | Entity callers. True when the name came from a certificate the mutual-TLS handshake verified, false when the link is an opt-in local socket and the name is trusted by colocation instead. |
+| `Caller.entity` | string | SynQt::Caller::entity | Entity callers. The calling entity's name, taken from the certificate its link verified. |
+| `Caller.id` | string | SynQt::Caller::id | User callers. The session id. |
+| `Caller.session` | object | SynQt::Caller::session | User callers. The session record: `id`, `scope`, `identity`. |
+| `Caller.identity` | object \| null | SynQt::Caller::identity | User callers. The normalized identity (`sub`, `login`, `name`, `email`), or `null` when anonymous. |
+| `Caller.scope` | string | SynQt::Caller::scope | User callers. The granted scope. Prefer `hasScope` to comparing it. |
+| `Caller.hasScope(name)` | bool | SynQt::Caller::hasScope | User callers. Whether the caller holds `name`, hierarchically where configured. |
+| `Caller.setScope(scope)` | action | SynQt::Caller::setScope | User callers. Set the session's scope. Used by the identity flow after login; it rotates the session id on a privilege change. |
+| `Caller.emit<Signal>(...)` | action | SynQt::Caller::emitSignal | User callers. Emit one of the contract's signals back to this one caller rather than to every consumer. The generated name is sugar over `emitSignal`. |
+
+Which half of the table applies is never ambiguous: `isUser` and `isEntity` are the two
+mutually exclusive cases, and reading a member of the other half is a mistake the owner
+should not be making rather than a value it should be interpreting.
+
+Outside a call that originated from a consumer, an owner-side timer mutating shared state
+for instance, there is no caller at all. The owner writes its Source and QtRO fans the
+change out.
+
+@section qmlcaller_implementation Behind the name
+
+SynQt::Caller, built per call by SynQt::Caller::forUser or SynQt::Caller::forEntity and
+bound as a context property on the slot. A contract can supply its own subclass through
+SynQt::Caller::registerCallerFactory, which is what gives `emit<Signal>` its per-contract
+signal names; SynQt::Caller::setScopeOrder carries the project's scope configuration in.
+
+`Caller.entity` is certificate-authenticated on every mesh link by default. On an opt-in
+local-socket link it is trusted by colocation instead, which is a weaker claim and is why
+SynQt::Caller reports it separately as `isEntityVerified` rather than quietly presenting
+the two as the same thing. A user-supplied value is never an entity identity.
 
 Links into services only (SynQtService).
 
 @page qmlclient Client
 
-`Client` is the web edge's alias for `Caller.session`. On the edge, where every caller
-worth naming arrived from a browser, writing `Client` reads better than writing
-`Caller.session`, and it is the same object.
+`Client` is the web edge's alias for \qmlCaller when the caller is a browser user. On the
+edge, where most slots are only ever called from a browser, `Client.hasScope("user")`
+reads better than `Caller.hasScope("user")`, and it is the same object.
 
-Implemented by SynQt::Caller, the same class behind \ref qmlcaller "Caller"; the alias is
-bound as a second context property on the edge only. It does not exist on a service that
-is not a web edge, where a caller is another entity and there is no session to alias.
+@section qmlclient_members Members
+
+Every member of \qmlCaller that is available when `isUser` is true, under the name
+`Client`. `Client.id` is the session id, `Client.identity.email` the caller's verified
+address, `Client.emit<Signal>(...)` a signal to that one caller.
+
+@section qmlclient_implementation Behind the name
+
+SynQt::Caller, the same class and the same instance behind \qmlCaller. The alias is bound
+as a second context property, on the edge only. It does not exist on a service that is not
+a web edge, where a caller is another entity and there is no session to alias.
 
 Links into services only (SynQtService).
