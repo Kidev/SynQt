@@ -1,0 +1,13 @@
+The SynQt Authors
+=================
+
+Everyone who has contributed to SynQt, in alphabetical order.
+
+This file is generated from the commit history by .github/scripts/update-authors.sh and
+refreshed automatically whenever a pull request lands on main. Do not edit it by hand;
+contribute and it will list you.
+
+Copyright in each contribution stays with its author. Source files carry the collective
+notice "The SynQt Authors", which is this list. See CONTRIBUTING.md and CLA.md.
+
+Alexandre 'kidev' Poumaroux <git@kidev.org>

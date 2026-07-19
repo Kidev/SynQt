@@ -5,9 +5,9 @@ you make to SynQt. Read it before contributing. It preserves the project's freed
 to license SynQt both as open source now and, if it chooses, under other terms in
 the future, while you keep ownership of your work.
 
-This document is a plain template and is not legal advice. Have it reviewed by
-counsel before you rely on it, and replace "the Maintainer" with the actual person
-or legal entity that stewards SynQt.
+This document is not legal advice. If you are contributing on behalf of an employer,
+or you are unsure what it commits you to, have it reviewed by counsel before you
+accept it.
 
 ## 1. Definitions
 
@@ -17,8 +17,8 @@ or legal entity that stewards SynQt.
 addition to existing work, that you intentionally submit to the project for
 inclusion in SynQt, in any form and through any medium.
 
-"the Maintainer" means the person or legal entity that owns and stewards the SynQt
-project and accepts Contributions on its behalf.
+"the Maintainer" means Alexandre 'kidev' Poumaroux, who owns and stewards the SynQt
+project and accepts Contributions on its behalf, and any successor to that role.
 
 ## 2. You keep your copyright
 
@@ -66,6 +66,7 @@ is" basis, without warranties or conditions of any kind.
 
 ## 8. Acceptance
 
-You accept this Agreement when you indicate acceptance through the project's CLA
-process (for example a CLA assistant on your first pull request) or by signing where
-the project directs. Contributions cannot be merged until this Agreement is accepted.
+You accept this Agreement by replying to the bot on your first pull request with the
+sentence it asks for. Your acceptance is recorded against the commit it was given at,
+on the `cla-signatures` branch of the repository. Contributions cannot be merged until
+this Agreement is accepted.

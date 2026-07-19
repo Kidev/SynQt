@@ -16,9 +16,11 @@ of SynQt under other terms. This is the same mechanism Qt itself and many
 sustainable open source projects use. It does not change the fact that the public
 SynQt releases are Apache-2.0.
 
-How to accept: the project uses a CLA assistant (or a signed-off-by Developer
-Certificate of Origin as configured on the repository). Follow the prompt on your
-first pull request. Contributions cannot be merged without acceptance.
+How to accept: open your pull request as normal. On your first one a bot comments with
+a link to the CLA and the sentence to reply with, and records your reply against the
+commit you agreed at. Later pull requests do not ask again. The record lives on the
+`cla-signatures` branch of this repository rather than in a third-party service, so it
+can be audited. Contributions cannot be merged without acceptance.
 
 ## Every source file needs an SPDX header
 
@@ -29,16 +31,23 @@ keeps license scanners happy.
 C++, QML, JavaScript, and other `//` comment files:
 
 ```
-// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-FileCopyrightText: 2026 The SynQt Authors
 // SPDX-License-Identifier: Apache-2.0
 ```
 
 CMake, shell, Python, YAML, and other `#` comment files:
 
 ```
-# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-FileCopyrightText: 2026 The SynQt Authors
 # SPDX-License-Identifier: Apache-2.0
 ```
+
+Use `The SynQt Authors` rather than your own name. You keep the copyright in your
+contribution (the [CLA](CLA.md) transfers nothing), so the header is a collective
+notice, not a claim about who owns which line. Who the authors are is recorded in
+[AUTHORS](AUTHORS), which a workflow regenerates from the commit history every time
+a pull request lands, so contributing is what puts you in it. Do not edit that file
+by hand.
 
 Do not put SPDX headers or copyright lines into files that a developer's built
 application will convey (for example generated client code): those artifacts are

@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 The SynQt Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Keep AUTHORS in step with who has actually contributed.
+#
+# Source files carry the collective notice "SPDX-FileCopyrightText: 2026 The SynQt Authors"
+# rather than any individual name (see CONTRIBUTING.md), which only means something if the
+# list of those authors is real and current. This regenerates it from the commit history
+# every time a pull request lands on main, so a contributor is added by the act of
+# contributing and nobody has to remember to edit a file.
+#
+# The trigger is a merged pull request rather than a push to main, so a direct push does not
+# produce a second AUTHORS commit chasing the first. It is `pull_request_target`, not
+# `pull_request`, for the only reason that matters here: `pull_request` from a fork gets a
+# read-only token and cannot push the result. `pull_request_target` runs the workflow file
+# from the base branch with a writable token, so a fork's pull request cannot alter what
+# runs. Nothing from the pull request head is checked out or executed; the job reads only
+# the merge commit already on main.
+#
+# Branch protection: if main requires pull requests or status checks, the default
+# GITHUB_TOKEN cannot push to it. Either allow this workflow to bypass the rule, or give the
+# checkout step a token from an app or account that can. Without one of those the job fails
+# loudly at the push, which is the intended outcome; it must not fail quietly and leave
+# AUTHORS stale.
+
+name: Update AUTHORS when a pull request lands
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+  # Regenerating on demand, for the first run and after any history rewrite.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two pull requests merging close together would otherwise race to push. Queue instead of
+# cancelling: a cancelled run leaves its author out of the file until the next merge.
+concurrency:
+  group: authors
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Regenerate AUTHORS
+    # Closing a pull request without merging is not a contribution.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          # The script reads the whole history, so the default shallow clone will not do.
+          fetch-depth: 0
+
+      - name: Regenerate AUTHORS
+        run: bash .github/scripts/update-authors.sh
+
+      - name: Commit and push if it changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- AUTHORS; then
+            echo "AUTHORS is already current; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add AUTHORS
+          git commit -m "Update AUTHORS"
+          # main may have moved between the checkout and now. Rebase onto whatever is there
+          # and retry rather than force pushing over somebody else's commit.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "Pushed on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push rejected on attempt ${attempt}; rebasing onto origin/main."
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "Could not push AUTHORS after 3 attempts." >&2
+          exit 1

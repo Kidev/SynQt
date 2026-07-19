@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 The SynQt Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Blank issues stay off: a bug report without the Qt version, the platform, and what was
+# actually run costs more round trips than the form costs to fill in.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Question or idea
+    url: https://github.com/Kidev/SynQt/discussions
+    about: For anything that is not a bug report or a concrete feature request.
+  - name: Documentation
+    url: https://synqt.org/
+    about: The guide, the tutorials, and the runtime and C++ API references.
+  - name: Security issue
+    url: https://github.com/Kidev/SynQt/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue for one.

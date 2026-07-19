@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: 2026 The SynQt Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Require every contributor to accept the CLA before their pull request can be merged.
+#
+# SynQt keeps the option to license itself under other terms in the future (see CLA.md and
+# docs/licensing.md), and that option only exists if every contribution is covered. A note
+# in CONTRIBUTING.md asking people to agree is not coverage; this is the gate that makes it
+# real, and it has to be a required status check for that to hold (see "Enforcement" below).
+#
+# How it works for a contributor: on their first pull request the bot comments with a link
+# to CLA.md and the one sentence to reply with. Their reply is recorded, with the commit
+# they agreed at, in a JSON file on the `cla-signatures` branch. On every later pull request
+# the check passes without asking again. The record is in the repository rather than in a
+# third-party service, so it survives the action being unavailable and can be audited.
+#
+# Enforcement: a failing check does not block a merge on its own. Add "CLA" to main's
+# required status checks in branch protection, or this workflow is advisory and someone can
+# merge past it.
+#
+# The action is pinned to a commit rather than a tag. It runs on `pull_request_target` with
+# a writable token, so a moved tag would be a write-access supply chain problem, not a
+# broken build. Nothing from the pull request head is checked out or run by this workflow.
+
+name: Check the contributor license agreement
+
+on:
+  # The contributor agrees by commenting on their pull request.
+  issue_comment:
+    types: [created]
+  # `pull_request_target`, not `pull_request`: recording a signature needs a writable token,
+  # which a fork's `pull_request` run does not get.
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  # Store the signature file on the cla-signatures branch.
+  contents: write
+  # Comment on the pull request and set its check.
+  pull-requests: write
+  statuses: write
+  # Re-run the check after a signature is recorded.
+  actions: write
+
+concurrency:
+  group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  cla:
+    name: CLA
+    runs-on: ubuntu-latest
+    # Run on pull request events, and on comments only when they are on a pull request
+    # (issue_comment fires for plain issues too, where there is nothing to gate).
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request &&
+       contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
+    steps:
+      - name: Check or record the signature
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Where the signatures live. A branch of this repository, not a service. The path
+          # is versioned: if the CLA text ever changes materially, bump it to v2 so everyone
+          # is asked again rather than being held to terms they never saw.
+          branch: cla-signatures
+          path-to-signatures: signatures/v1/cla.json
+          path-to-document: https://github.com/Kidev/SynQt/blob/main/CLA.md
+          # Bots author no copyrightable work, so there is nothing for them to license.
+          allowlist: github-actions[bot],dependabot[bot]
+          custom-notsigned-prcomment: >-
+            Thanks for the pull request. Before it can be merged, SynQt needs you to accept
+            its Contributor License Agreement. You keep the copyright in your contribution;
+            the CLA grants the project a license broad enough to keep the option of
+            relicensing SynQt in the future. See CONTRIBUTING.md for the why.
+          custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA
+          custom-allsigned-prcomment: All contributors have accepted the CLA. Thank you.
