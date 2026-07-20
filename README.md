@@ -118,64 +118,49 @@ Read [security](https://synqt.org/security/) before deploying, and
 ## Performance
 
 A value changes on the server and every connected client has to see it. One publisher,
-100 subscribers, saturating, 256 byte payload, on a 32 core Linux host with Qt 6.11.1 and
-Node 24.20.0. Deliveries per second:
+100 subscribers, saturating, 256 byte payload, on a 32 core Linux host with Qt 6.12.0 and
+Node 24.20.0, every column from one session. Deliveries per second:
 
-| processes | SynQt | Node, built-ins only | Node, Socket.IO |
+| cores | SynQt, `replicas: N` | Node `cluster`, built-ins only | SynQt, `threads: N` |
 |---|---|---|---|
-| 1 | 104k | 124k | 61k |
-| 2 | 241k | 247k | |
-| 4 | 506k | 491k | |
-| 8 | 1.02M | 907k | |
+| 1 | 136k | 124k | 136k |
+| 2 | 300k | 246k | 240k |
+| 4 | 600k | 490k | 244k |
+| 8 | 1.19M | 916k | 238k |
 
-Both runtimes run one thread per process and add capacity by running more processes. SynQt
-trails the built-ins column by 16% on one process and leads it by 12% on eight. That column
-is `node:http` with a hand written WebSocket implementation, which is faster than what most
-deployments run. Socket.IO is the usual choice, and the sweep measures it on one process
-only. Next.js is measured too, and it is not in this table because it ships no WebSocket
-server. Its live path is a route streaming server-sent events. That is a different protocol
-carrying the same workload, so its numbers are reported with their caveats in
-[`benchmarks/`](benchmarks/) instead.
+`replicas: N` and Node's `cluster` add capacity by running more processes, and each
+process holds its own copy of the value. SynQt leads the built-ins column by 10% on one
+process and by 30% on eight. That column is `node:http` with a hand written WebSocket
+implementation, which is faster than what most deployments run. Socket.IO (the usual
+choice) and Next.js (which ships no WebSocket server, so its live path streams server-sent
+events) are compared on the fan-out workload in [`benchmarks/`](benchmarks/).
 
-Adding processes divides the subscribers between them, and each process holds its own copy
-of the value. A SynQt web edge can instead spread its sockets across IO threads inside one
-process, where all 100 subscribers still share a single value:
-
-| cores | `threads: N`, one process, one shared value | `replicas: N`, N processes, one value each |
-|---|---|---|
-| 1 | 104k | 104k |
-| 2 | 200k | 241k |
-| 4 | 199k | 506k |
-| 8 | 183k | 1.02M |
-
-The threads column stops improving after two cores. The processes column keeps scaling,
-but it does not cover the case in the left column. Making N processes agree on one value
-costs a broadcast between them, and these numbers do not include it.
+`threads: N` spreads a web edge's sockets across IO threads inside one process, where all
+100 subscribers still share a single value. It stops improving after two cores. The
+process columns keep scaling but cannot serve that case: making N processes agree on one
+value costs a broadcast between them, and these numbers do not include it.
 
 Most application code goes the other direction. The client asks the server to do
-something and waits for the answer. In SynQt that is a connect point's returning slot. The
-Next.js feature shaped the same way is a Server Function. Measured on the same host with
-`--work echo`, first with one caller and nothing else on the machine, then with a hundred
-and twenty-eight callers at once.
+something and waits for the answer. In SynQt that is a connect point's returning slot, and
+the Next.js feature shaped the same way is a Server Function. Measured on the same host
+with `--work echo` (an empty function body), p50 by concurrent callers:
 
-SynQt's column is 0.020 ms for one caller, 2.4 ms for a hundred and twenty-eight, and about
-60 thousand calls a core-second. The two Node columns are not printed here because their
-last run is stale. The harness issued their requests with the global `fetch`, and the
-per-call cost of `fetch` itself on this workload went up fivefold between Node 22 and 24.
-That measures a client library and not either server. Both columns are being re-measured
-through `node:http` on a held-open connection, which is what SynQt's column and Next.js's
-real client both use.
+| | 1 caller | 128 callers | calls/s at 32 callers |
+|---|---|---|---|
+| SynQt, returning slot | 0.016 ms | 1.6 ms | 80k |
+| Node 24, bare JSON POST | 0.050 ms | 6.2 ms | 21k |
+| Next.js on Node 24, Server Function | 0.364 ms | 39.9 ms | 3.1k |
 
-Two things make up that gap, and a spot check at one and thirty-two callers shows that
-the correction changes neither. React's machinery around a server action costs six to seven times
-what the same Node process costs answering a plain POST, measured like for like. The rest
-is that a SynQt caller already holds its connection while both Node columns open a request
-per call. That second part is a difference in connection handling between the two designs.
+Two things make up that gap. React's machinery around a Server Function costs six and a
+half to seven times what the same Node process costs answering a plain POST. The rest is
+that a SynQt caller already holds its connection, while both Node columns make an HTTP
+request per call: a difference in connection handling between the two designs. The
+Next.js column makes the request React's own client runtime makes, and never imports the
+function and skips the framework.
 
 Every harness, the committed baselines, what each number does and does not support, and
-the caveats are in [`benchmarks/`](benchmarks/). One caveat matters for the table above.
-The Next.js column makes the request React's own client runtime makes, and never imports
-the function and skips the framework. The deployment docs plot the fan-out data under
+the caveats are in [`benchmarks/`](benchmarks/). The deployment docs plot the fan-out data
+under
 [running one edge on more than one core](https://synqt.org/deploying/#running-one-edge-on-more-than-one-core).
 
 ## Where to go next
@@ -185,6 +170,9 @@ the function and skips the framework. The deployment docs plot the fan-out data 
   from a client and an edge into a three entity system with sign in and a database.
 - [The multiplayer tutorial](https://synqt.org/tutorial-multiplayer/): an arena in
   2D Qt Quick with server authoritative movement and a database backed leaderboard.
+- [The 3D plaza tutorial](https://synqt.org/tutorial-plaza/): people walking around a
+  square in Qt Quick 3D, with Qt Quick 3D Physics in the browser and the edge deciding
+  where everybody stands.
 - [Architecture](https://synqt.org/architecture/) and
   [programming model](https://synqt.org/programming-model/) for how it works, and
   the [runtime API reference](https://synqt.org/runtime-api/) for what the framework

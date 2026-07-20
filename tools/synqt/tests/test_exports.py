@@ -1,10 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""What a connect point exports, held to the owner that has to answer for it.
-
-Two halves of one reading. `synqt check` refuses a member the owner does not implement,
-and a line that is nothing but a name is written out from what the owner already says.
+"""What a connect point exports, held to its owner: `synqt check` refuses a member the owner
+does not implement, and a bare-name line is expanded from the owner.
 """
 
 from __future__ import annotations
@@ -53,15 +51,14 @@ def _point(config, owner):
 
 
 def test_the_examples_export_only_what_their_owners_implement():
-    for name in ("gavel", "arena", "stall"):
+    for name in ("gavel", "arena", "plaza", "stall"):
         project = EXAMPLES / name
         config = yaml.safe_load((project / "synqt.yaml").read_text())
         assert checkmod.lint_exports(config, project) == [], name
 
 
 def test_a_slot_nothing_implements_is_an_error(tmp_path):
-    """The one that always breaks silently. The generated dispatch finds no QML function
-    of that name, so the call returns a default and nothing says why."""
+    """A slot nothing implements is an error: the call would return a default."""
     project = _copy(tmp_path)
     config = _edit(project, "      <admin> slot closeLot(",
                    "      slot refund(int amount)\n      <admin> slot closeLot(")
@@ -86,16 +83,14 @@ def test_a_prop_exported_as_a_type_the_owner_contradicts_is_an_error(tmp_path):
 
 
 def test_a_bound_is_not_a_different_type(tmp_path):
-    # `string[80]` is a string. The bound is a rule about the value, not a disagreement
-    # with the owner about what kind of value it is.
+    # `string[80]` is a string; the bound is not a type mismatch.
     project = _copy(tmp_path)
     config = _edit(project, "      highBidder ", "      prop string[80] highBidder ")
     assert _errors(project, config) == []
 
 
 def test_a_number_is_a_number(tmp_path):
-    # int and real are one type in JavaScript, so which of the two the owner wrote was
-    # never a promise, and holding an export to it would be inventing one.
+    # int and real are one JavaScript type, so they are not held apart.
     project = _copy(tmp_path)
     config = _edit(project, "      highBid    ", "      prop real highBid    ")
     assert _errors(project, config) == []
@@ -116,8 +111,7 @@ def test_a_name_on_its_own_is_written_out_from_the_owner(tmp_path):
     project = _copy(tmp_path)
     config = _config(project)
     source = contractgen.resolved_source(project, config, _point(config, "edge"))
-    # gavel exports its three properties by name. The owner binds them to the entity's
-    # own singleton, which is where the types are written down.
+    # gavel exports three properties by name; the types come from the entity singleton.
     assert "prop string itemName" in source
     assert "prop int highBid" in source
     assert "prop string highBidder" in source
@@ -132,8 +126,7 @@ def test_a_name_on_its_own_keeps_the_comment_beside_it(tmp_path):
 
 
 def test_a_model_can_be_exported_by_name_once_its_roles_are_known(tmp_path):
-    # The owner publishes rows built elsewhere, so the roles are not readable from it and
-    # the name alone is refused rather than exported as a model with no roles.
+    # Rows built elsewhere have no readable roles, so the bare name is refused.
     project = _copy(tmp_path)
     config = _edit(project,
                    "      model winners(string[80] item, string[80] winner, int amount)",
@@ -158,8 +151,7 @@ def test_a_name_the_owner_cannot_type_is_refused_with_the_line_to_paste(tmp_path
 
 
 def test_a_refused_name_is_left_as_written_rather_than_guessed_at(tmp_path):
-    # The contract is still generated, so the compiler reports the line too. What does not
-    # happen is a `var` quietly becoming the type on the wire.
+    # The compiler reports the line too; a `var` never becomes the wire type silently.
     project = _copy(tmp_path)
     config = _edit(project, "      <user> slot placeBid(int amount) ", "      <user> placeBid ")
     source = contractgen.resolved_source(project, config, _point(config, "edge"))
@@ -178,8 +170,7 @@ def test_the_owner_is_read_through_the_source_the_point_names(tmp_path):
 
 
 def test_a_model_published_by_binding_its_rows_is_a_model(tmp_path):
-    """`winnersRows: Edge.winners` is how the docs and every example publish one, so it
-    has to read as the `winners` model and not as a property called `winnersRows`."""
+    """`winnersRows: Edge.winners` reads as the `winners` model."""
     project = _copy(tmp_path)
     config = _config(project)
     found = infer.owner_members(project, config, _point(config, "edge"))
@@ -187,8 +178,7 @@ def test_a_model_published_by_binding_its_rows_is_a_model(tmp_path):
 
 
 def test_a_property_bound_to_the_entitys_own_singleton_is_typed_from_it(tmp_path):
-    """`itemName: Edge.itemName` is one hop from a declaration, so the type is read rather
-    than guessed. Without this every property in every example was `var`."""
+    """`itemName: Edge.itemName` takes its type from the singleton declaration."""
     project = _copy(tmp_path)
     config = _config(project)
     found = infer.owner_members(project, config, _point(config, "edge"))

@@ -3,13 +3,13 @@
 
 # Quick start
 
-Install the CLI, copy one of the systems SynQt ships, and run it. Two commands after the
-install, a real SynQt system is up: a client compiled to WebAssembly in your browser, a
-web edge serving it, and a database the browser cannot reach. Installing the toolchain
-takes a few minutes the first time. Nothing else here is slow.
+Install the CLI, copy an example system, and run it. After the install, two commands
+bring up a real SynQt system: a client compiled to WebAssembly in your browser, a web
+edge serving it, and a database the browser cannot reach. The toolchain takes a few
+minutes to install the first time; everything else is quick.
 
-Nothing on this page asks you to write any code. It is here to get something running so you
-can look at it. [Getting started](getting-started.md) builds a project of your own.
+You write no code on this page. [Getting started](getting-started.md) builds a project
+of your own.
 
 ## Install the CLI
 
@@ -24,19 +24,18 @@ already have Python, `pipx install synqt` gets you the same CLI from PyPI.
 synqt version
 ```
 
-The rest of the toolchain is the Qt SDK and the Emscripten compiler that turns your QML
-into WebAssembly. `synqt` pins both to one version per project, so every machine and every
-teammate compiles against the same versions, and `synqt doctor` prints the exact `aqt` and
-`emsdk` commands that install whatever is missing into the project's `synqt/toolchain/`
-directory:
+The rest of the toolchain is the Qt SDK and Emscripten, the compiler that turns your QML
+into WebAssembly. `synqt` pins both to one version per project, so every machine builds
+with the same versions. `synqt doctor` prints the exact `aqt` and `emsdk` commands that
+install whatever is missing into the project's `synqt/toolchain/` directory:
 
 ```cli
 synqt doctor
 ```
 
-Run the commands it prints, once. A Qt already installed under `/opt/Qt`, `~/Qt` or
-`QTDIR` at the pinned version is used as it is. If you would rather install nothing,
-[`synqt docker up`](docker.md) builds and runs the whole system in containers.
+Run the commands it prints, once. If Qt at the pinned version is already installed under
+`/opt/Qt`, `~/Qt` or `QTDIR`, `synqt` uses it. To install nothing at all, use
+[`synqt docker up`](docker.md), which builds and runs the whole system in containers.
 
 ## Copy an example
 
@@ -48,22 +47,23 @@ synqt examples
   arena  the multiplayer tutorial, materialized
   chat   a room everybody in it sees at once
   gavel  the auction tutorial, materialized
+  plaza  the 3D tutorial, materialized
   stall  a storefront with edge-delivered campaigns
 
 Start one with: synqt new <directory> --example <name>
 ```
 
-Take the storefront. It is the one that needs nothing from you before it runs. The others
-sign people in, and registering an OAuth app is a detour on a quick start page.
+Take the storefront: it runs with no setup. The other examples sign people in, which
+first needs an OAuth app you would have to register.
 
 ```cli
 synqt new shop --example stall
 cd shop
 ```
 
-That is a whole project rather than a template. It has the same `synqt.yaml`, the same
-entity folders and the same QML you would have written by hand, with `project.name` set to
-the directory you named. Read `README.md` in it for what the example is doing.
+This is a complete project, with the `synqt.yaml`, entity folders and QML you would
+write by hand, and `project.name` set to the directory you named. Its `README.md`
+explains what the example does.
 
 ## Run it
 
@@ -71,16 +71,17 @@ the directory you named. Read `README.md` in it for what the example is doing.
 synqt dev
 ```
 
-`synqt dev` is the whole development loop in one command. It issues a throwaway development
-certificate authority and a certificate per entity, so the mesh links between the services
-run over mutual TLS from the first second. It runs `synqt check` over `synqt.yaml` first
-and refuses to start on a topology that
-does not pass. It builds every entity, the client to WebAssembly and the rest as native
-binaries. Then it starts them, owners before consumers and the edge last, and opens
-[http://127.0.0.1:8080](http://127.0.0.1:8080).
+`synqt dev` runs the whole development loop:
 
-The first run compiles every entity from scratch, which takes a few minutes. Every run after
-that is seconds.
+1. **Checks** `synqt.yaml` with `synqt check`, and stops if the topology fails.
+2. **Issues certificates:** a throwaway development certificate authority and one
+   certificate per entity, so the mesh links run over mutual TLS from the start.
+3. **Builds** every entity: the client to WebAssembly, the rest as native binaries.
+4. **Starts** them, owners before consumers and the edge last, and opens
+   [http://127.0.0.1:8080](http://127.0.0.1:8080).
+
+The first run compiles everything from scratch and takes a few minutes. Later runs take
+seconds.
 
 ## What you are looking at
 
@@ -94,30 +95,30 @@ over a WebSocket. Three entities are running:
 | `edge` | the web edge: serves the bundle, owns the live catalog, delivers the campaign pages | the browser, over wss |
 | `stock` | the database holding the durable stock | the edge, over mutual TLS |
 
-The browser talks to the edge and to nothing else. It holds no certificate and no route into
-the mesh, so it cannot address the database at all. Every SynQt system has this shape, and
-the shape comes from the [entity model](entities.md) rather than from a deployment choice.
+The browser talks only to the edge. It holds no certificate and no route into the mesh,
+so it cannot address the database at all. Every SynQt system has this shape; the
+[entity model](entities.md) sets it, not a deployment choice.
 
 Leave `synqt dev` running. It watches every `.qml` file and `synqt.yaml`, rebuilds what a
-save affects, and reloads the browser for you. Open `client/app/Home.qml`, change a
-label, save it, and watch the page come back with it.
+save affects, and reloads the browser. Open `client/app/Home.qml`, change a label, save,
+and the page reloads with the change.
 
 ## Or draw it first
 
-If you would rather see the shape of a system before running one, open the
-[designer](/designer/). Draw the entities and the links between them, press Export and take
-it as a project, and unzip the result over a project made with `synqt new`. Nothing is
-installed and nothing leaves the page. The [guide to the designer](visual-editor.md) covers
-what it can do, and **Examples** in its bar opens each of the systems above on the canvas.
+To see the shape of a system before running one, open the [designer](/designer/). Draw
+the entities and the links between them, press Export to take it as a project, and unzip
+the result over a project made with `synqt new`. It installs nothing and nothing leaves
+the page. The [designer guide](visual-editor.md) covers what it can do, and **Examples**
+in its toolbar opens each system above on the canvas.
 
 ## Where to go next
 
-- [Getting started](getting-started.md) builds a project of your own from an empty scaffold,
-  and covers `synqt create`, which asks the security relevant questions instead of taking
-  defaults.
+- [Getting started](getting-started.md) builds a project of your own from an empty
+  scaffold, and covers `synqt create`, which asks the scaffold's questions instead of
+  taking defaults.
 - [The simple chat](tutorial-chat.md) is the shortest tutorial that ends in a real
   application: one room, sign-in, and a column the browser never receives.
 - [The auction tutorial](tutorial.md) builds a system end to end: live bidding, then
-  sign-in, then a database the browser cannot reach. `gavel` above is where it finishes.
-- [Architecture](architecture.md) is the reference, from the entity model to the security
-  design.
+  sign-in, then a database the browser cannot reach. It ends at the `gavel` example.
+- [Architecture](architecture.md) is the reference, from the entity model to the
+  security design.

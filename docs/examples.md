@@ -3,29 +3,28 @@
 
 # Examples
 
-These are complete, worked applications expressed in the SynQt programming model.
-They show every artifact a developer writes: contracts, configuration, server
-implementations, and client views. They do not show framework internals. Each
-example builds on the previous one.
+These are complete applications written in the SynQt programming model. They show
+everything you write (contracts, configuration, server code and client views) and none of
+the framework's internals. Each example builds on the previous one.
 
-Examples 1 to 3 are single edge systems (a client and a web edge), where the edge owns
-its state in memory. They use `Client` to reach the calling browser session, which
-is the web edge alias for the general `Caller` accessor described in
-[the programming model](programming-model.md#reaching-the-caller-the-caller-accessor).
-Example 4 adds a third entity, a database, and shows the mesh: the edge authorizes
-the user, then calls the database, which authorizes the edge. Example 5 keeps that
-three-entity shape and adds [remote pages](remote-pages.md): views the web edge
-delivers on demand rather than compiling into the client bundle.
+- **Examples 1 to 3** have a client and a web edge, and the edge keeps its state in memory.
+  They use `Client` to reach the calling browser session; on a web edge, `Client` is an
+  alias for `Caller`, described in
+  [the programming model](programming-model.md#reaching-the-caller-the-caller-accessor).
+- **Example 4** adds a database entity and shows the mesh: the edge authorizes the user,
+  then calls the database, which authorizes the edge.
+- **Example 5** keeps those three entities and adds [remote pages](remote-pages.md): views
+  the web edge delivers on demand instead of compiling them into the client bundle.
 
-Four of these ship as whole projects rather than as listings. `synqt examples` names them,
-and `synqt new shop --example stall` copies one into a project of your own to run and take
-apart. The [quick start](quick-start.md) does exactly that.
+SynQt also ships five complete projects: the finished apps of the tutorials, and the
+storefront below. `synqt examples` lists them, and `synqt new shop --example stall` copies
+one into a project of your own. The [quick start](quick-start.md) walks through this.
 
 ## Example 1: a shared live counter (no login)
 
-The smallest non trivial app: a counter every connected client sees update in
-real time. It demonstrates state shared by every browser, an edge owned property, and
-a client to edge request.
+The smallest useful app: a counter that every connected client sees update in real time.
+It shows state shared by every browser, a property the edge owns, and a request from the
+client to the edge.
 
 ### Configuration, `synqt.yaml`
 
@@ -57,19 +56,18 @@ connect_points:
     # no scope: any session may use it
 ```
 
-No `identity` section, so every connection runs at the default anonymous scope.
+There is no `identity` section, so every connection runs at the default anonymous scope.
 
-This config is the development shape, and `synqt dev` serves it plaintext on
-localhost. A release build is refused without TLS, so running it with
-`synqt serve` also needs a `tls` section on the web entity with a
-certificate, as Example 2 shows (see the
+This is a development configuration, which `synqt dev` serves in plaintext on localhost.
+A release build is refused without TLS, so running it with `synqt serve` also needs a
+`tls` section with a certificate on the web entity, as in Example 2 (see the
 [validation rules](project-layout-and-config.md#validation)).
 
 ### The edge, `web/edge/Edge.qml`
 
-One file is the entity and the surface it exports. The edge is shared, so there is one
-of it holding one number however many browsers are watching, and every slot still has a
-`Caller` to authorize.
+One file is both the entity and the surface it exports. The edge is shared, so one
+instance holds one number however many browsers watch, and every slot still has a `Caller`
+to authorize.
 
 ```qml
 import SynQt
@@ -84,8 +82,8 @@ Edge {
 }
 ```
 
-Because `value` is a contract property, the framework pushes every change to all
-replicas. No broadcast code is needed.
+`value` is a contract property, so the framework pushes every change to all replicas,
+with no broadcast code.
 
 ### Client, `client/app/Main.qml`
 
@@ -116,21 +114,20 @@ ApplicationWindow {
 }
 ```
 
-Open the page in two browser tabs and the counter stays in sync, because both tabs mirror
-the one Source the edge holds.
+Open the page in two tabs: the counter stays in sync, because both mirror the one Source
+the edge holds.
 
 ## Example 2: the authenticated Todo app
 
-This is the canonical SynQt example, a shared todo list where anyone may read,
-but only signed in users may add, and a user may only remove their own items.
-Moderators may remove anything. It demonstrates login, scopes, per row ownership
-that never leaves the edge, and an edge to client refusal channel.
+The reference SynQt example: a shared todo list that anyone may read, but only signed-in
+users may add to. A user may remove only their own items; moderators may remove any. It
+shows login, scopes, per row ownership that never leaves the edge, and refusals sent from
+the edge to the client.
 
 ### Configuration, `synqt.yaml`
 
-The model role list below has no `ownerId`. The edge
-will keep an owner id per row for authorization, and it will never reach any
-client because it is not a declared role.
+The model's role list below has no `ownerId`. The edge keeps an owner id per row for
+authorization, and it never reaches a client, because it is not a declared role.
 
 ```yaml
 project:
@@ -196,8 +193,8 @@ GITHUB_CLIENT_SECRET=the-real-secret-value
 
 ### Identity mapping, `web/edge/identity/map.qml`
 
-This optional hook turns a provider identity into a SynQt scope after login. It
-runs only on the edge.
+This optional hook turns a provider identity into a SynQt scope after login. It runs only
+on the edge.
 
 ```qml
 import SynQt
@@ -217,10 +214,10 @@ IdentityMapping {
 
 ### The edge, `web/edge/Edge.qml`
 
-One file is the entity and the surface it exports. The list is one list for the whole
-app, and each slot still arrives with its own `Client` (the browser-side name for
-`Caller`). `ownerId` is kept on each row and is not a declared model role, so it cannot
-reach a browser however the file is written.
+One file is both the entity and the surface it exports. There is one list for the whole
+app, and each slot still gets its own `Client` (the edge's name for a browser `Caller`).
+`ownerId` is kept on each row but is not a declared model role, so it cannot reach a
+browser, however the file is written.
 
 ```qml
 import SynQt
@@ -345,28 +342,26 @@ ApplicationWindow {
 
 ### What this example demonstrates
 
-- The client treats `add` and `remove` as requests. The edge authorizes them.
-- `ownerId` exists on every row for authorization and never crosses the boundary,
-  because it is not a declared model role.
-- Client side `Session.hasScope("user")` only hides and disables UI. A modified
-  client that calls `Server.add` while anonymous still hits an edge that
-  refuses, with `rejected("Sign in to add items.")`.
-- Ownership is enforced with an edge side value the client cannot spoof, never with
-  anything the client sends. Here that value is `Client.id`, the session key.
-  `Client` is the edge alias for the `Caller` accessor, so this is the same mechanism
-  the mesh example (Example 4) writes as `Caller`. A session key is enough for this in
-  memory list, where the data lives only as long as the edge process. Durable rows
-  key ownership on `Caller.identity.sub` instead (see Example 4), so ownership
-  survives a new session and a restart.
-- The whole login exchange (the GitHub redirect, the code exchange with the
-  client secret, the session cookie) happens on the edge. The browser only ever
-  holds the opaque session cookie.
+- **Requests, not commands.** The client treats `add` and `remove` as requests, and the
+  edge authorizes them.
+- **Data minimization.** Every row carries `ownerId` for authorization, and it never crosses
+  the boundary, because it is not a declared model role.
+- **Client checks are cosmetic.** `Session.hasScope("user")` on the client only hides and
+  disables UI. A modified client that calls `Server.add` while anonymous still reaches an
+  edge that refuses, with `rejected("Sign in to add items.")`.
+- **Ownership uses a value the client cannot forge,** never anything the client sends: here
+  `Client.id`, the session key. `Client` is the edge's alias for `Caller`, the mechanism
+  Example 4 uses. A session key is enough for this in-memory list, which lives only as
+  long as the edge process. Durable rows key ownership on `Caller.identity.sub` instead
+  (see Example 4), so ownership survives a new session and a restart.
+- **The login runs on the edge.** The GitHub redirect, the code exchange with the client
+  secret, and the session cookie all happen there. The browser holds only the opaque
+  session cookie.
 
 ## Example 3: a private per session draft (sketch)
 
-What makes a draft private is `shared: false` on the entity, which gives each caller a
-Source of its own, plus a scope on the point so an anonymous client never acquires it at
-all:
+`shared: false` on the entity makes a draft private by giving each caller a Source of
+their own, and a scope on the point keeps anonymous clients from acquiring it at all:
 
 ```yaml
 entities:
@@ -384,16 +379,15 @@ connect_points:
       slot save(string[4000] text)
 ```
 
-One user's draft is a different Source instance from another's, so there is nothing
-through which one client could observe another's. The `scope: user` precondition means an
-anonymous client never even acquires the replica.
+Each user's draft lives in a separate Source instance, so no client can observe another's.
+With `scope: user`, an anonymous client never acquires the replica.
 
 ## Example 4: a three entity todo with durable storage
 
-This is the canonical mesh example. A browser client, a web edge, and a database
-entity. The edge owns the user facing connect point and authorizes the user. The
-database owns durable storage and authorizes the edge. Items survive a restart
-because they live in the database entity rather than in edge memory.
+The reference mesh example: a browser client, a web edge and a database entity. The edge
+owns the connect point users reach and authorizes each user. The database owns durable
+storage and authorizes the edge. Items survive a restart, because they live in the
+database entity, not in the edge's memory.
 
 ### Topology, `synqt.yaml`
 
@@ -461,15 +455,16 @@ connect_points:
       signal changed()                 // tells the edge the data moved
 ```
 
-`synqt add auth github` adds auth (see [authentication](authentication.md)). It is omitted here for focus.
+`synqt add auth github` adds authentication (see [authentication](authentication.md)); it
+is left out here.
 
-The mesh link is mutual TLS even though both entities share a host, so the one entity on
-its consumer list is the one its certificate proves it to be. `synqt mesh cert --all`
-issues the certificates for deployment. `synqt dev` provisions throwaway development ones
+The mesh link uses mutual TLS even though both entities share a host, so the single entity
+on the consumer list is proven by its certificate. `synqt mesh cert --all` issues the
+certificates for deployment; `synqt dev` creates throwaway development certificates
 automatically.
 
-Below, `ownerSub` exists on the store entity's point (the edge needs it to enforce
-ownership) but is absent from the edge's `items` roles, so it never reaches the browser.
+Below, `ownerSub` is on the store entity's point (the edge needs it to enforce ownership)
+but not among the edge's `items` roles, so it never reaches the browser.
 
 ### The database entity, `db/relational/store/Store.qml`
 
@@ -568,51 +563,47 @@ Edge {
 
 ### The client, `client/app/Main.qml`
 
-Identical in spirit to Example 2. It reads `Server.items`, calls
-`Server.add(...)` and `Server.remove(index)`, and shows the reason a refusal
-carries through `Edge.onRejected`. The client does
-not know a database exists. It only ever talks to the edge.
+The same as in Example 2: it reads `Server.items`, calls `Server.add(...)` and
+`Server.remove(index)`, and shows a refusal's reason through `Edge.onRejected`. The client
+does not know a database exists; it only talks to the edge.
 
 ### What this example demonstrates
 
-- Three entities, two boundaries. The edge authorizes the user (`Caller` in every slot),
-  and the topology puts the database out of the browser's reach by listing one consumer.
-- The full user authorization matrix lives on the edge. Anonymous cannot add, a
-  user removes only rows whose `ownerSub` matches their own `Caller.identity.sub`,
-  and a moderator removes any. No client supplied value participates in the ownership
-  decision. The edge compares its own cached `ownerSub` against the verified
-  identity.
-- The browser cannot reach the store. Its point lists only `edge` as a consumer, and
-  the browser cannot physically reach a non edge entity anyway.
-- Data minimization across two hops. `ownerSub` is on the internal contract for the
-  edge's ownership logic and is dropped before anything reaches the browser, because
-  it is not one of the edge's `items` roles. It carries `Caller.identity.sub`, the stable
-  identity subject, rather than the session key (`Client.id`) that Example 2 used.
-  The accessor is the same one Example 2 reaches through the `Client` alias, but a
-  durable row must stay owned across new sessions and restarts, so it keys on the
-  identity rather than the session.
-- Durability without a third party database server. Items live in the persistence
-  entity's embedded store and survive restarts. No separate database product is run,
-  configured, or secured. It is a SynQt entity in the same toolchain and security
-  model.
-- The same connect point mechanism carries both links. `Server` (browser to
-  edge over wss) and `Store` (edge to database over the mesh) are the same
-  programming model with different transports underneath.
+- **Three entities, two boundaries.** The edge authorizes the user (`Caller` in every
+  slot), and the topology keeps the database out of the browser's reach by listing one
+  consumer.
+- **The edge holds the whole user authorization matrix.** Anonymous users cannot add, a
+  user removes only rows whose `ownerSub` matches their `Caller.identity.sub`, and a
+  moderator removes any. No value from the client takes part in the ownership decision:
+  the edge compares its own cached `ownerSub` with the verified identity.
+- **The browser cannot reach the store.** Its point lists only `edge` as a consumer, and a
+  browser cannot reach an entity that is not a web edge anyway.
+- **Data minimization across two hops.** `ownerSub` is on the internal contract for the
+  edge's ownership logic and is dropped before anything reaches the browser, because it
+  is not one of the edge's `items` roles. It holds `Caller.identity.sub`, the stable
+  identity subject, instead of the session key (`Client.id`) used in Example 2: a
+  durable row must stay owned across sessions and restarts, so it is keyed on the
+  identity, not the session.
+- **Durable storage without a database server.** Items live in the persistence entity's
+  embedded store and survive restarts. There is no separate database product to run,
+  configure or secure; it is a SynQt entity with the same toolchain and security model.
+- **One mechanism for both links.** `Server` (browser to edge, over wss) and `Store` (edge
+  to database, over the mesh) use the same programming model over different
+  transports.
 
 ## Example 5: a storefront with edge-delivered campaign pages
 
-The [`stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall) example is the
-three-entity shape of Example 4 (a browser client, a web edge, and a `stock` database
-the browser reaches only through the edge) with one thing added: its marketing
-campaign pages are [remote pages](remote-pages.md), delivered by the edge on demand
-rather than compiled into the client bundle. The product grid and the cart ship in the
-bundle. A merchandiser changes a campaign, or adds a new one, without a client rebuild.
+The [`stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall) example has the
+three entities of Example 4 (a browser client, a web edge, and a `stock` database the
+browser reaches only through the edge), plus one addition: its campaign pages are
+[remote pages](remote-pages.md), delivered by the edge on demand instead of compiled into
+the client bundle. The product grid and the cart ship in the bundle. A merchandiser can
+change or add a campaign without a client rebuild.
 
 ### Topology, `synqt.yaml`
 
-The entities are a `type: client`, a `type: web_edge`, and a
-`type: relational` database. The route table and the `router` block are
-top-level keys:
+The entities are a `type: client`, a `type: web_edge` and a `type: relational` database.
+The route table and the `router` block are top level keys:
 
 ```yaml
 routes:
@@ -653,10 +644,10 @@ connect_points:
 
 ### The delivered page, `web/edge/pages/Campaign.qml`
 
-One file serves every slug. Its root is an `Item` rather than a window, because a delivered
-page is loaded into the client's `Loader`, and it imports only the palette modules. It
-paints its headline from the seed on the first frame, then keeps the offers live
-through the `catalog` replica:
+One file serves every slug. Its root is an `Item`, not a window, because the client loads
+a delivered page into its `Loader`, and it imports only palette modules. It paints its
+headline from the seed on the first frame, then keeps the offers live through the
+`catalog` replica:
 
 ```qml
 import QtQuick
@@ -697,8 +688,8 @@ Item {
 
 ### The page seed, `web/edge/campaign-seed.qml`
 
-The seed runs on the edge, after the route's scope check, and turns the slug into the
-headline the page paints first, so it never flashes empty:
+The seed runs on the edge after the route's scope check, and turns the slug into the
+headline the page paints first, so the first frame is never empty:
 
 ```qml
 import SynQt
@@ -721,21 +712,21 @@ PageSeed {
 
 ### What this example demonstrates
 
-- A route is compiled in (`view:`) or edge-delivered (`remote:`). The campaign and
-  members pages are `remote:`, so they never enter the bundle and change without a
-  client rebuild.
-- `router.palette` is the trust boundary for a delivered page, the whole set of QML
-  modules it may import, enforced by the client.
-- The page seed paints the first frame. It runs on the edge per request, is keyed on
-  the path parameter, and its return is `Router.pageSeed` on the client, so one
-  `Campaign.qml` gives every slug its own headline. Its parameters are left untyped so
-  the edge's generic invocation matches.
-- A delivered page's `scope` protects the page rather than the data. `Members.qml` is refused
-  to an under-scoped session with no markup, no hash, and no seed, but the data any
-  page reads is still governed by the connect point's own scope.
-- The database stays unreachable from the browser. The stock entity's connect point is
-  owned by `stock` and consumed only by `edge`. Adding the client as a consumer fails
+- **Two kinds of route.** A route is compiled in (`view:`) or delivered by the edge
+  (`remote:`). The campaign and members pages are `remote:`, so they never enter the
+  bundle and change without a client rebuild.
+- **The palette is the trust boundary.** `router.palette` lists every QML module a
+  delivered page may import, and the client enforces it.
+- **The seed paints the first frame.** It runs on the edge per request, is keyed on the
+  path parameter, and becomes `Router.pageSeed` on the client, so one `Campaign.qml` gives
+  each slug its own headline. Its parameters stay untyped so the edge's generic call
+  matches.
+- **A page's `scope` protects the page, not the data.** A session below the scope gets
+  `Members.qml` refused, with no markup, hash or seed, but the data any page reads is still
+  governed by the connect point's own scope.
+- **The browser cannot reach the database.** The stock entity's connect point is owned by
+  `stock` and consumed only by `edge`. Adding the client as a consumer fails
   `synqt check`, because the browser can only reach a web edge.
 
-The [light storefront](tutorial-remote-pages.md) tutorial builds this shop up step by
-step and runs the three hands-on checks against it.
+The [light storefront](tutorial-remote-pages.md) tutorial builds this shop step by step and
+runs three hands-on checks against it.

@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The plaza, the finished 3D tutorial from docs/tutorial-plaza.md: a browser client that
+# draws a walled square in Qt Quick 3D and predicts its own walker with Qt Quick 3D Physics,
+# and a web edge that owns the square and decides where everybody stands.
+project:
+  name: plaza
+  version: 0.1.0
+  qt_version: 6.12.0
+
+# Signing in is what puts you in the plaza. web/edge/identity/map.qml hands every signed-in
+# person `user`, and the plaza's connect point requires it.
+scopes:
+  order: [anonymous, user]
+  hierarchical: true
+  default: anonymous
+
+security:
+  allowed_origins: [self]
+  cross_origin_isolation: false
+
+build:
+  client_threads: single
+
+# GitHub sign in (docs/tutorial-plaza-edge.md). The client_id is public. The client secret
+# lives only in web/edge/.env. Under `synqt dev --identity-picker` none of this is used, and
+# a `.dev-identities` file names the people you walk around as (docs/developing-locally.md).
+identity:
+  providers:
+    - name: github
+      client_id: your-client-id-from-github
+      client_secret: env:GITHUB_CLIENT_SECRET
+  mapping: web/edge/identity/map.qml
+
+entities:
+  - name: app
+    type: client
+    targets: [wasm]
+
+  - name: edge
+    type: web_edge
+    identity: true
+    # Browser TLS for a release build. `synqt dev` serves plaintext on localhost.
+    tls:
+      cert_file: certs/edge/fullchain.pem
+      key_file: certs/edge/privkey.pem
+
+connect_points:
+  # The plaza. One Source for everybody (the edge is shared, the default), and every call
+  # still arrives with the Caller who made it. `scope: user` is the barrier: a visitor who
+  # has not signed in never acquires the point, so there is no plaza on their side at all.
+  - owner: edge
+    consumers: [app]
+    scope: user
+    # A browser sends what its keys ask for and which way it faces, never where it is. The
+    # edge moves every walker itself, at walking speed, and keeps each one out of the
+    # walls, the pillars and the other walkers.
+    export: |
+      model walkers(string[64] id, string[40] name, int hue, real x, real z, real heading)
+      slot walk(real forward, real side, real heading)   // what the keys ask for
+      slot real ping()                                   // the edge clock in ms

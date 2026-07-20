@@ -1,0 +1,10 @@
+{
+    "name": "synqt-plaza-browser-verify",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright proof that the 3D plaza example walks, sees the others and agrees with its edge in a real browser.",
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}

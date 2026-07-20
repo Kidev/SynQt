@@ -86,6 +86,7 @@ Built and run by the tree:
 | [fix1-auction](fix1-auction) | The auction tutorial as an acceptance fixture, over [examples/gavel](../examples/gavel) |
 | [fix2-arena](fix2-arena) | The multiplayer tutorial likewise, over [examples/arena](../examples/arena) |
 | [fix3-stall](fix3-stall) | Edge-delivered pages end to end, seeded by the production per-connection `Caller` |
+| [fix4-plaza](fix4-plaza) | The 3D plaza tutorial likewise, over [examples/plaza](../examples/plaza): walking speed, nobody walking through anybody, and the sign-in gate |
 | [url-routing](url-routing) | The route table and the SPA fallback |
 | [remote-pages](remote-pages) | The `Pages` connect point and its page store |
 | [memory](memory) | What a repeated workload leaves behind. Browser connections, page loads, sessions and mesh reconnects run many times over one long-lived object, and the heap has to come back to where it started. Its `run-leakcheck.sh` runs the rest of the tree under LeakSanitizer |
@@ -107,6 +108,7 @@ Owned by another toolchain, and therefore by another workflow:
 | [m0-transport](m0-transport) | The QtRO-over-WebSockets go/no-go spike, kept as a regression guard for an unsupported path. Real browsers, via [browser-matrix.yml](../.github/workflows/browser-matrix.yml) |
 | [wasm-quick3dphysics](wasm-quick3dphysics) | Qt Quick 3D Physics building and loading on WebAssembly, via [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) |
 | [site-home](site-home) | The built documentation site's front page in a browser, via [docs.yml](../.github/workflows/docs.yml) and `make test-site` |
+| [plaza-browser](plaza-browser) | The 3D plaza example built by `synqt dev` and walked by two people in one browser, via [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) |
 
 [lib](lib) is not a suite. It holds the shell helpers the runners share: issuing mesh
 certificates, and asking the host what a native executable looks like there instead of

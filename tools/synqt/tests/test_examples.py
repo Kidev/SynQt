@@ -3,13 +3,10 @@
 
 """The tutorial example projects are onboarding acceptance fixtures (docs/tutorial.md,
 docs/tutorial-multiplayer.md). This pins the ``synqt check`` hands-on check each tutorial
-ends on. A connect point the browser consumes must be owned by a web edge, so adding the
-client as a consumer of an internal (database-owned) connect point must fail the build.
+ends on: adding the client as a consumer of an internal connect point fails.
 
-The behavioural hands-on checks (a lower bid refused by the edge, a signed-out placeBid
-refused, ``steer`` only crawling, the ``scope: player`` gate, and the stall storefront's
-edge-delivered pages and fresh-per-parameter seed) are proven end to end at the QtRO level
-in tests/fix1-auction, tests/fix2-arena, and tests/fix3-stall.
+The behavioural checks are proven at the QtRO level in tests/fix1-auction, tests/fix2-arena
+and tests/fix3-stall.
 """
 
 import copy
@@ -45,8 +42,7 @@ class ChatCheckTest(unittest.TestCase):
         self.assertTrue(ok, messages)
 
     def test_client_consuming_the_store_is_refused(self):
-        # The chat tutorial's hands-on check, and the same one every tutorial ends on: the
-        # browser reaches only the edge, so consuming the store entity's point must fail.
+        # The chat check: consuming the store point from the browser fails.
         ok, messages = check.validate(_add_client_consumer(self.config, "store"))
         self.assertFalse(ok)
         self.assertTrue(any("store" in m and "web_edge" in m and m.startswith("error:")
@@ -54,25 +50,19 @@ class ChatCheckTest(unittest.TestCase):
                         messages)
 
     def test_a_signed_out_visitor_has_nothing_to_acquire(self):
-        # The room is not hidden from a signed-out visitor so much as absent: the point
-        # that carries it is gated on the whole point, so their session never acquires it
-        # and the client's sign-in page is what is left rather than a locked door.
+        # The room is gated on the whole point, so a signed-out session never acquires it.
         front = next(one for one in self.config["connect_points"]
                      if one["owner"] == "edge")
         self.assertEqual(front["scope"], "user")
 
     def test_erase_is_not_a_member_an_ordinary_session_holds(self):
-        # What stops a user erasing a message is not a check anybody wrote: `erase` is
-        # gated on the member, so it is not on the surface their session acquired and a
-        # console call finds nothing to call.
+        # `erase` is gated on the member, so a user session has no such member to call.
         front = next(one for one in self.config["connect_points"]
                      if one["owner"] == "edge")
         self.assertIn("<admin> slot erase", front["export"])
 
     def test_a_member_gated_on_a_scope_nobody_can_hold_is_refused(self):
-        # And the gate is live rather than a comment in the shape of one: name a scope
-        # that is not in the ladder and the build stops, rather than shipping a member
-        # that would reach nobody.
+        # A gate naming an undeclared scope stops the build.
         mutated = copy.deepcopy(self.config)
         for point in mutated["connect_points"]:
             if point["owner"] == "edge":
@@ -92,8 +82,7 @@ class GavelCheckTest(unittest.TestCase):
         self.assertTrue(ok, messages)
 
     def test_client_consuming_the_books_is_refused(self):
-        # The tutorial's Hall-of-Fame hands-on check. The browser can reach only the edge,
-        # so consuming the books entity's point must fail `synqt check`.
+        # The Hall of Fame check: consuming the books point from the browser fails.
         ok, messages = check.validate(_add_client_consumer(self.config, "books"))
         self.assertFalse(ok)
         self.assertTrue(any("books" in m and "web_edge" in m and m.startswith("error:")
@@ -110,13 +99,33 @@ class ArenaCheckTest(unittest.TestCase):
         self.assertTrue(ok, messages)
 
     def test_client_consuming_the_records_is_refused(self):
-        # The multiplayer tutorial's hands-on check. The browser reaches only the edge, so
-        # consuming the records entity's point must fail `synqt check`.
+        # The multiplayer check: consuming the records point from the browser fails.
         ok, messages = check.validate(_add_client_consumer(self.config, "records"))
         self.assertFalse(ok)
         self.assertTrue(any("records" in m and "web_edge" in m and m.startswith("error:")
                             for m in messages),
                         messages)
+
+
+class PlazaCheckTest(unittest.TestCase):
+    def setUp(self):
+        self.config = _load("plaza")
+
+    def test_the_finished_plaza_validates(self):
+        ok, messages = check.validate(self.config)
+        self.assertTrue(ok, messages)
+
+    def test_a_signed_out_visitor_has_no_plaza(self):
+        # The plaza is gated on the whole point (tests/fix4-plaza proves the runtime half).
+        plaza = next(one for one in self.config["connect_points"] if one["owner"] == "edge")
+        self.assertEqual(plaza["scope"], "user")
+
+    def test_the_contract_carries_intent_and_no_position(self):
+        # `walk` takes key input only; a position argument could be forged.
+        plaza = next(one for one in self.config["connect_points"] if one["owner"] == "edge")
+        self.assertIn("slot walk(real forward, real side, real heading)", plaza["export"])
+        slots = [line for line in plaza["export"].splitlines() if "slot" in line]
+        self.assertFalse(any(" x" in line or " z" in line for line in slots), slots)
 
 
 class StallCheckTest(unittest.TestCase):
@@ -128,16 +137,12 @@ class StallCheckTest(unittest.TestCase):
         self.assertTrue(ok, messages)
 
     def test_the_finished_stall_passes_the_full_project_check(self):
-        # The full check (routes, remote pages, seed file, client root) is what the happy
-        # path of the acceptance test pins. This is the exact case a routes/seed regression
-        # broke before, so keep it as a live guard.
+        # The full check on the stall: routes, remote pages, seed file, client root.
         ok, messages = check.check_project(EXAMPLES / "stall")
         self.assertTrue(ok, messages)
 
     def test_client_consuming_the_stock_is_refused(self):
-        # The storefront's hands-on check. The browser reaches only the edge, so consuming
-        # the stock entity's point must fail `synqt check`. The stock entity is not a web
-        # edge, so the durable stock is unreachable from the browser.
+        # The storefront check: consuming the stock point from the browser fails.
         ok, messages = check.validate(_add_client_consumer(self.config, "stock"))
         self.assertFalse(ok)
         self.assertTrue(any("stock" in m and "web_edge" in m and m.startswith("error:")
@@ -146,14 +151,8 @@ class StallCheckTest(unittest.TestCase):
 
 
 class RelationalExampleStoresItsRowsTest(unittest.TestCase):
-    """A database entity in an example has to store what the tutorial says it stores.
-
-    Every one of these ships a `schema.sql`, and the tutorial beside it ends on stopping
-    the project and starting it again to watch the rows come back. An entity that keeps
-    its rows in a `property var` instead builds, checks out, and passes every other test
-    here, and the only thing it gets wrong is the promise the page makes: the gavel books
-    entity held its Hall of Fame in an array while its own schema declared a table nothing
-    ever read.
+    """A database entity in an example stores its rows in its schema's tables, as its tutorial
+    shows by restarting the project.
     """
 
     #: Every relational entity in the examples, as (project, entity directory).
@@ -186,13 +185,10 @@ class RelationalExampleStoresItsRowsTest(unittest.TestCase):
 
 
 class ExampleClientRootTest(unittest.TestCase):
-    """Every example is an onboarding acceptance fixture. It must RUN, not merely build.
-    Its Main.qml is the engine's root object, so a non-window root renders a blank page
-    with nothing in the log. Some shipped that way once. This pins them.
-    """
+    """Every example Main.qml root is a window."""
 
     def test_every_example_client_root_is_a_window(self):
-        for project in ("chat", "gavel", "arena", "stall"):
+        for project in ("chat", "gavel", "arena", "plaza", "stall"):
             with self.subTest(project=project):
                 self.assertEqual(check.lint_client_root(EXAMPLES / project), [])
 

@@ -2,27 +2,15 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Write the design editor's examples from the example projects themselves.
+"""Write the design editor's examples from the projects under `examples/`.
 
-`/designer/#example=demo` hands somebody a system to look at rather than an empty canvas,
-and every tutorial links to the project it builds. Those projects are not fixtures written
-for the editor. They are the ones under `examples/`, which `synqt check` validates and the
-tutorials are written about. So the editor reads them rather than carrying a second copy,
-and this is what does the reading. `synqt design` opening one of those directories and
-the editor opening the example produce the same document, through the same code.
-
-Run this after changing an example project, or after changing how a project is read:
+`/designer/#example=<key>` opens one; the document is read with the same code `synqt design`
+uses. Run after changing an example or how a project is read:
 
     python tools/gen-design-examples.py
 
 `tools/synqt/tests/test_designpage.py` fails when the committed file and the projects
-disagree, so a forgotten run is a red build rather than a link handing somebody last
-month's arrangement.
-
-The arrangement is here and not in the projects. Where an entity sits on a canvas is the
-drawing and not the deployment. `synqt design` lays a project out by column when it has
-nothing stored, which is the right answer for a project somebody is opening for the first
-time and the wrong one for a picture published as an illustration.
+disagree. The canvas arrangement lives here, not in the projects.
 """
 
 from __future__ import annotations
@@ -38,11 +26,8 @@ from synqt import designdoc  # noqa: E402  (after the path is set up)
 
 OUT = Path("tools/synqt/synqt/assets/design/examples.json")
 
-#: Each example: the name it is asked for by (`#example=<key>`), the project it is read
-#: from, what to call it where it is offered, and where each entity sits on the canvas.
-#:
-#: `demo` keeps its name because that is the link the front page publishes and the one
-#: already written down elsewhere. The project it opens is called what it is.
+#: Each example: its `#example=<key>`, the project it is read from, its display name, and
+#: the canvas position of each entity. `demo` is the key the front page links.
 EXAMPLES = {
     "demo": {
         "project": "chat",
@@ -62,6 +47,12 @@ EXAMPLES = {
         "note": "A world the edge simulates, and only the slice each player can see.",
         "places": {"app": (64, 160), "edge": (384, 160), "records": (704, 160)},
     },
+    "plaza": {
+        "project": "plaza",
+        "title": "The 3D plaza",
+        "note": "People walking in Qt Quick 3D, and an edge that decides where they stand.",
+        "places": {"app": (64, 160), "edge": (384, 160)},
+    },
     "stall": {
         "project": "stall",
         "title": "The light storefront",
@@ -80,7 +71,7 @@ _COMMENT = [
     "once loaded: edited, checked and exported exactly like something drawn by hand.",
     "",
     "`demo` is the chat room the front page of synqt.org reads out file by file, so the",
-    "diagram there and the canvas here are the same system. The other three are what the",
+    "diagram there and the canvas here are the same system. The other four are what the",
     "tutorials build, and each of those pages links here.",
 ]
 
@@ -94,9 +85,7 @@ def document(name: str, spec: dict) -> dict:
             raise SystemExit(
                 f"{name}: '{entity.get('name')}' has no place in EXAMPLES; add one")
         entity["x"], entity["y"] = place
-    # Neither is part of the drawing. `id` is the reading code's own handle on an entity,
-    # and the digest names the synqt.yaml a document was read from, which is a fact about
-    # one checkout and not about the example.
+    # Not part of the drawing: `id` and the source digest.
     read.pop("source", None)
     read.pop("digest", None)
     return read

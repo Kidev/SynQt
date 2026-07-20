@@ -3,19 +3,14 @@
 
 # wasm-quick3dphysics: is Qt Quick 3D Physics usable on WebAssembly?
 
-The multiplayer tutorial is written in plain 2D, and a common claim is that Qt Quick 3D
-Physics does not work on WASM. This fixture tests that directly, and with the right
-configuration the claim is false. Quick3D Physics builds, links, loads, boots and steps on
-WASM. The box falls under gravity and rests on the plane, headless, on both the
+Qt Quick 3D Physics builds, links, loads, boots and steps on WebAssembly with the right
+configuration: the box falls under gravity and rests on the plane, headless, on both the
 single-threaded and the multi-threaded kit.
 
-That run was on Qt 6.11.1 with Emscripten 4.0.7. The scripts below build against the
-current pin (6.12.0 and 5.0.5), and the fixture has not been re-run since the pin moved.
-The finding is about a default in Quick3D Physics and not about a Qt release, so it is not
-expected to have changed, but that is unverified.
-
-The tutorial stays 2D because that keeps the arena simple and GPU-free. That is a choice
-and not a necessity.
+The run recorded here was taken on Qt 6.11.1 with Emscripten 4.0.7; the scripts build
+against the current pin (6.12.0 and 5.0.5). The
+[3D plaza tutorial](../../docs/tutorial-plaza.md) uses Quick3D Physics with
+`numThreads: 0` and runs on the pinned single-threaded kit (`tests/plaza-browser`).
 
 ## The one line that makes it work
 
@@ -31,8 +26,8 @@ default is the whole problem on WebAssembly.
 
 Setting `numThreads: 0` steps the simulation sequentially on the calling thread, with no
 worker threads and no pthread dependency. It is the only configuration that runs in the
-browser, and it runs on either kit. That single property is the fix. Everything else in
-the scene is ordinary Quick3D Physics.
+browser, and it runs on either kit. Everything else in the scene is ordinary Quick3D
+Physics.
 
 ## What is proven, and how
 

@@ -1,18 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Every test suite that runs on the host kit, in one build tree and under one ctest.
+# Every test suite that runs on the host kit, in one build tree and under one ctest. Each
+# suite also stays a standalone project with its own run-*.sh.
 #
-# Each suite is also a standalone project (its own project() call, its own run-*.sh) and
-# stays one: a milestone has to be independently testable, and one suite on its own is how
-# you bisect a failure. What this file adds is the whole-tree build, where the runtime
-# libraries are compiled once instead of once per suite. Measured on a 32-core host, from
-# clean: 17 suites configured and built one at a time cost 227 s and 812 object files; this
-# tree costs 18 s and 295, because SynQtEdge and SynQtClient are built once and because
-# 17 configure steps become one.
-#
-# In milestone order, which is the order the framework was built in and the order a failure
-# reads best in: an M5 break with M2 green says something different from both breaking.
+# In the order the layers build on each other, so a failure reads in dependency order.
 set(SYNQT_HOST_SUITES
     m1-contract
     m2-transport
@@ -30,6 +22,7 @@ set(SYNQT_HOST_SUITES
     fix1-auction
     fix2-arena
     fix3-stall
+    fix4-plaza
     url-routing
     remote-pages
     entity-test
@@ -39,11 +32,7 @@ set(SYNQT_HOST_SUITES
     monitor
 )
 
-# Suites that cannot join the tree because CMake is not their entry point: each one runs a
-# generator first and compiles what it produced, so there is nothing to add_subdirectory
-# until its run-*.sh has run. They are what catch a tool whose output stopped compiling,
-# which no test of the generated strings can, so they are listed rather than forgotten:
-# published below for CI to run, and covered by the drift guard like everything else.
+# Suites whose entry point is a generator, not CMake. Published below for CI.
 set(SYNQT_SCRIPT_SUITES
     custom-provider  # compiles the skeletons from `synqt add provider`
     appgen-native    # compiles the entity mains appgen.py emits for a whole topology
@@ -53,32 +42,24 @@ set(SYNQT_SCRIPT_SUITES
     dev-exclusion    # configures the framework twice and reads the symbol tables
 )
 
-# Suites that belong to another toolchain, and therefore to another workflow, and the two
-# directories under tests/ that are not suites at all.
+# Suites run by another workflow, and the directories under tests/ that are not suites.
 set(SYNQT_SUITES_ELSEWHERE
     m0-transport         # WASM client and a native edge, in a browser; browser-matrix.yml
     wasm-quick3dphysics  # WASM only; wasm-proofs.yml
+    plaza-browser        # the 3D plaza, `synqt dev` and a browser; wasm-proofs.yml
     site-home            # the built docs site's front page in a browser; docs.yml
     split-origin         # two sites in a real browser, no Qt at all; browser-matrix.yml
     designer             # the design editor in a browser, no Qt at all; tests.yml
     lib                  # shared shell helpers: sourced by the runners, or wrapped around a
                          # test (keyring-session.sh). Nothing to run on its own
-    security             # the attack index: a list, not a suite. The tests it names live
-                         # beside the code they are about; the guard that keeps the list
-                         # honest is tools/synqt/tests/test_security_index.py, in the
-                         # pytest job
+    security             # the attack index, with nothing to run. The tests it names live
+                         # beside the code they are about; tools/synqt/tests/test_security_index.py checks it
     local-network        # machine plumbing for split-origin: it edits hosts and trusts a
                          # development CA, so it is run by hand and never by CI
 )
 
-# A hand-maintained list cannot report what is missing from it, which is how remote-pages
-# reached 1849 lines and five commits without CI ever running it. So ask the directory
-# instead: anything with a CMakeLists.txt or a runner has to appear in exactly one of the
-# three lists above, and configuring the tree is what enforces it, locally as well as in
-# CI. Deciding a suite is out is fine; leaving it undecided is not.
-# Any shell script, not only a `run-*.sh`: tests/local-network sat here for months with a
-# script named after itself, matching neither pattern, so the guard that exists to report
-# what nobody decided about had nothing to say about it.
+# Every directory with a CMakeLists.txt or a shell script must appear in exactly one of
+# the three lists above. Configuring the tree enforces it.
 file(GLOB _synqt_suite_files
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/*/CMakeLists.txt"
@@ -102,10 +83,7 @@ if(_synqt_unlisted)
         "SYNQT_SUITES_ELSEWHERE with the reason it is out.")
 endif()
 
-# The same argument, one level out. docs/development.md catalogues these suites for whoever
-# is about to work on one, and that table is a second hand-maintained list, so it drifts the
-# same way: split-origin ran in CI for weeks while the page it should have been on had never
-# heard of it. A registered suite has to be findable by a reader, not only by ctest.
+# Every registered suite must also appear in docs/development.md.
 set(_synqt_dev_docs "${CMAKE_CURRENT_SOURCE_DIR}/../docs/development.md")
 if(EXISTS "${_synqt_dev_docs}")
     file(READ "${_synqt_dev_docs}" _synqt_dev_docs_text)
@@ -125,9 +103,7 @@ if(EXISTS "${_synqt_dev_docs}")
     endif()
 endif()
 
-# Publish the script suites for whoever runs the tree, so a workflow does not keep a second
-# copy of this list and drift from it. The guard above is what makes this file the registry;
-# this line is what lets CI read the registry instead of restating it.
+# Publish the script suites, so CI reads this list instead of copying it.
 list(JOIN SYNQT_SCRIPT_SUITES "\n" _synqt_script_suites_text)
 file(WRITE "${CMAKE_BINARY_DIR}/script-suites.txt" "${_synqt_script_suites_text}\n")
 

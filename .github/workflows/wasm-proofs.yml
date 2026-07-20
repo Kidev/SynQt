@@ -1,10 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The WebAssembly proofs that need a kit no other workflow installs: the multithreaded client
-# under cross-origin isolation, Qt Quick 3D Physics on both WASM kits, the client runtime in
-# every engine, and a real `synqt build` of an example. Each job builds QtRemoteObjects from
-# source into its kit.
+# The WebAssembly proofs. Each job builds QtRemoteObjects into its kit.
 
 name: "[TEST] Verify the WebAssembly client proofs"
 
@@ -16,10 +13,16 @@ on:
       - "tests/m0-transport/verify/verify-mt.mjs"
       - "tests/wasm-quick3dphysics/**"
       - "tests/m6-client/**"
+      - "tests/plaza-browser/**"
       - "examples/arena/**"
+      - "examples/plaza/**"
+      - "tools/synqtc/**"
       - "src/client/**"
       - "tools/synqt/synqt/clientbuild.py"
+      - "tools/synqt/synqt/clientmodules.py"
+      - "tools/synqt/synqt/cmakegen.py"
       - "tools/synqt/synqt/build.py"
+      - "src/edge/**"
       - ".github/workflows/wasm-proofs.yml"
 
 permissions:
@@ -69,6 +72,15 @@ jobs:
             browsers: chromium firefox webkit
             script: tests/m6-client/run-m6.sh
             verify_dir: tests/m6-client/verify
+          - label: plaza-browser
+            kit: wasm_singlethread
+            needs_qtremoteobjects: true
+            needs_jwt_cpp: true
+            needs_cli: true
+            qt_modules: qtwebsockets qtquick3d qtquick3dphysics qtquicktimeline qtshadertools
+            browsers: chromium
+            script: tests/plaza-browser/run-plaza-browser.sh
+            verify_dir: tests/plaza-browser/verify
     env:
       QT_VERSION: "6.12.0"
       EM_VERSION: "5.0.5"
@@ -88,10 +100,7 @@ jobs:
         uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies the host Qt kit needs to configure
-        # OpenGL and Wayland dev files for the host configure (Qt6Gui's plugin scan reaches
-        # both, and find_package reports the Gui component rather than the missing library);
-        # the Mesa rasteriser and GLX/EGL runtimes for the native physics cross-check and for
-        # Firefox and WebKit, which need a WebGL context or the WASM client aborts.
+        # OpenGL and Wayland for Qt6Gui's plugin scan; Mesa and GLX/EGL for WebGL.
         shell: bash
         run: |
           set -eu
@@ -184,8 +193,12 @@ jobs:
             "$RUNNER_TEMP/jwt-cpp"
           echo "JWT_CPP_INCLUDE_DIR=$RUNNER_TEMP/jwt-cpp/include" >> "$GITHUB_ENV"
 
+      - name: Install the CLI's Python dependencies
+        if: matrix.needs_cli
+        run: |
+          python -m pip install pyyaml brotli
+
       - name: Install the browser engines for the headless driver
-        # From the harness directory, so the browser is fetched by the Playwright the script drives.
         env:
           VERIFY_DIR: ${{ matrix.verify_dir }}
           BROWSERS: ${{ matrix.browsers || 'chromium' }}
@@ -208,8 +221,7 @@ jobs:
           source "$HOME/emsdk/emsdk_env.sh"
           ${{ matrix.script }}
 
-  # `synqt build` producing a real, servable client bundle from a real example. The bundle
-  # on disk is what is asserted. A build that skipped compilation still exits 0.
+  # Asserts the bundle on disk: a build that skipped compilation still exits 0.
   example-bundle:
     name: example-bundle (arena, wasm)
     runs-on: ubuntu-24.04
@@ -324,7 +336,6 @@ jobs:
         run: |
           BUNDLE=examples/arena/build/client
           rc=0
-          # The module is named after the client entity. The manifest says which.
           MANIFEST="$BUNDLE/synqt-manifest.json"
           if [ ! -s "$MANIFEST" ]; then
             echo "  MISSING synqt-manifest.json: nothing says what this bundle is"

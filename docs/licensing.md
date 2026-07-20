@@ -94,8 +94,9 @@ GPLv3 only (or commercial), no LGPL:
 
 - HTTP Server
 - Network Authorization
-- Qt Quick 3D and Qt Quick 3D Physics (the 3D and physics stack, and no SynQt tutorial
-  requires them, but a client that adds 3D would link them)
+- Qt Quick 3D and Qt Quick 3D Physics (the 3D and physics stack). A client links them when
+  its QML imports them, as [the 3D plaza](tutorial-plaza.md) does, and that client is then
+  GPLv3 as a native desktop build as well as in the browser
 - The Qt for WebAssembly platform port itself
 
 The lists above cover the modules SynQt itself links and the ones its tutorials

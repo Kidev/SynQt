@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # SynQt documentation site (MkDocs + Material).
-# Build locally. Pip install -r requirements.txt && mkdocs serve
-# Deploy:         pushed to main, built and published by .github/workflows/docs.yml
+# Build locally: pip install -r requirements.txt && mkdocs serve
+# Deploy: pushed to main, built and published by .github/workflows/docs.yml
 
 site_name: SynQt
 site_description: Build complete web systems in Qt and QML, with no third party servers to stand up.
@@ -33,8 +33,7 @@ theme:
     - toc.follow
     - search.suggest
     - search.highlight
-  # Dark only. The brand colours are in extra.css. Not "black": Material hardcodes that
-  # header background past --md-primary-fg-color.
+  # Dark only; colours in extra.css.
   palette:
     - scheme: slate
       primary: indigo
@@ -49,7 +48,7 @@ extra_css:
   - stylesheets/api-shell.css
 
 extra_javascript:
-  # Opens the Download nav entry as a modal. Https://get.synqt.org/ serves the installer script.
+  # Opens the Download nav entry as a modal. https://get.synqt.org/ serves the installer script.
   - javascripts/download-modal.js
   - javascripts/api-shell.js
   - javascripts/source-facts.js
@@ -80,7 +79,7 @@ watch:
 
 plugins:
   - search
-  # GitHub style alerts as Material admonitions. Aliases:false keeps IMPORTANT and CAUTION
+  # GitHub style alerts as Material admonitions. `aliases: false` keeps IMPORTANT and CAUTION
   # as their own types (styled in stylesheets/extra.css).
   - callouts:
       aliases: false
@@ -138,6 +137,11 @@ nav:
           - See the others: tutorial-multiplayer-client.md
           - The round and the Hall of Fame: tutorial-multiplayer-rounds.md
           - Only what you can see: tutorial-multiplayer-run.md
+      - The 3D plaza:
+          - Overview: tutorial-plaza.md
+          - The plaza the edge owns: tutorial-plaza-edge.md
+          - Everyone else: tutorial-plaza-others.md
+          - Two people, one plaza: tutorial-plaza-run.md
       - The light storefront:
           - Overview: tutorial-remote-pages.md
           - Build it: tutorial-remote-pages-build.md
