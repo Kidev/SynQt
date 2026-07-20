@@ -163,6 +163,7 @@ nav:
           - Routes and URLs: routing.md
           - Remote pages: remote-pages.md
           - Authentication: authentication.md
+          - Developing locally: developing-locally.md
           - Desktop clients: desktop.md
           - Testing your app: testing.md
       - Reference:
