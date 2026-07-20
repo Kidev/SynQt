@@ -106,6 +106,7 @@ Owned by another toolchain, and therefore by another workflow:
 | --- | --- |
 | [m0-transport](m0-transport) | The QtRO-over-WebSockets go/no-go spike, kept as a regression guard for an unsupported path. Real browsers, via [browser-matrix.yml](../.github/workflows/browser-matrix.yml) |
 | [wasm-quick3dphysics](wasm-quick3dphysics) | Qt Quick 3D Physics building and loading on WebAssembly, via [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) |
+| [site-home](site-home) | The built documentation site's front page in a browser, via [docs.yml](../.github/workflows/docs.yml) and `make test-site` |
 
 [lib](lib) is not a suite. It holds the shell helpers the runners share: issuing mesh
 certificates, and asking the host what a native executable looks like there instead of

@@ -58,6 +58,7 @@ set(SYNQT_SCRIPT_SUITES
 set(SYNQT_SUITES_ELSEWHERE
     m0-transport         # WASM client and a native edge, in a browser; browser-matrix.yml
     wasm-quick3dphysics  # WASM only; wasm-proofs.yml
+    site-home            # the built docs site's front page in a browser; docs.yml
     split-origin         # two sites in a real browser, no Qt at all; browser-matrix.yml
     designer             # the design editor in a browser, no Qt at all; tests.yml
     lib                  # shared shell helpers: sourced by the runners, or wrapped around a

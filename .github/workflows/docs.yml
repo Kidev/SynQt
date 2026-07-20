@@ -57,6 +57,17 @@ jobs:
           NO_MKDOCS_2_WARNING: "true"
         run: mkdocs build --strict --site-dir _site
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Check the front page in a browser
+        working-directory: tests/site-home/verify
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          node verify.mjs "$GITHUB_WORKSPACE/_site"
+
       - uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: _site

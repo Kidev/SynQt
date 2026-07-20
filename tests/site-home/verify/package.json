@@ -1,0 +1,10 @@
+{
+    "name": "synqt-site-home-verify",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright checks of the built documentation site's front page.",
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}

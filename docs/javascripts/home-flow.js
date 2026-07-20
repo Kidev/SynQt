@@ -457,7 +457,10 @@
       return true;
     }
 
+    var showing = "";
+
     function show(name) {
+      showing = name;
       var wanted = name.split(" ");
       var open = [];
       for (var at = 0; at < files.length; at++) {
@@ -547,6 +550,77 @@
     });
 
     show(nameOf(files[0]));
+
+    /* The panel is as tall as the tallest thing it opens, so every file reads whole with
+     * no scrollbar of its own. It stays one height for all of them, because a panel that
+     * resized per file would move the page under a pointer still travelling over the tree.
+     *
+     * Measured rather than written into the stylesheet. Below the width where lines wrap,
+     * the tallest file is a different height at every width, and the files themselves are
+     * edited in docs/index.md, where nothing would tell the author that a number in
+     * home.css had just gone stale. Each set of files a trigger opens is shown once and
+     * asked how far past the panel its pages run, and the panel grows by the most any of
+     * them needed. The stylesheet's height is where every measurement starts from, so the
+     * panel can shrink back when the window widens. */
+    var opened = [];
+    triggers.concat(files).forEach(function (element) {
+      var name = nameOf(element);
+      if (opened.indexOf(name) === -1) {
+        opened.push(name);
+      }
+    });
+
+    function overrun() {
+      var pages = view.querySelectorAll("." + CURRENT + " .highlight, ."
+                                        + CURRENT + " pre > code");
+      var total = 0;
+      for (var at = 0; at < pages.length; at++) {
+        total += Math.max(0, pages[at].scrollHeight - pages[at].clientHeight);
+      }
+      return total;
+    }
+
+    function fit() {
+      var was = showing;
+      view.style.height = "";
+      var base = parseFloat(window.getComputedStyle(view).height);
+      var tallest = base;
+      for (var at = 0; at < opened.length; at++) {
+        show(opened[at]);
+        tallest = Math.max(tallest, base + overrun());
+      }
+      view.style.height = Math.ceil(tallest) + "px";
+      // A page that stopped scrolling down can start scrolling across by a pixel, whose bar
+      // then costs a row of height again. One more pass settles it.
+      for (var again = 0; again < opened.length; again++) {
+        show(opened[again]);
+        tallest = Math.max(tallest, parseFloat(view.style.height) + overrun());
+      }
+      view.style.height = Math.ceil(tallest) + "px";
+      show(was);
+    }
+
+    // Again when the width changes, which is what moves a wrapped file's height, and once
+    // the code font has arrived, which a first measurement in the fallback face gets wrong.
+    var measuredAt = -1;
+    function refit() {
+      if (!view.isConnected) {
+        window.removeEventListener("resize", refit);
+        return;
+      }
+      if (window.innerWidth !== measuredAt) {
+        measuredAt = window.innerWidth;
+        fit();
+      }
+    }
+    window.addEventListener("resize", refit, { passive: true });
+    refit();
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () {
+        measuredAt = -1;
+        refit();
+      });
+    }
   }
 
   function setup() {

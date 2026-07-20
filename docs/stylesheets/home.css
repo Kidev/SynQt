@@ -655,12 +655,14 @@
      picture with a wider panel under it. */
   max-width: 46rem;
   margin-inline: auto;
-  /* Fixed, and the same for every file. A panel sized to the file being read would
-     be a different height for each of them, which moves the whole page under a
-     pointer that is still pointing at the tree. It is not the height of the
-     longest file and cannot be. The client is ninety-two lines. Anything longer than
-     this scrolls inside its own page, which is what the two rules further down
-     divide between a stacked pair. */
+  /* The same for every file. A panel sized to the file being read would be a
+     different height for each of them, which moves the whole page under a pointer
+     that is still pointing at the tree. So it is the height of the tallest file, and
+     every file reads whole with no scrollbar. docs/javascripts/home-flow.js
+     measures that (`fit`) at each width, because below the width where lines wrap
+     the tallest file is a different height at every width. The value here is what a
+     page with no script gets, and anything taller than it scrolls inside its own
+     page, which is what the two rules further down divide between a stacked pair. */
   height: 37.75rem;
   min-width: 0;
   background: #0d1224;
@@ -978,13 +980,19 @@
    screen.
 
    The width is where the tree's column stops being affordable rather than where
-   it stops fitting. The longest line of these files is 74 columns, and below
-   about this the file's own column is narrower than that, so the file would
-   scroll sideways while a fixed tree column sat beside it holding names half
-   its width. The tree gives its column up first. */
-@media screen and (max-width: 60em) {
+   it stops fitting. The longest line of these files is 83 columns (the UPDATE in
+   Store.qml, with the arrow its link adds), and below about this the file's own
+   column is narrower than that, so the file would scroll sideways while a fixed
+   tree column sat beside it holding names half its width. The tree gives its
+   column up first. */
+@media screen and (max-width: 64em) {
+  /* Two rows now, the tree over the file. The tree's row is as tall as the tree and the
+     file's row takes the rest. Left to the grid's default, the spare height of the panel
+     was shared between the two rows, which pushed the file halfway down the panel with an
+     empty band over it instead of starting it at the top the way the wide layout does. */
   .synqt-explorer__view {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     height: 41.5rem;
   }
 
@@ -1028,8 +1036,8 @@
 
 /* Narrow enough that no readable code size fits a sixty column line: wrap
    instead, which costs the file its exact line count but keeps the panel from
-   scrolling sideways. The height is fixed, so a wrapped file scrolls down
-   inside it. */
+   scrolling sideways. The script measures the wrapped files again, so the panel
+   grows to hold the tallest of them. */
 @media screen and (max-width: 44.9375em) {
   .synqt-file pre > code {
     white-space: pre-wrap;
@@ -1041,8 +1049,8 @@
     min-height: 6em;
   }
 
-  /* Wrapped lines make every file taller again, so the panel takes back the
-     height the unwrapped files no longer need. */
+  /* Wrapped lines make every file taller again, so a page with no script takes
+     back the height the unwrapped files no longer need. */
   .synqt-explorer__view {
     height: 44rem;
   }
@@ -1182,6 +1190,15 @@
   .md-content--home .md-typeset .grid.cards > ul > li:nth-child(2n+1) {
     padding-left: 0;
     border-left: 0;
+  }
+
+  /* The right column, stated in full rather than left to the three column rules above.
+     Those key off 3n + 1, and the fourth card is one of those: in two columns it sits on
+     the right, and it kept the left column's missing rule and missing padding, so the
+     middle row lost its divider and its text ran into the card beside it. */
+  .md-content--home .md-typeset .grid.cards > ul > li:nth-child(2n) {
+    padding-left: 1.25rem;
+    border-left: 1px solid rgba(255, 255, 255, .12);
   }
 }
 
