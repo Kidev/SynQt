@@ -869,10 +869,12 @@ class SourceWatcherTest(unittest.TestCase):
             {"name": "database", "type": "service"}]}
         # A client QML edit rebuilds only the client.
         self.assertEqual(
-            runmod._categorize({root / "client" / "Main.qml"}, root, config), (False, True))
+            runmod._categorize({root / "client" / "client" / "Main.qml"}, root, config),
+            (False, True))
         # A service QML edit rebuilds only the host side.
         self.assertEqual(
-            runmod._categorize({root / "database" / "Items.qml"}, root, config), (True, False))
+            runmod._categorize({root / "service" / "database" / "Items.qml"}, root, config),
+            (True, False))
         # A topology change is a change to what crosses every link, so it rebuilds both.
         self.assertEqual(runmod._categorize({root / "synqt.yaml"}, root, config), (True, True))
 

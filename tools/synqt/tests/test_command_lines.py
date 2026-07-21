@@ -1,13 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The commands the CLI decides to run, and what it refuses to run them for.
-
-These are the parts of `synqt docker`, `synqt build --deploy` and `synqt test` that decide
-something before any process starts, which compose binary exists, whether the tree is in a
-state the command can work on, which targets a client selector resolves to, and what a
-finished deploy tells you to do next. All of it is reachable without Docker, CMake or a Qt
-kit, which is why it is worth holding down here rather than in a suite that needs all three.
+"""The commands the CLI decides to run, and what it refuses to run them for: `synqt docker`,
+`synqt build --deploy` and `synqt test` decisions that need no Docker, CMake or Qt kit.
 """
 
 from __future__ import annotations
@@ -43,7 +38,7 @@ def test_the_compose_plugin_is_preferred_when_docker_has_one(monkeypatch):
 
 
 def test_the_standalone_binary_is_used_when_the_plugin_is_not_there(monkeypatch):
-    """Docker without the compose plugin is a real installation, not a broken one."""
+    """Docker without the compose plugin is still a working installation."""
     _no_binaries(monkeypatch, present=("docker", "docker-compose"))
     _probe(monkeypatch, 1)
     assert dockermod.compose_command() == ["docker-compose"]
@@ -97,8 +92,7 @@ def test_down_takes_its_one_flag(generated):
 
 
 def test_a_mounted_bundle_that_has_not_been_built_is_refused_before_docker_starts(generated):
-    """The compose file serves the bundle off the disk, so an empty build/client is a
-    container that comes up serving nothing. Saying so now beats a blank page later."""
+    """An unbuilt mounted bundle is refused before docker starts."""
     (generated / dockermod.COMPOSE_FILE).write_text(
         f"services:\n  web:\n    volumes: [./build/client:{dockermod.APP_DIR}/build/client:ro]\n")
     assert dockermod.client_is_mounted(generated) is True
@@ -123,9 +117,7 @@ def _config(*entities):
 def test_a_project_with_no_client_builds_only_its_services():
     config = _config({"name": "web", "type": "service"}, {"name": "db", "type": "service"})
     entities, host, client = buildmod._targets_for(config, "all")
-    # Every client entity, not the first one: a project may hold a gate and an
-    # application, and building only whichever was declared first leaves the other with no
-    # bundle while the build reports success.
+    # Every client entity, not only the first.
     assert entities == []
     assert host == ["web", "db"]
     assert client == []
@@ -141,8 +133,7 @@ def test_a_browser_client_is_built_by_the_wasm_kit_and_not_with_the_services():
 
 
 def test_a_desktop_client_is_built_by_the_host_kit_and_joins_the_services():
-    """It is the same QML, but the desktop target links the host kit, so it belongs to the
-    build the services are in rather than to the one Emscripten drives."""
+    """A desktop client builds with the host kit, alongside the services."""
     config = _config({"name": "app", "type": "client", "targets": ["wasm", "desktop"]},
                      {"name": "web", "type": "service"})
     _, host, client = buildmod._targets_for(config, "all")
@@ -181,15 +172,13 @@ def test_an_unsigned_tree_says_what_that_costs_on_this_platform(monkeypatch):
 
 
 def test_a_signed_macos_tree_is_told_the_one_step_synqt_does_not_run(monkeypatch):
-    """Notarization needs credentials and a network round trip, so the note hands over the
-    exact command rather than leaving Gatekeeper to refuse the app on somebody's machine."""
+    """The signed macOS note gives the exact notarization command."""
     monkeypatch.setattr(buildmod, "desktop_platform", lambda: "macos")
     note = buildmod._deployed_note(Path("/project"), "app", Path("/out"),
                                     "Developer ID Application: Someone")
     assert "notarytool submit" in note
     assert "stapler staple" in note
-    # Composed the way the note composes it. The separator is the one this platform
-    # writes, and asserting a literal "/out/app.app" only passes off Windows.
+    # Composed with the platform separator.
     assert str(Path("/out") / "app.app") in note
 
 
@@ -204,8 +193,7 @@ def test_a_signed_tree_anywhere_else_needs_nothing_further(monkeypatch):
 
 
 def test_a_configuration_or_contract_change_rebuilds_both_sides(tmp_path):
-    """Both sides read them, so attributing either to one side would leave the other
-    running against a topology or a contract that has moved."""
+    """A configuration or contract change rebuilds both sides."""
     config = _config({"name": "app", "type": "client"}, {"name": "web", "type": "service"})
     for changed in (tmp_path / "synqt.yaml", tmp_path / "shared" / "Auction.syn"):
         assert runmod._categorize({changed}, tmp_path, config) == (True, True)
@@ -213,15 +201,33 @@ def test_a_configuration_or_contract_change_rebuilds_both_sides(tmp_path):
 
 def test_an_entitys_qml_is_attributed_to_that_entitys_side(tmp_path):
     config = _config({"name": "app", "type": "client"}, {"name": "web", "type": "service"})
-    assert runmod._categorize({tmp_path / "app" / "Main.qml"}, tmp_path, config) == \
-        (False, True)
-    assert runmod._categorize({tmp_path / "web" / "Auction.qml"}, tmp_path, config) == \
-        (True, False)
+    assert runmod._categorize({tmp_path / "client" / "app" / "Main.qml"}, tmp_path, config) \
+        == (False, True)
+    assert runmod._categorize({tmp_path / "service" / "web" / "Auction.qml"}, tmp_path,
+                              config) == (True, False)
+
+
+def test_an_entitys_qml_in_its_own_folder_is_attributed_to_that_entitys_side(tmp_path):
+    """Entity QML under `<type>/<name>/` is attributed to that entity's side
+    (`client/app/Main.qml` is the client).
+    """
+    config = _config({"name": "app", "type": "client"}, {"name": "edge", "type": "web_edge"},
+                     {"name": "store", "type": "relational"})
+    assert runmod._categorize({tmp_path / "client" / "app" / "Main.qml"}, tmp_path, config) \
+        == (False, True)
+    assert runmod._categorize({tmp_path / "client" / "app" / "views" / "Card.qml"}, tmp_path,
+                              config) == (False, True)
+    assert runmod._categorize({tmp_path / "web" / "edge" / "Edge.qml"}, tmp_path, config) \
+        == (True, False)
+    assert runmod._categorize({tmp_path / "db" / "relational" / "store" / "Store.qml"},
+                              tmp_path, config) == (True, False)
+    # Two entities of one type share the type folder and not each other's files.
+    assert runmod._categorize({tmp_path / "web" / "edge2" / "Edge2.qml"}, tmp_path, config) \
+        == (True, True)
 
 
 def test_a_file_belonging_to_nothing_in_particular_rebuilds_both_sides(tmp_path):
-    """A file outside the tree, or in a directory no entity owns, is a change nobody can
-    attribute. Rebuilding both is the answer that cannot be wrong."""
+    """A file no entity owns rebuilds both sides."""
     config = _config({"name": "app", "type": "client"}, {"name": "web", "type": "service"})
     assert runmod._categorize({Path("/elsewhere/Main.qml")}, tmp_path, config) == (True, True)
     assert runmod._categorize({tmp_path / "scratch" / "Main.qml"}, tmp_path, config) == \
@@ -238,8 +244,7 @@ def test_a_machine_with_no_ctest_is_told_so(tmp_path, monkeypatch, capsys):
 
 
 def test_a_project_with_no_tests_is_not_a_failure(tmp_path, monkeypatch, capsys):
-    """It is the ordinary state of a new project. Reaching ctest reported a passing run
-    over zero tests, which reads exactly like a suite that ran."""
+    """No tests is not a failure, and ctest is not run."""
     monkeypatch.setattr(runmod.shutil, "which", lambda name: "/usr/bin/ctest")
     assert runmod.test(tmp_path) == 0
     printed = capsys.readouterr().out
@@ -258,10 +263,7 @@ def test_tests_with_no_configured_build_say_which_command_configures_it(tmp_path
 
 
 def test_a_configured_build_reaches_ctest_and_returns_what_it_said(tmp_path, monkeypatch):
-    """The test target is built first, then ctest runs it, and ctest's code comes back.
-
-    Built here because `synqt build` builds the entity targets by name and this one is not
-    among them, so it was configured and never made."""
+    """The test target is built, ctest runs it, and ctest's exit code is returned."""
     monkeypatch.setattr(runmod.shutil, "which", lambda name: f"/usr/bin/{name}")
     tests = tmp_path / "tests"
     tests.mkdir()
@@ -299,16 +301,13 @@ def test_dev_passes_one_bundle_per_scope():
               "scopes": {"order": ["anonymous", "user"], "default": "anonymous"}}
     argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443)
     values = _bundle_values(argv)
-    # Built with Path rather than written out, because these reach a process as arguments
-    # and so carry the host's separator. The literal spelling passes on Linux and macOS and
-    # fails on Windows, which is exactly what it did.
+    # Built with Path, since arguments carry the host separator.
     assert f"anonymous={Path('/p') / 'web' / 'web' / 'landing'}" in values, values
     assert f"user={Path('/p') / 'build' / 'client-app'}" in values, values
 
 
 def test_dev_passes_a_bare_bundle_for_a_project_with_no_block():
-    # The historic argv, unchanged. The generated main keys a bare value by the default
-    # scope, so a project that never wrote `bundles:` is launched exactly as before.
+    # Without `bundles:` the argv is the bare directory, keyed by the default scope.
     config = {"entities": [{"name": "web", "type": "web_edge"},
                            {"name": "app", "type": "client"}]}
     argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443)
@@ -327,8 +326,7 @@ def test_dev_does_not_pass_the_picker_flag_unless_it_was_asked_for():
     config = _edge_config()
     argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443)
     assert "--identity-picker" not in argv, argv
-    # But --dev is still there, because that is what makes a development edge a development
-    # edge. The picker is a choice inside that, not a second gate beside it.
+    # --dev stays; the picker is a choice within it.
     assert "--dev" in argv, argv
 
 
@@ -341,8 +339,8 @@ def test_dev_passes_the_picker_flag_when_asked():
 
 
 def test_named_identities_ride_along_with_the_picker(tmp_path):
-    # `.dev-identities` is read on this side, so what reaches the edge is already checked
-    # against the project's scopes. One flag per usable entry, one per entry that was not.
+    # Entries from `.dev-identities` arrive checked: one flag per usable entry, one per
+    # problem.
     (tmp_path / ".dev-identities").write_text(
         "- email: alice@example.com\n  scope: admin\n"
         "- email: bob@example.com\n  scope: wizard\n")
@@ -364,8 +362,7 @@ def test_a_project_with_no_dev_identities_passes_none(tmp_path):
 
 
 def test_named_identities_are_not_read_without_the_picker(tmp_path):
-    # The flags only mean anything to an edge serving the picker, and an edge that is not
-    # serving it should not be handed a colleague's address on its command line.
+    # Only an edge serving the picker gets the flags.
     (tmp_path / ".dev-identities").write_text(
         "- email: alice@example.com\n  scope: admin\n")
     config = _edge_config()
@@ -375,8 +372,7 @@ def test_named_identities_are_not_read_without_the_picker(tmp_path):
 
 
 def test_only_the_edge_is_offered_the_picker():
-    # A service has no browser to show a page to, and passing an option its main does not
-    # declare would make it exit on its own command line.
+    # A service does not declare the option and would exit on it.
     config = {"entities": [{"name": "db", "type": "relational"}]}
     argv = runmod.dev_command(Path("/p"), config["entities"][0], config, 8443,
                               identity_picker=True)

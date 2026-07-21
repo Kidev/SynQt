@@ -475,23 +475,28 @@ def _categorize(changed: Set[Path], root: Path, config: Dict[str, Any],
                 config_names: Tuple[str, ...] = ("synqt.yaml",)) -> Tuple[bool, bool]:
     """Decide whether a change touches the host side (services/edge), the client side, or
     both. A configuration file is the topology and what crosses every link, so a change to
-    one affects both. An entity's QML is attributed to that entity's side."""
-    services = {e.get("name") for e in appmodel.entities(config)
-                if appmodel.is_service(e)}
-    client_name = next((e.get("name") for e in appmodel.entities(config)
-                        if appmodel.is_client(e)), None)
+    one affects both. An entity's QML is attributed to that entity's side, by the folder the
+    entity lives in (`client/app/`, `web/edge/`), which is the whole of what makes a file an
+    entity's. A file in no entity's folder is a change nobody can attribute, and rebuilding
+    both is the answer that cannot be wrong."""
+    folders = [(Path(appmodel.entity_dir(entity)).parts, appmodel.is_client(entity))
+               for entity in appmodel.entities(config)]
     host = client = False
     for path in changed:
         if path.name in config_names:
             return True, True
         try:
-            top = path.relative_to(root).parts[0]
+            parts = path.relative_to(root).parts
         except ValueError:
             host = client = True
             continue
-        if top == client_name:
+        owners = [is_client for folder, is_client in folders
+                  if parts[:len(folder)] == folder]
+        if not owners:
+            host = client = True
+        elif all(owners):
             client = True
-        elif top in services:
+        elif not any(owners):
             host = True
         else:
             host = client = True
