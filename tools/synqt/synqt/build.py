@@ -294,11 +294,11 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Any],
         # kit that is installed and missing a module SynQt links, and "toolchain
         # incomplete" on a machine where Qt is plainly installed reads as a bug in the
         # resolver rather than as an answer.
-        labels = {"host_qt": "the host Qt kit", "wasm_qt": "the WebAssembly Qt kit",
+        labels = {"host_qt": "host Qt kit", "wasm_qt": "WebAssembly Qt kit",
                   "emcc": "Emscripten", "cmake": "cmake"}
         pieces = ["host_qt", "cmake"] + (["wasm_qt", "emcc"] if need_wasm else [])
         missing = [f"no {labels[key]}" for key in pieces if not resolved.get(key)]
-        missing += [f"Qt6{module} missing from {labels[kit]}"
+        missing += [f"Qt6{module} missing from the {labels[kit]}"
                     for kit in ("host_qt", "wasm_qt") if kit in pieces
                     for module in (resolved.get(f"{kit}_missing") or [])]
         return (f"note: toolchain incomplete ({', '.join(missing)}; run 'synqt doctor' for "

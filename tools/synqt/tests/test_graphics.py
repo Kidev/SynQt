@@ -290,3 +290,21 @@ def test_lint_accepts_a_notice_that_is_there(tmp_path):
                            {"name": "edge", "type": "web_edge"}],
               "client": {"graphics_notice": "MyNotice.qml"}, "routes": []}
     assert check.lint_graphics(config, root) == []
+
+
+def test_each_client_with_a_table_of_its_own_is_scanned_in_its_own_folder(tmp_path):
+    """Each client's route views are scanned in its own folder."""
+    for name, source in (("shop", "import QtQuick3D\nView3D {}"), ("admin", "import QtQuick\nItem {}")):
+        folder = tmp_path / "client" / name
+        folder.mkdir(parents=True)
+        (folder / "Home.qml").write_text(source)
+    config = {"entities": [
+        {"name": "shop", "type": "client", "routes": [{"path": "/", "view": "Home.qml"}]},
+        {"name": "admin", "type": "client", "routes": [{"path": "/", "view": "Home.qml"}]},
+        {"name": "edge", "type": "web_edge"}]}
+    resolved, _ = graphics.resolve(config, tmp_path)
+    by_name = {entity["name"]: entity for entity in resolved["entities"]}
+    assert by_name["shop"]["routes"][0][graphics.RESOLVED_KEY] == graphics.ACCELERATED
+    assert by_name["admin"]["routes"][0][graphics.RESOLVED_KEY] == graphics.ANY
+    # The input is left as it was. The resolved copy is what the generators read.
+    assert graphics.RESOLVED_KEY not in config["entities"][0]["routes"][0]

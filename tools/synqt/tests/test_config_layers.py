@@ -1,12 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""The layered configuration: synqt.yaml, a profile file, and the SYNQT_ environment.
-
-The order and its guarantees are specified in docs/project-layout-and-config.md under
-"Configuration resolution order". These tests hold the implementation to it, and to the
-two properties that keep it safe. A profile adds and changes but never removes, and an
-environment variable can only reach a section the configuration already declares.
+"""The layered configuration: synqt.yaml, a profile file, and the SYNQT_ environment
+(docs/project-layout-and-config.md, "Configuration resolution order"). A profile adds and
+changes but never removes; an environment variable only reaches an existing section.
 """
 
 from __future__ import annotations
@@ -70,8 +67,7 @@ class MergeTest(unittest.TestCase):
         self.assertEqual(merged["scopes"]["order"], ["anonymous", "user"])
 
     def test_a_profile_cannot_remove_an_entity(self):
-        # There is no deletion syntax by design. Dropping a consumer from a list is a
-        # security change, and it must be visible in the file that declares the list.
+        # No deletion syntax: removing a consumer must be visible in the file that lists it.
         merged = configmod.merge(BASE, {"entities": [{"name": "web"}]})
         self.assertEqual(len(merged["entities"]), 3)
 
@@ -106,8 +102,7 @@ class ProfileTest(unittest.TestCase):
             self.assertEqual(resolved.sources, [])
 
     def test_a_missing_profile_file_is_an_error(self):
-        # Silently falling back to the base file would run a build that is not the one
-        # asked for, and naming a profile is how you ask.
+        # A missing profile file is an error, never a silent fallback.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write(root, "synqt.yaml", BASE)
@@ -140,15 +135,31 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(resolved.sources, ["SYNQT_PUBLIC_PORT -> public.port"])
 
     def test_it_resolves_a_nested_key_against_the_structure_that_exists(self):
-        # build.desktop.edge_url, not build.desktop_edge_url. No naming convention could
-        # tell those apart from the underscores alone, so the existing shape decides.
+        # build.desktop.edge_url, resolved by the existing structure, not the underscores.
         resolved = self.resolve({"SYNQT_BUILD_DESKTOP_EDGE_URL": "wss://app.example.com/sync"})
         self.assertEqual(resolved.config["build"]["desktop"]["edge_url"],
                          "wss://app.example.com/sync")
 
+    def test_a_value_arrives_as_the_type_already_there(self):
+        # A list from a comma-separated string, a float as a float, and a new key read as
+        # YAML.
+        base = dict(BASE, monitoring={"sample_ratio": 0.5})
+        resolved = self.resolve({"SYNQT_SECURITY_ALLOWED_ORIGINS": "self, https://a.example",
+                                 "SYNQT_MONITORING_SAMPLE_RATIO": "0.25",
+                                 "SYNQT_PUBLIC_WORKERS": "3"}, base)
+        self.assertEqual(resolved.config["security"]["allowed_origins"],
+                         ["self", "https://a.example"])
+        self.assertEqual(resolved.config["monitoring"]["sample_ratio"], 0.25)
+        self.assertEqual(resolved.config["public"]["workers"], 3)
+
+    def test_a_value_that_is_not_the_type_there_is_refused_by_name(self):
+        base = dict(BASE, monitoring={"sample_ratio": 0.5})
+        with self.assertRaises(configmod.ConfigError) as refused:
+            self.resolve({"SYNQT_MONITORING_SAMPLE_RATIO": "a quarter"}, base)
+        self.assertIn("SYNQT_MONITORING_SAMPLE_RATIO", str(refused.exception))
+
     def test_it_cannot_invent_a_section(self):
-        # The SynQt runtime's own namespace lives in SYNQT_*: SYNQT_ROOT, SYNQT_EDGE_URL,
-        # SYNQT_TEST_PG_HOST and friends must not turn into topology.
+        # SYNQT_ROOT, SYNQT_EDGE_URL, SYNQT_TEST_PG_HOST and the like never become topology.
         resolved = self.resolve({"SYNQT_ROOT": "/opt/synqt",
                                  "SYNQT_EDGE_URL": "wss://elsewhere/sync",
                                  "SYNQT_TEST_PG_PASSWORD": "hunter2"})
@@ -175,8 +186,7 @@ class EnvironmentTest(unittest.TestCase):
             self.resolve({"SYNQT_PUBLIC_PORT": "https"})
 
     def test_a_string_key_keeps_the_string_yaml_would_have_eaten(self):
-        # YAML 1.1 would read "no" as False and "1.10" as the float 1.1; the key's existing
-        # type says string, so the string is what it gets.
+        # The existing type is string, so "no" and "1.10" stay strings.
         resolved = self.resolve({"SYNQT_PROJECT_NAME": "no"})
         self.assertEqual(resolved.config["project"]["name"], "no")
 
