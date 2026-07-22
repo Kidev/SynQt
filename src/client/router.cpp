@@ -15,6 +15,28 @@
 
 namespace SynQt {
 
+namespace {
+
+/// What the page really is, not what the caller hoped it would be. A view
+/// whose URL is a typo, or which fails to compile, would otherwise render
+/// nothing while pageStatus said Ready, so an app has no way to tell a broken
+/// route from an empty page.
+Router::PageStatus loadStatus(const QQmlComponent *component, Router::PageStatus status)
+{
+    if (!component) {
+        return status;
+    }
+    if (component->isError()) {
+        return Router::Error;
+    }
+    if (component->isLoading()) {
+        return Router::Loading;
+    }
+    return status;
+}
+
+} // namespace
+
 Router::Router(SynClientConfig config, Session *session, QQmlEngine *engine,
                QObject *parent)
     : QObject{parent}
@@ -31,7 +53,26 @@ Router::Router(SynClientConfig config, Session *session, QQmlEngine *engine,
     // currentPath() after them.
     connect(m_history, &BrowserHistory::popped, this, [this](const QString &path) {
         navigate(path, false);
+        QVariantMap ignoredQuery;
+        if (RoutePattern::splitQuery(path, &ignoredQuery) != m_path) {
+            // A guard redirected what history landed on, so the entry itself
+            // now names a page the visitor is not looking at: correct it, or
+            // the address bar lies and a refresh re-enters the same redirect.
+            // replace() is replaceState, which is synchronous even in the
+            // browser, so this adds no asynchronous read.
+            m_history->replace(m_path);
+        }
     });
+    if (m_session) {
+        // Scope gating is decided once, at navigation time, so a scope that
+        // arrives (a sign-in) or goes away (a sign-out) leaves the visitor on
+        // a page the guard would now decide differently. Re-resolve where we
+        // stand; this is a correction, not a navigation, so it pushes no
+        // history entry.
+        connect(m_session, &Session::scopeChanged, this, [this]() {
+            resolve(m_path, false);
+        });
+    }
 }
 
 Router::~Router() = default;
@@ -127,8 +168,13 @@ void Router::navigate(const QString &pathWithQuery, bool push)
 {
     QVariantMap query;
     const QString path{RoutePattern::splitQuery(pathWithQuery, &query)};
+    // query is notified by pathChanged, so whether it changed has to travel
+    // with the resolution: two links to one route differing only in their
+    // query are exactly what component reuse is for, and they must still
+    // notify.
+    const bool queryChanged{m_query != query};
     m_query = query;
-    resolve(path);
+    resolve(path, queryChanged);
     if (push) {
         // Push the path that was actually resolved, not the one asked for:
         // a guard may have redirected, and the address bar must agree with
@@ -137,7 +183,7 @@ void Router::navigate(const QString &pathWithQuery, bool push)
     }
 }
 
-void Router::resolve(const QString &path)
+void Router::resolve(const QString &path, bool queryChanged)
 {
     QVariantMap parameters;
     const Route *route{lookup(path, &parameters)};
@@ -147,18 +193,26 @@ void Router::resolve(const QString &path)
     if (!route) {
         target = m_config.routerFallback;
         status = NotFound;
-    } else if (!route->config.scope.isEmpty() && m_session
-               && !m_session->hasScope(route->config.scope)) {
+    } else if (!route->config.scope.isEmpty()
+               && (!m_session || !m_session->hasScope(route->config.scope))) {
         // A guard is a redirect, not secrecy: steer to the fallback and say
-        // why.
+        // why. No session means no scope, never every scope: a guard that
+        // fails open is worse than useless, because it reads as a control.
         target = m_config.routerFallback;
         status = Forbidden;
     }
 
     if (status != Ready) {
+        // The query was addressed to the page that was refused, so it has no
+        // business surviving into the fallback (a rejected /x?token=... would
+        // otherwise hand the token to whatever the fallback renders).
+        if (!m_query.isEmpty()) {
+            m_query.clear();
+            queryChanged = true;
+        }
         parameters.clear();
         const Route *fallback{lookup(target, &parameters)};
-        if (m_path != target || m_params != parameters) {
+        if (m_path != target || m_params != parameters || queryChanged) {
             m_path = target;
             m_params = parameters;
             emit pathChanged();
@@ -167,7 +221,7 @@ void Router::resolve(const QString &path)
         return;
     }
 
-    if (m_path != target || m_params != parameters) {
+    if (m_path != target || m_params != parameters || queryChanged) {
         m_path = target;
         m_params = parameters;
         emit pathChanged();
@@ -197,33 +251,40 @@ void Router::setPageUrl(const QString &componentUrl, PageStatus status)
         setPageComponent(nullptr, Error);
         return;
     }
-    if (m_pageComponent && m_pageUrl == componentUrl) {
+    if (m_pageComponent && m_pageUrl.has_value() && m_pageUrl.value() == componentUrl) {
         // Same view as the one already loaded (two paths through one
         // parameterized route, or the same link followed twice). Reusing the
         // component keeps a Loader bound to pageComponent from tearing its
         // item down and rebuilding it; path and params changed and are
         // notified on their own.
-        if (m_pageStatus != status) {
-            m_pageStatus = status;
+        const PageStatus reported{loadStatus(m_pageComponent, status)};
+        if (m_pageStatus != reported) {
+            m_pageStatus = reported;
             emit pageChanged();
         }
         return;
     }
-    setPageComponent(componentUrl.isEmpty()
-                         ? nullptr
-                         : new QQmlComponent{m_engine, QUrl{componentUrl}, this},
-                     status);
+    QQmlComponent *component{componentUrl.isEmpty()
+                                 ? nullptr
+                                 : new QQmlComponent{m_engine, QUrl{componentUrl}, this}};
+    if (component && component->isError()) {
+        qWarning("SynQt: route view %s failed to load: %s", qUtf8Printable(componentUrl),
+                 qUtf8Printable(component->errorString()));
+    }
+    setPageComponent(component, loadStatus(component, status));
     m_pageUrl = componentUrl;
 }
 
 void Router::setPageComponent(QQmlComponent *component, PageStatus status)
 {
-    // An override supplies a component this class did not build from a URL,
-    // so the reuse key no longer describes what is loaded.
-    m_pageUrl.clear();
     if (m_pageComponent == component && m_pageStatus == status) {
         return;
     }
+    // An override supplies a component this class did not build from a URL,
+    // so the reuse key no longer describes what is loaded. Cleared only once
+    // something actually changes: an override polling a fetch calls this with
+    // what is already mounted, and that must not throw the key away.
+    m_pageUrl.reset();
     QQmlComponent *previous{m_pageComponent};
     m_pageComponent = component;
     m_pageStatus = status;

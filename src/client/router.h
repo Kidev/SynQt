@@ -15,6 +15,8 @@
 #include <QString>
 #include <QVariantMap>
 
+#include <optional>
+
 QT_BEGIN_NAMESPACE
 class QQmlEngine;
 QT_END_NAMESPACE
@@ -117,7 +119,12 @@ protected:
 
 private:
     void navigate(const QString &pathWithQuery, bool push);
-    void resolve(const QString &path);
+
+    /// queryChanged reports whether navigate() replaced the query with a
+    /// different one. It has to be threaded in because query's NOTIFY signal
+    /// is pathChanged: without it a same-route navigation carrying new query
+    /// data would change query and notify nobody.
+    void resolve(const QString &path, bool queryChanged);
     void setPageUrl(const QString &componentUrl, PageStatus status);
 
     BrowserHistory *m_history;
@@ -127,10 +134,13 @@ private:
     QVariantMap m_query;
     QQmlComponent *m_pageComponent{nullptr};
 
-    /// Where m_pageComponent was loaded from, empty when it did not come from
+    /// Where m_pageComponent was loaded from, unset when it did not come from
     /// a URL (an override supplied it). Navigating to the same URL reuses the
-    /// component instead of rebuilding it.
-    QString m_pageUrl;
+    /// component instead of rebuilding it. Optional rather than an empty
+    /// string because "" is a real key here (a route with no compiled-in
+    /// view), and aliasing the two would let an override's page survive a
+    /// redirect that is supposed to replace it.
+    std::optional<QString> m_pageUrl;
     PageStatus m_pageStatus{NotFound};
 };
 

@@ -20,6 +20,8 @@
 #include <QString>
 #include <QUrl>
 
+#include <memory>
+
 #ifdef Q_OS_WASM
 #  include <emscripten/val.h>
 
@@ -70,7 +72,11 @@ int main(int argc, char *argv[])
     // The engine comes first: the Router builds each route's page component with it.
     QQmlApplicationEngine engine;
 
-    SynClient *client{new SynClient{config, &engine, &app}};
+    // Declared after the engine so it is destroyed before it: QQmlComponent
+    // holds a raw QQmlEngine pointer and releases a type-loader reference in
+    // its destructor, so a page component that outlives the engine is a
+    // use-after-free at shutdown.
+    const std::unique_ptr<SynClient> client{std::make_unique<SynClient>(config, &engine)};
 
     engine.rootContext()->setContextProperty(QStringLiteral("Server"), client->server());
     engine.rootContext()->setContextProperty(QStringLiteral("Session"), client->session());
