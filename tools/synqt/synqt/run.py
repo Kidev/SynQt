@@ -18,6 +18,8 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import yaml
+
 from . import appgen, toolchain
 
 
@@ -343,16 +345,29 @@ def _hot_reload(root: Path, state: Dict[str, Any], port: int, client: str,
     print(f"synqt dev: change detected ({names}); rebuilding...")
 
     if any(path.name == "synqt.yaml" for path in changed):
-        state["config"] = buildmod.load_config(root)  # topology may have gained/lost entities
+        # Re-read: the topology may have gained or lost entities. A half-typed YAML is the
+        # same kind of news as a failed rebuild below, so it is reported and the running
+        # system is left alone rather than rebuilt against a topology that no longer parses.
+        try:
+            state["config"] = buildmod.load_config(root)
+        except (OSError, yaml.YAMLError) as error:
+            print(f"  synqt.yaml: {error}\n"
+                  "  (keeping the running processes; fix and save again)")
+            return
     config = state["config"]
 
     # A failed rebuild is fatal to `synqt build` and merely news to `synqt dev`: the whole
     # point of the watcher is that you fix the typo and save again, so the running system
     # stays up and the error is reported. (`build` raises for the opposite reason: it must
     # never report success for a binary it did not produce.)
+    #
+    # Both failures are caught, because compile_incremental regenerates before it compiles:
+    # a config the generator refuses (a route saved before its `view` is typed) raises
+    # AppGenError, and that edit is exactly the one the watcher exists for. Letting it out
+    # would tear down every child process on a half-finished save.
     try:
         note, _, _ = buildmod.compile_incremental(root, config, client=client)
-    except buildmod.BuildError as error:
+    except (buildmod.BuildError, appgen.AppGenError) as error:
         print(f"  {error}\n  (keeping the running processes; fix and save again)")
         return
 

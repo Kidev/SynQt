@@ -537,6 +537,34 @@ class HotReloadTest(unittest.TestCase):
                                {Path("Main.qml")})
         self.assertEqual(state["processes"], [])  # nothing was torn down
 
+    def test_a_config_the_generator_refuses_keeps_the_dev_server_up(self):
+        # compile_incremental regenerates before it compiles, and the generator refuses a
+        # config it cannot lower (a route saved before its `view` is typed). That is
+        # exactly the edit the watcher exists for, so it has to be news like a failed
+        # compile; letting AppGenError out of here escapes into _watch_loop, whose finally
+        # terminates every child process, and the whole dev system goes down on a
+        # half-finished save.
+        state = {"config": {"entities": []}, "processes": [("web", object())]}
+        with unittest.mock.patch.object(
+                buildmod, "compile_incremental",
+                side_effect=appgen.AppGenError(
+                    "route '/admin' declares no view; there is nothing for the router "
+                    "to show there")):
+            runmod._hot_reload(Path(tempfile.mkdtemp()), state, 8080, "wasm",
+                               {Path("synqt.yaml")})
+        self.assertEqual(len(state["processes"]), 1)  # nothing was torn down
+
+    def test_a_synqt_yaml_that_does_not_parse_keeps_the_dev_server_up(self):
+        # The same half-finished save, one step earlier: the topology is re-read before
+        # the rebuild, and a YAML error there would escape the same way.
+        root = Path(tempfile.mkdtemp())
+        (root / "synqt.yaml").write_text("entities: [\n")
+        state = {"config": {"entities": []}, "processes": [("web", object())]}
+        with unittest.mock.patch.object(buildmod, "compile_incremental") as compile_mock:
+            runmod._hot_reload(root, state, 8080, "wasm", {root / "synqt.yaml"})
+        compile_mock.assert_not_called()  # never rebuilt against a topology that is gone
+        self.assertEqual(len(state["processes"]), 1)
+
 
 class SourceWatcherTest(unittest.TestCase):
     def test_detects_edited_qml_and_new_contract_but_ignores_build(self):
