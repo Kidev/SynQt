@@ -130,8 +130,8 @@ where an in-memory stack stands in for the address bar.
 | Member | Type | Description |
 |--------|------|-------------|
 | `Router.path` | string | the current application path, without the query string and without `router.base`. Read-only; it changes as a result of navigation, and after a guard redirect it is the fallback path, not the one that was asked for. |
-| `Router.params` | object | the path parameters the matched route captured, percent-decoded (`/c/:campaign` navigated to `/c/summer%20sale` gives `{ campaign: "summer sale" }`). Empty for a route with no parameters, and emptied on a redirect. |
-| `Router.query` | object | the decoded query string of the current URL (`?page=2&q=hat` gives `{ page: "2", q: "hat" }`). Cleared when a guard refuses the navigation, so a query addressed to the refused page never reaches the fallback. |
+| `Router.params` | object | the path parameters the matched route captured, percent-decoded (`/c/:campaign` navigated to `/c/summer%20sale` gives `{ campaign: "summer sale" }`). Empty for a route with no parameters. On a redirect the refused route's captures are dropped and the fallback route's own captures take their place, which is nothing at all for the usual parameterless fallback. |
+| `Router.query` | object | the decoded query string of the current URL (`?page=2&q=hat` gives `{ page: "2", q: "hat" }`). Cleared whenever the navigation ends somewhere other than the route that was asked for, whether a guard refused it or nothing matched, so a query addressed to that page never reaches the fallback. |
 | `Router.pageComponent` | Component \| null | the component for the current route's view, ready to hand to a `Loader`. `null` when the route has no view to show. |
 | `Router.pageStatus` | enumeration | why the current page is the one showing: `Ready`, `Loading`, `Forbidden`, `NotFound`, or `Error`. Values below. |
 | `Router.go(path)` | action | navigate to `path` and add a history entry. If the matched route declares a `scope` the session lacks, the router goes to `router.fallback` instead and reports `Forbidden`. |
@@ -150,8 +150,8 @@ them, so one binding on any of the three sees a consistent set.
 | `Ready` | the matched route's view is built and showing. |
 | `Loading` | the view is still being built. A view compiled into the bundle is built synchronously, so a route pointing at one never reports this. |
 | `Forbidden` | a route matched, but it declares a `scope` the session lacks. `path` is now `router.fallback` and the fallback's view is showing. The refused path is remembered for [after login](#returning-to-the-page-that-was-refused). |
-| `NotFound` | nothing in the route table matched. `path` is now `router.fallback` and the fallback's view is showing. |
-| `Error` | there is no page to show: the view failed to compile, or the route names no view at all (a view whose file is not on disk is refused by `synqt check` before the build). `Error` also wins over `Forbidden` and `NotFound` when it is the *fallback's* own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
+| `NotFound` | nothing in the route table matched. `path` is now `router.fallback`, the fallback's view is showing, and the query the unmatched path carried is dropped. |
+| `Error` | there is no page to show: the view failed to load, because it does not compile or because its URL names nothing. A route with no view at all cannot get this far: `synqt check` reports it, and `synqt build` refuses to generate it. `Error` also wins over `Forbidden` and `NotFound` when it is the *fallback's* own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
 
 `Router` is bound as a context property rather than as a registered QML type, so
 the value names above are not in scope in QML: `pageStatus` reads there as its
@@ -174,8 +174,10 @@ the same component, and the router hands back the same instance rather than
 rebuilding it, so the `Loader` keeps its item alive and only `path` and `params`
 change. A view that wants to react to that binds `Router.params`.
 
-`synqt build` compiles every view named by a route into the client's QML module, so
-a route resolves to a real component with nothing to wire up by hand. See
+`synqt build` compiles every QML file under the client entity's directory into the
+client's QML module, so a route resolves to a real component, and so does every
+helper component and singleton that component reaches, with nothing to wire up by
+hand. See
 [`routes[].view`](project-layout-and-config.md#router-and-routes-client-navigation)
 for how a view is named and where its file goes.
 

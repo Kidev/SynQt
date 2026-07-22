@@ -454,13 +454,20 @@ routes:
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `path` | yes | The route's path, absolute. Each segment is either a literal or a `:name` parameter that captures whatever is in that position. A parameter name starts with a letter or an underscore and continues with letters, digits, or underscores, and no name repeats within one path. Captured values are percent-decoded and arrive as `Router.params`. |
-| `view` | yes | The QML file to show. Write it relative to the client entity's directory (`Home.qml`, not `client/Home.qml`), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module and the router loads it from that module's root, so a view needs nothing beyond the file being there. |
+| `view` | yes | The QML file to show. Write it relative to the client entity's directory (`Home.qml`, not `client/Home.qml`, and `views/Home.qml` for one in a subdirectory), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module at that same relative path and the router loads it from there, so a view needs nothing beyond the file being there. |
 | `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. |
 
-Every view a route names is put into the client's QML module for you, alongside
-`Main.qml`, and `synqt check` refuses a route whose view is not on disk, naming the
-route and the file it looked for. Do not add views to the generated
-`CMakeLists.txt` by hand: it is rewritten from `synqt.yaml` on every build.
+Every QML file under the client entity's directory is put into the client's QML
+module for you: `Main.qml`, the views the routes name, and everything those views
+reach. A `Home.qml` that instantiates a sibling `Card.qml`, or reads a `Theme.qml`
+that declares `pragma Singleton`, needs no declaration anywhere; a singleton is
+registered as one because the file says so. Build output under the entity
+(`build/`, `generated/`, and any directory whose name starts with a dot) is left
+out. `synqt check` refuses a route whose view is not on disk, naming the route
+and the file it looked for, and a route with no `view` at all is refused both by
+`synqt check` and by the generator, since the only file it could mean is `Main.qml`,
+which is the window. Do not add views to the generated `CMakeLists.txt` by hand: it
+is rewritten from `synqt.yaml` on every build.
 
 An app that declares no `routes` at all has no route table, `Router.pageComponent`
 is null, and nothing about it changes: routing is opt in, and `Main.qml` alone is a
@@ -736,19 +743,23 @@ Three of those deserve a note:
 - The view rules are what keep a broken route out of the build. Every view a route
   names is compiled into the client's QML module, so a view that is not on disk
   would otherwise stop CMake on a generated file you do not own; caught here, the
-  message names the route and the file. A `view` written with or without `.qml`
-  means the same file either way.
+  message names the route and the file. A `view` written with or without `.qml`,
+  and with or without a leading `./`, means the same file either way. A route with
+  no `view` is the one rule the generator repeats rather than trusting the check
+  with, because nothing makes `synqt build` run `synqt check`: `synqt build` stops
+  with the same sentence.
 - The duplicate rule compares paths the way the runtime splits them, where an empty
   segment is not a segment. `/c` and `/c/` are the same route, and the message says
   so rather than leaving you to wonder why two visibly different strings collided.
   The fallback rule normalizes the same way, so `fallback: /` matches a route
   declared as `/`.
 - The reserved paths are computed from your own configuration, not from a fixed
-  list. They are each web edge's `public.sync_route` (default `/sync`), plus, when
-  the project has an [`identity`](#identity-optional-login) section, that section's
-  `login`, `callback`, and `logout` routes. Move your login route and the new path
-  is what is guarded; delete the `identity` section and `/auth/login` becomes an
-  ordinary route again.
+  list. They are each web edge's `public.sync_route` (default `/sync`), or `/sync`
+  itself while the project declares no web edge yet, plus, when the project has an
+  [`identity`](#identity-optional-login) section, that section's `login`,
+  `callback`, and `logout` routes. Move your login route and the new path is what
+  is guarded; delete the `identity` section and `/auth/login` becomes an ordinary
+  route again.
 
 The `fallback` rule applies only once at least one route is declared: a project
 with no `routes` at all has nothing for a fallback to point at, and the client
