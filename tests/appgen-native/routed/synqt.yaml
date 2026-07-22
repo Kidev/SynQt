@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The smallest project that uses URL routing: one client, two routes, and a view that is
+# not Main.qml. Everything the routing feature needs is here and nothing else, so the
+# build stays fast and a failure can only be about routing.
+project:
+  name: routed
+  version: 0.1.0
+  qt_version: 6.11.1
+  origin_model: same_origin
+
+scopes:
+  order: [anonymous, user]
+  hierarchical: true
+  default: anonymous
+
+build:
+  # console.log reaches stderr, which is how the run below observes the router.
+  client_logging: console
+
+entities:
+  - name: client
+    kind: client
+    targets: [desktop]
+
+router:
+  fallback: /
+
+routes:
+  - path: /
+    view: Home.qml
+
+  - path: /about
+    view: About

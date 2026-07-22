@@ -81,6 +81,30 @@ def _mesh_consumed(config: Dict[str, Any], entity_name: str) -> List[Dict[str, A
             if cp.get("owner") != entity_name]
 
 
+def _view_file(view: str) -> str:
+    """The QML file a route's `view` names, restoring the extension it may omit."""
+    return view if view.endswith(".qml") else f"{view}.qml"
+
+
+def _route_views(config: Dict[str, Any]) -> List[str]:
+    """Every distinct view file the routes name, in declaration order, minus Main.qml.
+
+    Main.qml is in the client's QML module unconditionally (it is the window), so it is
+    listed by the caller and skipped here; a route naming it adds nothing.
+    """
+    views: List[str] = []
+    for route in config.get("routes") or []:
+        if not isinstance(route, dict):
+            continue
+        view = route.get("view")
+        if not isinstance(view, str) or not view.strip():
+            continue
+        name = _view_file(view.strip())
+        if name != "Main.qml" and name not in views:
+            views.append(name)
+    return views
+
+
 def _contracts_of(connect_points: List[Dict[str, Any]]) -> List[str]:
     seen: List[str] = []
     for cp in connect_points:
@@ -179,13 +203,19 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str) -> L
     name = client.get("name", "client")
     consumed = _consumed_by(config, name)
     contracts = _contracts_of(consumed)
-    qml_files = ['"${CMAKE_CURRENT_SOURCE_DIR}/%s/Main.qml"' % name]
+    # The window, then every view a route names: a view outside the module is not in the
+    # resource system, so the URL the route table carries would resolve to nothing.
+    views = ["Main.qml"] + _route_views(config)
+    qml_files = ['"${CMAKE_CURRENT_SOURCE_DIR}/%s/%s"' % (name, view) for view in views]
     lines = ["# ---- The client (browser WASM and native desktop, from one QML) ----",
              'add_subdirectory("${SYNQT_ROOT}/src/client" "${CMAKE_BINARY_DIR}/SynQtClient")']
-    # An absolute-path QML file used in a Qt resource needs a relative alias.
-    for qml_file in qml_files:
-        lines.append("set_source_files_properties(%s PROPERTIES QT_RESOURCE_ALIAS Main.qml)"
-                     % qml_file)
+    # Each file is listed by absolute path, and each has to land at the module root:
+    # that is where loadFromModule() looks for Main and where the compiled route table
+    # points (qrc:/qt/qml/<Uri>/<view>). Without an alias the entity directory would
+    # become part of the resource path and neither would resolve.
+    for view, qml_file in zip(views, qml_files):
+        lines.append("set_source_files_properties(%s\n"
+                     "    PROPERTIES QT_RESOURCE_ALIAS %s)" % (qml_file, view))
     lines += [
              'set(SYNQT_EDGE_URL "wss://127.0.0.1:8443/sync" CACHE STRING '
              '"Desktop client edge URL")',
@@ -193,8 +223,9 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str) -> L
              f"qt_add_qml_module({name}",
              f"    URI {uri}",
              "    VERSION 1.0",
-             "    QML_FILES " + " ".join(qml_files),
-             ")"]
+             "    QML_FILES"]
+    lines += ["        " + qml_file for qml_file in qml_files]
+    lines.append(")")
     for contract in contracts:
         lines.append(f"synqt_add_contract({name} ROLE replica "
                      f'SYN "${{CMAKE_CURRENT_SOURCE_DIR}}/shared/{contract}.syn")')
@@ -246,8 +277,7 @@ def _component_url(view: str, uri: str) -> str:
     """The qrc URL of a compiled-in view inside the client's QML module."""
     if not view:
         return ""
-    name = view if view.endswith(".qml") else f"{view}.qml"
-    return f"qrc:/qt/qml/{uri}/{name}"
+    return f"qrc:/qt/qml/{uri}/{_view_file(view)}"
 
 
 def _route_literal(route: Dict[str, Any], uri: str) -> str:
@@ -269,7 +299,11 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     consumed = _consumed_by(config, name)
     contracts = _contracts_of(consumed)
     scopes = _scope_vocab(config)
-    routes = config.get("routes") or [{"path": "/", "view": "Main", "scope": ""}]
+    # No declared routes means no route table. A manufactured "/" -> Main.qml route would
+    # point the router at the window itself, so a Loader bound to Router.pageComponent
+    # inside Main.qml would load the window again; with an empty table pageComponent stays
+    # null and an app that does not use the router behaves exactly as before.
+    routes = config.get("routes") or []
 
     # Every accessor bound with setContextProperty needs its complete type here:
     # synclient.h only forward-declares them, and an incomplete type misses the QObject*

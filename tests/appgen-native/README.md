@@ -31,6 +31,30 @@ All three are fixed in `appgen.py` and pinned by new assertions in `test_tool.py
 `test_edge_main_composes_entity_runtime_for_its_mesh_side`). This fixture is the end-to-end
 backstop behind those unit assertions.
 
+## The routed client
+
+Compiling proves a generator emits valid code; it does not prove the app works. URL routing
+is the case where the two come apart: every view a route names has to be **in** the client's
+QML module, because the route table carries a `qrc:/qt/qml/<Uri>/<view>.qml` URL and a file
+outside the module is outside the resource system. Leave one out and everything still builds,
+and the router reports `pageStatus: Error` at the moment a visitor navigates.
+
+So the last phase runs the app. `routed/` is the smallest project that uses routing (one
+client, two routes, and a view that is not `Main.qml`); the phase runs `synqt check` over it,
+generates it, builds the client as a native desktop app, and runs it offscreen. Its `Main.qml`
+is one `Loader` on `Router.pageComponent` that reports what resolved, walks to the second
+route, reports again, and quits, so the run has to print:
+
+```
+SYNQT-ROUTE path=/ status=Ready view=Home
+SYNQT-ROUTE path=/about status=Ready view=About
+```
+
+Both `Ready`, each with the view its route names. A `TypeError` about `pageComponent` after
+those two lines is the expected shutdown message: the accessors are torn down before the
+window that binds to them, so the last binding re-evaluates against a `Router` that is
+already gone.
+
 ## Run it
 
 ```sh
@@ -40,7 +64,7 @@ tests/appgen-native/run-appgen-native.sh
 Needs the pinned host kit (`/opt/Qt/6.11.1/gcc_64`). It writes everything under
 `build/appgen-native/` (git-ignored) and prints `APPGEN-NATIVE GATE: GO` when every generated
 entity; the `web` edge, the `database` service, and the `client` (built here as a native desktop
-app); compiles and links.
+app); compiles and links, and the routed client above resolves both of its routes.
 
 The client's WebAssembly build and the browser bring-up of a generated app are covered separately
 by `synqt dev` (proven in headless Chromium; see the M10/TOOL-1 work); this fixture is the native

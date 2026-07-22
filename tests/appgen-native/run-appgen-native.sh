@@ -36,7 +36,7 @@ fi
 
 WORK="$REPO_ROOT/build/appgen-native"
 SRC="$WORK/gavel"
-echo "== [1/3] Materialize the gavel topology and run appgen over it =="
+echo "== [1/4] Materialize the gavel topology and run appgen over it =="
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
@@ -51,14 +51,14 @@ written = appgen.generate(app, config, synqt_root=repo)
 print("  appgen wrote:", ", ".join(written))
 PY
 
-echo "== [2/3] Configure + build every entity with the native host kit =="
+echo "== [2/4] Configure + build every entity with the native host kit =="
 cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
 cmake --build "$SRC/build"
 
-echo "== [3/3] Assert each generated entity produced a native executable =="
+echo "== [3/4] Assert each generated entity produced a native executable =="
 rc=0
 for entity in client web database; do
     assert_native_exe "$SRC/build/$entity" "$entity" || rc=1
@@ -67,4 +67,55 @@ if [ "$rc" -ne 0 ]; then
     echo "APPGEN-NATIVE GATE: NO-GO"
     exit 1
 fi
-echo "APPGEN-NATIVE GATE: GO (appgen output compiles and links for every entity)"
+
+echo "== [4/4] A generated client with routes: build it, and watch the router resolve them =="
+# Compiling is not enough for URL routing. Every route's view has to be IN the client's QML
+# module, or its qrc URL resolves to nothing and the router reports Error on a bundle that
+# built perfectly. Only running it says which happened, so this phase runs it.
+ROUTED="$WORK/routed"
+cp -r "$REPO_ROOT/tests/appgen-native/routed" "$ROUTED"
+PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$ROUTED" "$REPO_ROOT" <<'PY'
+import sys, yaml
+from pathlib import Path
+from synqt import appgen, check
+
+app, repo = Path(sys.argv[1]), sys.argv[2]
+ok, messages = check.check_project(app)
+for message in messages:
+    print("  synqt check:", message)
+if not ok:
+    raise SystemExit("the routed fixture does not pass synqt check")
+config = yaml.safe_load((app / "synqt.yaml").read_text())
+print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)))
+PY
+
+cmake -S "$ROUTED" -B "$ROUTED/build" -G Ninja \
+    -DCMAKE_PREFIX_PATH="$QT_HOST" \
+    -DSYNQT_ROOT="$REPO_ROOT" \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build "$ROUTED/build" --target client
+
+routed_exe="$(native_exe_path "$ROUTED/build/client")"
+if [ -z "$routed_exe" ]; then
+    echo "  routed client : MISSING"
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+# The fixture's Main.qml renders Router.pageComponent, reports what resolved, walks to the
+# second route, reports again, and quits. It is a real desktop run of the same client
+# runtime the browser gets, with no edge and no browser needed.
+routed_log="$WORK/routed-run.log"
+QT_QPA_PLATFORM=offscreen "$routed_exe" >"$routed_log" 2>&1 || true
+sed 's/^/  /' "$routed_log"
+for expected in "SYNQT-ROUTE path=/ status=Ready view=Home" \
+                "SYNQT-ROUTE path=/about status=Ready view=About"; do
+    if ! grep -qF "$expected" "$routed_log"; then
+        echo "  expected the routed client to report: $expected"
+        echo "APPGEN-NATIVE GATE: NO-GO"
+        exit 1
+    fi
+done
+echo "  routed client : OK (both routes resolved Ready, each to the view it names)"
+
+echo "APPGEN-NATIVE GATE: GO (appgen output compiles and links for every entity, and a"
+echo "                       generated client resolves every declared route to its view)"
