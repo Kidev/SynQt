@@ -39,7 +39,7 @@ maintain. There is one client, built for two or more targets.
 
 ## What differs on desktop
 
-Four things differ, all on the client side, all handled by the framework.
+Five things differ, all on the client side, all handled by the framework.
 
 ### Terminating TLS
 
@@ -89,6 +89,26 @@ as in the browser.
 The browser keeps the session in an httpOnly cookie it cannot read; the desktop
 app keeps it in the OS secure store. In both cases the app code never sees a raw
 credential; `Session` exposes state and identity, never the token.
+
+### Navigating without an address bar
+
+A native window has no address bar and no History API, but
+[`Router`](runtime-api.md#client-router) is the same object with the same members
+here. The one class that knows a browser has a history keeps an equivalent stack in
+memory on desktop, so `Router.go()`, `Router.replace()`, `Router.back()`, and
+`Router.forward()` behave exactly as they do in a tab, and a Back button or a mouse
+side button wired to `Router.back()` walks the same entries. Nothing in your QML
+branches on the target.
+
+Two consequences follow from there being no URL:
+
+- There is no deep link to resolve at startup, so a native client always opens on
+  `/`. `router.base` is a browser concern and is ignored.
+- The [login resume](security.md#deep-links-and-the-login-resume) is held in memory
+  rather than in `sessionStorage`, because the desktop client stays alive across the
+  loopback redirect instead of navigating away and back. It is validated by the same
+  rules and cleared the same way, so a visitor refused at `/admin` who then signs in
+  is taken to `/admin` on desktop exactly as in the browser.
 
 ## Building for desktop
 

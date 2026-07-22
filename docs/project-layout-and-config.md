@@ -73,8 +73,9 @@ A few conventions hold throughout the file:
 
 - **Lists of records** (`entities`, `connect_points`, `identity.providers`,
   `routes`) are YAML block sequences: each element begins with `- ` and its keys are
-  indented under it. Order does not matter for entities, connect points, or
-  providers; it does matter for `routes`, which are matched top to bottom.
+  indented under it. Order does not matter anywhere, `routes` included: when two
+  routes both match a path, the one with more literal segments wins, not the one
+  declared first.
 - **Grouped settings** (for example an entity's `public`, `mesh`, `tls`, `env`,
   `settings`, and `provider` sections) are nested maps under the record they belong
   to. There is no repetition of the entity name inside those sub sections the way a
@@ -412,24 +413,77 @@ identity:
     hook: web/identity/map.qml    # optional QML returning a scope for an identity
 ```
 
-### `router` and `routes` (client navigation guards)
+### `router` and `routes` (client navigation)
 
-`router` holds the navigation mode and fallback; `routes` is a block sequence of
-path to view mappings, optionally scope gated, matched top to bottom.
+`router` holds the navigation mode, the fallback, and the prefix the app is served
+under; `routes` is a block sequence of path to view mappings, optionally scope
+gated. Together they are the route table the client's
+[`Router`](runtime-api.md#client-router) resolves every URL against.
 
 ```yaml
 router:
-  mode: history
-  fallback: /
+  mode: history           # the only mode: the router drives the browser History API
+  fallback: /             # where a refused or unmatched path lands
+  base: /                 # the path prefix the app is served under
 
 routes:
   - path: /
-    view: client/Home.qml
+    view: Home.qml
+
+  - path: /c/:campaign    # a path parameter, read in QML as Router.params.campaign
+    view: Campaign.qml
+
+  - path: /c/summary      # more literal segments, so this one wins over /c/:campaign
+    view: Summary.qml
 
   - path: /admin
-    view: client/Admin.qml
-    scope: admin
+    view: Admin.qml
+    scope: admin          # below this scope, the router redirects to fallback
 ```
+
+`router` keys:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `mode` | `history` | The only mode. The router drives the browser's History API, so every route is a real URL a visitor can bookmark, share, and refresh, and the web edge [serves the application shell](security.md#deep-links-and-the-login-resume) for any path it does not answer itself. |
+| `fallback` | `/` | Where a navigation goes when the path matches no route, or matches a route whose `scope` the session lacks. It must itself be a declared route. |
+| `base` | `/` | The path prefix the app is served under. An app deployed at `/shop` sets `base: /shop`, and everything else in the table stays in application paths: a route is still `/c/:campaign`, `Router.path` still reads `/c/summer-sale`, and only the address bar carries the prefix. A trailing slash is ignored. |
+
+`routes` keys, per entry:
+
+| Key | Required | Meaning |
+|-----|----------|---------|
+| `path` | yes | The route's path, absolute. Each segment is either a literal or a `:name` parameter that captures whatever is in that position. A parameter name starts with a letter or an underscore and continues with letters, digits, or underscores, and no name repeats within one path. Captured values are percent-decoded and arrive as `Router.params`. |
+| `view` | yes | The QML file to show, named inside the client entity's QML module. Write it relative to the client entity's directory (`Home.qml`, not `client/Home.qml`); the router loads it from that module's resource root. A view the module does not contain cannot be built, and the router reports [`pageStatus: Error`](runtime-api.md#client-router) rather than a blank page. |
+| `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. |
+
+!!! warning "A route view has to be in the client's QML module"
+    `synqt build` puts only the client entity's `Main.qml` into that module today,
+    so a route naming any other file resolves to a URL the bundle does not contain
+    and the router reports `pageStatus: Error`. A project that declares no `routes`
+    at all gets exactly one route, `/` pointing at `Main.qml`, which is also the
+    window: do not bind a `Loader` inside `Main.qml` to `Router.pageComponent`
+    there, or it loads the window again. Until the generated CMake lists every
+    route's view, drive the per route screens from `Router.path` inside `Main.qml`
+    (a `StackLayout`, or a `Loader` over inline `Component`s). Editing the
+    generated `CMakeLists.txt` does not help: it is rewritten from `synqt.yaml` on
+    every build.
+
+Three rules decide what a path resolves to:
+
+- **More literal segments win.** `/c/summary` beats `/c/:campaign` however the two
+  are ordered in the file. Declaration order never decides a match, so moving a
+  route in the file cannot change what an existing link does.
+- **An empty segment is not a segment.** `/c`, `/c/`, and `/c//` are one and the
+  same route; declaring two of them is an error, since only the first could ever be
+  reached.
+- **The query string is not part of the path.** It is split off before matching and
+  arrives as `Router.query`, so `/search` and `/search?q=hat` are the same route.
+
+A route guard is a redirect rule, not a secrecy mechanism: every view's QML ships
+to every visitor, and what protects the data behind a privileged view is the
+scope-gated connect point the edge refuses to an under-scoped session. See
+[route guards](programming-model.md#route-guards-which-client-views-are-reachable).
 
 ### `dev`
 
@@ -650,3 +704,41 @@ fast. Non negotiable checks:
   only in dev on localhost.
 - Any provider secret (a `password` or `uri` carrying credentials) that is not an
   `env:` reference, or that is referenced by a client target, is rejected.
+
+### The route table
+
+`synqt check` validates [`router` and `routes`](#router-and-routes-client-navigation)
+as well, because a bad route table is otherwise a production only bug: two routes
+racing for one path, a parameter nothing can bind to, or a fallback pointing
+nowhere all build and load fine, and only misbehave the moment a visitor's browser
+reaches them. Each rule below fails the check, with the message quoted:
+
+| What is wrong | The message |
+|---------------|-------------|
+| A route's `path` is not a string (a bare `- path:` reads as null) | `error: route path None must be a string starting with '/'` |
+| A `path` is relative | `error: route path 'admin' must be absolute (start with '/')` |
+| Two routes declare the same path | `error: duplicate route path '/c'; only the first declaration is ever reached` |
+| Two routes declare the same path spelled differently | `error: duplicate route path '/c/' (the runtime reads it as '/c': an empty path segment does not make a distinct route); only the first declaration is ever reached` |
+| A `path` claims a path the edge answers itself | `error: route path '/sync' is reserved by the web edge: a client route there is either answered by the edge itself or collides with the wss sync endpoint` |
+| A parameter name is not an identifier | `error: route path '/c/:2campaign' has a malformed parameter ':2campaign'; a parameter name must be a letter or underscore, then letters, digits, or underscores` |
+| One path uses a parameter name twice | `error: route path '/c/:id/:id' repeats the parameter name 'id'` |
+| `router.fallback` names no declared route | `error: router.fallback '/home' is not a declared route; a redirect to it would go nowhere` |
+| `router.base` is not rooted | `error: router.base 'shop' must start with '/'` |
+
+Two of those deserve a note:
+
+- The duplicate rule compares paths the way the runtime splits them, where an empty
+  segment is not a segment. `/c` and `/c/` are the same route, and the message says
+  so rather than leaving you to wonder why two visibly different strings collided.
+  The fallback rule normalizes the same way, so `fallback: /` matches a route
+  declared as `/`.
+- The reserved paths are computed from your own configuration, not from a fixed
+  list. They are each web edge's `public.sync_route` (default `/sync`), plus, when
+  the project has an [`identity`](#identity-optional-login) section, that section's
+  `login`, `callback`, and `logout` routes. Move your login route and the new path
+  is what is guarded; delete the `identity` section and `/auth/login` becomes an
+  ordinary route again.
+
+The `fallback` rule applies only once at least one route is declared: a project
+with no `routes` at all has nothing for a fallback to point at, and the client
+compiles a single route for `Main.qml`.

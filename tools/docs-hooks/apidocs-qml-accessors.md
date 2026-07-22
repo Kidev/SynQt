@@ -147,20 +147,54 @@ duplication is deliberate.
 
 @page qmlrouter Router
 
-`Router` applies the `routes` list and the `router` fallback from the client config, and
-redirects to the fallback when a route names a scope the session lacks.
+`Router` applies the `routes` list and the `router` block from the client config,
+resolves the current URL to a page component, and drives the address bar. It redirects
+to the configured fallback when a route names a scope the session lacks.
 
 @section qmlrouter_members Members
 
 | Member | Type | Implemented by | Description |
 |--------|------|----------------|-------------|
-| `Router.path` | string | SynQt::Router::path | The current route path. Read-only from QML; it changes as a result of `go()`. |
-| `Router.go(path)` | action | SynQt::Router::go | Navigate to `path`. When the matched route declares a scope the session lacks, the router goes to the configured fallback instead. |
+| `Router.path` | string | SynQt::Router::path | The current application path, without the query string and without the router base. Read-only from QML; after a redirect it is the fallback path, not the one that was asked for. |
+| `Router.params` | object | SynQt::Router::params | The path parameters the matched route captured, percent-decoded. Empty for a route without parameters, and emptied on a redirect. |
+| `Router.query` | object | SynQt::Router::query | The decoded query string of the current URL. Cleared when a guard refuses the navigation, so a query addressed to the refused page never reaches the fallback. |
+| `Router.pageComponent` | Component \| null | SynQt::Router::pageComponent | The component for the current route's view, ready to hand to a `Loader`. Null when there is no view to show. |
+| `Router.pageStatus` | enumeration | SynQt::Router::pageStatus | Why the current page is the one showing: SynQt::Router::Ready, SynQt::Router::Loading, SynQt::Router::Forbidden, SynQt::Router::NotFound, or SynQt::Router::Error. |
+| `Router.go(path)` | action | SynQt::Router::go | Navigate to `path` and push a history entry. When the matched route declares a scope the session lacks, the router goes to the configured fallback instead and reports `Forbidden`. |
+| `Router.replace(path)` | action | SynQt::Router::replace | Navigate without adding a history entry: the current entry is rewritten, so `back()` skips the page being left. |
+| `Router.back()` | action | SynQt::Router::back | Go back one history entry, as the browser's Back button does. |
+| `Router.forward()` | action | SynQt::Router::forward | Go forward one history entry. |
+| `Router.resumeAfterLogin()` | action | SynQt::Router::resumeAfterLogin | Go to the page the visitor was refused before signing in, if the session can now reach it, and forget it either way. The runtime already calls it on every scope change; an application calls it only when it establishes a session by a route of its own. |
+
+`Router` is bound as a context property rather than registered as a QML type, so the
+`PageStatus` names are not in scope in QML: `pageStatus` reads there as its integer value,
+counting from zero in the order declared on SynQt::Router::PageStatus.
 
 @section qmlrouter_implementation Behind the name
 
-SynQt::Router, which holds the route table as a list of SynQt::RouteConfig and notifies
-QML through SynQt::Router::pathChanged.
+SynQt::Router, which holds the route table as a list of SynQt::RouteConfig compiled into
+SynQt::RoutePattern, notifies QML through SynQt::Router::pathChanged and
+SynQt::Router::pageChanged, and owns a SynQt::BrowserHistory.
+
+SynQt::RoutePattern decides both matching and precedence. Precedence is
+SynQt::RoutePattern::literalSegmentCount, not declaration order, so `/c/summary` wins over
+`/c/:campaign` however the table was written; SynQt::Router::applyRoutes sorts on it once
+rather than searching for it per navigation.
+
+SynQt::BrowserHistory is the only class that knows a browser has a history: on WebAssembly
+it drives the History API through Emscripten, and on a desktop build it keeps an equivalent
+stack in memory, so SynQt::Router::back needs no platform branch.
+
+SynQt::Router::start resolves the path the application was opened at, which the generated
+client main calls once the root object exists and before the link to the edge opens. The
+session holds only its default scope at that moment, so a scope-gated deep link resolves
+`Forbidden` there and is replayed by SynQt::Router::resumeAfterLogin when the real scope
+arrives. The refused path is remembered and validated through SynQt::ResumePath, whose
+SynQt::ResumePath::isAcceptable is what keeps an attacker-supplied link from turning the
+resume into an open redirect.
+
+SynQt::Router::resolveRemote is a virtual returning false here, the hook for a page this
+class cannot build itself.
 
 A route guard is a redirect rule, not a secrecy mechanism. The client is one compiled
 bundle, so every view's QML ships to every visitor; guards decide which view is shown and

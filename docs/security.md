@@ -308,6 +308,81 @@ handler:
 - Transport and content headers. `Strict-Transport-Security`,
   `X-Content-Type-Options: nosniff`, and a minimal `Referrer-Policy`.
 
+## Deep links and the login resume
+
+Client routes are real URLs, so two things have to hold that are easy to get wrong:
+the edge has to answer a path it has never heard of, and the client has to remember
+where a visitor was going across a trip to an identity provider. Both touch input an
+attacker controls.
+
+**The application shell for an unmatched path.** A visitor who bookmarks
+`/c/summer-sale` or refreshes on it sends the edge a path no route of its own
+answers. The edge serves `index.html` there, and the client resolves the path
+itself.
+
+- It is registered as a **route**, not as a missing handler. Qt answers a missing
+  handler through a `QHttpServerResponder`, and it does not run after request
+  handlers for a responder answered request, which is where every hardening header
+  is added. Served that way the shell would go out with no CSP, no COOP, and no
+  COEP: the one HTML document in the system, unprotected. As a route it takes the
+  same headers as every other response.
+- Only `GET` and `HEAD` get the shell. A `POST` or a `DELETE` to an unknown URL is
+  a client bug or a probe, and answering it with HTML would hide that.
+- A path whose **final segment contains a `.`** returns 404 instead of HTML. An
+  asset request has to fail honestly: HTML with a 200 in place of a missing script
+  surfaces as a confusing module load error rather than as the missing file it is.
+- A single segment path (`/about`) gets the shell too. The edge's asset route and
+  the shell fallback share one URL template and the asset route is registered
+  first, so it answers on the fallback's terms when the bundle holds no such file.
+  A path that resolves to a real file **outside** the bundle directory is refused
+  as 404 and never dressed up as a client route, and an absolute path or one
+  carrying a backslash or a NUL is refused as 403 before anything looks at it.
+- The shell response carries the same session cookie and the same cache terms
+  (`ETag` and `Cache-Control: no-cache`) as the root document. A deep link is a cold
+  visitor's first page load as often as `/` is; without the cookie the client has no
+  credential at the wss upgrade and reconnects forever on a page that loaded
+  perfectly, and without the cache terms an intermediary can pin a loader the deploy
+  has replaced.
+
+**The login resume.** When a route guard refuses a navigation, the client remembers
+the path so that signing in lands the visitor where they were going. In the browser
+that value lives in `sessionStorage`, which is per tab and is never sent to the
+server; on a [native desktop build](desktop.md#navigating-without-an-address-bar) it
+is held in memory across the loopback redirect. Only the path is kept, never the
+query string the guard is dropping, which may carry a token.
+
+Anyone can put a link in front of a user, and the link is what decides the stored
+path, so validation is the whole of what keeps a resume from becoming an open
+redirect. A stored path is accepted only when **all** of the following hold, checked
+again at the moment it is used rather than trusted for having been stored:
+
+- it is not empty, and is no longer than 2048 characters;
+- it starts with exactly one `/`. A protocol relative `//host` is another origin,
+  which is precisely the open redirect being guarded against;
+- it contains no `:` anywhere. A scheme cannot follow a leading `/` in any case,
+  so this is wider than strictly needed, and that is the point: one line states the
+  rule;
+- it contains no `\`, which several browsers fold to `/`, turning `/\evil.example`
+  into that same protocol relative payload;
+- it contains no control character. Browsers strip tab, newline, and carriage
+  return out of a URL before parsing it, so `/<tab>/evil.example` would arrive as
+  `//evil.example`;
+- it contains no `#`, and no percent encoded separator (`%2f`, `%5c`), which would
+  decode into a separator after the match was decided;
+- it contains no `.` or `..` segment in any spelling, the percent encoded ones
+  included. Any `%2e` in a segment is refused, which covers `.%2e`, `%2e.`, and
+  `%2e%2e` in one rule;
+- and it matches a route the client actually declares.
+
+The stored path is **cleared as it is read**, whether or not it validated, so a
+stale intent cannot steer a later visit. Anything that fails the check simply does
+not resume: the visitor stays where the guard put them. Nor does a path the new
+scope still cannot reach, since going there would only bounce off the same guard.
+
+One user visible cost comes out of the colon rule: a path parameter containing a
+literal `:` cannot be resumed. Percent encode it as `%3A` in links you generate if
+those paths need to survive a login.
+
 ## Secrets and the mesh CA
 
 - Application secrets are referenced only with the `env:` prefix and resolve only
@@ -357,6 +432,10 @@ Browser link:
   deployment requires the documented alternative.
 - CSP is the restrictive default; any widening is reviewed.
 - Cross origin isolation matches the threading mode.
+- The route table passes `synqt check`: no client route claims a path the edge
+  answers itself (the sync endpoint or the login routes), and the fallback is a
+  declared route. A guard is a redirect, so every privileged view still gets its
+  data through a scope gated connect point.
 
 Mesh links:
 
