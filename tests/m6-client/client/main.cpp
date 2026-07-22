@@ -67,9 +67,11 @@ int main(int argc, char *argv[])
                      RouteConfig{QStringLiteral("/admin"), QStringLiteral("Admin"),
                                  QStringLiteral("admin")}};
 
-    SynClient *client{new SynClient{config, &app}};
-
+    // The engine comes first: the Router builds each route's page component with it.
     QQmlApplicationEngine engine;
+
+    SynClient *client{new SynClient{config, &engine, &app}};
+
     engine.rootContext()->setContextProperty(QStringLiteral("Server"), client->server());
     engine.rootContext()->setContextProperty(QStringLiteral("Session"), client->session());
     engine.rootContext()->setContextProperty(QStringLiteral("Router"), client->router());

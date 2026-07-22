@@ -19,5 +19,19 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_
 enable_testing()
 
 qt_add_executable(tst_routing tst_routing.cpp)
-target_link_libraries(tst_routing PRIVATE SynQtClient Qt6::Test)
+
+# The page components the route table points at. They live in the resource system, the
+# same place a client's compiled-in views live, so the Router is exercised through real
+# qrc URLs rather than a stub.
+qt_add_resources(tst_routing "routing_fixtures"
+    PREFIX "/fixtures"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    FILES
+        fixtures/Home.qml
+        fixtures/Summary.qml
+        fixtures/Campaign.qml
+        fixtures/Admin.qml
+)
+
+target_link_libraries(tst_routing PRIVATE SynQtClient Qt6::Qml Qt6::Test)
 add_test(NAME routing COMMAND tst_routing)

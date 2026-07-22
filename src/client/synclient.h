@@ -12,6 +12,7 @@
 
 QT_BEGIN_NAMESPACE
 class QNetworkAccessManager;
+class QQmlEngine;
 class QRemoteObjectNode;
 class QTimer;
 class QWebSocket;
@@ -37,7 +38,10 @@ class SynClient : public QObject
     Q_PROPERTY(QString state READ state NOTIFY stateChanged)
 
 public:
-    explicit SynClient(SynClientConfig config, QObject *parent = nullptr);
+    /// The engine is the one the app loads its QML into: the Router builds page
+    /// components with it, so a route resolves to something the app can render.
+    explicit SynClient(SynClientConfig config, QQmlEngine *engine,
+                       QObject *parent = nullptr);
     ~SynClient() override;
 
     Q_INVOKABLE void start();
