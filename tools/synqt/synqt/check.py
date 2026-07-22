@@ -146,6 +146,113 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
     return []
 
 
+# A path segment naming a parameter (":campaign"). The name is what a slot or view
+# actually binds to, so it must be a valid identifier: a leading letter or underscore,
+# then letters, digits, or underscores.
+_ROUTE_PARAMETER = re.compile(r"^:([A-Za-z_][A-Za-z0-9_]*)$")
+
+# The OAuth routes' yaml keys and their defaults (docs/project-layout-and-config.md,
+# "identity"), and the fixed defaults src/service/identityconfig.h ships when a project
+# has no `identity` section at all yet. Kept in sync with those defaults; if either
+# drifts, update both.
+_IDENTITY_ROUTE_KEYS = {
+    "login": "/auth/login",
+    "callback": "/auth/callback",
+    "logout": "/auth/logout",
+}
+
+
+def _is_web_edge(entity: Dict[str, Any]) -> bool:
+    """Same test `validate()` uses to find the web_edge entities, so the two checks
+    cannot disagree about which entity's `public` section is authoritative."""
+    return entity.get("capability") == "web_edge" or bool(entity.get("web_edge"))
+
+
+def _reserved_edge_paths(config: Dict[str, Any]) -> set:
+    """Paths the web edge answers itself, so a client route there is silently shadowed
+    and never reached (see src/service/webedge.cpp): the WebSocket upgrade path, and,
+    when `identity` is configured, the OAuth login/callback/logout routes.
+
+    Both are read from the resolved config rather than hard coded, because both are
+    user configurable (`public.sync_route`, `identity.login/callback/logout`); a
+    project that moved its login route off the default must still have the new path
+    guarded, not a default nobody uses anymore.
+    """
+    entities = [e for e in (config.get("entities") or []) if isinstance(e, dict)]
+    web_edges = [e for e in entities if _is_web_edge(e)]
+    sync_routes = {(e.get("public") or {}).get("sync_route", "/sync") for e in web_edges}
+    reserved = sync_routes or {"/sync"}
+
+    # The login/callback/logout routes exist on the edge only once `identity` is
+    # configured (webedge.cpp registers them behind `if (m_config.identity.enabled)`);
+    # with no `identity` section a route at "/auth/login" is a perfectly ordinary route.
+    identity = config.get("identity")
+    if isinstance(identity, dict):
+        for key, default in _IDENTITY_ROUTE_KEYS.items():
+            reserved.add(identity.get(key, default))
+    return reserved
+
+
+def lint_routes(config: Dict[str, Any]) -> List[str]:
+    """Validate `client.routes` and `client.router` (check.routes_valid /
+    check.router_base_valid). Returns findings, empty when the table is clean.
+
+    Left to the router this is a production only bug: two routes racing for the same
+    path, a parameter nobody can bind to, or a fallback pointing nowhere all build and
+    load fine and only misbehave the moment a visitor's browser hits them.
+    """
+    findings: List[str] = []
+    client = config.get("client") or {}
+    routes = client.get("routes") or []
+    router = client.get("router") or {}
+    reserved = _reserved_edge_paths(config)
+
+    seen = set()
+    for route in routes:
+        if not isinstance(route, dict):
+            continue
+        path = route.get("path", "")
+        if not path.startswith("/"):
+            findings.append(f"error: route path {path!r} must be absolute (start with '/')")
+            continue
+        if path in seen:
+            findings.append(f"error: duplicate route path {path!r}")
+        seen.add(path)
+        if path in reserved:
+            findings.append(
+                f"error: route path {path!r} is reserved by the web edge and would "
+                "never be reached by the client router")
+
+        names = set()
+        for segment in (s for s in path.split("/") if s):
+            if not segment.startswith(":"):
+                continue
+            match = _ROUTE_PARAMETER.match(segment)
+            if not match:
+                findings.append(
+                    f"error: route path {path!r} has a malformed parameter {segment!r}; "
+                    "a parameter name must be a letter or underscore, then letters, "
+                    "digits, or underscores")
+                continue
+            name = match.group(1)
+            if name in names:
+                findings.append(
+                    f"error: route path {path!r} repeats the parameter name {name!r}")
+            names.add(name)
+
+    fallback = router.get("fallback", "/")
+    if routes and fallback not in seen:
+        findings.append(
+            f"error: router.fallback {fallback!r} is not a declared route; a redirect "
+            "to it would go nowhere")
+
+    base = router.get("base", "/")
+    if not str(base).startswith("/"):
+        findings.append(f"error: router.base {base!r} must start with '/'")
+
+    return findings
+
+
 _LOADING_KEYS = ("logo", "icon", "background", "title", "html")
 # The contract an html override keeps with the generated boot script.
 _LOADING_HOOKS = ("synqt-loading", "synqt-bar", "synqt-status", "screen")
@@ -414,8 +521,10 @@ def check_project(project_dir) -> Tuple[bool, List[str]]:
     contract_messages = lint_contracts(project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
+    route_messages = lint_routes(config)
     messages += contract_messages
     messages += loading_messages
+    messages += route_messages
     qml_messages = lint_qml(project_dir)
     messages += client_root_messages
     messages += qml_messages
@@ -423,7 +532,8 @@ def check_project(project_dir) -> Tuple[bool, List[str]]:
         messages += check_qml_format(project_dir)
     ok = ok and not any(
         m.startswith("error:")
-        for m in contract_messages + loading_messages + client_root_messages + qml_messages)
+        for m in contract_messages + loading_messages + client_root_messages
+        + route_messages + qml_messages)
     if not ok:
         # validate() adds its "ok: topology valid" before the lints have run; printing it
         # above a list of errors reads as a pass. The lints get the last word.
