@@ -213,9 +213,32 @@ def declares_singleton(qml_file: os.PathLike[str] | str) -> bool:
     return re.search(r"^\s*pragma\s+Singleton\b", text, re.MULTILINE) is not None
 
 
-# Directories under the client entity that are build output or generated, never sources
-# to compile into the QML module. A leading dot (.git, .cache) is skipped as well.
+# Directories under the client entity that are build output, generated, or vendored;
+# never sources to compile into the QML module. Anything whose name starts with a dot
+# (.git, .cache, and a hidden file such as .Scratch.qml) is skipped as well.
 _NOT_CLIENT_SOURCE_DIRS = {"build", "generated", "CMakeFiles", "node_modules"}
+
+
+def _refuse_shadowed_type_names(files: List[str]) -> None:
+    """Refuse two QML files that would register the client module's same type name.
+
+    Qt names a QML type after the file and not after the directory it sits in
+    (Qt6QmlMacros takes the NAME_WE of each QML_FILES entry), and every file here lands
+    in the one module-root qmldir, so `pages/Header.qml` and `widgets/Header.qml` would
+    both emit `Header 1.0` and one would silently shadow the other. Silent is the whole
+    problem: the build succeeds and the wrong component renders, so this refuses instead
+    and names both files.
+    """
+    seen: Dict[str, str] = {}
+    for name in files:
+        stem = PurePosixPath(name).stem
+        first = seen.get(stem)
+        if first is not None:
+            raise AppGenError(
+                f"the client's QML module would hold two '{stem}' types, from '{first}' "
+                f"and '{name}': Qt names a QML type after the file whatever directory "
+                "it sits in, so one would silently shadow the other; rename one of them")
+        seen[stem] = name
 
 
 def _client_qml_files(config: Dict[str, Any],
@@ -230,18 +253,24 @@ def _client_qml_files(config: Dict[str, Any],
 
     Without `client_dir` (a caller rendering CMake from a config alone) only the first
     two groups are known, which is the set this generator has always emitted.
+
+    Deduplicated by relative path, so a file that a route also names is listed once; and
+    refused outright when two different paths would claim one QML type name.
     """
     files = ["Main.qml"] + _route_views(config)
-    if client_dir is None or not client_dir.is_dir():
-        return files
-    for qml_file in sorted(client_dir.rglob("*.qml")):
-        relative = qml_file.relative_to(client_dir)
-        if any(part.startswith(".") or part in _NOT_CLIENT_SOURCE_DIRS
-               for part in relative.parts[:-1]):
-            continue
-        name = relative.as_posix()
-        if name not in files:
-            files.append(name)
+    if client_dir is not None and client_dir.is_dir():
+        for qml_file in sorted(client_dir.rglob("*.qml")):
+            relative = qml_file.relative_to(client_dir)
+            # The dot rule covers the file too (client/.Scratch.qml is an editor's
+            # leftover, not a source); the directory names only ever name directories.
+            if any(part.startswith(".") for part in relative.parts):
+                continue
+            if any(part in _NOT_CLIENT_SOURCE_DIRS for part in relative.parts[:-1]):
+                continue
+            name = relative.as_posix()
+            if name not in files:
+                files.append(name)
+    _refuse_shadowed_type_names(files)
     return files
 
 
