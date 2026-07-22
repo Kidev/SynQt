@@ -146,10 +146,33 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
     return []
 
 
-# A path segment naming a parameter (":campaign"). The name is what a slot or view
-# actually binds to, so it must be a valid identifier: a leading letter or underscore,
-# then letters, digits, or underscores.
-_ROUTE_PARAMETER = re.compile(r"^:([A-Za-z_][A-Za-z0-9_]*)$")
+def _is_route_parameter_name(name: str) -> bool:
+    """Is `name` (the part after the ':' in a ":campaign" segment) bindable?
+
+    This mirrors RoutePattern::isIdentifier in src/client/routepattern.cpp, which tests
+    QChar::isLetter and QChar::isLetterOrNumber, so any Unicode letter is legal at
+    runtime. Rejecting a route that the router would happily serve is the worse of the
+    two errors here, so the check accepts exactly what the runtime accepts.
+    """
+    if not name:
+        return False
+    if not (name[0].isalpha() or name[0] == "_"):
+        return False
+    return all(character.isalnum() or character == "_" for character in name)
+
+
+def _normalized_route_path(path: str) -> str:
+    """A route path as the runtime matcher sees it.
+
+    RoutePattern::matches strips exactly one trailing slash from the incoming path
+    before comparing, and the pattern itself is split with Qt::SkipEmptyParts, so "/c"
+    and "/c/" are one and the same route. Comparing the raw strings would let both be
+    declared, leaving the second permanently unreachable. The root is left alone: it is
+    the one path that is nothing but its slash.
+    """
+    if len(path) > 1 and path.endswith("/"):
+        return path[:-1]
+    return path
 
 # The OAuth routes' yaml keys and their defaults (docs/project-layout-and-config.md,
 # "identity"), and the fixed defaults src/service/identityconfig.h ships when a project
@@ -205,7 +228,7 @@ def lint_routes(config: Dict[str, Any]) -> List[str]:
     client = config.get("client") or {}
     routes = client.get("routes") or []
     router = client.get("router") or {}
-    reserved = _reserved_edge_paths(config)
+    reserved = {_normalized_route_path(p) for p in _reserved_edge_paths(config)}
 
     seen = set()
     for route in routes:
@@ -215,10 +238,14 @@ def lint_routes(config: Dict[str, Any]) -> List[str]:
         if not path.startswith("/"):
             findings.append(f"error: route path {path!r} must be absolute (start with '/')")
             continue
-        if path in seen:
-            findings.append(f"error: duplicate route path {path!r}")
-        seen.add(path)
-        if path in reserved:
+        normalized = _normalized_route_path(path)
+        if normalized in seen:
+            detail = ("" if normalized == path
+                      else " (a trailing slash does not make a distinct route)")
+            findings.append(f"error: duplicate route path {path!r}{detail}; only the "
+                            "first declaration is ever reached")
+        seen.add(normalized)
+        if normalized in reserved:
             findings.append(
                 f"error: route path {path!r} is reserved by the web edge and would "
                 "never be reached by the client router")
@@ -227,21 +254,20 @@ def lint_routes(config: Dict[str, Any]) -> List[str]:
         for segment in (s for s in path.split("/") if s):
             if not segment.startswith(":"):
                 continue
-            match = _ROUTE_PARAMETER.match(segment)
-            if not match:
+            name = segment[1:]
+            if not _is_route_parameter_name(name):
                 findings.append(
                     f"error: route path {path!r} has a malformed parameter {segment!r}; "
                     "a parameter name must be a letter or underscore, then letters, "
                     "digits, or underscores")
                 continue
-            name = match.group(1)
             if name in names:
                 findings.append(
                     f"error: route path {path!r} repeats the parameter name {name!r}")
             names.add(name)
 
     fallback = router.get("fallback", "/")
-    if routes and fallback not in seen:
+    if routes and _normalized_route_path(str(fallback)) not in seen:
         findings.append(
             f"error: router.fallback {fallback!r} is not a declared route; a redirect "
             "to it would go nowhere")
