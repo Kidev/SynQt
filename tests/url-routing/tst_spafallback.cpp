@@ -29,6 +29,10 @@ private slots:
     void topLevelRouteReturnsTheShell();
     void topLevelRouteCarriesTheSecurityHeaders();
     void deepLinkCarriesTheSecurityHeaders();
+    void topLevelRouteCarriesTheSessionCookie();
+    void deepLinkCarriesTheSessionCookie();
+    void theShellCarriesTheRootDocumentsCacheDirectives();
+    void aBundleDirectoryIsNotAnAsset();
     void missingAssetIsNotFound();
     void reservedRoutesAreNotShadowed();
     void extensionlessBundleFileIsStillServed();
@@ -63,6 +67,10 @@ void tst_SpaFallback::initTestCase()
     QVERIFY(manifest.open(QIODevice::WriteOnly));
     manifest.write("bundle-manifest");
     manifest.close();
+
+    // A bundle subdirectory, to prove a client route named after one is not answered
+    // differently from a client route named after nothing at all.
+    QVERIFY(QDir{m_bundle.path()}.mkdir(QStringLiteral("assets")));
 
     WebEdgeConfig config;
     config.bundleDir = m_bundle.path();
@@ -116,6 +124,56 @@ void tst_SpaFallback::deepLinkCarriesTheSecurityHeaders()
     QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
     QVERIFY(!reply->rawHeader("Content-Security-Policy").isEmpty());
     QVERIFY(!reply->rawHeader("X-Content-Type-Options").isEmpty());
+    reply->deleteLater();
+}
+
+void tst_SpaFallback::topLevelRouteCarriesTheSessionCookie()
+{
+    // The shell without a session cookie is an app that loads and then never connects:
+    // the client presents no credential at the wss upgrade, the edge answers 401, and
+    // the reconnect loop runs forever on a page that looked fine.
+    QNetworkReply *reply{get(QStringLiteral("/settings"))};
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+    QVERIFY(reply->rawHeader("Set-Cookie").contains("synqt_session="));
+    reply->deleteLater();
+}
+
+void tst_SpaFallback::deepLinkCarriesTheSessionCookie()
+{
+    QNetworkReply *reply{get(QStringLiteral("/c/summer-sale/bids"))};
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+    QVERIFY(reply->rawHeader("Set-Cookie").contains("synqt_session="));
+    reply->deleteLater();
+}
+
+void tst_SpaFallback::theShellCarriesTheRootDocumentsCacheDirectives()
+{
+    // Same bytes, same identity, same revalidation terms. Anything less lets a browser
+    // or an intermediary pin a loader the next deploy replaced.
+    QNetworkReply *root{get(QStringLiteral("/"))};
+    QCOMPARE(root->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+    const QByteArray cacheControl{root->rawHeader("Cache-Control")};
+    const QByteArray etag{root->rawHeader("ETag")};
+    QCOMPARE(cacheControl, QByteArrayLiteral("no-cache"));
+    QVERIFY(!etag.isEmpty());
+    root->deleteLater();
+
+    for (const QString &path : {QStringLiteral("/about"), QStringLiteral("/a/b/c")}) {
+        QNetworkReply *reply{get(path)};
+        QCOMPARE(reply->rawHeader("Cache-Control"), cacheControl);
+        QCOMPARE(reply->rawHeader("ETag"), etag);
+        reply->deleteLater();
+    }
+}
+
+void tst_SpaFallback::aBundleDirectoryIsNotAnAsset()
+{
+    // "assets" resolves to a real path inside the bundle, but a directory serves no
+    // bytes. Answering it with a 404 while "/assetz" gets the shell would break exactly
+    // one client route, on refresh, for a reason nothing on the page explains.
+    QNetworkReply *reply{get(QStringLiteral("/assets"))};
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+    QVERIFY(reply->readAll().contains("shell"));
     reply->deleteLater();
 }
 

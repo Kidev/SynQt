@@ -340,7 +340,7 @@ QString WebEdge::bundlePathFor(const QString &urlPath) const
 }
 
 QHttpServerResponse WebEdge::shellOrNotFound(const QString &path,
-                                             const QHttpServerRequest &request) const
+                                             const QHttpServerRequest &request)
 {
     // Only a navigation gets the shell. A POST or a DELETE to an unknown URL is a
     // client bug or a probe, and answering it with HTML would hide that.
@@ -356,7 +356,38 @@ QHttpServerResponse WebEdge::shellOrNotFound(const QString &path,
         return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
     }
     const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
-    return QHttpServerResponse::fromFile(index);
+    if (auto notModified{notModifiedFor(request, etagFor(index))}) {
+        stampShell(*notModified);
+        return std::move(*notModified);
+    }
+    QHttpServerResponse response{QHttpServerResponse::fromFile(index)};
+    stampShell(response);
+    return response;
+}
+
+void WebEdge::stampShell(QHttpServerResponse &response)
+{
+    // A deep link is a cold visitor's first page load just as often as "/" is, so it
+    // has to leave with the same two things the client route's response leaves with.
+    // stampResponse() cannot do it: it sees only the request, and by URL a deep link is
+    // indistinguishable from a 404. Here the response IS index.html, by construction.
+    //
+    // Without the cookie the client has no credential at the wss upgrade, verifyUpgrade
+    // answers 401, and the app reconnects forever on a page that loaded perfectly.
+    // Without the cache terms an intermediary may pin a loader the deploy replaced.
+    //
+    // Never reached for m_config.clientRoute (that route is registered first and
+    // answers it), so this cannot double the Set-Cookie stampResponse() issues there.
+    const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
+    const QByteArray etag{etagFor(index)};
+    QHttpHeaders headers{response.headers()};
+    if (!etag.isEmpty() && !headers.contains(QHttpHeaders::WellKnownHeader::ETag)) {
+        headers.append(QHttpHeaders::WellKnownHeader::ETag, etag);
+    }
+    headers.append(QHttpHeaders::WellKnownHeader::CacheControl,
+                   QByteArrayLiteral("no-cache"));
+    headers.append(QHttpHeaders::WellKnownHeader::SetCookie, issueSessionCookie());
+    response.setHeaders(std::move(headers));
 }
 
 void WebEdge::computeScriptHashes()
@@ -459,6 +490,16 @@ bool WebEdge::start()
             // It exists, but outside the bundle. Refuse it, and never dress the attempt
             // up as a client route.
             return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
+        }
+        if (!QFileInfo{resolved}.isFile()) {
+            // A directory inside the bundle serves nothing: this route is one segment
+            // deep and the ETag cache indexes top-level files only, so nothing under it
+            // is reachable anyway. Treating it as "no such asset" is what keeps a client
+            // route named after a bundle directory ("/assets") working on refresh, when
+            // its neighbors already do. After the containment test, so an attempt to
+            // probe outside the bundle is still refused before anything else looks at
+            // the path.
+            return shellOrNotFound(asset, request);
         }
         if (auto notModified{notModifiedFor(request, etagFor(resolved))}) {
             return std::move(*notModified);
