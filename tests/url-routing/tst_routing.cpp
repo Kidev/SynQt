@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // URL routing acceptance: the pure client-side logic. Route patterns, the
-// history stack, and the Router that resolves a path to a page component; the
-// resume-path rules join this executable in a later task.
+// history stack, the Router that resolves a path to a page component, and the
+// resume path a refused deep link leaves behind for the login to come back to.
 
 #include "routepattern.h"
 #include "browserhistory.h"
+#include "resumepath.h"
 #include "router.h"
 #include "session.h"
 
@@ -28,6 +29,11 @@ class tst_Routing : public QObject
     Q_OBJECT
 
 private slots:
+    /// The desktop resume store is process-wide, so a case that leaves an
+    /// intent behind would otherwise steer the next one. Exactly the stale
+    /// intent the feature refuses to keep, so refuse it here too.
+    void init();
+
     void literalMatches();
     void parameterCaptures();
     void parameterDecodesPercentEscapes();
@@ -65,6 +71,16 @@ private slots:
     void routerRewritesTheHistoryEntryARedirectMovedOff();
     void routerKeepsTheReuseKeyAcrossAnIdempotentSet();
     void routerDropsAnOverriddenPageOnARedirect();
+
+    void resumeRejectsAnythingNotADeclaredRoute();
+    void resumeRejectsProtocolRelativeAndAbsoluteUrls();
+    void resumeRejectsPathsABrowserWouldRewrite();
+    void resumeRoundTripsThroughStorage();
+    void resumeStoresTheBootPathTheGuardRefused();
+    void resumeStoresARefusedNavigation();
+    void resumeLandsOnTheRequestedPageWhenTheScopeArrives();
+    void resumeDoesNotFireOnAScopeLoss();
+    void resumeIgnoresAPathTheNewScopeStillCannotReach();
 };
 
 namespace {
@@ -125,6 +141,11 @@ protected:
         return true;
     }
 };
+
+void tst_Routing::init()
+{
+    SynQt::ResumePath::take();
+}
 
 void tst_Routing::literalMatches()
 {
@@ -603,6 +624,156 @@ void tst_Routing::routerDropsAnOverriddenPageOnARedirect()
     QCOMPARE(router.path(), QStringLiteral("/gone"));
     QCOMPARE(router.pageStatus(), Router::NotFound);
     QCOMPARE(router.pageComponent(), nullptr);
+}
+
+void tst_Routing::resumeRejectsAnythingNotADeclaredRoute()
+{
+    const QStringList declared{QStringLiteral("/"), QStringLiteral("/admin")};
+    QVERIFY(SynQt::ResumePath::isAcceptable(QStringLiteral("/admin"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/nowhere"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QString{}, declared));
+}
+
+void tst_Routing::resumeRejectsProtocolRelativeAndAbsoluteUrls()
+{
+    const QStringList declared{QStringLiteral("/"), QStringLiteral("/admin")};
+    // "//evil.example" is protocol-relative: browsers treat it as another
+    // origin, so accepting it would make the resume an open redirect.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("//evil.example"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(
+        QStringLiteral("https://evil.example/admin"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("admin"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/") + QString{4096, QLatin1Char('a')},
+                                             declared));
+}
+
+void tst_Routing::resumeRejectsPathsABrowserWouldRewrite()
+{
+    // Every one of these reaches the matcher looking like one thing and
+    // reaches the address bar as another, which is the whole trick.
+    const QStringList declared{QStringLiteral("/"), QStringLiteral("/admin"),
+                               QStringLiteral("/c/:campaign")};
+    // Several browsers fold a backslash to "/", so this arrives as
+    // "//evil.example".
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/\\evil.example"), declared));
+    // TAB, LF and CR are stripped out of a URL before it is parsed, so this
+    // arrives as "//evil.example" too.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/\t/evil.example"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/ad\nmin"), declared));
+    // An encoded separator decodes after the match, so what was matched is
+    // not what is navigated to.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/%2f%2fevil.example"),
+                                             declared));
+    // Dot segments are collapsed by the browser, so the address bar and the
+    // router would disagree about which page is showing.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/.."), declared));
+    // A fragment is not part of the route table, so it can only smuggle.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/x#//evil.example"),
+                                             declared));
+    // An embedded credential only reads as a host after a "//", and it is not
+    // a declared route either way.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/@evil.example"), declared));
+    // A legitimate escaped character in a parameter still passes: the rules
+    // above must not cost the app percent-encoding.
+    QVERIFY(SynQt::ResumePath::isAcceptable(QStringLiteral("/c/back%20to%20school"),
+                                            declared));
+}
+
+void tst_Routing::resumeRoundTripsThroughStorage()
+{
+    SynQt::ResumePath::store(QStringLiteral("/admin"));
+    QCOMPARE(SynQt::ResumePath::take(), QStringLiteral("/admin"));
+    // Taken once and cleared, so a stale intent cannot redirect a later visit.
+    QCOMPARE(SynQt::ResumePath::take(), QString{});
+}
+
+void tst_Routing::resumeStoresTheBootPathTheGuardRefused()
+{
+    // start() is the deep link and the refresh: at boot the session holds
+    // only defaultScope, so a scoped landing page resolves Forbidden. That is
+    // the moment the intent has to be stored, and the only one that serves
+    // the case this feature exists for.
+    QQmlEngine engine;
+    SynQt::SynClientConfig config{routingFixture()};
+    config.routerFallback = QStringLiteral("/login");
+    config.routes = {
+        SynQt::RouteConfig{QStringLiteral("/"), QStringLiteral("Home.qml"),
+                           QStringLiteral("staff"), QStringLiteral("qrc:/fixtures/Home.qml")},
+        SynQt::RouteConfig{QStringLiteral("/login"), QStringLiteral("Summary.qml"), QString{},
+                           QStringLiteral("qrc:/fixtures/Summary.qml")},
+    };
+    SynQt::Session session{config};
+    Router router{config, &session, &engine};
+    router.start();
+    QCOMPARE(router.path(), QStringLiteral("/login"));
+    QCOMPARE(router.pageStatus(), Router::Forbidden);
+    // The page the boot landed on is not the page that was asked for, so the
+    // two cannot be confused here.
+    QCOMPARE(SynQt::ResumePath::take(), QStringLiteral("/"));
+}
+
+void tst_Routing::resumeStoresARefusedNavigation()
+{
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/admin"));
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(SynQt::ResumePath::take(), QStringLiteral("/admin"));
+}
+
+void tst_Routing::resumeLandsOnTheRequestedPageWhenTheScopeArrives()
+{
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/admin"));
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), Router::Forbidden);
+
+    session.setScope(QStringLiteral("staff"));
+    QCOMPARE(router.path(), QStringLiteral("/admin"));
+    QCOMPARE(router.pageStatus(), Router::Ready);
+    // Consumed by the resume, so a second sign-in does not replay it.
+    QCOMPARE(SynQt::ResumePath::take(), QString{});
+}
+
+void tst_Routing::resumeDoesNotFireOnAScopeLoss()
+{
+    // Losing the scope stores the page the visitor is being evicted from, the
+    // same way any refused resolve does. Resuming to it would bounce straight
+    // off the guard again, so the eviction must clear the intent instead of
+    // replaying it.
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    session.setScope(QStringLiteral("staff"));
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/admin"));
+    QCOMPARE(router.pageStatus(), Router::Ready);
+
+    session.logout();
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), Router::Forbidden);
+    QCOMPARE(SynQt::ResumePath::take(), QString{});
+}
+
+void tst_Routing::resumeIgnoresAPathTheNewScopeStillCannotReach()
+{
+    // Signing in as somebody who still may not see the page must not flash
+    // the fallback and push a history entry on the way back to it.
+    QQmlEngine engine;
+    SynQt::SynClientConfig config{routingFixture()};
+    config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("member"),
+                         QStringLiteral("staff")};
+    SynQt::Session session{config};
+    Router router{config, &session, &engine};
+    router.go(QStringLiteral("/admin"));
+    QCOMPARE(router.path(), QStringLiteral("/"));
+
+    session.setScope(QStringLiteral("member"));
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), Router::Ready);
+    QCOMPARE(SynQt::ResumePath::take(), QString{});
 }
 
 QTEST_MAIN(tst_Routing)

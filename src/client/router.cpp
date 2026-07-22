@@ -4,6 +4,7 @@
 #include "router.h"
 
 #include "browserhistory.h"
+#include "resumepath.h"
 #include "session.h"
 
 #include <QQmlComponent>
@@ -102,6 +103,15 @@ Router::Router(SynClientConfig config, Session *session, QQmlEngine *engine,
             if (m_path != before) {
                 m_history->replace(m_path);
             }
+            // Second, never first, and in the same handler rather than in a
+            // second connection whose order would only be implied by where
+            // it happens to be made. A scope LOSS is a refused resolve like
+            // any other, so the re-resolve above stores the page it just
+            // evicted the visitor from; the take() inside this call is what
+            // clears that again. Run the two the other way round and a
+            // sign-out would leave its own page remembered, waiting to pull
+            // the next sign-in back to it.
+            resumeAfterLogin();
         });
     }
 }
@@ -185,6 +195,32 @@ void Router::replace(const QString &path)
     m_history->replace(m_path);
 }
 
+void Router::resumeAfterLogin()
+{
+    // Taken before anything else can decide not to use it: an intent that
+    // cannot be honored now must not linger to steer a later navigation.
+    const QString intended{ResumePath::take()};
+    QStringList declared;
+    declared.reserve(m_routes.size());
+    for (const Route &route : m_routes) {
+        declared.append(route.config.path);
+    }
+    // The path came back from storage the visitor's browser owns, so it is
+    // re-validated here rather than trusted for having been stored by us.
+    if (!ResumePath::isAcceptable(intended, declared)) {
+        return;
+    }
+    QVariantMap parameters;
+    const Route *route{lookup(RoutePattern::splitQuery(intended, nullptr), &parameters)};
+    if (!route || !isReachable(route->config)) {
+        // The session gained something, but not what this page needs. Going
+        // there anyway would bounce off the same guard, flashing the
+        // fallback and pushing a history entry for nothing.
+        return;
+    }
+    go(intended);
+}
+
 void Router::back()
 {
     m_history->back();
@@ -224,13 +260,22 @@ void Router::resolve(QString path, bool queryChanged)
     if (!route) {
         target = m_config.routerFallback;
         status = NotFound;
-    } else if (!route->config.scope.isEmpty()
-               && (!m_session || !m_session->hasScope(route->config.scope))) {
+    } else if (!isReachable(route->config)) {
         // A guard is a redirect, not secrecy: steer to the fallback and say
-        // why. No session means no scope, never every scope: a guard that
-        // fails open is worse than useless, because it reads as a control.
+        // why.
         target = m_config.routerFallback;
         status = Forbidden;
+        // Remember where they were going, so signing in lands them there
+        // instead of on the home page with no explanation. This is also the
+        // boot path: start() resolves a deep link while the session still
+        // holds only its default scope. Only the path is kept, never the
+        // query the guard is about to drop, which may carry a token.
+        //
+        // A refused path is one of the app's own routes by construction
+        // (there is a route here, or this branch could not have been
+        // reached), so nothing outside the route table can be stored from
+        // here. resumeAfterLogin() validates it again on the way out.
+        ResumePath::store(path);
     }
 
     if (status != Ready) {
@@ -265,6 +310,16 @@ void Router::resolve(QString path, bool queryChanged)
         return;
     }
     setPageUrl(route->config.componentUrl, Ready);
+}
+
+bool Router::isReachable(const RouteConfig &route) const
+{
+    if (route.scope.isEmpty()) {
+        return true;
+    }
+    // No session means no scope, never every scope: a guard that fails open
+    // is worse than useless, because it reads as a control.
+    return m_session && m_session->hasScope(route.scope);
 }
 
 bool Router::resolveRemote(const QString &path, const RouteConfig &route)

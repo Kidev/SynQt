@@ -81,6 +81,12 @@ public:
     Q_INVOKABLE void back();
     Q_INVOKABLE void forward();
 
+    /// Navigate to the page the visitor asked for before logging in, if the
+    /// session can now reach it, and forget it either way. Called on every
+    /// scope change; exposed so an app that drives its own login can call it
+    /// at the moment the session is established.
+    Q_INVOKABLE void resumeAfterLogin();
+
     /// Resolve the path the app started on (a deep link or a refresh), without
     /// pushing.
     void start();
@@ -118,6 +124,10 @@ protected:
     QQmlEngine *m_engine;
 
 private:
+    /// Whether the session may be shown route. An empty scope is open to
+    /// everyone; no session means no scope, never every scope.
+    bool isReachable(const RouteConfig &route) const;
+
     void navigate(const QString &pathWithQuery, bool push);
 
     /// queryChanged reports whether navigate() replaced the query with a

@@ -35,6 +35,8 @@ qt_add_library(SynQtClient STATIC
     clientupdate.h
     replicaregistry.cpp
     replicaregistry.h
+    resumepath.cpp
+    resumepath.h
     routepattern.cpp
     routepattern.h
     session.cpp
