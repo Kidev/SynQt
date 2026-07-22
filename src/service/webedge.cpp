@@ -470,6 +470,29 @@ bool WebEdge::start()
         }
         return QHttpServerResponse::fromFile(resolved);
     });
+    // The application shell for any unmatched path, so a deep link or a refresh on
+    // "/c/summer-sale" lands on the app instead of a 404.
+    //
+    // This is deliberately a route and not setMissingHandler(): a missing handler is
+    // answered through a QHttpServerResponder, and Qt does not run after-request
+    // handlers for those, so the shell would go out with no CSP, COOP, or COEP.
+    // Registered last, so every real route above still wins. The parameter is QUrl
+    // rather than QString so the "<arg>" placeholder captures a multi-segment
+    // remainder ("/a/b/c"), not just one path component.
+    m_httpServer->route(QStringLiteral("/<arg>"), QHttpServerRequest::Method::Get
+                                                       | QHttpServerRequest::Method::Head,
+                        [this](const QUrl &rest) {
+        const QString path{rest.path()};
+        const qsizetype lastSlash{path.lastIndexOf(QLatin1Char('/'))};
+        const QString lastSegment{path.mid(lastSlash + 1)};
+        // An asset request (it has an extension) must fail honestly rather than
+        // receive HTML with a 200.
+        if (lastSegment.contains(QLatin1Char('.'))) {
+            return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
+        }
+        const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
+        return QHttpServerResponse::fromFile(index);
+    });
     m_httpServer->addAfterRequestHandler(
         this, [this](const QHttpServerRequest &request, QHttpServerResponse &response) {
             stampResponse(request, response);
