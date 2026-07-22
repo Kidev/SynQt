@@ -270,7 +270,7 @@ class AppGenTest(unittest.TestCase):
         # The consumer (client) generates the typed Replica; the owner (edge) the Source.
         self.assertIn("synqt_add_contract(client ROLE replica", cmake)
         self.assertIn("synqt_add_contract(web ROLE source", cmake)
-        client_main = appgen.render_client_main(config, config["entities"][0])
+        client_main = appgen.render_client_main(config, appgen.qml_uri(config["project"]["name"]))
         self.assertIn("synqtRegisterCounterReplicas();", client_main)
         # The client also registers the consumer surface, so Server.counter is the facade
         # (returning-slot promises) and `Counter.on<Signal>` handlers resolve.
@@ -287,7 +287,7 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "shop", "qt_version": "6.11.1"},
             "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
         }
-        client_main = appgen.render_client_main(config, config["entities"][0])
+        client_main = appgen.render_client_main(config, appgen.qml_uri(config["project"]["name"]))
         self.assertIn('#include "clientlogging.h"', client_main)
         self.assertIn("#ifdef QT_NO_DEBUG", client_main)
         self.assertIn("ClientLogging::install(ClientLogging::Mode::Silent);", client_main)
@@ -299,7 +299,7 @@ class AppGenTest(unittest.TestCase):
             "build": {"client_logging": "none"},
             "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
         }
-        client_main = appgen.render_client_main(config, config["entities"][0])
+        client_main = appgen.render_client_main(config, appgen.qml_uri(config["project"]["name"]))
         self.assertIn(
             'ClientLogging::install(ClientLogging::modeFromName(QStringLiteral("none")));',
             client_main)

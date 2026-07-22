@@ -17,6 +17,11 @@ struct RouteConfig
     QString path;
     QString view;
     QString scope; ///< empty: reachable by any session
+
+    /// Where the compiled-in view lives in the client's QML module, as a qrc URL. Empty
+    /// when the route has no compiled-in view, which is how a route delivered by the edge
+    /// is represented.
+    QString componentUrl;
 };
 
 /// One connect point the client consumes: its name (how it is acquired and exposed as
@@ -48,6 +53,10 @@ struct SynClientConfig
 
     QList<RouteConfig> routes;
     QString routerFallback{QStringLiteral("/")};
+
+    /// The path prefix the app is served under. History entries and deep links are
+    /// resolved against it, so an app under "/shop" still routes in application paths.
+    QString routerBase{QStringLiteral("/")};
 
     /// Scope vocabulary (for Session.hasScope).
     QStringList scopeOrder{QStringLiteral("anonymous")};

@@ -242,9 +242,30 @@ def _string_list_literal(values: List[str]) -> str:
     return ", ".join('QStringLiteral("%s")' % value for value in values)
 
 
-def render_client_main(config: Dict[str, Any], client: Dict[str, Any]) -> str:
+def _component_url(view: str, uri: str) -> str:
+    """The qrc URL of a compiled-in view inside the client's QML module."""
+    if not view:
+        return ""
+    name = view if view.endswith(".qml") else f"{view}.qml"
+    return f"qrc:/qt/qml/{uri}/{name}"
+
+
+def _route_literal(route: Dict[str, Any], uri: str) -> str:
+    path = route.get("path", "/")
+    view = route.get("view", "Main")
+    scope = route.get("scope", "") or ""
+    url = _component_url(view, uri)
+    # Empty scope stays QString{} (not QStringLiteral("")) so this literal, and every
+    # other field byte for byte, is unchanged for a route that does not use scope gating;
+    # only the trailing componentUrl field is new here.
+    scope_literal = f'QStringLiteral("{scope}")' if scope else "QString{}"
+    return (f'RouteConfig{{QStringLiteral("{path}"), QStringLiteral("{view}"), '
+            f'{scope_literal}, QStringLiteral("{url}")}}')
+
+
+def render_client_main(config: Dict[str, Any], uri: str) -> str:
+    client = _client_entity(config) or {}
     name = client.get("name", "client")
-    uri = qml_uri(config.get("project", {}).get("name", "app"))
     consumed = _consumed_by(config, name)
     contracts = _contracts_of(consumed)
     scopes = _scope_vocab(config)
@@ -285,10 +306,9 @@ def render_client_main(config: Dict[str, Any], client: Dict[str, Any]) -> str:
     cp_list = ", ".join('{QStringLiteral("%s"), QStringLiteral("%s")}'
                         % (cp.get("name"), cp.get("contract", "")) for cp in consumed)
     route_list = ",\n                     ".join(
-        'RouteConfig{QStringLiteral("%s"), QStringLiteral("%s"), %s}'
-        % (r.get("path", "/"), r.get("view", "Main"),
-           'QStringLiteral("%s")' % r["scope"] if r.get("scope") else "QString{}")
-        for r in routes)
+        _route_literal(r, uri) for r in routes)
+    router = config.get("router") or {}
+    router_base = router.get("base") or "/"
 
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from
@@ -349,6 +369,7 @@ int main(int argc, char *argv[])
     config.connectPoints = {{{cp_list}}};
     config.scopeOrder = {{{_string_list_literal(scopes)}}};
     config.routerFallback = QStringLiteral("/");
+    config.routerBase = QStringLiteral("{router_base}");
     config.routes = {{{route_list}}};
 
     SynClient *client{{new SynClient{{config, &app}}}};
@@ -1104,7 +1125,11 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         entity_dir.mkdir(parents=True, exist_ok=True)
         singletons = discover_singletons(entity_dir)
         if entity.get("kind") == "client":
-            source = render_client_main(config, entity)
+            # The same QML module URI the client target is configured with in
+            # render_root_cmakelists (qt_add_qml_module URI ...), so a compiled-in route's
+            # qrc URL actually matches where qmlcachegen puts the view.
+            uri = qml_uri(config.get("project", {}).get("name", "app"))
+            source = render_client_main(config, uri)
         elif _is_edge(entity):
             source = render_edge_main(config, entity, singletons)
         else:
