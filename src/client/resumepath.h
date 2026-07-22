@@ -33,7 +33,9 @@ constexpr int MaximumLength{2048};
 /// exactly one "/", a protocol-relative "//host", a colon anywhere (a
 /// scheme), a backslash (browsers fold it to "/"), a control character
 /// (browsers strip it before parsing), a percent-encoded separator, a "."
-/// or ".." segment, a fragment, and any path outside the route table.
+/// or ".." segment in any of its spellings (a "%2e" anywhere in a segment
+/// is refused, which is what covers ".%2e", "%2e." and "%2e%2e"), a
+/// fragment, and any path outside the route table.
 ///
 /// The colon rule is wider than a scheme strictly needs, since a scheme
 /// cannot follow a leading "/" anyway. It costs a resume to a path whose

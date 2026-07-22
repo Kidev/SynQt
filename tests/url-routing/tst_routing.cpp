@@ -75,6 +75,10 @@ private slots:
     void resumeRejectsAnythingNotADeclaredRoute();
     void resumeRejectsProtocolRelativeAndAbsoluteUrls();
     void resumeRejectsPathsABrowserWouldRewrite();
+    void resumeRejectsARewritingCharacterInsideAMatchingRoute();
+    void resumeRejectsEveryEncodedDotSegmentSpelling();
+    void resumeAcceptsExactlyUpToTheLengthLimit();
+    void resumeRejectsAColonButNotItsEncoding();
     void resumeRoundTripsThroughStorage();
     void resumeStoresTheBootPathTheGuardRefused();
     void resumeStoresARefusedNavigation();
@@ -643,8 +647,8 @@ void tst_Routing::resumeRejectsProtocolRelativeAndAbsoluteUrls()
     QVERIFY(!SynQt::ResumePath::isAcceptable(
         QStringLiteral("https://evil.example/admin"), declared));
     QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("admin"), declared));
-    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/") + QString{4096, QLatin1Char('a')},
-                                             declared));
+    // The length limit is pinned by resumeAcceptsExactlyUpToTheLengthLimit,
+    // which uses a parameterized route so only the length can reject it.
 }
 
 void tst_Routing::resumeRejectsPathsABrowserWouldRewrite()
@@ -676,6 +680,81 @@ void tst_Routing::resumeRejectsPathsABrowserWouldRewrite()
     // A legitimate escaped character in a parameter still passes: the rules
     // above must not cost the app percent-encoding.
     QVERIFY(SynQt::ResumePath::isAcceptable(QStringLiteral("/c/back%20to%20school"),
+                                            declared));
+}
+
+void tst_Routing::resumeRejectsARewritingCharacterInsideAMatchingRoute()
+{
+    // Every candidate here matches "/c/:campaign" on segment count and shape,
+    // so the route matcher passes it and only the character rule can refuse
+    // it. That is what makes the layering real: relaxing the matcher later
+    // cannot quietly turn the resume into an open redirect.
+    const QStringList declared{QStringLiteral("/c/:campaign")};
+    QVERIFY(SynQt::ResumePath::isAcceptable(QStringLiteral("/c/spring"), declared));
+    // Several browsers fold a backslash to "/", so this navigates to
+    // "/c/a/b": a different route from the one that was checked.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/a\\b"), declared));
+    // TAB, LF and CR are stripped before the URL is parsed, so each of these
+    // navigates to "/c/ab" instead.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/a\tb"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/a\nb"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/a\rb"), declared));
+    // The route table models no fragment, so the matcher sees "a#b" as one
+    // campaign name while the browser sees the page "/c/a" and the anchor
+    // "b".
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/a#b"), declared));
+}
+
+void tst_Routing::resumeRejectsEveryEncodedDotSegmentSpelling()
+{
+    // The URL standard counts ".%2e", "%2e." and "%2e%2e" as double-dot
+    // segments and "%2e" as a single-dot one, case-insensitively. Each of
+    // these matches "/c/:campaign" and carries no encoded separator, so
+    // without the "%2e" rule they are accepted and the browser then
+    // collapses them: the campaign page shows while the address bar reads
+    // "/", and a refresh lands somewhere else entirely.
+    const QStringList declared{QStringLiteral("/c/:campaign")};
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/%2e%2e"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/.%2e"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/%2E."), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/%2E%2e"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/%2e"), declared));
+    // Other percent-encoded characters in a parameter still pass, so the
+    // rule costs the app an encoded dot and nothing wider.
+    QVERIFY(SynQt::ResumePath::isAcceptable(QStringLiteral("/c/back%20to%20school"),
+                                            declared));
+}
+
+void tst_Routing::resumeAcceptsExactlyUpToTheLengthLimit()
+{
+    // A parameterized route matches a campaign name of any length, so the
+    // length rule is the only thing that can reject either candidate here.
+    const QStringList declared{QStringLiteral("/c/:campaign")};
+    // "/c/" is three characters, so this lands on MaximumLength exactly.
+    QVERIFY(SynQt::ResumePath::isAcceptable(
+        QStringLiteral("/c/")
+            + QString{SynQt::ResumePath::MaximumLength - 3, QLatin1Char('a')},
+        declared));
+    // One character more.
+    QVERIFY(!SynQt::ResumePath::isAcceptable(
+        QStringLiteral("/c/")
+            + QString{SynQt::ResumePath::MaximumLength - 2, QLatin1Char('a')},
+        declared));
+}
+
+void tst_Routing::resumeRejectsAColonButNotItsEncoding()
+{
+    // The colon rule is wider than scheme detection needs, since a scheme
+    // cannot follow the mandatory leading "/". It is kept because it states
+    // itself in one line, and this is what it costs: a path whose parameter
+    // carries a literal colon is not resumable, while the same path
+    // percent-encoded is.
+    const QStringList declared{QStringLiteral("/c/:campaign")};
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/a:b"), declared));
+    QVERIFY(!SynQt::ResumePath::isAcceptable(QStringLiteral("/c/2026-07-22T10:00"),
+                                             declared));
+    QVERIFY(SynQt::ResumePath::isAcceptable(QStringLiteral("/c/a%3Ab"), declared));
+    QVERIFY(SynQt::ResumePath::isAcceptable(QStringLiteral("/c/2026-07-22T10%3A00"),
                                             declared));
 }
 

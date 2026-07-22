@@ -51,6 +51,14 @@ extern "C" EMSCRIPTEN_KEEPALIVE void synqt_browserhistory_popped(const char *pat
     }
 }
 
+// Emscripten prunes any JS runtime helper nothing declares a need for, and
+// it does not scan EM_JS bodies for the ones they call. The body below runs
+// only on a real back or forward, so an undeclared helper would not show up
+// until a visitor pressed Back. Declared here, a missing one is a link
+// error instead. $stringToNewUTF8 pulls malloc in through its own
+// dependency; free has to be named because the body calls _free directly.
+EM_JS_DEPS(synqt_browserhistory, "$stringToNewUTF8,free");
+
 EM_JS(void, synqt_install_popstate_listener, (), {
     if (Module.synqtPopstateInstalled) {
         return;
@@ -58,9 +66,7 @@ EM_JS(void, synqt_install_popstate_listener, (), {
     Module.synqtPopstateInstalled = true;
     window.addEventListener("popstate", function () {
         var path = window.location.pathname + window.location.search;
-        var bytes = lengthBytesUTF8(path) + 1;
-        var buffer = _malloc(bytes);
-        stringToUTF8(path, buffer, bytes);
+        var buffer = stringToNewUTF8(path);
         Module._synqt_browserhistory_popped(buffer);
         _free(buffer);
     });

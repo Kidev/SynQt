@@ -17,6 +17,15 @@ namespace SynQt {
 
 #ifdef Q_OS_WASM
 
+// Emscripten prunes any JS runtime helper nothing declares a need for, and
+// it does not scan EM_JS bodies for the ones they call. Without this, the
+// helpers below are in scope only as a side effect of what else the link
+// happens to pull in, and losing that would throw a ReferenceError out of
+// the guard path at runtime. Declared here, a missing helper is a link
+// error instead. $stringToNewUTF8 carries its own dependency on malloc, so
+// take() never names _malloc itself.
+EM_JS_DEPS(synqt_resumepath, "$UTF8ToString,$stringToNewUTF8");
+
 // sessionStorage is per tab and is never sent to the server, which is what
 // makes it the right home for an intent that must outlive a navigation to
 // the identity provider. Reached through EM_JS rather than emscripten::val
@@ -31,9 +40,9 @@ EM_JS(void, synqt_resumepath_store, (const char *path), {
     }
 });
 
-// Returns a freshly allocated UTF-8 string the caller frees, empty when
-// nothing was stored. Removing before returning is what makes the read
-// destructive on this platform too.
+// Returns a freshly allocated UTF-8 string the caller frees, or nullptr if
+// the allocation failed, empty when nothing was stored. Removing before
+// returning is what makes the read destructive on this platform too.
 EM_JS(char *, synqt_resumepath_take, (), {
     var value = "";
     try {
@@ -41,10 +50,7 @@ EM_JS(char *, synqt_resumepath_take, (), {
         window.sessionStorage.removeItem("synqt.resume");
     } catch (error) {
     }
-    var bytes = lengthBytesUTF8(value) + 1;
-    var buffer = _malloc(bytes);
-    stringToUTF8(value, buffer, bytes);
-    return buffer;
+    return stringToNewUTF8(value);
 });
 
 #endif // Q_OS_WASM
@@ -101,9 +107,15 @@ bool hasUnsafeSegment(const QString &path)
             return true;
         }
         // "%2f" and "%5c" decode to a separator after the match is decided,
-        // so what was matched is not what is navigated to.
+        // so what was matched is not what is navigated to. "%2e" is the
+        // encoded dot: the URL standard counts ".%2e", "%2e." and "%2e%2e"
+        // as double-dot segments and "%2e" as a single-dot one, so the
+        // literal comparison above catches none of them. Refusing "%2e"
+        // anywhere in a segment covers every spelling in one rule, at the
+        // cost of a parameter that wanted an encoded dot.
         if (segment.contains(QLatin1String("%2f"), Qt::CaseInsensitive)
-            || segment.contains(QLatin1String("%5c"), Qt::CaseInsensitive)) {
+            || segment.contains(QLatin1String("%5c"), Qt::CaseInsensitive)
+            || segment.contains(QLatin1String("%2e"), Qt::CaseInsensitive)) {
             return true;
         }
     }
