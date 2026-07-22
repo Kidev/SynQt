@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 
 import yaml
 
-from . import clientbuild, licenses, toolchain
+from . import clientbuild, licenses, toolchain, version as versionmod
 
 QT_VERSION = toolchain.QT_VERSION
 
@@ -19,7 +19,12 @@ QT_VERSION = toolchain.QT_VERSION
 def report(project_dir: os.PathLike[str] | str,
            qt_license_mode: str = "open_source") -> str:
     root = Path(project_dir)
-    lines: List[str] = ["synqt doctor:"]
+    # The version block leads the report: a question about a build is nearly always a
+    # question about which synqt, Qt, and Emscripten produced it, so it belongs before
+    # everything else rather than buried in the toolchain section below.
+    lines: List[str] = list(versionmod.version_lines())
+    lines.append("")
+    lines.append("synqt doctor:")
 
     config: Dict[str, Any] = {}
     config_path = root / "synqt.yaml"

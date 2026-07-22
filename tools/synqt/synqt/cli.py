@@ -15,7 +15,8 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from . import (addauth, addcontract, addentity, addprovider, build as buildmod,
-               check as checkmod, clientbuild, doctor, mesh, newproject, run as runmod)
+               check as checkmod, clientbuild, doctor, mesh, newproject, run as runmod,
+               version as versionmod)
 
 
 def _load_config(project_dir: str) -> Dict[str, Any]:
@@ -28,9 +29,31 @@ def _service_entities(config: Dict[str, Any]) -> List[str]:
             if isinstance(e, dict) and e.get("kind") != "client"]
 
 
+class _PrintVersionAction(argparse.Action):
+    """Print `version.version_lines()` as three literal lines.
+
+    argparse's own ``action="version"`` runs the version string through the parser's
+    HelpFormatter, whose `_fill_text` collapses every embedded newline into a space
+    before wrapping to the terminal width; the three lines from `version_lines()` would
+    come out as one reflowed paragraph. Printing them directly keeps them three lines.
+    """
+
+    def __init__(self, option_strings: List[str], dest: str = argparse.SUPPRESS,
+                default: str = argparse.SUPPRESS, help: Optional[str] = None) -> None:
+        super().__init__(option_strings=option_strings, dest=dest, default=default,
+                         nargs=0, help=help)
+
+    def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace,
+                values: Any, option_string: Optional[str] = None) -> None:
+        parser._print_message("\n".join(versionmod.version_lines()) + "\n", sys.stdout)
+        parser.exit()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="synqt", description="The SynQt CLI.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--version", "-V", action=_PrintVersionAction,
+                        help="print the CLI version and the pinned toolchain")
+    sub = parser.add_subparsers(dest="command", required=False)
 
     new = sub.add_parser("new", help="scaffold a new project")
     new.add_argument("name")
@@ -148,6 +171,9 @@ def _run_mesh(args: argparse.Namespace) -> int:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not getattr(args, "command", None):
+        parser.print_help()
+        return 2
     try:
         if args.command == "new":
             print(newproject.scaffold(args.parent_dir, args.name,

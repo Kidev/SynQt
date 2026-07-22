@@ -17,9 +17,9 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from . import appgen, licenses, presets
+from . import appgen, licenses, presets, toolchain
 
-QT_VERSION = "6.11.1"
+QT_VERSION = toolchain.QT_VERSION
 
 # The qmlformat settings a scaffolded project gets, and the only source of truth for them
 # (there is no copy anywhere; see QmlFormatSettingsSourceTest). Inline rather than read from
