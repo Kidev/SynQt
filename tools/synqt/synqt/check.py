@@ -9,7 +9,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
@@ -23,8 +23,7 @@ def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
     if not entities:
         return False, ["error: no entities declared"]
 
-    web_edges = {name for name, e in entities.items()
-                 if e.get("capability") == "web_edge" or e.get("web_edge")}
+    web_edges = {name for name, e in entities.items() if _is_web_edge(e)}
     clients = {name for name, e in entities.items() if e.get("kind") == "client"}
 
     for connect_point in config.get("connect_points", []):
@@ -150,11 +149,22 @@ def _is_route_parameter_name(name: str) -> bool:
     """Is `name` (the part after the ':' in a ":campaign" segment) bindable?
 
     This mirrors RoutePattern::isIdentifier in src/client/routepattern.cpp, which tests
-    QChar::isLetter and QChar::isLetterOrNumber, so any Unicode letter is legal at
-    runtime. Rejecting a route that the router would happily serve is the worse of the
-    two errors here, so the check accepts exactly what the runtime accepts.
+    QChar::isLetter and QChar::isLetterOrNumber, so a Unicode letter from the basic
+    multilingual plane is legal at runtime. Rejecting a route that the router would
+    happily serve is the worse of the two errors here, so the check accepts every name
+    the runtime accepts, and no more than that.
+
+    Above the BMP the equivalence stops, which is why the plane is named. isIdentifier
+    iterates QChar, so a code point above U+FFFF reaches it as a surrogate pair,
+    QChar::isLetter is false on a surrogate, the pattern is invalid, and the route
+    silently never matches. Accepting it here would bless a dead route, so it is
+    rejected instead. Widening the runtime to iterate code points was the alternative,
+    and it is the worse trade: it would leave every already-deployed client rejecting a
+    table this check had called clean.
     """
     if not name:
+        return False
+    if any(ord(character) > 0xFFFF for character in name):
         return False
     if not (name[0].isalpha() or name[0] == "_"):
         return False
@@ -164,15 +174,14 @@ def _is_route_parameter_name(name: str) -> bool:
 def _normalized_route_path(path: str) -> str:
     """A route path as the runtime matcher sees it.
 
-    RoutePattern::matches strips exactly one trailing slash from the incoming path
-    before comparing, and the pattern itself is split with Qt::SkipEmptyParts, so "/c"
-    and "/c/" are one and the same route. Comparing the raw strings would let both be
-    declared, leaving the second permanently unreachable. The root is left alone: it is
-    the one path that is nothing but its slash.
+    RoutePattern splits a pattern with Qt::SkipEmptyParts, so an empty segment is not a
+    segment: "/c", "/c/" and "/c//" are one route, and so are "/a//b" and "/a/b".
+    Comparing the raw strings would let two of them be declared, leaving the second
+    permanently unreachable. Rebuilding the path from its non-empty segments is the same
+    rule, so the root comes back as "/": it is the one path that is nothing but slashes.
     """
-    if len(path) > 1 and path.endswith("/"):
-        return path[:-1]
-    return path
+    return "/" + "/".join(segment for segment in path.split("/") if segment)
+
 
 # The OAuth routes' yaml keys and their defaults (docs/project-layout-and-config.md,
 # "identity"), and the fixed defaults src/service/identityconfig.h ships when a project
@@ -186,15 +195,23 @@ _IDENTITY_ROUTE_KEYS = {
 
 
 def _is_web_edge(entity: Dict[str, Any]) -> bool:
-    """Same test `validate()` uses to find the web_edge entities, so the two checks
-    cannot disagree about which entity's `public` section is authoritative."""
+    """The one test for "is this entity a web edge", called from `validate()` too, so
+    the two checks cannot disagree about which entity's `public` section is
+    authoritative."""
     return entity.get("capability") == "web_edge" or bool(entity.get("web_edge"))
 
 
-def _reserved_edge_paths(config: Dict[str, Any]) -> set:
-    """Paths the web edge answers itself, so a client route there is silently shadowed
-    and never reached (see src/service/webedge.cpp): the WebSocket upgrade path, and,
-    when `identity` is configured, the OAuth login/callback/logout routes.
+def _reserved_edge_paths(config: Dict[str, Any]) -> Set[str]:
+    """Paths a client route must not claim, because the browser would never route on
+    them: the WebSocket sync endpoint, and, when `identity` is configured, the OAuth
+    login/callback/logout routes.
+
+    The two are reserved for different reasons. The login/callback/logout routes are
+    registered on QHttpServer (src/service/webedge.cpp), so the edge answers them
+    itself and a client route there is shadowed outright. `/sync` is not an HTTP route
+    at all: the upgrade verifier runs on any path, and a plain GET of it falls through
+    to the shell like any other deep link. It is reserved because it is the URL the
+    client opens its wss link on, so a client route sharing it is a trap either way.
 
     Both are read from the resolved config rather than hard coded, because both are
     user configurable (`public.sync_route`, `identity.login/callback/logout`); a
@@ -217,38 +234,51 @@ def _reserved_edge_paths(config: Dict[str, Any]) -> set:
 
 
 def lint_routes(config: Dict[str, Any]) -> List[str]:
-    """Validate `client.routes` and `client.router` (check.routes_valid /
+    """Validate the top-level `routes` and `router` blocks (check.routes_valid /
     check.router_base_valid). Returns findings, empty when the table is clean.
+
+    Both are top level in synqt.yaml (docs/project-layout-and-config.md), and that is
+    where appgen.render_client_main reads them to compile the table into the client, so
+    it is where they are read here: a rule looking anywhere else would pass everything.
 
     Left to the router this is a production only bug: two routes racing for the same
     path, a parameter nobody can bind to, or a fallback pointing nowhere all build and
     load fine and only misbehave the moment a visitor's browser hits them.
     """
     findings: List[str] = []
-    client = config.get("client") or {}
-    routes = client.get("routes") or []
-    router = client.get("router") or {}
+    routes = config.get("routes") or []
+    router = config.get("router")
+    if not isinstance(router, dict):
+        router = {}
     reserved = {_normalized_route_path(p) for p in _reserved_edge_paths(config)}
 
     seen = set()
     for route in routes:
         if not isinstance(route, dict):
             continue
-        path = route.get("path", "")
+        path = route.get("path")
+        if not isinstance(path, str):
+            # A bare "- path:" reads as null, which is the common typo here; every
+            # other value is a mistyped path. Neither must take the check down.
+            findings.append(f"error: route path {path!r} must be a string starting "
+                            "with '/'")
+            continue
         if not path.startswith("/"):
             findings.append(f"error: route path {path!r} must be absolute (start with '/')")
             continue
         normalized = _normalized_route_path(path)
         if normalized in seen:
             detail = ("" if normalized == path
-                      else " (a trailing slash does not make a distinct route)")
+                      else f" (the runtime reads it as {normalized!r}: an empty path "
+                           "segment does not make a distinct route)")
             findings.append(f"error: duplicate route path {path!r}{detail}; only the "
                             "first declaration is ever reached")
         seen.add(normalized)
         if normalized in reserved:
             findings.append(
-                f"error: route path {path!r} is reserved by the web edge and would "
-                "never be reached by the client router")
+                f"error: route path {path!r} is reserved by the web edge: a client "
+                "route there is either answered by the edge itself or collides with "
+                "the wss sync endpoint")
 
         names = set()
         for segment in (s for s in path.split("/") if s):
