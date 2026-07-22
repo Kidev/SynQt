@@ -339,6 +339,26 @@ QString WebEdge::bundlePathFor(const QString &urlPath) const
     return m_etags.contains(resolved) ? resolved : QString{};
 }
 
+QHttpServerResponse WebEdge::shellOrNotFound(const QString &path,
+                                             const QHttpServerRequest &request) const
+{
+    // Only a navigation gets the shell. A POST or a DELETE to an unknown URL is a
+    // client bug or a probe, and answering it with HTML would hide that.
+    if (request.method() != QHttpServerRequest::Method::Get
+        && request.method() != QHttpServerRequest::Method::Head) {
+        return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
+    }
+    // An asset request (its last segment has an extension) must fail honestly rather
+    // than receive HTML with a 200, which would surface as a confusing module-load
+    // error instead of a missing file.
+    const qsizetype lastSlash{path.lastIndexOf(QLatin1Char('/'))};
+    if (path.mid(lastSlash + 1).contains(QLatin1Char('.'))) {
+        return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
+    }
+    const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
+    return QHttpServerResponse::fromFile(index);
+}
+
 void WebEdge::computeScriptHashes()
 {
     m_scriptHashes.clear();
@@ -428,8 +448,16 @@ bool WebEdge::start()
             return QHttpServerResponse{QHttpServerResponse::StatusCode::Forbidden};
         }
         const QString resolved{QFileInfo{QDir{m_config.bundleDir}, asset}.canonicalFilePath()};
-        if (resolved.isEmpty() || bundleRoot.isEmpty()
-            || !resolved.startsWith(bundleRoot + QLatin1Char('/'))) {
+        if (resolved.isEmpty()) {
+            // The bundle holds no such file. This route and the shell fallback below
+            // share the "/<arg>" template and this one is registered first, so a
+            // single-segment client route ("/about") is matched here and would never
+            // reach the fallback. Answer it on the fallback's own terms.
+            return shellOrNotFound(asset, request);
+        }
+        if (bundleRoot.isEmpty() || !resolved.startsWith(bundleRoot + QLatin1Char('/'))) {
+            // It exists, but outside the bundle. Refuse it, and never dress the attempt
+            // up as a client route.
             return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
         }
         if (auto notModified{notModifiedFor(request, etagFor(resolved))}) {
@@ -481,17 +509,8 @@ bool WebEdge::start()
     // remainder ("/a/b/c"), not just one path component.
     m_httpServer->route(QStringLiteral("/<arg>"), QHttpServerRequest::Method::Get
                                                        | QHttpServerRequest::Method::Head,
-                        [this](const QUrl &rest) {
-        const QString path{rest.path()};
-        const qsizetype lastSlash{path.lastIndexOf(QLatin1Char('/'))};
-        const QString lastSegment{path.mid(lastSlash + 1)};
-        // An asset request (it has an extension) must fail honestly rather than
-        // receive HTML with a 200.
-        if (lastSegment.contains(QLatin1Char('.'))) {
-            return QHttpServerResponse{QHttpServerResponse::StatusCode::NotFound};
-        }
-        const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
-        return QHttpServerResponse::fromFile(index);
+                        [this](const QUrl &rest, const QHttpServerRequest &request) {
+        return shellOrNotFound(rest.path(), request);
     });
     m_httpServer->addAfterRequestHandler(
         this, [this](const QHttpServerRequest &request, QHttpServerResponse &response) {
