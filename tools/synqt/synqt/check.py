@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -234,11 +235,16 @@ def _reserved_edge_paths(config: Dict[str, Any]) -> Set[str]:
 
 
 def _client_entity_name(config: Dict[str, Any]) -> Optional[str]:
-    """The name of the client entity, which is also the directory its QML lives in."""
+    """The name of the client entity, which is also the directory its QML lives in.
+
+    A client entity with no name falls back to "client", because that is the directory
+    the generator will look in (appgen._client_cmake defaults the same way); reading it
+    as "no client" here would skip the view rule on a project the build still generates.
+    None means there is no client entity at all, and then no view is compiled anywhere.
+    """
     for entity in config.get("entities") or []:
         if isinstance(entity, dict) and entity.get("kind") == "client":
-            name = str(entity.get("name") or "")
-            return name or None
+            return str(entity.get("name") or "") or "client"
     return None
 
 
@@ -255,10 +261,19 @@ def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) ->
     name = view.strip()
     if not name.endswith(".qml"):
         name += ".qml"
-    if PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts:
+    # Both spellings of a separator, and a drive letter, because SynQt builds on Windows
+    # hosts too: PurePosixPath reads 'C:/views/Home.qml' as relative and '..\\web\\A.qml'
+    # as one part with no '..' in it, so a POSIX-only rule would wave through exactly the
+    # two escapes it advertises catching, on the host where they resolve.
+    spelled = PurePosixPath(name.replace("\\", "/"))
+    if (spelled.is_absolute() or ".." in spelled.parts
+            or re.match(r"^[A-Za-z]:", name)):
         return [f"error: route {path!r} names view '{view}': a view is named relative "
                 f"to the client entity's directory ('{client}/'), so it cannot be an "
                 "absolute or parent path"]
+    # The spelling the generator compiles in, so './About.qml' and 'About.qml' are read
+    # as the one file they are, here and there alike.
+    name = spelled.as_posix()
     if (client_dir / name).is_file():
         return []
     prefix = f"{client}/"
@@ -270,7 +285,8 @@ def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) ->
             f"'{client}/{name}'{hint}"]
 
 
-def lint_routes(config: Dict[str, Any], project_dir=None) -> List[str]:
+def lint_routes(config: Dict[str, Any],
+                project_dir: os.PathLike[str] | str | None = None) -> List[str]:
     """Validate the top-level `routes` and `router` blocks (check.routes_valid /
     check.router_base_valid). Returns findings, empty when the table is clean.
 
@@ -301,14 +317,16 @@ def lint_routes(config: Dict[str, Any], project_dir=None) -> List[str]:
         if not isinstance(route, dict):
             continue
         path = route.get("path")
-        if client_dir is not None:
-            findings += _route_view_findings(path, route.get("view"), client, client_dir)
         if not isinstance(path, str):
             # A bare "- path:" reads as null, which is the common typo here; every
             # other value is a mistyped path. Neither must take the check down.
+            # This runs before the view rule so that typo reports the one thing that
+            # is wrong: a route with no path has no name to report a view against.
             findings.append(f"error: route path {path!r} must be a string starting "
                             "with '/'")
             continue
+        if client_dir is not None:
+            findings += _route_view_findings(path, route.get("view"), client, client_dir)
         if not path.startswith("/"):
             findings.append(f"error: route path {path!r} must be absolute (start with '/')")
             continue
@@ -391,7 +409,7 @@ def _loading_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
-def lint_loading(project_dir) -> List[str]:
+def lint_loading(project_dir: os.PathLike[str] | str) -> List[str]:
     """Check that build.loading's files exist and that an html override keeps its
     contract with the boot script.
 
@@ -444,7 +462,7 @@ def _qml_root_type(source: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def lint_client_root(project_dir) -> List[str]:
+def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
     """Check that every client entity's Main.qml root is a window.
 
     The generated client main.cpp does engine.loadFromModule(uri, "Main"), so Main.qml is
@@ -477,7 +495,7 @@ def lint_client_root(project_dir) -> List[str]:
 _CONTRACT_MEMBERS = ("prop", "model", "slot", "signal")
 
 
-def lint_contracts(project_dir) -> List[str]:
+def lint_contracts(project_dir: os.PathLike[str] | str) -> List[str]:
     """Structural lint of shared/*.syn. (The full parse runs in synqtc at build time.)"""
     messages: List[str] = []
     shared = Path(project_dir) / "shared"
@@ -541,7 +559,7 @@ def qmlformat_path() -> Optional[str]:
     return qt_tool_path("qmlformat")
 
 
-def project_qml_files(project_dir) -> List[Path]:
+def project_qml_files(project_dir: os.PathLike[str] | str) -> List[Path]:
     """The project's own QML: not build output, not vendored dependencies."""
     root = Path(project_dir)
     return [qml for qml in sorted(root.rglob("*.qml"))
@@ -561,7 +579,7 @@ def wants_qml_format_check(config: Dict[str, Any]) -> bool:
     return bool((config.get("check") or {}).get("qml_format", False))
 
 
-def check_qml_format(project_dir) -> List[str]:
+def check_qml_format(project_dir: os.PathLike[str] | str) -> List[str]:
     """Report QML that qmlformat would reformat, as a warning.
 
     qmlformat has no --check mode in 6.11: it writes in place or prints to stdout, so the
@@ -595,7 +613,7 @@ def check_qml_format(project_dir) -> List[str]:
             f"{', '.join(unformatted)} (run: qmlformat -s .qmlformat.ini -i <file>)"]
 
 
-def lint_qml(project_dir) -> List[str]:
+def lint_qml(project_dir: os.PathLike[str] | str) -> List[str]:
     """Lint the project's QML with qmllint.
 
     Reads qmllint's OUTPUT, not its exit status: qmllint exits 0 for warnings, so a check
@@ -622,7 +640,7 @@ def lint_qml(project_dir) -> List[str]:
     return messages
 
 
-def check_project(project_dir) -> Tuple[bool, List[str]]:
+def check_project(project_dir: os.PathLike[str] | str) -> Tuple[bool, List[str]]:
     """The full `synqt check`: topology validation + contract lint + loading lint + QML lint."""
     config_path = Path(project_dir) / "synqt.yaml"
     config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}

@@ -219,12 +219,78 @@ def test_a_route_outside_the_client_directory_is_rejected():
     assert any("parent path" in m for m in messages), messages
 
 
+def test_a_windows_spelled_escape_is_rejected_on_every_host():
+    # SynQt builds on Windows hosts too, and the POSIX reading of these two is not the
+    # one the host would take: 'C:/views/A.qml' is not absolute to PurePosixPath and
+    # '..\\web\\A.qml' is one part with no '..' in it, so the rule that advertises
+    # catching an absolute or parent path would wave both through.
+    drive = _project()
+    (drive / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: C:/views/A.qml"))
+    ok, messages = check.check_project(drive)
+    assert not ok, messages
+    assert any("parent path" in m for m in messages), messages
+
+    traversal = _project()
+    (traversal / "synqt.yaml").write_text(
+        _PROJECT.replace("view: A.qml", "view: ..\\web\\A.qml"))
+    ok, messages = check.check_project(traversal)
+    assert not ok, messages
+    assert any("parent path" in m for m in messages), messages
+
+
+def test_a_view_in_a_subdirectory_of_the_client_is_accepted():
+    # A view may sit in a subdirectory; it is aliased into the module at that same
+    # relative path, so the route's qrc URL still names it.
+    root = _project()
+    (root / "client" / "views").mkdir()
+    (root / "client" / "views" / "Deep.qml").write_text("import QtQuick\n\nItem {}\n")
+    (root / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: views/Deep.qml")
+                                             .replace("  - path: /c/\n", "  - path: /d\n"))
+    ok, messages = check.check_project(root)
+    assert ok, messages
+
+
+def test_a_view_written_with_a_leading_dot_slash_is_accepted():
+    # './A.qml' is A.qml, and the generator normalizes it to exactly that; the check
+    # must not report a file that is there as missing.
+    root = _project()
+    (root / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: ./A.qml")
+                                             .replace("  - path: /c/\n", "  - path: /d\n"))
+    ok, messages = check.check_project(root)
+    assert ok, messages
+
+
 def test_a_route_with_no_view_is_rejected():
     root = _project()
     (root / "synqt.yaml").write_text(_PROJECT.replace("    view: A.qml\n", ""))
     ok, messages = check.check_project(root)
     assert not ok, messages
     assert any("declares no view" in m for m in messages), messages
+
+
+def test_a_bare_path_typo_reports_only_the_path():
+    # "- path:" with no value reads as null. The view rule would otherwise report
+    # "route None declares no view" first, on a route that has no name to report.
+    root = _project()
+    (root / "synqt.yaml").write_text(_PROJECT.replace("  - path: /c\n    view: A.qml\n",
+                                                      "  - path:\n    view: A.qml\n"))
+    ok, messages = check.check_project(root)
+    assert not ok, messages
+    assert any("must be a string" in m for m in messages), messages
+    assert not any("declares no view" in m for m in messages), messages
+
+
+def test_a_client_entity_with_no_name_still_has_its_views_checked():
+    # appgen defaults the client directory to "client"; reading a nameless client entity
+    # as "no client at all" here would skip the view rule on a project it still generates.
+    # lint_routes directly, not check_project: an entity with no name trips an unrelated
+    # rule in validate() long before the route table is read.
+    root = _project()
+    config = {"entities": [{"kind": "client"}],
+              "routes": [{"path": "/", "view": "Missing.qml"}],
+              "router": {"fallback": "/"}}
+    findings = check.lint_routes(config, root)
+    assert any("no such file 'client/Missing.qml'" in f for f in findings), findings
 
 
 def test_an_unknown_router_mode_is_a_warning():
