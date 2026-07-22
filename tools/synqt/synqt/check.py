@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
@@ -233,7 +233,44 @@ def _reserved_edge_paths(config: Dict[str, Any]) -> Set[str]:
     return reserved
 
 
-def lint_routes(config: Dict[str, Any]) -> List[str]:
+def _client_entity_name(config: Dict[str, Any]) -> Optional[str]:
+    """The name of the client entity, which is also the directory its QML lives in."""
+    for entity in config.get("entities") or []:
+        if isinstance(entity, dict) and entity.get("kind") == "client":
+            name = str(entity.get("name") or "")
+            return name or None
+    return None
+
+
+def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) -> List[str]:
+    """Check that a route's `view` names a QML file that is really there.
+
+    `synqt build` puts every route's view into the client's QML module, so a view that
+    is not on disk stops the build inside CMake, on a generated file the project does
+    not own. Caught here it names the route and the file instead.
+    """
+    if not isinstance(view, str) or not view.strip():
+        return [f"error: route {path!r} declares no view; there is nothing for the "
+                "router to show there"]
+    name = view.strip()
+    if not name.endswith(".qml"):
+        name += ".qml"
+    if PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts:
+        return [f"error: route {path!r} names view '{view}': a view is named relative "
+                f"to the client entity's directory ('{client}/'), so it cannot be an "
+                "absolute or parent path"]
+    if (client_dir / name).is_file():
+        return []
+    prefix = f"{client}/"
+    hint = ""
+    if name.startswith(prefix) and (client_dir / name[len(prefix):]).is_file():
+        hint = (f"; a view is named relative to the client entity's directory, so "
+                f"write it as '{name[len(prefix):]}'")
+    return [f"error: route {path!r} names view '{view}': no such file "
+            f"'{client}/{name}'{hint}"]
+
+
+def lint_routes(config: Dict[str, Any], project_dir=None) -> List[str]:
     """Validate the top-level `routes` and `router` blocks (check.routes_valid /
     check.router_base_valid). Returns findings, empty when the table is clean.
 
@@ -244,6 +281,11 @@ def lint_routes(config: Dict[str, Any]) -> List[str]:
     Left to the router this is a production only bug: two routes racing for the same
     path, a parameter nobody can bind to, or a fallback pointing nowhere all build and
     load fine and only misbehave the moment a visitor's browser hits them.
+
+    Given `project_dir` (the whole-project entry point always has one), each route's
+    view is also checked against the filesystem; without it the config-only rules run
+    and the view rule is skipped, so a caller holding nothing but a parsed config still
+    gets every rule that does not need files.
     """
     findings: List[str] = []
     routes = config.get("routes") or []
@@ -251,12 +293,16 @@ def lint_routes(config: Dict[str, Any]) -> List[str]:
     if not isinstance(router, dict):
         router = {}
     reserved = {_normalized_route_path(p) for p in _reserved_edge_paths(config)}
+    client = _client_entity_name(config)
+    client_dir = Path(project_dir) / client if project_dir is not None and client else None
 
     seen = set()
     for route in routes:
         if not isinstance(route, dict):
             continue
         path = route.get("path")
+        if client_dir is not None:
+            findings += _route_view_findings(path, route.get("view"), client, client_dir)
         if not isinstance(path, str):
             # A bare "- path:" reads as null, which is the common typo here; every
             # other value is a mistyped path. Neither must take the check down.
@@ -305,6 +351,13 @@ def lint_routes(config: Dict[str, Any]) -> List[str]:
     base = router.get("base", "/")
     if not str(base).startswith("/"):
         findings.append(f"error: router.base {base!r} must start with '/'")
+
+    # `history` is the only mode there is, and an unknown one is silently ignored rather
+    # than refused, so a project that asked for something else would never be told.
+    mode = router.get("mode", "history")
+    if str(mode) != "history":
+        findings.append(f"warn: router.mode {mode!r} is not a mode SynQt has; the router "
+                        "always drives the History API ('history') and ignores this key")
 
     return findings
 
@@ -577,7 +630,7 @@ def check_project(project_dir) -> Tuple[bool, List[str]]:
     contract_messages = lint_contracts(project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
-    route_messages = lint_routes(config)
+    route_messages = lint_routes(config, project_dir)
     messages += contract_messages
     messages += loading_messages
     messages += route_messages
