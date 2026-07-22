@@ -24,6 +24,11 @@ private slots:
     void trailingSlashIsIgnored();
     void malformedPatternIsInvalid();
     void queryIsSplitOffAndParsed();
+    void relativePathDoesNotMatch();
+    void protocolRelativePathDoesNotMatch();
+    void interiorDoubleSlashDoesNotMatch();
+    void rootPatternMatchesRootOnly();
+    void failedMatchLeavesParametersUntouched();
 };
 
 void tst_Routing::literalMatches()
@@ -95,6 +100,52 @@ void tst_Routing::queryIsSplitOffAndParsed()
     QCOMPARE(path, QStringLiteral("/c/summer"));
     QCOMPARE(query.value(QStringLiteral("ref")).toString(), QStringLiteral("email"));
     QCOMPARE(query.value(QStringLiteral("page")).toString(), QStringLiteral("2"));
+}
+
+void tst_Routing::relativePathDoesNotMatch()
+{
+    const RoutePattern pattern{QStringLiteral("/cart")};
+    QVariantMap parameters;
+    QVERIFY(!pattern.matches(QStringLiteral("cart"), &parameters));
+}
+
+void tst_Routing::protocolRelativePathDoesNotMatch()
+{
+    // "//cart" is the classic protocol-relative open-redirect payload; matches()
+    // must not collapse it down to a single "cart" segment.
+    const RoutePattern pattern{QStringLiteral("/cart")};
+    QVariantMap parameters;
+    QVERIFY(!pattern.matches(QStringLiteral("//cart"), &parameters));
+}
+
+void tst_Routing::interiorDoubleSlashDoesNotMatch()
+{
+    const RoutePattern pattern{QStringLiteral("/c/:campaign")};
+    QVariantMap parameters;
+    QVERIFY(!pattern.matches(QStringLiteral("/c//summer"), &parameters));
+}
+
+void tst_Routing::rootPatternMatchesRootOnly()
+{
+    // The Router falls back to "/", so "/" matching "/" is required.
+    const RoutePattern pattern{QStringLiteral("/")};
+    QVERIFY(pattern.isValid());
+    QVariantMap parameters;
+    QVERIFY(pattern.matches(QStringLiteral("/"), &parameters));
+    // "" is not an absolute path, so it must not match, trailing-slash tolerance
+    // notwithstanding.
+    QVERIFY(!pattern.matches(QString(), &parameters));
+}
+
+void tst_Routing::failedMatchLeavesParametersUntouched()
+{
+    const RoutePattern pattern{QStringLiteral("/c/:campaign")};
+    QVariantMap parameters;
+    parameters.insert(QStringLiteral("sentinel"), QStringLiteral("untouched"));
+    QVERIFY(!pattern.matches(QStringLiteral("/c/summer/extra"), &parameters));
+    QCOMPARE(parameters.size(), 1);
+    QCOMPARE(parameters.value(QStringLiteral("sentinel")).toString(),
+             QStringLiteral("untouched"));
 }
 
 QTEST_MAIN(tst_Routing)

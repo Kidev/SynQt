@@ -82,7 +82,26 @@ bool RoutePattern::matches(const QString &path, QVariantMap *parameters) const
     if (!m_valid) {
         return false;
     }
-    const QStringList actual{splitSegments(path)};
+    if (!path.startsWith(QLatin1Char('/'))) {
+        return false;
+    }
+    QStringList actual{path.split(QLatin1Char('/'), Qt::KeepEmptyParts)};
+    // path starts with '/', so the leading element is always the empty
+    // string in front of it; drop it, it is not a segment.
+    actual.removeFirst();
+    // Tolerate exactly one trailing slash: it produces exactly one
+    // trailing empty element, dropped here rather than rejected below.
+    if (!actual.isEmpty() && actual.last().isEmpty()) {
+        actual.removeLast();
+    }
+    for (const QString &segment : actual) {
+        if (segment.isEmpty()) {
+            // Any remaining empty element is an interior "//" (or a
+            // leading "//", which after removeFirst() also shows up as
+            // a leading empty element here); this never matches.
+            return false;
+        }
+    }
     if (actual.size() != m_segments.size()) {
         return false;
     }
@@ -94,6 +113,11 @@ bool RoutePattern::matches(const QString &path, QVariantMap *parameters) const
                             QUrl::fromPercentEncoding(actual.at(index).toUtf8()));
             continue;
         }
+        /// Literal segments compare against the raw, still percent-encoded
+        /// actual segment, while parameter segments are decoded before
+        /// capture. So "/%63art" will not match a literal "/cart" pattern.
+        /// That asymmetry only ever produces a false negative, never a
+        /// false positive, so it is safe to leave as is.
         if (segment != actual.at(index)) {
             return false;
         }
