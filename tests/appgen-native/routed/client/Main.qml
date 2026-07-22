@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The window every route renders inside: one Loader over Router.pageComponent, which is
-// the whole client side of URL routing. It reports what the router resolved, walks to the
-// second route, reports again, and quits, so the run is the proof.
+// the whole client side of URL routing. It reports what the router resolved, walks the rest
+// of the route table reporting each time, and quits, so the run is the proof.
 
 import QtQuick
 import QtQuick.Controls
@@ -24,8 +24,9 @@ ApplicationWindow {
                     + " status=" + window.statusName(Router.pageStatus)
                     + " view=" + view);
         window.step += 1;
-        if (window.step === 1) {
-            Router.go("/about");
+        const walk = ["/about", "/help"];
+        if (window.step <= walk.length) {
+            Router.go(walk[window.step - 1]);
             prober.restart();
             return;
         }

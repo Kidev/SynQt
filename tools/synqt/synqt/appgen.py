@@ -157,12 +157,54 @@ def discover_singletons(entity_dir: os.PathLike[str] | str) -> List[str]:
     directory = Path(entity_dir)
     if not directory.is_dir():
         return []
-    singletons: List[str] = []
-    for qml_file in sorted(directory.glob("*.qml")):
-        text = qml_file.read_text(encoding="utf-8", errors="ignore")
-        if re.search(r"^\s*pragma\s+Singleton\b", text, re.MULTILINE):
-            singletons.append(qml_file.stem)
-    return singletons
+    return [qml_file.stem for qml_file in sorted(directory.glob("*.qml"))
+            if declares_singleton(qml_file)]
+
+
+def declares_singleton(qml_file: os.PathLike[str] | str) -> bool:
+    """Whether a QML file opens with `pragma Singleton`.
+
+    The one place that answer is spelled out: discover_singletons registers an entity's
+    singletons by path, and the client's QML module marks them QT_QML_SINGLETON_TYPE, and
+    the two must never disagree about what a singleton is.
+    """
+    path = Path(qml_file)
+    if not path.is_file():
+        return False
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    return re.search(r"^\s*pragma\s+Singleton\b", text, re.MULTILINE) is not None
+
+
+# Directories under the client entity that are build output or generated, never sources
+# to compile into the QML module. A leading dot (.git, .cache) is skipped as well.
+_NOT_CLIENT_SOURCE_DIRS = {"build", "generated", "CMakeFiles", "node_modules"}
+
+
+def _client_qml_files(config: Dict[str, Any],
+                      client_dir: Optional[Path]) -> List[str]:
+    """Every QML file the client's module compiles in, relative to the client directory.
+
+    Main.qml first (it is the window), then the views the routes name in declaration
+    order, then every other `*.qml` under the client entity's directory. The last group
+    is what makes a view self-contained: a view that instantiates a sibling `Card.qml`,
+    or reads a `pragma Singleton` `Theme.qml`, needs that file inside the same module or
+    it fails at load with the same "no such file" the route views used to.
+
+    Without `client_dir` (a caller rendering CMake from a config alone) only the first
+    two groups are known, which is the set this generator has always emitted.
+    """
+    files = ["Main.qml"] + _route_views(config)
+    if client_dir is None or not client_dir.is_dir():
+        return files
+    for qml_file in sorted(client_dir.rglob("*.qml")):
+        relative = qml_file.relative_to(client_dir)
+        if any(part.startswith(".") or part in _NOT_CLIENT_SOURCE_DIRS
+               for part in relative.parts[:-1]):
+            continue
+        name = relative.as_posix()
+        if name not in files:
+            files.append(name)
+    return files
 
 
 def _singleton_registrations(entity_name: str, singletons: List[str]) -> str:
@@ -180,7 +222,14 @@ def _singleton_registrations(entity_name: str, singletons: List[str]) -> str:
 
 # --------------------------------------------------------------------------- CMake
 
-def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] | str) -> str:
+def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] | str,
+                           project_dir: os.PathLike[str] | str | None = None) -> str:
+    """The multi-binary root CMakeLists for the whole topology.
+
+    `project_dir` is the app the CMake is being written for. Given it, the client's QML
+    module gets every QML file under the client entity's directory, not only the views
+    the routes name, so a view's helper components and singletons are in the module too.
+    """
     project = config.get("project", {})
     name = project.get("name", "app")
     qt_version = project.get("qt_version", "6.11.1")
@@ -204,7 +253,9 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                         "qt_standard_project_setup(REQUIRES 6.11)", ""]
 
     if client is not None:
-        lines += _client_cmake(config, client, uri)
+        root = Path(project_dir) if project_dir is not None else None
+        client_dir = root / client.get("name", "client") if root is not None else None
+        lines += _client_cmake(config, client, uri, client_dir)
 
     if services:
         lines += ["", "# ---- Service entities (host only; never built for WebAssembly) ----",
@@ -226,23 +277,31 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
     return "\n".join(lines) + "\n"
 
 
-def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str) -> List[str]:
+def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
+                  client_dir: Optional[Path] = None) -> List[str]:
     name = client.get("name", "client")
     consumed = _consumed_by(config, name)
     contracts = _contracts_of(consumed)
-    # The window, then every view a route names: a view outside the module is not in the
-    # resource system, so the URL the route table carries would resolve to nothing.
-    views = ["Main.qml"] + _route_views(config)
+    # The window, every view a route names, and every other QML file the client entity
+    # holds: a file outside the module is not in the resource system, so neither the URL
+    # the route table carries nor a view's own `Card {}` would resolve to anything.
+    views = _client_qml_files(config, client_dir)
     qml_files = ['"${CMAKE_CURRENT_SOURCE_DIR}/%s/%s"' % (name, view) for view in views]
     lines = ["# ---- The client (browser WASM and native desktop, from one QML) ----",
              'add_subdirectory("${SYNQT_ROOT}/src/client" "${CMAKE_BINARY_DIR}/SynQtClient")']
-    # Each file is listed by absolute path, and each has to land at the module root:
-    # that is where loadFromModule() looks for Main and where the compiled route table
-    # points (qrc:/qt/qml/<Uri>/<view>). Without an alias the entity directory would
-    # become part of the resource path and neither would resolve.
+    # Each file is listed by absolute path, and each has to land where it sits in the
+    # entity directory: the module root is where loadFromModule() looks for Main and
+    # where the compiled route table points (qrc:/qt/qml/<Uri>/<view>). Without an alias
+    # the entity directory would become part of the resource path and neither would
+    # resolve. A `pragma Singleton` file is also marked as one, or the module would
+    # register it as an ordinary type and a view reading `Theme.color` would not compile.
     for view, qml_file in zip(views, qml_files):
+        singleton = (client_dir is not None
+                     and declares_singleton(client_dir / view))
+        properties = ("QT_QML_SINGLETON_TYPE TRUE " if singleton else "")
         lines.append("set_source_files_properties(%s\n"
-                     "    PROPERTIES QT_RESOURCE_ALIAS %s)" % (qml_file, view))
+                     "    PROPERTIES %sQT_RESOURCE_ALIAS %s)"
+                     % (qml_file, properties, view))
     lines += [
              'set(SYNQT_EDGE_URL "wss://127.0.0.1:8443/sync" CACHE STRING '
              '"Desktop client edge URL")',
@@ -1194,7 +1253,7 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     written: List[str] = []
 
     cmake_path = root / "CMakeLists.txt"
-    cmake_path.write_text(render_root_cmakelists(config, synqt_root))
+    cmake_path.write_text(render_root_cmakelists(config, synqt_root, root))
     written.append("CMakeLists.txt")
 
     for entity in _entities(config):

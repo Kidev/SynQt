@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The smallest project that uses URL routing: one client, two routes, and a view that is
-# not Main.qml. Everything the routing feature needs is here and nothing else, so the
-# build stays fast and a failure can only be about routing.
+# The smallest project that uses URL routing: one client, three routes, a view that is not
+# Main.qml, a view in a subdirectory, and a view built out of a helper component and a
+# singleton. Everything the routing feature needs is here and nothing else, so the build
+# stays fast and a failure can only be about routing.
 project:
   name: routed
   version: 0.1.0
@@ -33,3 +34,6 @@ routes:
 
   - path: /about
     view: About
+
+  - path: /help
+    view: views/Help.qml

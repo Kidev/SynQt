@@ -39,18 +39,28 @@ QML module, because the route table carries a `qrc:/qt/qml/<Uri>/<view>.qml` URL
 outside the module is outside the resource system. Leave one out and everything still builds,
 and the router reports `pageStatus: Error` at the moment a visitor navigates.
 
+The same is true of everything a view reaches. A `Home.qml` that instantiates a sibling
+`Card.qml`, or reads a `pragma Singleton` `Theme.qml`, fails at load the same way unless
+those files are in the module too, which is why the generator compiles in every `*.qml`
+under the client entity's directory, not only the views the routes name.
+
 So the last phase runs the app. `routed/` is the smallest project that uses routing (one
-client, two routes, and a view that is not `Main.qml`); the phase runs `synqt check` over it,
-generates it, builds the client as a native desktop app, and runs it offscreen. Its `Main.qml`
-is one `Loader` on `Router.pageComponent` that reports what resolved, walks to the second
-route, reports again, and quits, so the run has to print:
+client, three routes, a view that is not `Main.qml`, a view in a subdirectory, and a view
+built out of a helper component and a singleton); the phase runs `synqt check` over it,
+generates it, builds the client as a native desktop app, and runs it offscreen. Its
+`Main.qml` is one `Loader` on `Router.pageComponent` that reports what resolved, walks the
+rest of the route table reporting each time, and quits, so the run has to print:
 
 ```
-SYNQT-ROUTE path=/ status=Ready view=Home
+SYNQT-ROUTE path=/ status=Ready view=Home(panel,dark)
 SYNQT-ROUTE path=/about status=Ready view=About
+SYNQT-ROUTE path=/help status=Ready view=Help
 ```
 
-Both `Ready`, each with the view its route names. A `TypeError` about `pageComponent` after
+All `Ready`, each with the view its route names. `Home` names itself out of `Panel.qml` and
+the `Theme` singleton, neither of which any route names, so that first line is the proof
+that a view's own dependencies made it into the module; `/help` is `views/Help.qml`, aliased
+into the module at that same relative path. A `TypeError` about `pageComponent` after
 those two lines is the expected shutdown message: the accessors are torn down before the
 window that binds to them, so the last binding re-evaluates against a `Router` that is
 already gone.

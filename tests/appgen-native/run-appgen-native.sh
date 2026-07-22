@@ -70,8 +70,9 @@ fi
 
 echo "== [4/4] A generated client with routes: build it, and watch the router resolve them =="
 # Compiling is not enough for URL routing. Every route's view has to be IN the client's QML
-# module, or its qrc URL resolves to nothing and the router reports Error on a bundle that
-# built perfectly. Only running it says which happened, so this phase runs it.
+# module, and so does everything a view reaches (a helper component, a singleton), or the
+# qrc URL resolves to nothing and the router reports Error on a bundle that built perfectly.
+# Only running it says which happened, so this phase runs it.
 ROUTED="$WORK/routed"
 cp -r "$REPO_ROOT/tests/appgen-native/routed" "$ROUTED"
 PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$ROUTED" "$REPO_ROOT" <<'PY'
@@ -101,21 +102,26 @@ if [ -z "$routed_exe" ]; then
     echo "APPGEN-NATIVE GATE: NO-GO"
     exit 1
 fi
-# The fixture's Main.qml renders Router.pageComponent, reports what resolved, walks to the
-# second route, reports again, and quits. It is a real desktop run of the same client
-# runtime the browser gets, with no edge and no browser needed.
+# The fixture's Main.qml renders Router.pageComponent, reports what resolved, walks the rest
+# of the route table reporting each time, and quits. It is a real desktop run of the same
+# client runtime the browser gets, with no edge and no browser needed.
 routed_log="$WORK/routed-run.log"
 QT_QPA_PLATFORM=offscreen "$routed_exe" >"$routed_log" 2>&1 || true
 sed 's/^/  /' "$routed_log"
-for expected in "SYNQT-ROUTE path=/ status=Ready view=Home" \
-                "SYNQT-ROUTE path=/about status=Ready view=About"; do
+# Home names itself out of a helper component (Panel.qml) and a singleton (Theme.qml),
+# neither of which any route names: they reach the QML module only because every QML file
+# under the client entity is compiled in, so "Home(panel,dark)" is that proof. /help is a
+# view in a subdirectory, aliased into the module at that same relative path.
+for expected in "SYNQT-ROUTE path=/ status=Ready view=Home(panel,dark)" \
+                "SYNQT-ROUTE path=/about status=Ready view=About" \
+                "SYNQT-ROUTE path=/help status=Ready view=Help"; do
     if ! grep -qF "$expected" "$routed_log"; then
         echo "  expected the routed client to report: $expected"
         echo "APPGEN-NATIVE GATE: NO-GO"
         exit 1
     fi
 done
-echo "  routed client : OK (both routes resolved Ready, each to the view it names)"
+echo "  routed client : OK (every route resolved Ready, each to the view it names)"
 
 echo "APPGEN-NATIVE GATE: GO (appgen output compiles and links for every entity, and a"
 echo "                       generated client resolves every declared route to its view)"
