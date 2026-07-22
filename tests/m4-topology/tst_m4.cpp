@@ -29,6 +29,9 @@
 #include <QSslCertificate>
 #include <QSslKey>
 #include <QSslSocket>
+#include <QRegularExpression>
+#include <QTemporaryDir>
+#include <QFile>
 #include <QTest>
 
 #include <algorithm>
@@ -189,6 +192,76 @@ private slots:
         QCOMPARE(access.consumers, QStringList({QStringLiteral("web"), QStringLiteral("jobs")}));
         QVERIFY(access.endpoint.mode == MeshTransportMode::MutualTls);
         QCOMPARE(access.endpoint.port, static_cast<quint16>(9440));
+    }
+
+    // network.outbound as the runtime reads it: where this entity may call, and what it
+    // sends. `synqt build` writes every entry as an object; a hand-written topology may use
+    // the bare prefix the YAML allows, and both have to arrive as the same record. Absent
+    // and empty are different answers: empty was declared and allows nothing, absent was
+    // never declared at all.
+    void theOutboundListIsReadInBothSpellings()
+    {
+        // Plain literals. Written as raw strings, these three made AutoMoc report that this
+        // file has no Q_OBJECT class, and the test binary failed to link.
+        const QByteArray json{
+            "{\"entity\": \"gateway\", \"network\": {\"outbound\": ["
+            "\"https://status.example.com/\","
+            "{\"url\": \"https://api.example.com/\"},"
+            "{\"name\": \"ltd2\", \"url\": \"https://apiv2.legiontd2.com/\","
+            " \"headers\": {\"x-api-key\": \"env:LTD2_API_KEY\","
+            " \"accept\": \"application/json\"}}]}}"};
+        const Topology topology{topologyFromJson(QJsonDocument::fromJson(json).object())};
+        QVERIFY(topology.outboundDeclared);
+        QCOMPARE(topology.outbound.size(), 3);
+        QCOMPARE(topology.outbound.at(0).url, QStringLiteral("https://status.example.com/"));
+        QVERIFY(topology.outbound.at(0).name.isEmpty());
+        QCOMPARE(topology.outbound.at(1).url, QStringLiteral("https://api.example.com/"));
+        const OutboundEndpoint &named{topology.outbound.at(2)};
+        QCOMPARE(named.name, QStringLiteral("ltd2"));
+        QCOMPARE(named.url, QStringLiteral("https://apiv2.legiontd2.com/"));
+        // The secret stays a reference. The runtime reads the environment, never the file.
+        QCOMPARE(named.headers.value(QStringLiteral("x-api-key")),
+                 QStringLiteral("env:LTD2_API_KEY"));
+        QCOMPARE(named.headers.size(), 2);
+
+        const Topology empty{topologyFromJson(QJsonDocument::fromJson(
+            "{\"entity\": \"gateway\", \"network\": {\"outbound\": []}}").object())};
+        QVERIFY(empty.outboundDeclared);
+        QVERIFY(empty.outbound.isEmpty());
+        const Topology absent{topologyFromJson(QJsonDocument::fromJson(
+            "{\"entity\": \"gateway\"}").object())};
+        QVERIFY(!absent.outboundDeclared);
+    }
+
+    // A certificate or key path that cannot be read, or a file with no PEM in it, loads as
+    // null and says which file. Otherwise the entity listens and then fails every handshake
+    // with nothing in the log naming the file it was given.
+    void anUnreadableCertificateOrKeyIsNamed()
+    {
+        QTemporaryDir dir;
+        const QString missing{dir.filePath(QStringLiteral("nowhere.crt"))};
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{
+            QStringLiteral("cannot read the certificate at .*nowhere\\.crt")});
+        QVERIFY(loadCertificate(missing).isNull());
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{
+            QStringLiteral("cannot read the private key at .*nowhere\\.crt")});
+        QVERIFY(loadPrivateKey(missing).isNull());
+
+        const QString garbage{dir.filePath(QStringLiteral("garbage.pem"))};
+        QFile file{garbage};
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("this is not a certificate\n");
+        file.close();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{
+            QStringLiteral("garbage\\.pem holds no PEM certificate")});
+        QVERIFY(loadCertificate(garbage).isNull());
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{
+            QStringLiteral("garbage\\.pem holds no PEM private key")});
+        QVERIFY(loadPrivateKey(garbage).isNull());
+
+        // Nothing configured is not an error here. The caller decides what it means.
+        QVERIFY(loadCertificate(QString{}).isNull());
+        QCOMPARE(unusableKeyReason(QSslKey{}), QStringLiteral("there is no key to present"));
     }
 
     void twoServiceTopology()
