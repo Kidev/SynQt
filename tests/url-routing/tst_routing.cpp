@@ -5,11 +5,14 @@
 // behavior and the resume-path rules join this executable in later tasks.
 
 #include "routepattern.h"
+#include "browserhistory.h"
 
+#include <QSignalSpy>
 #include <QTest>
 #include <QVariantMap>
 
 using SynQt::RoutePattern;
+using SynQt::BrowserHistory;
 
 class tst_Routing : public QObject
 {
@@ -29,6 +32,11 @@ private slots:
     void interiorDoubleSlashDoesNotMatch();
     void rootPatternMatchesRootOnly();
     void failedMatchLeavesParametersUntouched();
+
+    void historyStartsAtItsBase();
+    void historyPushThenBackPopsThePrevious();
+    void historyReplaceDoesNotGrowTheStack();
+    void historyStripsAndRestoresTheBasePath();
 };
 
 void tst_Routing::literalMatches()
@@ -146,6 +154,50 @@ void tst_Routing::failedMatchLeavesParametersUntouched()
     QCOMPARE(parameters.size(), 1);
     QCOMPARE(parameters.value(QStringLiteral("sentinel")).toString(),
              QStringLiteral("untouched"));
+}
+
+void tst_Routing::historyStartsAtItsBase()
+{
+    BrowserHistory history{QStringLiteral("/")};
+    QCOMPARE(history.currentPath(), QStringLiteral("/"));
+}
+
+void tst_Routing::historyPushThenBackPopsThePrevious()
+{
+    BrowserHistory history{QStringLiteral("/")};
+    QSignalSpy popped{&history, &BrowserHistory::popped};
+    history.push(QStringLiteral("/cart"));
+    QCOMPARE(history.currentPath(), QStringLiteral("/cart"));
+    history.push(QStringLiteral("/c/summer"));
+    history.back();
+    QCOMPARE(history.currentPath(), QStringLiteral("/cart"));
+    QCOMPARE(popped.count(), 1);
+    QCOMPARE(popped.at(0).at(0).toString(), QStringLiteral("/cart"));
+    history.forward();
+    QCOMPARE(history.currentPath(), QStringLiteral("/c/summer"));
+    QCOMPARE(popped.count(), 2);
+}
+
+void tst_Routing::historyReplaceDoesNotGrowTheStack()
+{
+    BrowserHistory history{QStringLiteral("/")};
+    history.push(QStringLiteral("/cart"));
+    history.replace(QStringLiteral("/c/summer"));
+    history.back();
+    // Only one entry was ever pushed, so back lands on the base, not on /cart.
+    QCOMPARE(history.currentPath(), QStringLiteral("/"));
+}
+
+void tst_Routing::historyStripsAndRestoresTheBasePath()
+{
+    // Served under a subpath, the router still speaks in application paths.
+    BrowserHistory history{QStringLiteral("/shop/")};
+    QCOMPARE(history.currentPath(), QStringLiteral("/"));
+    history.push(QStringLiteral("/cart"));
+    QCOMPARE(history.currentPath(), QStringLiteral("/cart"));
+    QCOMPARE(history.toBrowserPath(QStringLiteral("/cart")), QStringLiteral("/shop/cart"));
+    QCOMPARE(history.toApplicationPath(QStringLiteral("/shop/cart")),
+             QStringLiteral("/cart"));
 }
 
 QTEST_MAIN(tst_Routing)
