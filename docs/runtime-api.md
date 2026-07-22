@@ -151,7 +151,7 @@ them, so one binding on any of the three sees a consistent set.
 | `Loading` | the view is still being built. A view compiled into the bundle is built synchronously, so a route pointing at one never reports this. |
 | `Forbidden` | a route matched, but it declares a `scope` the session lacks. `path` is now `router.fallback` and the fallback's view is showing. The refused path is remembered for [after login](#returning-to-the-page-that-was-refused). |
 | `NotFound` | nothing in the route table matched. `path` is now `router.fallback` and the fallback's view is showing. |
-| `Error` | there is no page to show: the view's file is missing from the client's QML module, it failed to compile, or the route names no view at all. `Error` also wins over `Forbidden` and `NotFound` when it is the *fallback's* own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
+| `Error` | there is no page to show: the view failed to compile, or the route names no view at all (a view whose file is not on disk is refused by `synqt check` before the build). `Error` also wins over `Forbidden` and `NotFound` when it is the *fallback's* own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
 
 `Router` is bound as a context property rather than as a registered QML type, so
 the value names above are not in scope in QML: `pageStatus` reads there as its
@@ -174,10 +174,10 @@ the same component, and the router hands back the same instance rather than
 rebuilding it, so the `Loader` keeps its item alive and only `path` and `params`
 change. A view that wants to react to that binds `Router.params`.
 
-Each route's `view` has to be part of the client's QML module for this to resolve to
-anything, and the project generator does not put it there yet. Read the
-[warning on `routes[].view`](project-layout-and-config.md#router-and-routes-client-navigation)
-before laying an app out around separate view files.
+`synqt build` compiles every view named by a route into the client's QML module, so
+a route resolves to a real component with nothing to wire up by hand. See
+[`routes[].view`](project-layout-and-config.md#router-and-routes-client-navigation)
+for how a view is named and where its file goes.
 
 ### How a path is matched
 
