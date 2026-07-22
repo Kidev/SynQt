@@ -543,15 +543,34 @@ class HotReloadTest(unittest.TestCase):
         # exactly the edit the watcher exists for, so it has to be news like a failed
         # compile; letting AppGenError out of here escapes into _watch_loop, whose finally
         # terminates every child process, and the whole dev system goes down on a
-        # half-finished save.
+        # half-finished save. The change set is a non-yaml source (Main.qml) so the rebuild
+        # path is actually reached, not the load_config early return the sibling test covers.
         state = {"config": {"entities": []}, "processes": [("web", object())]}
         with unittest.mock.patch.object(
                 buildmod, "compile_incremental",
                 side_effect=appgen.AppGenError(
                     "route '/admin' declares no view; there is nothing for the router "
-                    "to show there")):
+                    "to show there")) as compile_mock:
             runmod._hot_reload(Path(tempfile.mkdtemp()), state, 8080, "wasm",
-                               {Path("synqt.yaml")})
+                               {Path("Main.qml")})
+        compile_mock.assert_called_once()  # the rebuild path really ran
+        self.assertEqual(len(state["processes"]), 1)  # nothing was torn down
+
+    def test_a_structurally_wrong_config_keeps_the_dev_server_up(self):
+        # A synqt.yaml that parses as valid YAML but puts a scalar where the generator
+        # expects a mapping (`router: /home` before its indented `fallback:` is typed)
+        # reaches appgen and raises a bare AttributeError, in neither the BuildError nor the
+        # AppGenError tuple. It is the same half-finished save the watcher exists for, so it
+        # must be news too; the broad fallback catch pins this and stops the tuple from
+        # narrowing back and killing a running dev server on a mid-edit save.
+        state = {"config": {"entities": []}, "processes": [("web", object())]}
+        with unittest.mock.patch.object(
+                buildmod, "compile_incremental",
+                side_effect=AttributeError(
+                    "'str' object has no attribute 'get'")) as compile_mock:
+            runmod._hot_reload(Path(tempfile.mkdtemp()), state, 8080, "wasm",
+                               {Path("Main.qml")})
+        compile_mock.assert_called_once()  # the rebuild path really ran
         self.assertEqual(len(state["processes"]), 1)  # nothing was torn down
 
     def test_a_synqt_yaml_that_does_not_parse_keeps_the_dev_server_up(self):
