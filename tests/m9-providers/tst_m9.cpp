@@ -43,6 +43,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QRegularExpression>
 #include <QTest>
 #include <QTimer>
 
@@ -252,6 +253,74 @@ private slots:
         QVERIFY(provider.commit(&error));
         const DbResult count{provider.query(QStringLiteral("SELECT COUNT(*) AS n FROM items"), {})};
         QCOMPARE(count.rows.first().toMap().value(QStringLiteral("n")).toInt(), 500);
+    }
+
+    // A transaction the entity abandons leaves nothing behind, and a second call to end one
+    // that is not open says so rather than reporting success.
+    void aRolledBackTransactionLeavesNoRow()
+    {
+        SqliteProvider provider{sqliteConfig(dbFile(QStringLiteral("rollback.db")))};
+        QString error;
+        QVERIFY2(provider.connect(&error), qPrintable(error));
+        QVERIFY2(provider.migrate(kItemsSchema, &error), qPrintable(error));
+
+        QVERIFY2(provider.begin(&error), qPrintable(error));
+        QVERIFY(provider.exec(QStringLiteral("INSERT INTO items(text, author) VALUES(?, ?)"),
+                              {QStringLiteral("abandoned"), QStringLiteral("alice")}).ok);
+        QVERIFY2(provider.rollback(&error), qPrintable(error));
+        const DbResult count{provider.query(QStringLiteral("SELECT COUNT(*) AS n FROM items"), {})};
+        QCOMPARE(count.rows.first().toMap().value(QStringLiteral("n")).toInt(), 0);
+
+        error.clear();
+        QVERIFY(!provider.rollback(&error));
+        QVERIFY2(!error.isEmpty(), "a rollback with no transaction open must say why it failed");
+        error.clear();
+        QVERIFY(!provider.commit(&error));
+        QVERIFY2(!error.isEmpty(), "and so must a commit");
+    }
+
+    // A journal mode SQLite does not have is answered with a warning and WAL, rather than a
+    // PRAGMA SQLite quietly ignores, which would leave the file in whatever mode it was.
+    void anUnknownJournalModeFallsBackToWal()
+    {
+        ProviderConfig config{sqliteConfig(dbFile(QStringLiteral("journal.db")))};
+        config.journalMode = QStringLiteral("walrus");
+        SqliteProvider provider{config};
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral("'walrus' is not a SQLite "
+                                                               "journal mode; using WAL")});
+        QString error;
+        QVERIFY2(provider.connect(&error), qPrintable(error));
+        const DbResult mode{provider.query(QStringLiteral("PRAGMA journal_mode"), {})};
+        QVERIFY2(mode.ok, qPrintable(mode.error));
+        QCOMPARE(mode.rows.first().toMap().value(QStringLiteral("journal_mode")).toString(),
+                 QStringLiteral("wal"));
+    }
+
+    // Before connect() and after disconnect() every operation is refused with a reason, and
+    // a database that cannot be opened is a connect() that fails and says why.
+    void aProviderThatIsNotConnectedRefusesEveryOperation()
+    {
+        SqliteProvider provider{sqliteConfig(dbFile(QStringLiteral("unconnected.db")))};
+        QVERIFY(!provider.isHealthy());
+        const DbResult before{provider.query(QStringLiteral("SELECT 1"), {})};
+        QVERIFY(!before.ok);
+        QCOMPARE(before.error, QStringLiteral("provider not connected"));
+
+        QString error;
+        QVERIFY2(provider.connect(&error), qPrintable(error));
+        QVERIFY(provider.isHealthy());
+        provider.disconnect();
+        QVERIFY(!provider.isHealthy());
+        const DbResult after{provider.exec(QStringLiteral("SELECT 1"), {})};
+        QVERIFY(!after.ok);
+        QCOMPARE(after.error, QStringLiteral("provider not connected"));
+
+        SqliteProvider nowhere{sqliteConfig(
+            dbFile(QStringLiteral("no/such/directory/at/all/file.db")))};
+        error.clear();
+        QVERIFY(!nowhere.connect(&error));
+        QVERIFY2(!error.isEmpty(), "a database that cannot be opened must say why");
     }
 
     void sourceCallsOnlyDbAndSwapsEngineByConfig()

@@ -8,6 +8,7 @@
 
 #include "connectpointhost.h"
 #include "entityruntime.h"
+#include "log.h"
 #include "meshclient.h"
 #include "topology.h"
 #include "tracer.h"
@@ -30,6 +31,7 @@
 #include <QSslSocket>
 #include <QTest>
 
+#include <algorithm>
 #include <memory>
 
 using namespace SynQt;
@@ -78,6 +80,54 @@ class TestM4 : public QObject
     Q_OBJECT
 
 private slots:
+    // `Log` is what an entity's own QML reports with. Each of its four levels reaches the
+    // tracer as the severity it is named for, under the application category, with the
+    // attributes it was given, so a monitor filtering on "warnings and worse" sees
+    // Log.warn and does not see Log.debug.
+    void everyLogLevelReachesTheTracerAsItsSeverity()
+    {
+        QList<TraceEvent> recorded;
+        QMutex recordedMutex;
+        Tracer::instance()->setEnabled(true);
+        Tracer::instance()->setLevel(Category::Application, Severity::Debug);
+        Tracer::instance()->setBatch(1, 20);
+        Tracer::instance()->setSink([&](const QList<TraceEvent> &batch) {
+            QMutexLocker locker{&recordedMutex};
+            recorded.append(batch);
+        });
+        const QScopeGuard resetTracer{[]() {
+            Tracer::instance()->setSink(Tracer::Sink{});
+            Tracer::instance()->setLevel(Category::Application, Severity::Info);
+            Tracer::instance()->setEnabled(false);
+        }};
+
+        Log log;
+        const QVariantMap attributes{{QStringLiteral("items"), 3}};
+        log.debug(QStringLiteral("m4 log debug"), attributes);
+        log.info(QStringLiteral("m4 log info"), attributes);
+        log.warn(QStringLiteral("m4 log warn"), attributes);
+        log.error(QStringLiteral("m4 log error"), attributes);
+        Tracer::instance()->flush();
+
+        const QList<QPair<QString, Severity>> wanted{
+            {QStringLiteral("m4 log debug"), Severity::Debug},
+            {QStringLiteral("m4 log info"), Severity::Info},
+            {QStringLiteral("m4 log warn"), Severity::Warning},
+            {QStringLiteral("m4 log error"), Severity::Error}};
+        QMutexLocker locker{&recordedMutex};
+        for (const auto &[message, severity] : wanted) {
+            const auto found{std::find_if(recorded.cbegin(), recorded.cend(),
+                                          [&message](const TraceEvent &event) {
+                                              return event.message == message;
+                                          })};
+            QVERIFY2(found != recorded.cend(),
+                     qPrintable(message + QStringLiteral(" was not recorded")));
+            QCOMPARE(found->severity, severity);
+            QCOMPARE(found->category, Category::Application);
+            QCOMPARE(found->attributes.value(QStringLiteral("items")).toInt(), 3);
+        }
+    }
+
     void initTestCase()
     {
         QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
