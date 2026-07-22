@@ -461,13 +461,22 @@ Every QML file under the client entity's directory is put into the client's QML
 module for you: `Main.qml`, the views the routes name, and everything those views
 reach. A `Home.qml` that instantiates a sibling `Card.qml`, or reads a `Theme.qml`
 that declares `pragma Singleton`, needs no declaration anywhere; a singleton is
-registered as one because the file says so. Build output under the entity
-(`build/`, `generated/`, and any directory whose name starts with a dot) is left
-out. `synqt check` refuses a route whose view is not on disk, naming the route
-and the file it looked for, and a route with no `view` at all is refused both by
-`synqt check` and by the generator, since the only file it could mean is `Main.qml`,
-which is the window. Do not add views to the generated `CMakeLists.txt` by hand: it
-is rewritten from `synqt.yaml` on every build.
+registered as one because the file says so. Build output and vendored trees under
+the entity are left out: `build/`, `generated/`, `CMakeFiles/`, `node_modules/`,
+and anything whose name starts with a dot, file or directory.
+
+Two QML files under the entity cannot share a base name, whatever directories they
+sit in. Qt names a QML type after the file, so `pages/Header.qml` and
+`widgets/Header.qml` would both register as `Header` in the one module and one
+would silently shadow the other. `synqt build` refuses that and names both files;
+rename one of them.
+
+`synqt check` refuses a route whose view is not on disk, naming the route and the
+file it looked for, and refuses a view that reaches outside the client entity's
+directory (an absolute path, a `../` path, or a Windows drive path). A route with
+no `view` at all is refused both by `synqt check` and by the generator, since the
+only file it could mean is `Main.qml`, which is the window. Do not add views to the
+generated `CMakeLists.txt` by hand: it is rewritten from `synqt.yaml` on every build.
 
 An app that declares no `routes` at all has no route table, `Router.pageComponent`
 is null, and nothing about it changes: routing is opt in, and `Main.qml` alone is a
