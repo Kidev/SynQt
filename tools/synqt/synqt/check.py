@@ -9,12 +9,12 @@ import os
 import re
 import shutil
 import subprocess
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import addentity, clientcache, toolchain
+from . import addentity, appgen, clientcache, toolchain
 
 
 def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
@@ -258,22 +258,16 @@ def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) ->
     if not isinstance(view, str) or not view.strip():
         return [f"error: route {path!r} declares no view; there is nothing for the "
                 "router to show there"]
-    name = view.strip()
-    if not name.endswith(".qml"):
-        name += ".qml"
-    # Both spellings of a separator, and a drive letter, because SynQt builds on Windows
-    # hosts too: PurePosixPath reads 'C:/views/Home.qml' as relative and '..\\web\\A.qml'
-    # as one part with no '..' in it, so a POSIX-only rule would wave through exactly the
-    # two escapes it advertises catching, on the host where they resolve.
-    spelled = PurePosixPath(name.replace("\\", "/"))
-    if (spelled.is_absolute() or ".." in spelled.parts
-            or re.match(r"^[A-Za-z]:", name)):
+    # The escape rule and the spelling both come from the generator, which is what
+    # actually writes the resource alias and the qrc URL: a second copy here would drift
+    # and start disagreeing with the build about which file a route means.
+    if appgen.view_escapes_client_directory(view):
         return [f"error: route {path!r} names view '{view}': a view is named relative "
                 f"to the client entity's directory ('{client}/'), so it cannot be an "
                 "absolute or parent path"]
     # The spelling the generator compiles in, so './About.qml' and 'About.qml' are read
     # as the one file they are, here and there alike.
-    name = spelled.as_posix()
+    name = appgen.view_file_name(view)
     if (client_dir / name).is_file():
         return []
     prefix = f"{client}/"

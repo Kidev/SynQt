@@ -238,6 +238,33 @@ def test_a_windows_spelled_escape_is_rejected_on_every_host():
     assert any("parent path" in m for m in messages), messages
 
 
+def test_a_colon_in_a_filename_is_not_a_windows_drive_path():
+    # 'a:b.qml' is a legal POSIX filename sitting in the client directory, not a drive
+    # path: the separator after the colon is what makes 'C:/x' the escape it is.
+    root = _project(views=("Home.qml", "a:b.qml", "B.qml", "D.qml"))
+    (root / "synqt.yaml").write_text(_PROJECT.replace("view: A.qml", "view: a:b.qml")
+                                             .replace("  - path: /c/\n", "  - path: /d\n"))
+    ok, messages = check.check_project(root)
+    assert ok, messages
+
+
+def test_the_check_and_the_generator_refuse_the_same_views():
+    # The rule lives in the generator, which is what writes the resource alias and the
+    # qrc URL; the check reads it from there. Two copies would drift, and the drift shows
+    # up as a build that fails on something `synqt check` said was fine.
+    from synqt import appgen
+
+    for view in ("Home.qml", "./Home.qml", "views/Home.qml", "a:b.qml"):
+        assert check._route_view_findings("/a", view, "client",
+                                          Path(tempfile.mkdtemp())) != []  # missing file
+        assert not appgen.view_escapes_client_directory(view), view
+    for view in ("../web/A.qml", "..\\web\\A.qml", "/etc/A.qml", "C:/x/B.qml"):
+        findings = check._route_view_findings("/a", view, "client",
+                                              Path(tempfile.mkdtemp()))
+        assert any("parent path" in f for f in findings), view
+        assert appgen.view_escapes_client_directory(view), view
+
+
 def test_a_view_in_a_subdirectory_of_the_client_is_accepted():
     # A view may sit in a subdirectory; it is aliased into the module at that same
     # relative path, so the route's qrc URL still names it.
