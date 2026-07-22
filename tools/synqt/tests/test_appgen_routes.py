@@ -3,6 +3,8 @@
 
 """The generated client carries a component URL per route, and the router base."""
 
+import pytest
+
 from synqt import appgen
 
 
@@ -30,6 +32,46 @@ def _client_cmake(routes):
         "routes": routes,
     }
     return appgen.render_root_cmakelists(config, synqt_root="/synqt")
+
+
+def test_a_view_written_with_a_leading_dot_slash_is_one_view_not_two():
+    # './About.qml' and 'About.qml' are the same file, and the generator must spell it
+    # one way: a literal './' would otherwise land in both the resource alias and the
+    # compiled-in qrc:/qt/qml/Shop/./About.qml, which is a second entry for one file.
+    source = appgen.render_client_main(
+        {"name": "shop", "routes": [{"path": "/about", "view": "./About.qml"}]}, uri="Shop")
+    assert "qrc:/qt/qml/Shop/About.qml" in source
+    assert "/./" not in source
+
+    cmake = _client_cmake([{"path": "/about", "view": "./About.qml"},
+                           {"path": "/a", "view": "About"}])
+    assert cmake.count("PROPERTIES QT_RESOURCE_ALIAS About.qml)") == 1
+
+
+def test_a_view_in_a_subdirectory_keeps_its_subdirectory():
+    # A view is named relative to the client entity's directory, so 'views/Home.qml' is
+    # aliased into the module at that same relative path and the route's URL matches it.
+    source = appgen.render_client_main(
+        {"name": "shop", "routes": [{"path": "/", "view": "views/Home.qml"}]}, uri="Shop")
+    assert "qrc:/qt/qml/Shop/views/Home.qml" in source
+
+    cmake = _client_cmake([{"path": "/", "view": "views/Home.qml"}])
+    assert '"${CMAKE_CURRENT_SOURCE_DIR}/client/views/Home.qml"' in cmake
+    assert "PROPERTIES QT_RESOURCE_ALIAS views/Home.qml)" in cmake
+
+
+def test_a_route_with_no_view_is_refused_at_generation():
+    # A route with no view used to default to Main.qml, which is the window: a Loader on
+    # Router.pageComponent inside Main.qml would then load the window inside itself.
+    # `synqt check` reports it earlier, but nothing makes `synqt build` run the check.
+    with pytest.raises(appgen.AppGenError) as raised:
+        appgen.render_client_main({"name": "shop", "routes": [{"path": "/admin"}]},
+                                  uri="Shop")
+    assert "/admin" in str(raised.value)
+    assert "declares no view" in str(raised.value)
+
+    with pytest.raises(appgen.AppGenError):
+        _client_cmake([{"path": "/admin", "view": ""}])
 
 
 def test_every_route_view_is_in_the_clients_qml_module():
