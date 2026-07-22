@@ -21,6 +21,11 @@ namespace {
 /// whose URL is a typo, or which fails to compile, would otherwise render
 /// nothing while pageStatus said Ready, so an app has no way to tell a broken
 /// route from an empty page.
+///
+/// A broken fallback view reports Error even when status arrived here as
+/// Forbidden or NotFound, so Error can mask a guard's real reason. That
+/// precedence is deliberate, not an oversight: the fallback itself failing to
+/// load is the more urgent fact, and it is what an app must surface first.
 Router::PageStatus loadStatus(const QQmlComponent *component, Router::PageStatus status)
 {
     if (!component) {
@@ -52,9 +57,27 @@ Router::Router(SynClientConfig config, Session *session, QQmlEngine *engine,
     // holds the old path when they return, so nothing here ever reads
     // currentPath() after them.
     connect(m_history, &BrowserHistory::popped, this, [this](const QString &path) {
+        // Computed before navigate(), not after: navigate() emits
+        // pathChanged/pageChanged, and a QML handler reached by that
+        // delivery can call go(), which reaches BrowserHistory::push() and
+        // can reallocate the desktop stack. On desktop, path aliases a live
+        // QStringList element (back()/forward() pass m_stack.at(m_index)
+        // through by const reference), so reading it after navigate() would
+        // risk a dangling reference; landed is a private copy taken first.
+        const QString landed{RoutePattern::splitQuery(path, nullptr)};
         navigate(path, false);
-        QVariantMap ignoredQuery;
-        if (RoutePattern::splitQuery(path, &ignoredQuery) != m_path) {
+        // popped is delivered through a queued connection on WASM (popstate
+        // fires on a later task), so an ordinary Back double-click can queue
+        // two popped calls before Qt drains the first. By the time this one
+        // runs, the browser may already have moved past the entry it is
+        // handling: only rewrite the entry actually being landed on here,
+        // never a later one the visitor has since moved to.
+        //
+        // currentPath() is read here inside a pop notification, which is the
+        // safe case: location is already updated by the time popstate fires.
+        // The unsafe read this class avoids is currentPath() right after
+        // calling back()/forward(), which this is not.
+        if (landed != m_path && m_history->currentPath() == path) {
             // A guard redirected what history landed on, so the entry itself
             // now names a page the visitor is not looking at: correct it, or
             // the address bar lies and a refresh re-enters the same redirect.
@@ -68,9 +91,17 @@ Router::Router(SynClientConfig config, Session *session, QQmlEngine *engine,
         // arrives (a sign-in) or goes away (a sign-out) leaves the visitor on
         // a page the guard would now decide differently. Re-resolve where we
         // stand; this is a correction, not a navigation, so it pushes no
-        // history entry.
+        // history entry, but the entry the visitor is already sitting on
+        // must still be corrected to match, the same way a redirect landed
+        // on through back()/forward() is: otherwise the address bar keeps
+        // naming the page the scope loss just steered away from, and a
+        // refresh walks straight back into the redirect.
         connect(m_session, &Session::scopeChanged, this, [this]() {
+            const QString before{m_path};
             resolve(m_path, false);
+            if (m_path != before) {
+                m_history->replace(m_path);
+            }
         });
     }
 }
@@ -183,7 +214,7 @@ void Router::navigate(const QString &pathWithQuery, bool push)
     }
 }
 
-void Router::resolve(const QString &path, bool queryChanged)
+void Router::resolve(QString path, bool queryChanged)
 {
     QVariantMap parameters;
     const Route *route{lookup(path, &parameters)};

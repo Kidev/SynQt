@@ -61,6 +61,7 @@ private slots:
     void routerReportsErrorForARouteWithNoCompiledInView();
     void routerReportsErrorForAViewThatFailsToLoad();
     void routerReResolvesWhenTheScopeChanges();
+    void routerRewritesTheHistoryEntryWhenScopeLossRedirects();
     void routerRewritesTheHistoryEntryARedirectMovedOff();
     void routerKeepsTheReuseKeyAcrossAnIdempotentSet();
     void routerDropsAnOverriddenPageOnARedirect();
@@ -505,6 +506,34 @@ void tst_Routing::routerReResolvesWhenTheScopeChanges()
     QCOMPARE(router.pageStatus(), Router::Forbidden);
 }
 
+void tst_Routing::routerRewritesTheHistoryEntryWhenScopeLossRedirects()
+{
+    // The redirect this time is not reached through back()/forward() at all:
+    // losing the scope while sitting on the page must rewrite the entry the
+    // visitor is already on, not just the live path and status.
+    QQmlEngine engine;
+    SynQt::Session session{routingFixture()};
+    session.setScope(QStringLiteral("staff"));
+    Router router{routingFixture(), &session, &engine};
+    router.go(QStringLiteral("/c/spring"));
+    router.go(QStringLiteral("/admin"));
+    QCOMPARE(router.pageStatus(), Router::Ready);
+
+    session.logout();
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), Router::Forbidden);
+
+    // Step off the rewritten entry and back onto it without ever calling
+    // go("/admin") again: if the entry were still "/admin", landing back on
+    // it re-runs the guard and reports Forbidden here; if it was rewritten to
+    // "/" at logout time, landing on it resolves the fallback outright.
+    router.back();
+    QCOMPARE(router.path(), QStringLiteral("/c/spring"));
+    router.forward();
+    QCOMPARE(router.path(), QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), Router::Ready);
+}
+
 void tst_Routing::routerRewritesTheHistoryEntryARedirectMovedOff()
 {
     QQmlEngine engine;
@@ -514,19 +543,23 @@ void tst_Routing::routerRewritesTheHistoryEntryARedirectMovedOff()
     router.go(QStringLiteral("/c/spring"));
     router.go(QStringLiteral("/admin"));
     QCOMPARE(router.pageStatus(), Router::Ready);
+    // Navigate off /admin before the scope goes away: the scope-change
+    // handler only ever corrects the entry currently shown
+    // (routerRewritesTheHistoryEntryWhenScopeLossRedirects covers that case),
+    // so this leaves /admin's own entry stale on purpose, the way losing
+    // scope elsewhere in the app would.
+    router.go(QStringLiteral("/c/summer"));
     session.logout();
 
     router.back();
-    QCOMPARE(router.path(), QStringLiteral("/c/spring"));
-    router.forward();
     // Landing on /admin without the scope redirects, so the entry history is
-    // sitting on names a page that is not shown.
+    // sitting on a page that is not shown.
     QCOMPARE(router.path(), QStringLiteral("/"));
     QCOMPARE(router.pageStatus(), Router::Forbidden);
+    router.forward();
+    QCOMPARE(router.path(), QStringLiteral("/c/summer"));
 
     router.back();
-    QCOMPARE(router.path(), QStringLiteral("/c/spring"));
-    router.forward();
     // It was rewritten to what is actually shown, so returning to it resolves
     // the fallback outright instead of running the redirect again.
     QCOMPARE(router.path(), QStringLiteral("/"));

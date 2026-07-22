@@ -374,7 +374,8 @@ int main(int argc, char *argv[])
     config.routerBase = QStringLiteral("{router_base}");
     config.routes = {{{route_list}}};
 
-    // The engine comes first: the Router builds each route's page component with it.
+    // The engine comes first: the Router builds each route's page component
+    // with it.
     QQmlApplicationEngine engine;
 
     // Declared after the engine so it is destroyed before it: QQmlComponent

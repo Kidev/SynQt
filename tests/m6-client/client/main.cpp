@@ -69,7 +69,8 @@ int main(int argc, char *argv[])
                      RouteConfig{QStringLiteral("/admin"), QStringLiteral("Admin"),
                                  QStringLiteral("admin")}};
 
-    // The engine comes first: the Router builds each route's page component with it.
+    // The engine comes first: the Router builds each route's page component
+    // with it.
     QQmlApplicationEngine engine;
 
     // Declared after the engine so it is destroyed before it: QQmlComponent

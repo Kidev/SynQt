@@ -124,7 +124,11 @@ private:
     /// different one. It has to be threaded in because query's NOTIFY signal
     /// is pathChanged: without it a same-route navigation carrying new query
     /// data would change query and notify nobody.
-    void resolve(const QString &path, bool queryChanged);
+    ///
+    /// path is taken by value, not by reference: the scope-change re-resolve
+    /// calls this with m_path itself, and resolve() assigns m_path inside, so
+    /// a reference parameter would alias the very member it overwrites.
+    void resolve(QString path, bool queryChanged);
     void setPageUrl(const QString &componentUrl, PageStatus status);
 
     BrowserHistory *m_history;
