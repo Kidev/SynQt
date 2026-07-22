@@ -309,6 +309,7 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
         _route_literal(r, uri) for r in routes)
     router = config.get("router") or {}
     router_base = router.get("base") or "/"
+    router_fallback = router.get("fallback") or "/"
 
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from
@@ -370,7 +371,7 @@ int main(int argc, char *argv[])
     config.edgeUrl = resolveEdgeUrl();
     config.connectPoints = {{{cp_list}}};
     config.scopeOrder = {{{_string_list_literal(scopes)}}};
-    config.routerFallback = QStringLiteral("/");
+    config.routerFallback = QStringLiteral("{router_fallback}");
     config.routerBase = QStringLiteral("{router_base}");
     config.routes = {{{route_list}}};
 
