@@ -238,6 +238,37 @@ def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
     assert "feeds" in source.reason
 
 
+def test_a_source_typed_before_the_first_apply_is_written_as_typed(tmp_path):
+    """A link drawn and implemented in the editor in one sitting. The Source does not exist
+    on disk yet, and what was typed into the pane is what it is, not the empty stub a link
+    with nothing typed gets."""
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append(_feeds())
+    typed = "import SynQt\n\nFeeds {\n    id: feeds\n\n    property int fetched\n}\n"
+    document["links"].append({
+        "id": "feeds", "name": "feeds", "owner": "feeds", "consumers": ["edge"],
+        "members": [], "qml": typed, "qmlEdited": True})
+    plan = designplan.compute(project, document)
+    source = next(c for c in plan.changes if c.path == "service/feeds/Feeds.qml")
+    assert source.action == "create"
+    assert source.after == typed
+    assert "written here" in source.reason
+
+
+def test_an_entity_whose_file_went_missing_gets_it_back(tmp_path):
+    """An entity that is in synqt.yaml with an empty directory beside it cannot be opened, and
+    applying the design is the moment to put its file back rather than leave it missing."""
+    project = _copy(tmp_path, "gavel")
+    main = project / "client" / "app" / "Main.qml"
+    main.unlink()
+    plan = designplan.compute(project, designdoc.read(project))
+    restored = next(c for c in plan.changes if c.path == "client/app/Main.qml")
+    assert restored.action == "create"
+    assert "ApplicationWindow" in restored.after
+    assert "had no file of its own" in restored.reason
+
+
 def test_a_source_the_project_already_has_is_left_where_it_is(tmp_path):
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
