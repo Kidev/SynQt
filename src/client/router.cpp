@@ -527,6 +527,15 @@ void Router::setPageUrl(const QString &componentUrl, PageStatus status)
         setPageComponent(nullptr, Error);
         return;
     }
+    // A URL-loaded page is a compiled-in view or the empty fallback of a refused
+    // route; neither carries an edge-sent seed. Drop any the previous remote page
+    // left behind, so Router.pageSeed is empty for a compiled view as documented,
+    // and cleared before the component swaps (the same ordering onPageDelivered
+    // keeps, so a binding never reads the previous page's seed against the new one).
+    const bool seedCleared{!m_pageSeed.isEmpty()};
+    if (seedCleared) {
+        m_pageSeed.clear();
+    }
     if (m_pageComponent && m_pageUrl.has_value() && m_pageUrl.value() == componentUrl) {
         // Same view as the one already loaded (two paths through one
         // parameterized route, or the same link followed twice). Reusing the
@@ -534,7 +543,7 @@ void Router::setPageUrl(const QString &componentUrl, PageStatus status)
         // item down and rebuilding it; path and params changed and are
         // notified on their own.
         const PageStatus reported{loadStatus(m_pageComponent, status)};
-        if (m_pageStatus != reported) {
+        if (m_pageStatus != reported || seedCleared) {
             m_pageStatus = reported;
             emit pageChanged();
         }

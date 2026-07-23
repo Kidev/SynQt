@@ -138,8 +138,10 @@ parameters paints the new parameters, not the old page's data.
 > every argument as a `QVariant`. Annotating a parameter with a concrete type, for example
 > `seedFor(route: string, ...)`, changes the QML method signature the edge is trying to
 > call, so the edge's `QVariant` call no longer matches it, and the page is delivered with
-> no seed at all. There is no error: the page simply paints with an empty `Router.pageSeed`
-> and you are left wondering where the headline went. The return type may be annotated
+> no seed at all. Nothing surfaces in the browser, so the page just paints with an empty
+> `Router.pageSeed`; the cause is in the edge log, which prints `SynQt: page seed hook
+> <file> (route <route>) could not be called; the page is delivered with no seed`. The
+> return type may be annotated
 > `: var`, which does match, because a seed is a plain object. The reference hook is
 > [`examples/stall/web/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/campaign-seed.qml),
 > whose in-file comment documents exactly this.

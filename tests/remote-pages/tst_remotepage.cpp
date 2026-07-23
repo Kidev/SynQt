@@ -60,6 +60,7 @@ private slots:
     void routerKeepsTheSeedWhenACachedPageIsRevisited();
     void routerRefreshesTheSeedOnANotModifiedReply();
     void routerClearsTheSeedForAPageThatHasNone();
+    void routerClearsTheSeedWhenNavigatingToACompiledView();
     void routerClearsTheSeedWhenAHookDeclinesToProduceOne();
     void routerClearsThePrivilegedPageOnScopeLoss();
     void routerIgnoresALateReplyForAnAbandonedRoute();
@@ -607,6 +608,44 @@ void tst_RemotePage::routerClearsTheSeedForAPageThatHasNone()
 
     QVERIFY2(router.pageSeed().isEmpty(),
              "a page delivered with no seed must not inherit the previous page's");
+}
+
+void tst_RemotePage::routerClearsTheSeedWhenNavigatingToACompiledView()
+{
+    // A compiled-in view never has an edge-sent seed, so Router.pageSeed must read empty
+    // once one is showing. Leaving a seeded remote page for a bundled view took the seed
+    // through setPageUrl, which used to leave it untouched, so the compiled page painted
+    // bound to the campaign's data.
+    QQmlEngine engine;
+    SynQt::SynClientConfig config{remoteFixture()};
+    config.routes.append(SynQt::RouteConfig{QStringLiteral("/about"),
+                                            QStringLiteral("Home.qml"), QString{},
+                                            QStringLiteral("qrc:/fixtures/Home.qml")});
+    SynQt::Session session{config};
+    SynQt::Router router{config, &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+
+    router.go(QStringLiteral("/c/summer-sale"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Summer Sale\"}"),
+                           QStringLiteral("ok"));
+    QCOMPARE(router.pageSeed().value(QStringLiteral("headline")).toString(),
+             QStringLiteral("Summer Sale"));
+
+    // A compiled-in view: it ships with the bundle and carries no seed of its own.
+    QSignalSpy spy{&router, &SynQt::Router::pageChanged};
+    router.go(QStringLiteral("/about"));
+
+    QCOMPARE(router.pageStatus(), SynQt::Router::Ready);
+    QVERIFY2(router.pageSeed().isEmpty(),
+             "a compiled-in view must not inherit the previous remote page's seed");
+    // The seed going away is a page change, announced even when nothing else moves.
+    QVERIFY(spy.count() >= 1);
 }
 
 void tst_RemotePage::routerClearsTheSeedWhenAHookDeclinesToProduceOne()
