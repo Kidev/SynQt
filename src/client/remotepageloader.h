@@ -8,6 +8,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 QT_BEGIN_NAMESPACE
@@ -55,11 +56,21 @@ public:
     /// changed.
     void invalidate(const QString &route);
 
+    /// Forget every route, so the next resolution to any of them refetches. Called on a
+    /// scope change: a page (and the seed it was delivered with) fetched under one scope
+    /// must not go on being shown, unconfirmed, to a session that no longer holds it.
+    void clear();
+
 private:
     struct CachedPage
     {
         QString hash;
-        QQmlComponent *component{nullptr};
+        // QPointer, not a raw pointer: this is the sole owner of the component (deleted
+        // in deliver()/invalidate()/clear()/the destructor), but a defensive belt in
+        // case anything else ever frees it out from under this cache too. A cleared
+        // QPointer reads as a cache miss everywhere a CachedPage's component is used,
+        // never as a stale, already-freed pointer handed back out.
+        QPointer<QQmlComponent> component{};
     };
 
     QQmlEngine *m_engine;

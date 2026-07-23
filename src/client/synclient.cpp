@@ -39,14 +39,15 @@ namespace SynQt {
 
 namespace {
 
-/// Promise::then() is the QML-facing API ("slot(args).then(value => ...)"): it only
-/// accepts a callable QJSValue, because a consumer facade's returning slot is meant to
-/// settle into a QML callback. SynClient's own Pages wiring needs the same reply from
-/// plain C++, so this bridges the two: a throwaway QObject exposes the one call the
-/// reply drives, and the app's own QML engine wraps it into a JS closure (there being no
-/// C++-native way to construct a callable QJSValue). It has no parent, so once the
-/// settled Promise drops its handler list (immediately after dispatch), the engine's
-/// garbage collector is free to reclaim it like any other unreachable JS-owned QObject.
+/// Promise::then()/catchError() are the QML-facing API ("slot(args).then(value =>
+/// ...)"): both only accept a callable QJSValue, because a consumer facade's returning
+/// slot is meant to settle into a QML callback. SynClient's own Pages wiring needs the
+/// same reply from plain C++, so this bridges the two: a throwaway QObject exposes the
+/// two calls the reply can drive, and the app's own QML engine wraps each into a JS
+/// closure (there being no C++-native way to construct a callable QJSValue). It has no
+/// parent, so once the settled Promise (or its chained rejection handler) drops its
+/// handler list, the engine's garbage collector is free to reclaim it like any other
+/// unreachable JS-owned QObject.
 class PageReplyBridge : public QObject
 {
     Q_OBJECT
@@ -65,6 +66,15 @@ public:
                                   fields.value(QStringLiteral("hash")).toString(),
                                   fields.value(QStringLiteral("seed")).toString(),
                                   fields.value(QStringLiteral("status")).toString());
+    }
+
+    /// A rejected promise (the connect point not yet live, or the remote call itself
+    /// failing) must still resolve the route, or it is left in Loading forever.
+    Q_INVOKABLE void fail(const QVariant &reason)
+    {
+        Q_UNUSED(reason);
+        m_router->onPageDelivered(m_route, QString{}, QString{}, QString{},
+                                  QStringLiteral("error"));
     }
 
 private:
@@ -285,6 +295,14 @@ void SynClient::teardown()
 
 void SynClient::bindPagesConnectPoint()
 {
+    // The facade is stable across reconnects (ServerAccessor rebinds the same instance
+    // to each fresh Replica; its own reconnect logic re-notifies routeTableChanged),
+    // so wire it up once. Without this guard, connectToEdge() calling this on every
+    // reconnect would multiply every connection made below by one more each time.
+    if (m_pagesFacade) {
+        return;
+    }
+
     // The Pages connect point is framework plumbing, not something an app declares for
     // its own use, but it is still just an ordinary consumed connect point: it rides the
     // same acquire-and-bind path as any other name in m_config.connectPoints (populated
@@ -313,6 +331,16 @@ void SynClient::bindPagesConnectPoint()
         return;
     }
     m_pagesFacade = facade;
+    if (m_engine) {
+        // The generated facade's own fetchPage() builds the Promise it returns via
+        // qjsEngine(this), which is null until the object has been given a JS wrapper at
+        // least once. The facade is framework plumbing no app QML ever references
+        // directly, so without this it would never get one, every reply would resolve
+        // as an undefined value, and every remote page would fail. Discarding the
+        // returned QJSValue is fine: the association qjsEngine() reads is recorded on
+        // the object itself, not on the wrapper value's own lifetime.
+        m_engine->newQObject(facade);
+    }
 
     connect(m_router, &Router::pageRequested, this,
             [this, facade](const QString &route, const QString &haveHash) {
@@ -320,20 +348,27 @@ void SynClient::bindPagesConnectPoint()
         QMetaObject::invokeMethod(facade, "fetchPage",
                                   Q_RETURN_ARG(SynQt::Promise *, promise),
                                   Q_ARG(QString, route), Q_ARG(QString, haveHash));
-        if (!promise) {
+        if (!promise || !m_engine) {
+            // No promise (the call could not even be dispatched) or no engine to bridge
+            // one through: either way, resolve to Error now rather than hang in Loading.
             m_router->onPageDelivered(route, QString{}, QString{}, QString{},
                                       QStringLiteral("error"));
             return;
         }
-        if (!m_engine) {
-            return;
-        }
         auto *bridge{new PageReplyBridge{m_router, route}};
-        // then() only takes a callable QJSValue; wrap the bridge's one invokable method
-        // into a JS closure over it, rather than exposing it as a named global.
+        // then()/catchError() only take a callable QJSValue; wrap the bridge's two
+        // invokable methods into JS closures over it, rather than exposing it as a
+        // named global. A rejection (the connect point not yet live, or the call
+        // itself failing) is handled too, so a failure always reaches onPageDelivered
+        // instead of leaving the route in Loading forever.
         QJSValue factory{m_engine->evaluate(QStringLiteral(
-            "(function (bridge) { return function (value) { bridge.deliver(value); }; })"))};
-        promise->then(factory.call(QJSValueList{m_engine->newQObject(bridge)}));
+            "(function (bridge) { return {"
+            "  onFulfilled: function (value) { bridge.deliver(value); },"
+            "  onRejected: function (reason) { bridge.fail(reason); }"
+            "}; })"))};
+        const QJSValue handlers{factory.call(QJSValueList{m_engine->newQObject(bridge)})};
+        promise->then(handlers.property(QStringLiteral("onFulfilled")))
+            ->catchError(handlers.property(QStringLiteral("onRejected")));
     });
 
     // Old-style string connects: the facade's concrete type (and so its pageChanged/

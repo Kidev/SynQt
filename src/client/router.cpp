@@ -103,6 +103,17 @@ Router::Router(SynClientConfig config, Session *session, QQmlEngine *engine,
         // refresh walks straight back into the redirect.
         connect(m_session, &Session::scopeChanged, this, [this]() {
             const QString before{m_path};
+            // A privileged remote page (and its seed) must not survive a scope loss:
+            // without this, resolve() below would hit resolveRemote's cached branch and
+            // re-show it Ready, with its privileged seed, before the edge's own refusal
+            // has a chance to arrive. Cleared on every scope change, not just a loss,
+            // since re-fetching once here is a small price for never getting this wrong.
+            if (m_loader) {
+                m_loader->clear();
+            }
+            if (!m_pageSeed.isEmpty()) {
+                m_pageSeed.clear();
+            }
             resolve(m_path, false);
             if (m_path != before) {
                 m_history->replace(m_path);
@@ -358,6 +369,9 @@ void Router::resolve(QString path, bool queryChanged)
             m_params = parameters;
             emit pathChanged();
         }
+        // A redirect away from a remote route leaves nothing pending: a reply that
+        // arrives afterward must be recognized as stale, not applied to the fallback.
+        clearPendingRemoteFetch();
         setPageUrl(fallback ? fallback->config.componentUrl : QString{}, status);
         return;
     }
@@ -370,11 +384,20 @@ void Router::resolve(QString path, bool queryChanged)
 
     if (route->config.componentUrl.isEmpty()) {
         if (!resolveRemote(target, route->config)) {
+            clearPendingRemoteFetch();
             setPageComponent(nullptr, Error);
         }
         return;
     }
+    // A compiled-in route: nothing here is pending a remote fetch either.
+    clearPendingRemoteFetch();
     setPageUrl(route->config.componentUrl, Ready);
+}
+
+void Router::clearPendingRemoteFetch()
+{
+    m_pendingRoute.clear();
+    m_pendingConcretePath.clear();
 }
 
 bool Router::isReachable(const RouteConfig &route) const
@@ -389,19 +412,26 @@ bool Router::isReachable(const RouteConfig &route) const
 
 bool Router::resolveRemote(const QString &path, const RouteConfig &route)
 {
-    Q_UNUSED(path);
     if (!m_loader) {
         return false;
     }
+    // The loader's cache (and m_pendingRoute, which correlates a reply directly driven
+    // against what is on screen) is keyed by the route's stable PATTERN
+    // ("/c/:campaign"), since that is what one delivered component really serves; but
+    // the edge matches a concrete path against the declared patterns and the seed
+    // provider needs the real parameters, so the wire request (and m_pendingConcretePath,
+    // threaded back through onPageDelivered by the caller that owns the fetch) carries
+    // the CONCRETE path instead. Both are cleared together by clearPendingRemoteFetch().
     m_pendingRoute = route.path;
+    m_pendingConcretePath = path;
     QQmlComponent *cached{m_loader->componentFor(route.path)};
     if (cached) {
         // Already held: show it now and still ask, so a changed page updates in place.
-        setPageComponent(cached, Ready);
+        setPageComponent(cached, Ready, ComponentOwnership::Loader);
     } else {
         setPageComponent(nullptr, Loading);
     }
-    emit pageRequested(route.path, m_loader->hashFor(route.path));
+    emit pageRequested(path, m_loader->hashFor(route.path));
     return true;
 }
 
@@ -409,7 +439,12 @@ void Router::onPageDelivered(const QString &route, const QString &qml,
                              const QString &hash, const QString &seed,
                              const QString &status)
 {
-    if (route != m_pendingRoute) {
+    // route may be the concrete path (a live fetch: the caller threads back exactly
+    // what pageRequested emitted) or the route's pattern (a caller driving this
+    // directly, as the unit tests do); either identifies the current pending request,
+    // since m_pendingRoute and m_pendingConcretePath are always set and cleared
+    // together. Anything else is a reply for a route already navigated away from.
+    if (route != m_pendingRoute && route != m_pendingConcretePath) {
         return;
     }
     if (status == QLatin1String("forbidden")) {
@@ -427,19 +462,37 @@ void Router::onPageDelivered(const QString &route, const QString &qml,
 
     QString reason;
     const RemotePageLoader::Outcome outcome{
-        m_loader->deliver(route, qml, hash, &reason)};
+        m_loader->deliver(m_pendingRoute, qml, hash, &reason)};
     if (outcome == RemotePageLoader::Outcome::Rejected
         || outcome == RemotePageLoader::Outcome::Failed) {
-        qWarning("SynQt: refusing delivered page %s: %s", qUtf8Printable(route),
+        qWarning("SynQt: refusing delivered page %s: %s", qUtf8Printable(m_pendingRoute),
                  qUtf8Printable(reason));
         setPageComponent(nullptr, Error);
         return;
     }
 
+    QQmlComponent *component{m_loader->componentFor(m_pendingRoute)};
     // The seed is in place before the component is, so a binding in the new page never
-    // evaluates against the previous page's seed.
-    m_pageSeed = QJsonDocument::fromJson(seed.toUtf8()).object().toVariantMap();
-    setPageComponent(m_loader->componentFor(route), Ready);
+    // evaluates against the previous page's seed. An empty seed means "unchanged" (a
+    // notModified confirmation carries none), never "clear it": revisiting the same
+    // cached page must not wipe a seed a previous visit already delivered.
+    bool seedChanged{false};
+    if (!seed.isEmpty()) {
+        const QVariantMap newSeed{QJsonDocument::fromJson(seed.toUtf8()).object().toVariantMap()};
+        if (newSeed != m_pageSeed) {
+            m_pageSeed = newSeed;
+            seedChanged = true;
+        }
+    }
+    // setPageComponent only notifies when the component or status actually changes: the
+    // same parameterized route revisited with a changed parameter keeps the same cached
+    // component and Ready status, so a seed-only change needs its own pageChanged, or
+    // every binding on Router.pageSeed would go stale.
+    const bool willNotify{component != m_pageComponent || m_pageStatus != Ready};
+    setPageComponent(component, Ready, ComponentOwnership::Loader);
+    if (seedChanged && !willNotify) {
+        emit pageChanged();
+    }
 }
 
 void Router::onPageChanged(const QString &route, const QString &hash)
@@ -448,9 +501,18 @@ void Router::onPageChanged(const QString &route, const QString &hash)
     if (!m_loader) {
         return;
     }
+    // route is the changed page's pattern (the edge reports at pattern granularity: one
+    // page serves every concrete path the pattern matches).
+    const bool isOnScreen{route == m_pendingRoute};
+    if (isOnScreen) {
+        // Let go of the on-screen component before invalidate() frees it: a live QML
+        // Loader must stop pointing at a component that is about to be deleted.
+        setPageComponent(nullptr, Loading);
+    }
     m_loader->invalidate(route);
-    if (route == m_pendingRoute) {
-        emit pageRequested(route, QString{});
+    if (isOnScreen) {
+        // Re-request the concrete path the visitor is actually on, not the pattern.
+        emit pageRequested(m_pendingConcretePath, QString{});
     }
 }
 
@@ -486,7 +548,8 @@ void Router::setPageUrl(const QString &componentUrl, PageStatus status)
     m_pageUrl = componentUrl;
 }
 
-void Router::setPageComponent(QQmlComponent *component, PageStatus status)
+void Router::setPageComponent(QQmlComponent *component, PageStatus status,
+                              ComponentOwnership ownership)
 {
     if (m_pageComponent == component && m_pageStatus == status) {
         return;
@@ -497,10 +560,18 @@ void Router::setPageComponent(QQmlComponent *component, PageStatus status)
     // what is already mounted, and that must not throw the key away.
     m_pageUrl.reset();
     QQmlComponent *previous{m_pageComponent};
+    // Whether the OUTGOING component may be freed here: never a loader-owned one,
+    // which RemotePageLoader keeps (and frees) in its own cache by content hash, and
+    // hands the identical pointer back out on a later revisit. Deleting it here as
+    // well would free it while the loader still believes it is holding a live
+    // component, handing out a dangling pointer the next time the same page is shown,
+    // or on the same forbidden/notModified reply arriving twice.
+    const bool previousWasOurs{!m_pageComponentIsLoaderOwned};
     m_pageComponent = component;
     m_pageStatus = status;
+    m_pageComponentIsLoaderOwned = (ownership == ComponentOwnership::Loader);
     emit pageChanged();
-    if (previous && previous != component) {
+    if (previous && previous != component && previousWasOurs) {
         // Outlive the signal so a binding reading the old component during
         // delivery does not read freed memory.
         previous->deleteLater();

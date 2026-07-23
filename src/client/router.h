@@ -133,10 +133,21 @@ protected:
     /// Table lookup, most-literal-first. Returns nullptr when nothing matches.
     const Route *lookup(const QString &path, QVariantMap *parameters) const;
 
-    /// Adopt a page an override built itself. The component becomes this
-    /// Router's child; the one it replaces is deleted after the change is
-    /// delivered.
-    void setPageComponent(QQmlComponent *component, PageStatus status);
+    /// Who is responsible for freeing a component passed to setPageComponent.
+    /// A RemotePageLoader owns and frees its own cached components (keyed by
+    /// content hash, reused across visits); Router must never delete one of
+    /// those itself, or the next visit to the same page hands out a freed
+    /// pointer (and invalidate()/replace-on-deliver double-frees it).
+    enum class ComponentOwnership {
+        Router, ///< this Router (or an override) built it; freed on replacement
+        Loader, ///< a RemotePageLoader owns it; never freed here
+    };
+
+    /// Adopt a page an override built itself, or one a RemotePageLoader holds.
+    /// The component this call replaces is deleted after the change is
+    /// delivered, unless ownership is Loader.
+    void setPageComponent(QQmlComponent *component, PageStatus status,
+                          ComponentOwnership ownership = ComponentOwnership::Router);
 
     void applyRoutes(QList<Route> routes);
     QList<Route> compiledRoutes() const;
@@ -163,6 +174,10 @@ private:
     void resolve(QString path, bool queryChanged);
     void setPageUrl(const QString &componentUrl, PageStatus status);
 
+    /// Clear both pending-route markers, so a reply that arrives after the visitor has
+    /// already navigated elsewhere is recognized as stale and ignored.
+    void clearPendingRemoteFetch();
+
     BrowserHistory *m_history;
     QList<Route> m_routes;
     QString m_path;
@@ -179,10 +194,24 @@ private:
     std::optional<QString> m_pageUrl;
     PageStatus m_pageStatus{NotFound};
 
+    /// Whether m_pageComponent is currently loader-owned (see ComponentOwnership);
+    /// decides whether setPageComponent may delete it on the next replacement.
+    bool m_pageComponentIsLoaderOwned{false};
+
     RemotePageLoader *m_loader{nullptr};
     QList<Route> m_remoteRoutes;
     QVariantMap m_pageSeed;
+
+    /// The remote route's stable pattern (e.g. "/c/:campaign"): the RemotePageLoader
+    /// cache key, and what a caller driving onPageDelivered/onPageChanged directly
+    /// (as the unit tests do) identifies a reply by.
     QString m_pendingRoute;
+
+    /// The concrete path (e.g. "/c/summer") sent to the edge as pageRequested's
+    /// argument and what a live SynClient/PagesService round trip threads back into
+    /// onPageDelivered's route argument. Set and cleared together with m_pendingRoute;
+    /// onPageDelivered accepts either form, so it works whichever one the caller has.
+    QString m_pendingConcretePath;
 };
 
 } // namespace SynQt

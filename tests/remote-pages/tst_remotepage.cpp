@@ -9,8 +9,11 @@
 #include "router.h"
 #include "session.h"
 
+#include <QCoreApplication>
+#include <QEvent>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QSignalSpy>
 #include <QTest>
 
 using SynQt::QmlPalette;
@@ -49,6 +52,14 @@ private slots:
     void routerAddsRoutesFromTheEdgeTable();
     void routerPrefersACompiledInRouteOverAnEdgeOne();
     void routerReportsForbiddenWhenTheEdgeRefuses();
+
+    void routerKeepsTheComponentValidAfterLeavingAndReturning();
+    void routerClearsTheComponentBeforeInvalidatingOnPageChanged();
+    void routerSendsTheConcretePathToTheEdge();
+    void routerUpdatesTheSeedWhenTheParameterChanges();
+    void routerKeepsTheSeedOnANotModifiedReply();
+    void routerClearsThePrivilegedPageOnScopeLoss();
+    void routerIgnoresALateReplyForAnAbandonedRoute();
 };
 
 void tst_RemotePage::paletteAcceptsDeclaredModules()
@@ -406,6 +417,217 @@ void tst_RemotePage::routerReportsForbiddenWhenTheEdgeRefuses()
                            QStringLiteral("forbidden"));
     QCOMPARE(router.pageStatus(), SynQt::Router::Forbidden);
     QVERIFY(router.pageComponent() == nullptr);
+}
+
+void tst_RemotePage::routerKeepsTheComponentValidAfterLeavingAndReturning()
+{
+    // Pins the Critical 1 fix: RemotePageLoader owns and frees its cached components;
+    // Router must never delete one of them itself, or a revisit hands out (and
+    // deliver()/invalidate() later double-frees) an already-freed pointer.
+    QQmlEngine engine;
+    SynQt::SynClientConfig config{remoteFixture()};
+    config.routes.append(SynQt::RouteConfig{QStringLiteral("/other"),
+                                            QStringLiteral("Home.qml"), QString{},
+                                            QStringLiteral("qrc:/fixtures/Home.qml")});
+    SynQt::Session session{config};
+    SynQt::Router router{config, &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+
+    router.go(QStringLiteral("/c/summer"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"), QStringLiteral("{}"),
+                           QStringLiteral("ok"));
+    QQmlComponent *first{router.pageComponent()};
+    QVERIFY(first != nullptr);
+
+    router.go(QStringLiteral("/other"));
+    QCOMPARE(router.pageStatus(), SynQt::Router::Ready);
+    // Let any queued deleteLater() actually run: this is what exposes a double free
+    // (the bug fires here, not at the go() call above). A plain processEvents() alone
+    // does not force a DeferredDelete through; sendPostedEvents does.
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCoreApplication::processEvents();
+
+    router.go(QStringLiteral("/c/summer"));
+    // Already cached: shown immediately, without waiting on a fresh fetch.
+    QCOMPARE(router.pageStatus(), SynQt::Router::Ready);
+    QCOMPARE(router.pageComponent(), first);
+    QVERIFY(!router.pageComponent()->isError());
+}
+
+void tst_RemotePage::routerClearsTheComponentBeforeInvalidatingOnPageChanged()
+{
+    // Pins Important 2: onPageChanged must let go of the on-screen component (and
+    // notify) before invalidate() frees it, or a live QML Loader is left pointing at
+    // memory freed on the next event-loop turn.
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+    router.go(QStringLiteral("/c/summer"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"), QStringLiteral("{}"),
+                           QStringLiteral("ok"));
+    QVERIFY(router.pageComponent() != nullptr);
+
+    QSignalSpy spy{&router, &SynQt::Router::pageChanged};
+    router.onPageChanged(QStringLiteral("/c/:campaign"), QStringLiteral("h2"));
+
+    QVERIFY(spy.count() >= 1);
+    QCOMPARE(router.pageComponent(), nullptr);
+    QCOMPARE(router.pageStatus(), SynQt::Router::Loading);
+    QCoreApplication::processEvents();
+}
+
+void tst_RemotePage::routerSendsTheConcretePathToTheEdge()
+{
+    // Pins Minor 3: PagesService matches the concrete path against the declared
+    // patterns and the seed provider needs the real parameters, so pageRequested must
+    // carry "/c/summer", never the pattern "/c/:campaign".
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+
+    QSignalSpy spy{&router, &SynQt::Router::pageRequested};
+    router.go(QStringLiteral("/c/summer"));
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("/c/summer"));
+}
+
+void tst_RemotePage::routerUpdatesTheSeedWhenTheParameterChanges()
+{
+    // Pins Important 4: the same template revisited with a changed parameter keeps the
+    // same cached component (setPageComponent's own early return would emit nothing),
+    // so a seed-only change needs pageChanged emitted for it explicitly.
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+    router.go(QStringLiteral("/c/summer"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Summer\"}"),
+                           QStringLiteral("ok"));
+    QQmlComponent *component{router.pageComponent()};
+
+    router.go(QStringLiteral("/c/winter"));
+    QSignalSpy spy{&router, &SynQt::Router::pageChanged};
+    // Same page (the edge answers with the same hash), a fresh seed.
+    router.onPageDelivered(QStringLiteral("/c/:campaign"), QString{},
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Winter\"}"),
+                           QStringLiteral("ok"));
+
+    QCOMPARE(router.pageComponent(), component);
+    QCOMPARE(router.pageSeed().value(QStringLiteral("headline")).toString(),
+             QStringLiteral("Winter"));
+    QVERIFY(spy.count() >= 1);
+}
+
+void tst_RemotePage::routerKeepsTheSeedOnANotModifiedReply()
+{
+    // Pins Important 4: a notModified confirmation carries an empty seed (see
+    // pagesservice.cpp), which must mean "unchanged", never "clear the seed I already
+    // delivered".
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+    router.go(QStringLiteral("/c/summer"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Summer\"}"),
+                           QStringLiteral("ok"));
+
+    router.onPageDelivered(QStringLiteral("/c/:campaign"), QString{},
+                           QStringLiteral("h1"), QString{}, QStringLiteral("ok"));
+
+    QCOMPARE(router.pageSeed().value(QStringLiteral("headline")).toString(),
+             QStringLiteral("Summer"));
+}
+
+void tst_RemotePage::routerClearsThePrivilegedPageOnScopeLoss()
+{
+    // Pins Important 5: a privileged remote page (and its seed) must not survive a
+    // scope loss and be re-shown from the loader's cache before the edge's own
+    // refusal has a chance to arrive.
+    QQmlEngine engine;
+    SynQt::SynClientConfig config{remoteFixture()};
+    SynQt::Session session{config};
+    SynQt::Router router{config, &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/admin\",\"scope\":\"staff\"}]"));
+    session.setScope(QStringLiteral("staff"));
+
+    router.go(QStringLiteral("/admin"));
+    router.onPageDelivered(QStringLiteral("/admin"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"), QStringLiteral("{\"secret\":\"x\"}"),
+                           QStringLiteral("ok"));
+    QVERIFY(router.pageComponent() != nullptr);
+    QVERIFY(!router.pageSeed().isEmpty());
+
+    session.setScope(QStringLiteral("anonymous"));
+
+    QVERIFY(router.pageSeed().isEmpty());
+    QCOMPARE(router.pageStatus(), SynQt::Router::Loading);
+    QCoreApplication::processEvents();
+}
+
+void tst_RemotePage::routerIgnoresALateReplyForAnAbandonedRoute()
+{
+    // Pins Important 3: navigating away clears the pending markers, so a reply that
+    // lands afterward (for the route now abandoned) must not hijack whatever the
+    // visitor has since navigated to.
+    QQmlEngine engine;
+    SynQt::SynClientConfig config{remoteFixture()};
+    config.routes.append(SynQt::RouteConfig{QStringLiteral("/other"),
+                                            QStringLiteral("Home.qml"), QString{},
+                                            QStringLiteral("qrc:/fixtures/Home.qml")});
+    SynQt::Session session{config};
+    SynQt::Router router{config, &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+
+    router.go(QStringLiteral("/c/summer"));
+    router.go(QStringLiteral("/other"));
+    QVERIFY(router.pageComponent() != nullptr);
+    QCOMPARE(router.pageStatus(), SynQt::Router::Ready);
+
+    // The in-flight reply for "/c/summer" lands after the visitor left it.
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"), QStringLiteral("{}"),
+                           QStringLiteral("ok"));
+
+    // Still on "/other", untouched by the stale reply.
+    QCOMPARE(router.path(), QStringLiteral("/other"));
+    QCOMPARE(router.pageStatus(), SynQt::Router::Ready);
 }
 
 QTEST_MAIN(tst_RemotePage)

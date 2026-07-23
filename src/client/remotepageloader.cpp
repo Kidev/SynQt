@@ -25,6 +25,9 @@ RemotePageLoader::Outcome RemotePageLoader::deliver(const QString &route,
                                                     const QString &hash, QString *reason)
 {
     const auto cached{m_pages.constFind(route)};
+    // cached->component is a QPointer: a null value here means the cache miss it looks
+    // like, even if something outside this class already freed what used to be there,
+    // rather than confirming a component that no longer exists as still current.
     if (cached != m_pages.constEnd() && cached->hash == hash && cached->component) {
         return Outcome::NotModified;
     }
@@ -78,6 +81,16 @@ void RemotePageLoader::invalidate(const QString &route)
         cached->component->deleteLater();
     }
     m_pages.remove(route);
+}
+
+void RemotePageLoader::clear()
+{
+    for (const CachedPage &page : std::as_const(m_pages)) {
+        if (page.component) {
+            page.component->deleteLater();
+        }
+    }
+    m_pages.clear();
 }
 
 } // namespace SynQt
