@@ -315,9 +315,13 @@ SQLite connection on the thread that created it, per the Qt SQL threading rule.
 
 ## What is intentionally out of scope
 
-- Server delivered, runtime compiled QML views. The compiled client wants its QML
-  at build time. Access is controlled at the connect point and route guard level
-  instead.
+- Server delivered, runtime *compiled* QML views. The bundle's own views are compiled
+  ahead of time by qmlcachegen and want their QML at build time. A peripheral view can
+  instead be delivered by the edge and interpreted at run time as a
+  [remote page](remote-pages.md), which keeps it out of the bundle and editable without
+  a client rebuild; that path is interpreted, not compiled, so it is for campaign and
+  landing pages, not per-frame views. Access to data is controlled at the connect point
+  and route guard level in both cases.
 - A novel storage engine. The database blueprint embeds SQLite by default and masks
   third party engines (PostgreSQL, MySQL, MongoDB, Redis) behind a provider rather
   than reimplementing durability. Writing a brand new storage engine is out of scope;

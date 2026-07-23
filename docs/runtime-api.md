@@ -134,6 +134,7 @@ where an in-memory stack stands in for the address bar.
 | `Router.query` | object | the decoded query string of the current URL (`?page=2&q=hat` gives `{ page: "2", q: "hat" }`). Cleared whenever the navigation ends somewhere other than the route that was asked for, whether a guard refused it or nothing matched, so a query addressed to that page never reaches the fallback. |
 | `Router.pageComponent` | Component \| null | the component for the current route's view, ready to hand to a `Loader`. `null` when the route has no view to show. |
 | `Router.pageStatus` | enumeration | why the current page is the one showing: `Ready`, `Loading`, `Forbidden`, `NotFound`, or `Error`. Values below. |
+| `Router.pageSeed` | object | the seed the edge sent for the current page, a read-only map. For a [remote page](remote-pages.md) it is whatever the route's [seed hook](remote-pages.md#the-page-seed-painting-the-first-frame) returned, so a delivered page can paint real content on its first frame before its connect points arrive; empty for a compiled-in view and for a remote page whose route declares no `seed`. It is kept across a `notModified` refetch, so a new parameterization of one page paints the new seed rather than the old page's data. |
 | `Router.go(path)` | action | navigate to `path` and add a history entry. If the matched route declares a `scope` the session lacks, the router goes to `router.fallback` instead and reports `Forbidden`. |
 | `Router.replace(path)` | action | navigate without adding a history entry: the current entry is rewritten, so `back()` skips the page being left. |
 | `Router.back()` | action | go back one history entry, exactly as the browser's Back button does. |
@@ -148,10 +149,10 @@ them, so one binding on any of the three sees a consistent set.
 | Value | Meaning |
 |-------|---------|
 | `Ready` | the matched route's view is built and showing. |
-| `Loading` | the view is still being built. A view compiled into the bundle is built synchronously, so a route pointing at one never reports this. |
+| `Loading` | the view is still being built. A view compiled into the bundle is built synchronously, so a route pointing at one never reports this; a [remote page](remote-pages.md) does, while the edge is being asked for it and the reply has not arrived. |
 | `Forbidden` | a route matched, but it declares a `scope` the session lacks. `path` is now `router.fallback` and the fallback's view is showing. The refused path is remembered for [after login](#returning-to-the-page-that-was-refused). |
 | `NotFound` | nothing in the route table matched. `path` is now `router.fallback`, the fallback's view is showing, and the query the unmatched path carried is dropped. |
-| `Error` | there is no page to show: the view failed to load, because it does not compile or because its URL names nothing, or the matched route carries no compiled-in view at all. That last case is how a page delivered by the edge is represented, and version 1 delivers none, so nothing can resolve it. A route that declares no `view` in `synqt.yaml` never becomes one: `synqt check` reports it, and `synqt build` refuses to generate it. `Error` also wins over `Forbidden` and `NotFound` when it is the *fallback's* own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
+| `Error` | there is no page to show: a compiled-in view failed to load, because it does not compile or because its URL names nothing, or a [remote page](remote-pages.md) could not be delivered, because the edge refused it or the client has no loader to resolve it. A route that declares neither a `view` nor a `remote` in `synqt.yaml` never becomes a page at all: `synqt check` reports it, and `synqt build` refuses to generate it. `Error` also wins over `Forbidden` and `NotFound` when it is the *fallback's* own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
 
 `Router` is bound as a context property rather than as a registered QML type, so
 the value names above are not in scope in QML: `pageStatus` reads there as its

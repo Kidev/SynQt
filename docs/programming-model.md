@@ -335,6 +335,15 @@ renders nothing useful without privileged connect points, which the edge refuses
 to provide to an under scoped session, and which often resolve through services
 the browser cannot reach at all.
 
+A route is compiled into the client bundle with `view:`, or delivered by the web
+edge on demand with `remote:`. A `remote:` route names a QML file the edge holds and
+sends over the same `wss` link at navigation time, so a peripheral or often-changed
+page stays out of the bundle and changes without a client rebuild. Unlike a compiled
+in view, a delivered page's `scope` is enforced on the edge before delivery, so its
+markup never reaches an under scoped machine; the data it later reads is still
+governed by the connect point's own scope, as always. See
+[remote pages](remote-pages.md).
+
 ## Connection lifecycle and offline behavior
 
 Each link uses a QtRO heartbeat so a dropped connection is noticed promptly rather

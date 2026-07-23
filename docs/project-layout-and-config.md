@@ -415,10 +415,12 @@ identity:
 
 ### `router` and `routes` (client navigation)
 
-`router` holds the navigation mode, the fallback, and the prefix the app is served
-under; `routes` is a block sequence of path to view mappings, optionally scope
-gated. Together they are the route table the client's
-[`Router`](runtime-api.md#client-router) resolves every URL against.
+`router` holds the navigation mode, the fallback, the prefix the app is served
+under, and the remote-page palette; `routes` is a block sequence of path to page
+mappings, optionally scope gated. Both are top-level keys in `synqt.yaml`, siblings
+of `project` and `entities`, not nested under any `client` block. Together they are
+the route table the client's [`Router`](runtime-api.md#client-router) resolves every
+URL against.
 
 ```yaml
 router:
@@ -448,14 +450,17 @@ routes:
 | `mode` | `history` | The only mode. The router drives the browser's History API, so every route is a real URL a visitor can bookmark, share, and refresh, and the web edge [serves the application shell](security.md#deep-links-and-the-login-resume) for any path it does not answer itself. |
 | `fallback` | `/` | Where a navigation goes when the path matches no route, or matches a route whose `scope` the session lacks. It must itself be a declared route. |
 | `base` | `/` | The path prefix the app is served under. An app deployed at `/shop` sets `base: /shop`, and everything else in the table stays in application paths: a route is still `/c/:campaign`, `Router.path` still reads `/c/summer-sale`, and only the address bar carries the prefix. A trailing slash is ignored. |
+| `palette` | (none) | The list of QML modules a [remote page](remote-pages.md) may import, and the whole of what one may import. Required, and non-empty, once any route declares a `remote:`; ignored when none does. It is a trust boundary: a delivered page that imports a module the palette does not list is refused rather than rendered. Example: `palette: [QtQuick, QtQuick.Layouts]`. |
 
 `routes` keys, per entry:
 
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `path` | yes | The route's path, absolute. Each segment is either a literal or a `:name` parameter that captures whatever is in that position. A parameter name starts with a letter or an underscore and continues with letters, digits, or underscores, and no name repeats within one path. Captured values are percent-decoded and arrive as `Router.params`. |
-| `view` | yes | The QML file to show. Write it relative to the client entity's directory (`Home.qml`, not `client/Home.qml`, and `views/Home.qml` for one in a subdirectory), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module at that same relative path and the router loads it from there, so a view needs nothing beyond the file being there. |
-| `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. |
+| `view` | one of `view`/`remote` | The QML file compiled into the client bundle. Write it relative to the client entity's directory (`Home.qml`, not `client/Home.qml`, and `views/Home.qml` for one in a subdirectory), with or without the `.qml` extension. `synqt build` compiles it into the client's QML module at that same relative path and the router loads it from there, so a view needs nothing beyond the file being there. Mutually exclusive with `remote`. |
+| `remote` | one of `view`/`remote` | The QML file the web edge delivers on demand, instead of compiling it in. Write it relative to the edge entity's `pages/` directory (`Campaign.qml` names `<edge>/pages/Campaign.qml`). The edge sends it over the same authenticated `wss` link at navigation time, so it never enters the bundle and changes without a client rebuild. Mutually exclusive with `view`. See [remote pages](remote-pages.md). |
+| `seed` | no | The [page seed](remote-pages.md#the-page-seed-painting-the-first-frame) hook the edge runs, after this route's scope check, to build the data a delivered page paints with on its first frame. Written project-root-relative (like `identity.mapping`), because a hook is edge code, not a delivered page: `seed: web/campaign-seed.qml`. Applies only to a `remote:` route; a `seed:` on a compiled-in route is refused, because it would never run. |
+| `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. On a `remote:` route the edge enforces it before delivery, so an under-scoped fetch is refused with no markup, no hash, and no seed. |
 
 Every QML file under the client entity's directory is put into the client's QML
 module for you: `Main.qml`, the views the routes name, and everything those views
@@ -474,9 +479,28 @@ rename one of them.
 `synqt check` refuses a route whose view is not on disk, naming the route and the
 file it looked for, and refuses a view that reaches outside the client entity's
 directory (an absolute path, a `../` path, or a Windows drive path). A route with
-no `view` at all is refused both by `synqt check` and by the generator, since the
-only file it could mean is `Main.qml`, which is the window. Do not add views to the
-generated `CMakeLists.txt` by hand: it is rewritten from `synqt.yaml` on every build.
+neither a `view` nor a `remote` is refused both by `synqt check` and by the
+generator, since there is nothing for it to show. Do not add views to the generated
+`CMakeLists.txt` by hand: it is rewritten from `synqt.yaml` on every build.
+
+### Edge-delivered pages (`remote:`)
+
+A `remote:` route is not compiled into the client. Its file lives under the web edge
+entity's `pages/` directory, flat under the project root: for an edge named `web`,
+`remote: Campaign.qml` names `web/pages/Campaign.qml` (there is no `entities/`
+prefix). The edge holds these files and delivers one over the same authenticated
+`wss` link the moment a visitor navigates to its route, so a delivered page never
+enters the bundle and can be added or changed without a client rebuild. The full
+feature, the palette trust boundary, the page seed, and what a page's `scope`
+does and does not protect, is in [remote pages](remote-pages.md).
+
+The `remote:` routes are not baked into the client at build time the way `view:`
+routes are. The edge sends the connected client its route table (the **edge-served
+route table**), so the client learns which paths are edge-delivered from the edge
+itself, and a brand-new `remote:` route becomes reachable without a client rebuild.
+The two halves merge with the compiled-in half winning: a path the bundle already
+declares as a `view:` is kept even if the edge announces a `remote:` at the same
+path, so the edge can never shadow a compiled-in page.
 
 An app that declares no `routes` at all has no route table, `Router.pageComponent`
 is null, and nothing about it changes: routing is opt in, and `Main.qml` alone is a
@@ -739,7 +763,7 @@ reaches them. Each rule below fails the check, with the message quoted:
 | A `path` claims a path the edge answers itself | `error: route path '/sync' is reserved by the web edge: a client route there is either answered by the edge itself or collides with the wss sync endpoint` |
 | A parameter name is not an identifier | `error: route path '/c/:2campaign' has a malformed parameter ':2campaign'; a parameter name must be a letter or underscore, then letters, digits, or underscores` |
 | One path uses a parameter name twice | `error: route path '/c/:id/:id' repeats the parameter name 'id'` |
-| A route declares no `view` | `error: route '/admin' declares no view; there is nothing for the router to show there` |
+| A non-remote route declares no `view` | `error: route '/admin' declares no view; there is nothing for the router to show there` |
 | A `view` names a file that is not there | `error: route '/admin' names view 'Admin.qml': no such file 'client/Admin.qml'` |
 | A `view` is written with the entity directory in it | `error: route '/admin' names view 'client/Admin.qml': no such file 'client/client/Admin.qml'; a view is named relative to the client entity's directory, so write it as 'Admin.qml'` |
 | A `view` points outside the client entity's directory | `error: route '/admin' names view '../web/Admin.qml': a view is named relative to the client entity's directory ('client/'), so it cannot be an absolute or parent path` |
@@ -773,3 +797,44 @@ Three of those deserve a note:
 The `fallback` rule applies only once at least one route is declared: a project
 with no `routes` at all has nothing for a fallback to point at, and the client
 compiles an empty route table.
+
+A `remote:` route has no compiled-in view, so it is exempt from the view rules
+above: the "declares no view" and file-on-disk checks are skipped for it, and its
+own file is validated as an edge-delivered page instead (next section). A route that
+sets neither key is still refused, since there is nothing for it to show.
+
+### Remote pages
+
+`synqt check` validates every route's `remote:` and `seed:` as well, because a bad
+[remote page](remote-pages.md) is the worst kind of defect: it builds and serves
+fine, and only fails the visitor who navigates to it, as a blank page (a missing
+file), a refused delivery (an import outside the palette), or a page that quietly
+shadows one the bundle already carries. A delivered page's file is checked under
+`<edge>/pages` (the edge entity's directory directly under the project root, not
+`entities/<edge>`); a `seed:` is resolved project-root-relative, because a hook is
+edge code rather than a delivered page. Each rule below fails the check, with the
+message quoted:
+
+| What is wrong | The message |
+|---------------|-------------|
+| A `seed:` is not a string | `error: route '/c/:campaign' 'seed:' must be a string path to the hook QML, not True` |
+| A `seed:` sits on a non-remote route | `error: route '/home' declares 'seed:' but no 'remote:'; a page seed only applies to an edge-delivered page` |
+| A `remote:` route exists but the project has no web edge | `error: a route declares 'remote:' but the project has no web_edge entity` |
+| A `remote:` route exists but `router.palette` is empty | `error: a route declares 'remote:' but router.palette is empty; a delivered page may only import declared modules` |
+| A route sets both `view:` and `remote:` | `error: route '/c/:campaign' sets both 'view:' and 'remote:'` |
+| A `remote:` route shadows a compiled-in route at the same path | `error: remote route '/c/:campaign' shadows a compiled-in route of the same path` |
+| A `seed:` names a file that is not there | `error: page seed 'web/campaign-seed.qml' for route '/c/:campaign' does not exist under <project-dir>` |
+| A `remote:` names a page that is not there | `error: remote page 'Campaign.qml' for route '/c/:campaign' does not exist under <edge>/pages` |
+| A delivered page imports a module outside the palette | `error: remote page 'Campaign.qml' imports 'QtWebEngine', which is not in router.palette` |
+
+Two of those deserve a note:
+
+- The palette rule is a build-time convenience, not the security boundary. The
+  client's own `QmlPalette` is what enforces the palette on a delivered page at run
+  time, and it is stricter than this scan: it strips comments first and refuses any
+  quoted (path) import outright. A page this scan waves through on a comment-obscured
+  or quoted import is still refused by the client, just later than you would like.
+- The shadow rule and the "sets both" rule guard opposite mistakes. A `remote:` at
+  the same path as a *separate* `view:` route is a shadow the edge could never win
+  (the compiled-in half is kept), and is reported here. A single route that sets both
+  keys is not a shadow of itself; it is the "sets both" error instead.

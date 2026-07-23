@@ -10,7 +10,9 @@ its state in memory. They use `Client` to reach the calling browser session, whi
 is the web edge alias for the general `Caller` accessor described in
 [the programming model](programming-model.md#reaching-the-caller-the-caller-accessor).
 Example 4 adds a third entity, a database, and shows the mesh: the edge authorizes
-the user, then calls the database, which authorizes the edge.
+the user, then calls the database, which authorizes the edge. Example 5 keeps that
+three-entity shape and adds [remote pages](remote-pages.md): views the web edge
+delivers on demand rather than compiling into the client bundle.
 
 ## Example 1: a shared live counter (no login)
 
@@ -630,3 +632,143 @@ not know a database exists; it only ever talks to the edge.
 - The same connect point mechanism carries both links. `Server.todo` (browser to
   edge over wss) and `Database.items` (edge to database over the mesh) are the same
   programming model with different transports underneath.
+
+## Example 5: a storefront with edge-delivered campaign pages
+
+The [`stall`](https://github.com/Kidev/SynQt/tree/main/examples/stall) example is the
+three-entity shape of Example 4 (a browser client, a web edge, and a `stock` database
+the browser reaches only through the edge) with one thing added: its marketing
+campaign pages are [remote pages](remote-pages.md), delivered by the edge on demand
+rather than compiled into the client bundle. The product grid and the cart ship in the
+bundle; a merchandiser changes a campaign, or adds a new one, without a client rebuild.
+
+### Topology, `synqt.yaml`
+
+The entities are a `kind: client`, a `capability: web_edge`, and a
+`blueprint: persistence` database. The route table and the `router` block are
+top-level keys:
+
+```yaml
+routes:
+  - path: /
+    view: Home.qml            # compiled into the client bundle
+  - path: /cart
+    view: Cart.qml
+
+  - path: /c/:campaign
+    remote: Campaign.qml      # delivered by the edge, from web/pages/Campaign.qml
+    seed: web/campaign-seed.qml
+  - path: /members
+    remote: Members.qml       # delivered by the edge, and members only
+    scope: user
+
+router:
+  fallback: /
+  base: /
+  palette: [QtQuick, QtQuick.Layouts]   # what a delivered page may import
+
+connect_points:
+  - name: catalog
+    contract: Catalog
+    owner: web                # the edge owns the browser-facing live catalog
+    consumers: [client]
+    server: web/Catalog.qml
+    instance: shared
+
+  - name: inventory
+    contract: Inventory
+    owner: stock              # the database owns the durable stock
+    consumers: [web]          # only the edge; a client consumer here fails synqt check
+    server: stock/Inventory.qml
+    instance: per_peer
+```
+
+### The delivered page, `web/pages/Campaign.qml`
+
+One file serves every slug. Its root is an `Item`, not a window, because a delivered
+page is loaded into the client's `Loader`, and it imports only the palette modules. It
+paints its headline from the seed on the first frame, then keeps the offers live
+through the `catalog` replica:
+
+```qml
+import QtQuick
+import QtQuick.Layouts
+
+Item {
+    id: campaign
+
+    readonly property string headline: Router.pageSeed.headline ?? qsTr("Today's offers")
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 16
+        spacing: 12
+
+        Text {
+            text: campaign.headline
+            font.pixelSize: 24
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+        }
+
+        ListView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            model: Server.Catalog.offers
+            delegate: Text {
+                required property string title
+                required property int price
+                width: ListView.view.width
+                text: qsTr("%1  -  %2").arg(title).arg(price)
+            }
+        }
+    }
+}
+```
+
+### The page seed, `web/campaign-seed.qml`
+
+The seed runs on the edge, after the route's scope check, and turns the slug into the
+headline the page paints first, so it never flashes empty:
+
+```qml
+import QtQuick
+import SynQt
+
+PageSeed {
+    // Leave the parameters untyped: the edge invokes this hook generically, passing
+    // every argument as a QVariant, so annotating one (route: string) would change the
+    // method signature and the edge would silently deliver the page with no seed. The
+    // return may be annotated var.
+    function seedFor(route, parameters, caller): var {
+        const slug = parameters.campaign ?? "";
+        const words = slug.split("-").filter(part => part.length > 0);
+        const headline = words
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(" ");
+        return { headline: headline.length > 0 ? headline : qsTr("Today's offers") };
+    }
+}
+```
+
+### What this example demonstrates
+
+- A route is compiled in (`view:`) or edge-delivered (`remote:`). The campaign and
+  members pages are `remote:`, so they never enter the bundle and change without a
+  client rebuild.
+- `router.palette` is the trust boundary for a delivered page: the whole set of QML
+  modules it may import, enforced by the client.
+- The page seed paints the first frame. It runs on the edge per request, is keyed on
+  the path parameter, and its return is `Router.pageSeed` on the client, so one
+  `Campaign.qml` gives every slug its own headline. Its parameters are left untyped so
+  the edge's generic invocation matches.
+- A delivered page's `scope` protects the page, not the data. `Members.qml` is refused
+  to an under-scoped session with no markup, no hash, and no seed, but the data any
+  page reads is still governed by the connect point's own scope.
+- The database stays unreachable from the browser. The `inventory` connect point is
+  owned by `stock` and consumed only by `web`; adding the client as a consumer fails
+  `synqt check`, because the browser can only reach a web edge.
+
+The two [remote-pages tutorials](tutorial-remote-pages.md) build this storefront up
+step by step and run the three hands-on checks against it.

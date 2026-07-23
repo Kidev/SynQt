@@ -159,7 +159,8 @@ to the configured fallback when a route names a scope the session lacks.
 | `Router.params` | object | SynQt::Router::params | The path parameters the matched route captured, percent-decoded. Empty for a route without parameters. On a redirect the refused route's captures are dropped and the fallback route's own take their place, which is nothing at all for the usual parameterless fallback. |
 | `Router.query` | object | SynQt::Router::query | The decoded query string of the current URL. Cleared whenever the navigation ends somewhere other than the route that was asked for, a guard refusal and an unmatched path alike, so a query addressed to that page never reaches the fallback. |
 | `Router.pageComponent` | Component \| null | SynQt::Router::pageComponent | The component for the current route's view, ready to hand to a `Loader`. Null when there is no view to show. |
-| `Router.pageStatus` | enumeration | SynQt::Router::pageStatus | Why the current page is the one showing: SynQt::Router::Ready, SynQt::Router::Loading, SynQt::Router::Forbidden, SynQt::Router::NotFound, or SynQt::Router::Error. |
+| `Router.pageStatus` | enumeration | SynQt::Router::pageStatus | Why the current page is the one showing: SynQt::Router::Ready, SynQt::Router::Loading, SynQt::Router::Forbidden, SynQt::Router::NotFound, or SynQt::Router::Error. A remote page reports `Loading` while the edge is being asked for it. |
+| `Router.pageSeed` | object | SynQt::Router::pageSeed | The seed the edge sent for the current page, a read-only map. For a remote page it is whatever the route's seed hook returned, so a delivered page can paint its first frame before its connect points arrive; empty for a compiled-in view and kept across a `notModified` refetch. |
 | `Router.go(path)` | action | SynQt::Router::go | Navigate to `path` and push a history entry. When the matched route declares a scope the session lacks, the router goes to the configured fallback instead and reports `Forbidden`. |
 | `Router.replace(path)` | action | SynQt::Router::replace | Navigate without adding a history entry: the current entry is rewritten, so `back()` skips the page being left. |
 | `Router.back()` | action | SynQt::Router::back | Go back one history entry, as the browser's Back button does. |
@@ -194,7 +195,12 @@ SynQt::ResumePath::isAcceptable is what keeps an attacker-supplied link from tur
 resume into an open redirect.
 
 SynQt::Router::resolveRemote is a virtual returning false here, the hook for a page this
-class cannot build itself.
+class cannot build itself. A remote page, one the web edge delivers at run time rather than
+compiling into the bundle, is resolved through it: SynQt::RemotePageLoader fetches the page
+over the client's link, caches it by content hash, and hands SynQt::Router the component,
+while SynQt::QmlPalette enforces `router.palette`, the set of QML modules a delivered page
+may import. Both sit behind `Router`; an application sees only the resolved
+`pageComponent` and the `pageSeed` the edge sent with it.
 
 A route guard is a redirect rule, not a secrecy mechanism. The client is one compiled
 bundle, so every view's QML ships to every visitor; guards decide which view is shown and

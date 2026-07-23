@@ -383,6 +383,50 @@ One user visible cost comes out of the colon rule: a path parameter containing a
 literal `:` cannot be resumed. Percent encode it as `%3A` in links you generate if
 those paths need to survive a login.
 
+## Remote pages (edge-delivered QML)
+
+A [remote page](remote-pages.md) is a QML file the web edge holds and delivers to the
+browser at navigation time, rather than compiling it into the client bundle. It
+crosses the same authenticated `wss` link as everything else, so it inherits the
+upgrade verifier, the session, and `Caller`. Three security facts govern it.
+
+**The owner-side check is the confidentiality boundary; the client route guard is
+not.** A route's `scope` is enforced on the edge, in `fetchPageFor`, before the edge
+delivers a single byte. The edge matches the route, reads its declared scope, and if
+the caller lacks it the request is refused. Only after that check passes does the
+edge read the page source, hash it, and produce the seed. The client-side route guard
+that redirects an under-scoped navigation is navigation only, exactly as it is for a
+compiled-in view: it steers the address bar, it is not what keeps the page's markup
+off an under-scoped machine. The edge's refusal is.
+
+**A refusal carries nothing.** When `fetchPageFor` refuses a request, `forbidden` for
+an under-scoped caller or `notFound` for a path no route answers, the reply carries no
+markup, no content hash, and no seed. An under-scoped visitor cannot even learn the
+size of a page they may not see, let alone its source. The page is delivered only on
+the path where the scope check has already passed.
+
+**The seed is public output of a privileged context.** The seed hook runs on the edge,
+after the scope check, with access to edge state and the `caller`. Whatever it returns
+is sent to the browser to paint the first frame, so treat its return value as public:
+scope it to what the caller is entitled to see, exactly as you would any value that
+crosses to the browser. The hook is privileged; its output is not.
+
+**The palette is a trust boundary.** `router.palette` is the whole set of QML modules
+a delivered page may import, enforced by the client's `QmlPalette` at run time (a page
+that imports anything else is refused, not rendered). It bounds what an edge-delivered
+page can reach inside the client. Keep it as small as the pages actually need.
+
+**Accepted risk: a delivered page reaches the client accessors.** A delivered page can
+still reach `Server`, `Session`, `Router`, and `App`, the same context the compiled-in
+views have. This is deliberate, and it is not a new exposure: the entity that can send
+a malicious remote page is the web edge, and an edge that would ship a malicious page
+can equally ship a malicious *bundle*. The trust you place in your own edge is the same
+trust either way. The palette narrows what a page may import; it does not, and is not
+meant to, sandbox a page away from the runtime the client already trusts its edge to
+drive. What a remote page does **not** do is widen any data boundary: it reads a connect
+point through the same owner-side scope checks as any other consumer, so a `scope` on a
+page protects the page's markup, never the data the page later reads.
+
 ## Secrets and the mesh CA
 
 - Application secrets are referenced only with the `env:` prefix and resolve only

@@ -110,6 +110,12 @@ Two consequences follow from there being no URL:
   rules and cleared the same way, so a visitor refused at `/admin` who then signs in
   is taken to `/admin` on desktop exactly as in the browser.
 
+[Remote pages](remote-pages.md) work on desktop with no change. A `remote:` route is
+delivered by the web edge over the same `wss` link, and a desktop build reaches the
+same edge, so it fetches, caches, and renders a delivered page exactly as a browser
+tab does, palette and page seed included. The edge enforces a page's `scope` before
+delivery here too.
+
 ## Building for desktop
 
 `synqt build` builds whichever targets the client entity declares (see
