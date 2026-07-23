@@ -8,6 +8,7 @@
 #include "pagesservice.h"
 #include "pagestore.h"
 #include "caller.h"
+#include "sessionmanager.h"
 
 #include <QDir>
 #include <QFile>
@@ -34,6 +35,7 @@ private slots:
     void fetchReportsNotModifiedForAMatchingHash();
     void fetchRefusesAnUndeclaredRoute();
     void fetchSeedsThePageWhenAProviderIsSet();
+    void fetchPrefersTheMoreLiteralRoute();
 };
 
 void tst_PageStore::contractLowersToAUsablePod()
@@ -70,6 +72,26 @@ void replacePage(const QDir &dir, const QString &name, const QByteArray &body)
     writePage(dir, temporaryName, body);
     QFile::remove(dir.filePath(name));
     QFile::rename(dir.filePath(temporaryName), dir.filePath(name));
+}
+
+// A Caller built the way a real accepted connection gets one: a live session
+// (SynQt::SessionManager::createSession()) bound to a Caller via
+// SynQt::Caller::forUser(), exactly as WebEdge::hostConnection() does. Also
+// installs the scope order the same way WebEdge::hostConnection() does
+// (webedge.cpp:732), so fetchPageFor()'s hasScope() checks rank scopes
+// hierarchically here too, rather than only ever exercising the
+// exact-string-equality branch. Test-only: a bare, unbound Caller has no
+// session and cannot authorize anything for real, so this composes only the
+// existing production API rather than widening Caller itself for testing.
+SynQt::Caller *scopedCaller(SynQt::SessionManager &sessions, const QString &scope,
+                            QObject *parent)
+{
+    const QByteArray sessionId{sessions.createSession(scope)};
+    SynQt::Caller *caller{
+        SynQt::Caller::forUser(QString{}, &sessions, sessionId, nullptr, parent)};
+    static const QStringList order{QStringLiteral("anonymous"), QStringLiteral("staff")};
+    caller->setScopeOrder(order, true);
+    return caller;
 }
 
 } // namespace
@@ -178,7 +200,7 @@ void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
 
 void tst_PageStore::fetchRefusesAnUnderScopedCaller()
 {
-    QTemporaryDir pages;
+    QTemporaryDir pages{};
     writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"),
               "import QtQuick\nItem { objectName: \"secretRules\" }");
     SynQt::PageStore store{pages.path()};
@@ -186,10 +208,10 @@ void tst_PageStore::fetchRefusesAnUnderScopedCaller()
                   QStringLiteral("staff"));
     SynQt::PagesService service{&store};
 
-    SynQt::Caller anonymous;
-    anonymous.setScope(QStringLiteral("anonymous"));
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    SynQt::Caller *anonymous{scopedCaller(sessions, QStringLiteral("anonymous"), this)};
     const PageResponse response{service.fetchPageFor(
-        QStringLiteral("/admin/rules"), QString{}, &anonymous)};
+        QStringLiteral("/admin/rules"), QString{}, anonymous)};
 
     QCOMPARE(response.status(), QStringLiteral("forbidden"));
     // The confidentiality guarantee is that nothing of the page comes back, not merely
@@ -201,7 +223,7 @@ void tst_PageStore::fetchRefusesAnUnderScopedCaller()
 
 void tst_PageStore::fetchServesAnAuthorizedCaller()
 {
-    QTemporaryDir pages;
+    QTemporaryDir pages{};
     writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"),
               "import QtQuick\nItem { objectName: \"secretRules\" }");
     SynQt::PageStore store{pages.path()};
@@ -209,10 +231,10 @@ void tst_PageStore::fetchServesAnAuthorizedCaller()
                   QStringLiteral("staff"));
     SynQt::PagesService service{&store};
 
-    SynQt::Caller staff;
-    staff.setScope(QStringLiteral("staff"));
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    SynQt::Caller *staff{scopedCaller(sessions, QStringLiteral("staff"), this)};
     const PageResponse response{service.fetchPageFor(
-        QStringLiteral("/admin/rules"), QString{}, &staff)};
+        QStringLiteral("/admin/rules"), QString{}, staff)};
 
     QCOMPARE(response.status(), QStringLiteral("ok"));
     QVERIFY(response.qml().contains(QStringLiteral("secretRules")));
@@ -221,16 +243,17 @@ void tst_PageStore::fetchServesAnAuthorizedCaller()
 
 void tst_PageStore::fetchReportsNotModifiedForAMatchingHash()
 {
-    QTemporaryDir pages;
+    QTemporaryDir pages{};
     writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
     SynQt::PageStore store{pages.path()};
     store.addPage(QStringLiteral("/c"), QStringLiteral("C.qml"), QString{});
     SynQt::PagesService service{&store};
 
-    SynQt::Caller caller;
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    SynQt::Caller *caller{scopedCaller(sessions, QStringLiteral("anonymous"), this)};
     const QString hash{store.hashFor(QStringLiteral("/c"))};
     const PageResponse response{
-        service.fetchPageFor(QStringLiteral("/c"), hash, &caller)};
+        service.fetchPageFor(QStringLiteral("/c"), hash, caller)};
 
     QCOMPARE(response.status(), QStringLiteral("notModified"));
     QVERIFY(response.qml().isEmpty());
@@ -238,19 +261,20 @@ void tst_PageStore::fetchReportsNotModifiedForAMatchingHash()
 
 void tst_PageStore::fetchRefusesAnUndeclaredRoute()
 {
-    QTemporaryDir pages;
+    QTemporaryDir pages{};
     SynQt::PageStore store{pages.path()};
     SynQt::PagesService service{&store};
-    SynQt::Caller caller;
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    SynQt::Caller *caller{scopedCaller(sessions, QStringLiteral("anonymous"), this)};
     const PageResponse response{
-        service.fetchPageFor(QStringLiteral("/anything"), QString{}, &caller)};
+        service.fetchPageFor(QStringLiteral("/anything"), QString{}, caller)};
     QCOMPARE(response.status(), QStringLiteral("notFound"));
     QVERIFY(response.qml().isEmpty());
 }
 
 void tst_PageStore::fetchSeedsThePageWhenAProviderIsSet()
 {
-    QTemporaryDir pages;
+    QTemporaryDir pages{};
     writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
     SynQt::PageStore store{pages.path()};
     store.addPage(QStringLiteral("/c/:campaign"), QStringLiteral("C.qml"), QString{});
@@ -263,11 +287,41 @@ void tst_PageStore::fetchSeedsThePageWhenAProviderIsSet()
             .arg(parameters.value(QStringLiteral("campaign")).toString());
     });
 
-    SynQt::Caller caller;
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    SynQt::Caller *caller{scopedCaller(sessions, QStringLiteral("anonymous"), this)};
     const PageResponse response{service.fetchPageFor(
-        QStringLiteral("/c/summer"), QString{}, &caller)};
+        QStringLiteral("/c/summer"), QString{}, caller)};
     QCOMPARE(response.status(), QStringLiteral("ok"));
     QCOMPARE(response.seed(), QStringLiteral("{\"campaign\":\"summer\"}"));
+}
+
+void tst_PageStore::fetchPrefersTheMoreLiteralRoute()
+{
+    QTemporaryDir pages{};
+    writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"),
+              "import QtQuick\nItem { objectName: \"literalRules\" }");
+    writePage(QDir{pages.path()}, QStringLiteral("Page.qml"),
+              "import QtQuick\nItem { objectName: \"parameterPage\" }");
+    SynQt::PageStore store{pages.path()};
+    // Precedence must come from RoutePattern::literalSegmentCount()
+    // (routepattern.h), never from PageStore::declaredRoutes()'s QHash order
+    // (unspecified, unstable) or from declaration order, which is why both
+    // are declared here regardless of which happens to be added first.
+    store.addPage(QStringLiteral("/admin/:page"), QStringLiteral("Page.qml"), QString{});
+    store.addPage(QStringLiteral("/admin/rules"), QStringLiteral("Rules.qml"),
+                  QStringLiteral("staff"));
+    SynQt::PagesService service{&store};
+
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    SynQt::Caller *staff{scopedCaller(sessions, QStringLiteral("staff"), this)};
+    const PageResponse response{service.fetchPageFor(
+        QStringLiteral("/admin/rules"), QString{}, staff)};
+
+    // The literal route wins: its file (and its staff scope) is what actually
+    // answered, not the parameterized route that also matches "/admin/rules".
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QVERIFY(response.qml().contains(QStringLiteral("literalRules")));
+    QCOMPARE(response.hash(), store.hashFor(QStringLiteral("/admin/rules")));
 }
 
 QTEST_MAIN(tst_PageStore)

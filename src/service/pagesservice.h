@@ -36,6 +36,9 @@ public:
         std::function<QString(const QString &route, const QVariantMap &parameters,
                               Caller *caller)>;
 
+    /// store must not be null: it is the page table this service answers every
+    /// fetchPageFor() call against, not an optional collaborator, so a null
+    /// store is a construction-time programming error, not a per-call check.
     explicit PagesService(PageStore *store, QObject *parent = nullptr);
     ~PagesService() override;
 

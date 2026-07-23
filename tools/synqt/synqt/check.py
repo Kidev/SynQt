@@ -161,7 +161,7 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
 def _is_route_parameter_name(name: str) -> bool:
     """Is `name` (the part after the ':' in a ":campaign" segment) bindable?
 
-    This mirrors RoutePattern::isIdentifier in src/client/routepattern.cpp, which tests
+    This mirrors RoutePattern::isIdentifier in src/transport/routepattern.cpp, which tests
     QChar::isLetter and QChar::isLetterOrNumber, so a Unicode letter from the basic
     multilingual plane is legal at runtime. Rejecting a route that the router would
     happily serve is the worse of the two errors here, so the check accepts every name

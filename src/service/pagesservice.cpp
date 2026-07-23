@@ -7,6 +7,9 @@
 #include "pagestore.h"
 #include "routepattern.h"
 
+#include <QList>
+
+#include <algorithm>
 #include <utility>
 
 namespace SynQt {
@@ -18,6 +21,35 @@ PageResponse refusal(const QString &status)
     PageResponse response{};
     response.setStatus(status);
     return response;
+}
+
+/// A declared route paired with its compiled pattern, so match precedence is
+/// decided once (by literalSegmentCount(), most literal first) rather than left
+/// to PageStore::declaredRoutes()'s QHash order, which is unspecified and
+/// unstable. Mirrors Router::compiledRoutes()/applyRoutes() on the client side.
+struct Candidate
+{
+    QString route;
+    RoutePattern pattern;
+};
+
+QList<Candidate> orderedCandidates(const QStringList &declared)
+{
+    QList<Candidate> candidates{};
+    for (const QString &route : declared) {
+        RoutePattern pattern{route};
+        if (!pattern.isValid()) {
+            qWarning("SynQt: ignoring malformed declared route pattern %s",
+                     qUtf8Printable(route));
+            continue;
+        }
+        candidates.append(Candidate{route, std::move(pattern)});
+    }
+    std::stable_sort(candidates.begin(), candidates.end(),
+                     [](const Candidate &a, const Candidate &b) {
+        return a.pattern.literalSegmentCount() > b.pattern.literalSegmentCount();
+    });
+    return candidates;
 }
 
 } // namespace
@@ -41,16 +73,17 @@ PageResponse PagesService::fetchPageFor(const QString &requestPath,
     QVariantMap query{};
     const QString path{RoutePattern::splitQuery(requestPath, &query)};
 
-    // Match against what was declared. A route the table does not contain does not exist,
-    // whatever the caller sent.
+    // Match against what was declared, most literal segments first (see
+    // orderedCandidates() above), so "/c/summary" beats "/c/:campaign" whatever
+    // order PageStore::declaredRoutes() happened to return them in. A route the
+    // table does not contain does not exist, whatever the caller sent.
     QString matched{};
     QVariantMap parameters{};
-    const QStringList declared{m_store->declaredRoutes()};
-    for (const QString &candidate : declared) {
+    const QList<Candidate> candidates{orderedCandidates(m_store->declaredRoutes())};
+    for (const Candidate &candidate : candidates) {
         QVariantMap captured{};
-        const RoutePattern pattern{candidate};
-        if (pattern.matches(path, &captured)) {
-            matched = candidate;
+        if (candidate.pattern.matches(path, &captured)) {
+            matched = candidate.route;
             parameters = captured;
             break;
         }
@@ -61,7 +94,8 @@ PageResponse PagesService::fetchPageFor(const QString &requestPath,
 
     const QString scope{m_store->scopeFor(matched)};
     if (!scope.isEmpty() && (!caller || !caller->hasScope(scope))) {
-        // Nothing about the page goes back: not its source, not its hash, not its size.
+        // Nothing about the page goes back: not its source, not its hash, not
+        // its size.
         return refusal(QStringLiteral("forbidden"));
     }
 
