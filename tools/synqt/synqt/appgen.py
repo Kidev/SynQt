@@ -771,7 +771,10 @@ int main(int argc, char *argv[])
         QStringLiteral("file")}};
     const QCommandLineOption keyOption{{QStringLiteral("key"),
         QStringLiteral("TLS private key (PEM)."), QStringLiteral("file")}};
-    parser.addOptions({{bundleOption, qmlDirOption, portOption, certOption, keyOption}});{topology_option}
+    const QCommandLineOption devOption{{QStringLiteral("dev"),
+        QStringLiteral("Development mode: watch edge-delivered pages and hot reload.")}};
+    parser.addOptions({{bundleOption, qmlDirOption, portOption, certOption, keyOption,
+        devOption}});{topology_option}
     parser.process(app);
 
 {registrations if registrations else "    // No client-facing connect points yet."}
@@ -787,6 +790,7 @@ int main(int argc, char *argv[])
     config.port = parser.value(portOption).toUShort();
     config.certFile = parser.value(certOption);
     config.keyFile = parser.value(keyOption);
+    config.devWatch = parser.isSet(devOption);
     config.scopeOrder = {{{scope_literal}}};
     config.scopesHierarchical = {hierarchical_literal};
     config.crossOriginIsolation = {coi_literal};
