@@ -6,18 +6,28 @@
 
 #include "rep_pages_source.h"
 #include "pagesservice.h"
+#include "pagesedgesource.h"
 #include "pagestore.h"
 #include "caller.h"
 #include "sessionmanager.h"
+#include "webedge.h"
+#include "webedgeconfig.h"
+#include "websockettransport.h"
 
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkRequest>
+#include <QRemoteObjectDynamicReplica>
+#include <QRemoteObjectNode>
+#include <QScopedPointer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QUrl>
+#include <QWebSocket>
 
 class tst_PageStore : public QObject
 {
@@ -36,6 +46,18 @@ private slots:
     void fetchRefusesAnUndeclaredRoute();
     void fetchSeedsThePageWhenAProviderIsSet();
     void fetchPrefersTheMoreLiteralRoute();
+
+    // Task 6b: the Pages connect point actually hosted by WebEdge. These construct
+    // the real hosted Source (PagesEdgeSource) the way WebEdge::hostConnection()
+    // does -- a live session-bound Caller via Caller::forUser, then the Source
+    // built over it -- instead of calling PagesService directly, which is what
+    // every test above already covers.
+    void hostedFetchRefusesAnUnderScopedCaller();
+    void hostedFetchServesAnAuthorizedCaller();
+    void hostedRouteTablePublishesPathsAndScopes();
+    void hostedPageChangedRelaysToTheSource();
+    void edgeWithNoPagesHostsNoPagesConnectPoint();
+    void edgeWithPagesHostsAReachablePagesConnectPoint();
 };
 
 void tst_PageStore::contractLowersToAUsablePod()
@@ -92,6 +114,30 @@ SynQt::Caller *scopedCaller(SynQt::SessionManager &sessions, const QString &scop
     static const QStringList order{QStringLiteral("anonymous"), QStringLiteral("staff")};
     caller->setScopeOrder(order, true);
     return caller;
+}
+
+// A plaintext (dev-style) edge config with no pages: the negative half of
+// "no pages configured hosts nothing".
+SynQt::WebEdgeConfig edgeConfigWithNoPages(const QString &bundleDir)
+{
+    SynQt::WebEdgeConfig config{};
+    config.bundleDir = bundleDir;
+    config.host = QStringLiteral("127.0.0.1");
+    config.port = 0;  // ephemeral, plaintext (no certFile/keyFile): a dev-style edge
+    return config;
+}
+
+// The same, plus one declared page, for the positive half.
+SynQt::WebEdgeConfig edgeConfigWithOnePage(const QString &bundleDir, const QString &pagesDir)
+{
+    SynQt::WebEdgeConfig config{edgeConfigWithNoPages(bundleDir)};
+    config.pagesDir = pagesDir;
+    SynQt::WebEdgePage page{};
+    page.path = QStringLiteral("/c");
+    page.file = QStringLiteral("C.qml");
+    page.scope = QString{};
+    config.pages.append(page);
+    return config;
 }
 
 } // namespace
@@ -322,6 +368,180 @@ void tst_PageStore::fetchPrefersTheMoreLiteralRoute()
     QCOMPARE(response.status(), QStringLiteral("ok"));
     QVERIFY(response.qml().contains(QStringLiteral("literalRules")));
     QCOMPARE(response.hash(), store.hashFor(QStringLiteral("/admin/rules")));
+}
+
+void tst_PageStore::hostedFetchRefusesAnUnderScopedCaller()
+{
+    QTemporaryDir pages{};
+    writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"),
+              "import QtQuick\nItem { objectName: \"secretRules\" }");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/admin/rules"), QStringLiteral("Rules.qml"),
+                  QStringLiteral("staff"));
+    SynQt::PagesService service{&store};
+
+    // Built exactly the way WebEdge::hostConnection() builds a per-connection
+    // Caller and Source (webedge.cpp): a live session bound through
+    // Caller::forUser, handed to a fresh PagesEdgeSource. The forbidden guarantee
+    // must hold through THIS object, the one WebEdge actually hosts, not through
+    // PagesService called directly (the tests above already prove that half).
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    const QByteArray token{sessions.createSession(QStringLiteral("anonymous"))};
+    SynQt::Caller *caller{SynQt::Caller::forUser(
+        QStringLiteral("Pages"), &sessions, token, nullptr, this)};
+    static const QStringList order{QStringLiteral("anonymous"), QStringLiteral("staff")};
+    caller->setScopeOrder(order, true);
+
+    SynQt::PagesEdgeSource source{&store, &service, caller, this};
+    caller->setSource(&source);
+
+    const PageResponse response{
+        source.fetchPage(QStringLiteral("/admin/rules"), QString{})};
+    QCOMPARE(response.status(), QStringLiteral("forbidden"));
+    QVERIFY(response.qml().isEmpty());
+    QVERIFY(!response.qml().contains(QStringLiteral("secretRules")));
+    QVERIFY(response.hash().isEmpty());
+}
+
+void tst_PageStore::hostedFetchServesAnAuthorizedCaller()
+{
+    QTemporaryDir pages{};
+    writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"),
+              "import QtQuick\nItem { objectName: \"secretRules\" }");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/admin/rules"), QStringLiteral("Rules.qml"),
+                  QStringLiteral("staff"));
+    SynQt::PagesService service{&store};
+
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    const QByteArray token{sessions.createSession(QStringLiteral("staff"))};
+    SynQt::Caller *caller{SynQt::Caller::forUser(
+        QStringLiteral("Pages"), &sessions, token, nullptr, this)};
+    static const QStringList order{QStringLiteral("anonymous"), QStringLiteral("staff")};
+    caller->setScopeOrder(order, true);
+
+    SynQt::PagesEdgeSource source{&store, &service, caller, this};
+    caller->setSource(&source);
+
+    const PageResponse response{
+        source.fetchPage(QStringLiteral("/admin/rules"), QString{})};
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QVERIFY(response.qml().contains(QStringLiteral("secretRules")));
+    QCOMPARE(response.hash(), store.hashFor(QStringLiteral("/admin/rules")));
+}
+
+void tst_PageStore::hostedRouteTablePublishesPathsAndScopes()
+{
+    QTemporaryDir pages{};
+    writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"), "import QtQuick\nItem {}");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/admin/rules"), QStringLiteral("Rules.qml"),
+                  QStringLiteral("staff"));
+    SynQt::PagesService service{&store};
+
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    const QByteArray token{sessions.createSession()};
+    SynQt::Caller *caller{SynQt::Caller::forUser(
+        QStringLiteral("Pages"), &sessions, token, nullptr, this)};
+
+    SynQt::PagesEdgeSource source{&store, &service, caller, this};
+    caller->setSource(&source);
+
+    // Not brace-init: QJsonArray has an initializer_list<QJsonValue> constructor
+    // and would wrap a single convertible argument instead of copying it.
+    const QJsonArray table =
+        QJsonDocument::fromJson(source.routeTable().toUtf8()).array();
+    QCOMPARE(table.size(), 1);
+    QCOMPARE(table.at(0).toObject().value(QStringLiteral("path")).toString(),
+             QStringLiteral("/admin/rules"));
+    QCOMPARE(table.at(0).toObject().value(QStringLiteral("scope")).toString(),
+             QStringLiteral("staff"));
+}
+
+void tst_PageStore::hostedPageChangedRelaysToTheSource()
+{
+    QTemporaryDir pages{};
+    const QDir dir{pages.path()};
+    writePage(dir, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/c"), QStringLiteral("C.qml"), QString{});
+    store.setWatching(true);
+    SynQt::PagesService service{&store};
+
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    const QByteArray token{sessions.createSession()};
+    SynQt::Caller *caller{SynQt::Caller::forUser(
+        QStringLiteral("Pages"), &sessions, token, nullptr, this)};
+
+    SynQt::PagesEdgeSource source{&store, &service, caller, this};
+    caller->setSource(&source);
+
+    QSignalSpy changed{&source, &SynQt::PagesEdgeSource::pageChanged};
+    writePage(dir, QStringLiteral("C.qml"),
+              "import QtQuick\nItem { objectName: \"edited\" }");
+    QVERIFY(changed.wait(5000));
+    QCOMPARE(changed.at(0).at(0).toString(), QStringLiteral("/c"));
+    QCOMPARE(changed.at(0).at(1).toString(), store.hashFor(QStringLiteral("/c")));
+}
+
+void tst_PageStore::edgeWithNoPagesHostsNoPagesConnectPoint()
+{
+    QTemporaryDir bundle{};
+    QVERIFY(bundle.isValid());
+    SynQt::WebEdgeConfig config{edgeConfigWithNoPages(bundle.path())};
+    SynQt::WebEdge edge{config, nullptr};
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    const QByteArray token{edge.sessionManager()->createSession()};
+    QWebSocket socket;
+    SynQt::WebSocketTransport transport{&socket};
+    QVERIFY(transport.open(QIODevice::ReadWrite));
+
+    QRemoteObjectNode node;
+    node.addClientSideConnection(&transport);
+
+    QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+    request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+    request.setRawHeader("Cookie", QByteArrayLiteral("synqt_session=") + token);
+    socket.open(request);
+
+    QScopedPointer<QRemoteObjectDynamicReplica> replica{
+        node.acquireDynamic(QStringLiteral("Pages"))};
+    // An app that never configured pages must never expose the connect point:
+    // waitForSource times out and returns false, rather than the connect point
+    // eventually appearing.
+    QVERIFY(!replica->waitForSource(2000));
+}
+
+void tst_PageStore::edgeWithPagesHostsAReachablePagesConnectPoint()
+{
+    QTemporaryDir bundle{};
+    QVERIFY(bundle.isValid());
+    QTemporaryDir pages{};
+    QVERIFY(pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    SynQt::WebEdgeConfig config{edgeConfigWithOnePage(bundle.path(), pages.path())};
+    SynQt::WebEdge edge{config, nullptr};
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    const QByteArray token{edge.sessionManager()->createSession()};
+    QWebSocket socket;
+    SynQt::WebSocketTransport transport{&socket};
+    QVERIFY(transport.open(QIODevice::ReadWrite));
+
+    QRemoteObjectNode node;
+    node.addClientSideConnection(&transport);
+
+    QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+    request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+    request.setRawHeader("Cookie", QByteArrayLiteral("synqt_session=") + token);
+    socket.open(request);
+
+    QScopedPointer<QRemoteObjectDynamicReplica> replica{
+        node.acquireDynamic(QStringLiteral("Pages"))};
+    QVERIFY2(replica->waitForSource(5000),
+             "a project that configures pages must expose the Pages connect point");
 }
 
 QTEST_MAIN(tst_PageStore)

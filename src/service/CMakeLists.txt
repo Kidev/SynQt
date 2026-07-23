@@ -98,6 +98,8 @@ qt_add_library(SynQtService STATIC
     pagestore.h
     pagesservice.cpp
     pagesservice.h
+    pagesedgesource.cpp
+    pagesedgesource.h
     webedgeconfig.h
     webedge.cpp
     webedge.h

@@ -27,6 +27,8 @@ QT_END_NAMESPACE
 namespace SynQt {
 
 class IdentityProvider;
+class PageStore;
+class PagesService;
 class SessionManager;
 
 /// The web edge: the only internet-facing entity. It serves the client bundle over
@@ -110,6 +112,14 @@ private:
     /// One shared Source per shared connect point, created once and hosted on every
     /// connection's node so its state stays in sync across browsers.
     QHash<QString, QObject *> m_sharedSources;
+
+    /// The framework's own Pages connect point (see WebEdgeConfig::pages): one
+    /// PageStore/PagesService shared by every connection, built once in start() and
+    /// never rebuilt per connection. Both stay null when the project configures no
+    /// pages, so hostConnection() hosts nothing extra and an app that does not use
+    /// the feature pays nothing for it.
+    PageStore *m_pageStore{nullptr};
+    PagesService *m_pagesService{nullptr};
     /// Consumed-mesh accessors exposed to per_session Source QML contexts (e.g. Database).
     QHash<QString, QObject *> m_contextObjects;
 
