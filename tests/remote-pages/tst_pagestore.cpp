@@ -70,6 +70,9 @@ private slots:
     void edgePageWithoutAHookHasAnEmptySeed();
     void edgeDegradesAHookThatFailsToLoad();
     void edgeDegradesAHookWithNoSeedFunction();
+    void edgeLogsAHookWithNoSeedFunctionOnlyOnce();
+    void edgeRefusesASeedThatIsNotAnObject();
+    void edgeRefusesASeedNestedTooDeeply();
 };
 
 void tst_PageStore::contractLowersToAUsablePod()
@@ -187,6 +190,40 @@ QJsonObject seedObject(const PageResponse &response)
 {
     return QJsonDocument::fromJson(response.seed().toUtf8()).object();
 }
+
+// Counts every message Qt emits while it is in scope, whoever emits it: the framework's
+// own "No such method" complaint counts the same as one of ours. A misbehaving hook is
+// reachable from the browser, so what matters is not which line logs but that asking
+// again does not log again.
+class MessageCounter
+{
+public:
+    MessageCounter()
+    {
+        s_count = 0;
+        s_previous = qInstallMessageHandler(&MessageCounter::handle);
+    }
+
+    ~MessageCounter()
+    {
+        qInstallMessageHandler(s_previous);
+    }
+
+    int count() const { return s_count; }
+
+private:
+    static void handle(QtMsgType type, const QMessageLogContext &context,
+                       const QString &message)
+    {
+        Q_UNUSED(type);
+        Q_UNUSED(context);
+        Q_UNUSED(message);
+        ++s_count;
+    }
+
+    static inline int s_count{0};
+    static inline QtMessageHandler s_previous{nullptr};
+};
 
 } // namespace
 
@@ -813,14 +850,118 @@ void tst_PageStore::edgeDegradesAHookWithNoSeedFunction()
         bundle.path(), pages.path(),
         QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/NoFunction.qml"))};
     SynQt::WebEdge edge{config, &engine};
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression{QStringLiteral("declares no seedFor")});
     QVERIFY2(edge.start(), qPrintable(edge.errorString()));
 
     SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
     const PageResponse response{edge.pagesService()->fetchPageFor(
         QStringLiteral("/c/summer"), QString{}, caller)};
 
-    // The hook loaded but declares no seedFor: the invocation fails, and that degrades
-    // to "no seed", never to a refused or half-built page.
+    // The hook loaded but declares no seedFor: it is dropped when it is built, and that
+    // degrades to "no seed", never to a refused or half-built page.
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QVERIFY(!response.qml().isEmpty());
+    QVERIFY(response.seed().isEmpty());
+}
+
+void tst_PageStore::edgeLogsAHookWithNoSeedFunctionOnlyOnce()
+{
+    // A hook whose seedFor is missing is reachable from the browser: a client can ask
+    // for that page in a loop. If each failed request logged, the edge's log would grow
+    // without bound on demand, which is a denial of service with extra steps. The hook
+    // is checked once, when it is built, and then simply is not there.
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{edgeConfigWithASeededPage(
+        bundle.path(), pages.path(),
+        QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/NoFunction.qml"))};
+    SynQt::WebEdge edge{config, &engine};
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression{QStringLiteral("declares no seedFor")});
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+    {
+        MessageCounter messages;
+        for (int request{0}; request < 20; ++request) {
+            const PageResponse response{edge.pagesService()->fetchPageFor(
+                QStringLiteral("/c/summer"), QString{}, caller)};
+            QCOMPARE(response.status(), QStringLiteral("ok"));
+            QVERIFY(response.seed().isEmpty());
+        }
+        QCOMPARE(messages.count(), 0);
+    }
+}
+
+void tst_PageStore::edgeRefusesASeedThatIsNotAnObject()
+{
+    // The client reads a seed as a JSON object. An array would parse to an empty map and
+    // a string to nothing at all, so an author who returns the wrong shape gets silence
+    // in both directions. Refuse it, say so once, and deliver the page with no seed.
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{edgeConfigWithASeededPage(
+        bundle.path(), pages.path(),
+        QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/Array.qml"))};
+    SynQt::WebEdge edge{config, &engine};
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression{QStringLiteral("did not return an object")});
+    const PageResponse first{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, caller)};
+    QCOMPARE(first.status(), QStringLiteral("ok"));
+    QVERIFY(!first.qml().isEmpty());
+    QVERIFY(first.seed().isEmpty());
+
+    // Once per route, not once per request.
+    {
+        MessageCounter messages;
+        for (int request{0}; request < 20; ++request) {
+            const PageResponse response{edge.pagesService()->fetchPageFor(
+                QStringLiteral("/c/summer"), QString{}, caller)};
+            QVERIFY(response.seed().isEmpty());
+        }
+        QCOMPARE(messages.count(), 0);
+    }
+}
+
+void tst_PageStore::edgeRefusesASeedNestedTooDeeply()
+{
+    // Converting an unbounded structure overflows the stack inside QJSValue::toVariant()
+    // and QJsonDocument::fromVariant() and takes the whole edge down, for every connected
+    // browser. The depth here (20000) is one that did exactly that. It is app-authored
+    // code, but the realistic route to it is a hook serializing a tree whose depth
+    // follows its data, so the seed is bounded rather than trusted.
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{edgeConfigWithASeededPage(
+        bundle.path(), pages.path(),
+        QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/Deep.qml"))};
+    SynQt::WebEdge edge{config, &engine};
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression{QStringLiteral("nested deeper than")});
+    const PageResponse response{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, caller)};
+
+    // Still standing, and the page is still delivered: the seed is what degrades.
     QCOMPARE(response.status(), QStringLiteral("ok"));
     QVERIFY(!response.qml().isEmpty());
     QVERIFY(response.seed().isEmpty());

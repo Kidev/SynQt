@@ -57,8 +57,10 @@ private slots:
     void routerClearsTheComponentBeforeInvalidatingOnPageChanged();
     void routerSendsTheConcretePathToTheEdge();
     void routerUpdatesTheSeedWhenTheParameterChanges();
-    void routerKeepsTheSeedOnANotModifiedReply();
+    void routerKeepsTheSeedWhenACachedPageIsRevisited();
     void routerRefreshesTheSeedOnANotModifiedReply();
+    void routerClearsTheSeedForAPageThatHasNone();
+    void routerClearsTheSeedWhenAHookDeclinesToProduceOne();
     void routerClearsThePrivilegedPageOnScopeLoss();
     void routerIgnoresALateReplyForAnAbandonedRoute();
 };
@@ -542,10 +544,13 @@ void tst_RemotePage::routerUpdatesTheSeedWhenTheParameterChanges()
     QVERIFY(spy.count() >= 1);
 }
 
-void tst_RemotePage::routerKeepsTheSeedOnANotModifiedReply()
+void tst_RemotePage::routerKeepsTheSeedWhenACachedPageIsRevisited()
 {
-    // Pins Important 4: an empty seed (a page with no seed hook, so the edge produces
-    // none) must mean "unchanged", never "clear the seed I already delivered".
+    // Pins Important 4's intent: revisiting a page the loader already holds must still
+    // end up showing that page's seed. What guarantees it changed with the staleness fix
+    // (pagesservice.cpp): the edge now sends the seed on notModified too, rather than the
+    // client hoarding the last one it saw. The visitor-visible outcome is the same, and
+    // it is the outcome, not the mechanism, that this pins.
     QQmlEngine engine;
     SynQt::Session session{remoteFixture()};
     SynQt::Router router{remoteFixture(), &session, &engine};
@@ -560,11 +565,80 @@ void tst_RemotePage::routerKeepsTheSeedOnANotModifiedReply()
                            QStringLiteral("{\"headline\":\"Summer\"}"),
                            QStringLiteral("ok"));
 
+    // The revisit: the page is already held, so only the seed comes back.
+    router.go(QStringLiteral("/c/summer"));
     router.onPageDelivered(QStringLiteral("/c/:campaign"), QString{},
-                           QStringLiteral("h1"), QString{}, QStringLiteral("ok"));
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Summer\"}"),
+                           QStringLiteral("notModified"));
 
     QCOMPARE(router.pageSeed().value(QStringLiteral("headline")).toString(),
              QStringLiteral("Summer"));
+}
+
+void tst_RemotePage::routerClearsTheSeedForAPageThatHasNone()
+{
+    // The delivered seed is authoritative: a page whose route declares no seed hook is
+    // delivered with none, and must paint with none. Keeping the previous page's seed
+    // (which is what "empty means unchanged" used to do) renders the new page bound to
+    // the old page's data.
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(QStringLiteral(
+        "[{\"path\":\"/c/:campaign\",\"scope\":\"\"},{\"path\":\"/about\",\"scope\":\"\"}]"));
+
+    router.go(QStringLiteral("/c/summer-sale"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Summer Sale\"}"),
+                           QStringLiteral("ok"));
+    QCOMPARE(router.pageSeed().value(QStringLiteral("headline")).toString(),
+             QStringLiteral("Summer Sale"));
+
+    // A different page, with no seed hook of its own.
+    router.go(QStringLiteral("/about"));
+    router.onPageDelivered(QStringLiteral("/about"),
+                           QStringLiteral("import QtQuick\nItem { objectName: \"a\" }\n"),
+                           QStringLiteral("h2"), QString{}, QStringLiteral("ok"));
+
+    QVERIFY2(router.pageSeed().isEmpty(),
+             "a page delivered with no seed must not inherit the previous page's");
+}
+
+void tst_RemotePage::routerClearsTheSeedWhenAHookDeclinesToProduceOne()
+{
+    // The same rule for the other way a seed goes away: a hook that returns nothing for
+    // this caller (the natural way to write "no seed unless you are staff") sends an
+    // empty seed for a page the visitor may otherwise read. That must clear, or an
+    // ordinary visitor paints with whatever the last page put there.
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+
+    router.go(QStringLiteral("/c/summer-sale"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Summer Sale\"}"),
+                           QStringLiteral("ok"));
+
+    QSignalSpy spy{&router, &SynQt::Router::pageChanged};
+    router.go(QStringLiteral("/c/black-friday"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"), QString{},
+                           QStringLiteral("h1"), QString{},
+                           QStringLiteral("notModified"));
+
+    QVERIFY(router.pageSeed().isEmpty());
+    // A seed-only change still has to be announced, cleared no less than set.
+    QVERIFY(spy.count() >= 1);
 }
 
 void tst_RemotePage::routerRefreshesTheSeedOnANotModifiedReply()

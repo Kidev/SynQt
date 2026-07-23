@@ -789,7 +789,11 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
             # delivered page, so it resolves against qmlDir exactly the way a connect
             # point's serverFile does. A route with no seed emits nothing, so a project
             # not using the feature generates what it did before it existed.
-            seed = route.get("seed", "") or ""
+            # Only a string is a path. `check.lint_remote_pages` reports a mistyped
+            # `seed:` properly, but nothing makes `synqt build` run the check, so a
+            # non-string emits nothing here rather than a path that cannot exist.
+            seed = route.get("seed")
+            seed = seed.strip() if isinstance(seed, str) else ""
             seed_line = (f'\n        {page}.seed = qmlDir + QStringLiteral("/{seed}");'
                          if seed else "")
             page_blocks.append(f"""    {{
