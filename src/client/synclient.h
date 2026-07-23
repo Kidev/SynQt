@@ -21,6 +21,7 @@ QT_END_NAMESPACE
 namespace SynQt {
 
 class ClientUpdate;
+class RemotePageLoader;
 class Router;
 class ServerAccessor;
 class Session;
@@ -55,6 +56,14 @@ public:
 signals:
     void stateChanged();
 
+private slots:
+    // Old-style string connects (SIGNAL/SLOT macros): the Pages facade's concrete type
+    // is generated per app, so this class only ever holds it through the generic
+    // ConsumerBase/QObject surface, and a runtime-resolved signal can only be wired to a
+    // real, moc-registered slot, not a lambda.
+    void handlePagesPageChanged(const QString &route, const QString &hash);
+    void handlePagesRouteTableChanged();
+
 private:
     void connectToEdge();
     void teardown();
@@ -64,11 +73,19 @@ private:
     void onDisconnected();
     QByteArray edgeHttpOrigin() const;
 
+    /// Wire the Pages connect point (when one is consumed) to the router: its
+    /// pageRequested drives a fetchPage call, its reply and its pageChanged/
+    /// routeTableChanged pushes feed back through the router's public seams.
+    void bindPagesConnectPoint();
+
     SynClientConfig m_config;
     ServerAccessor *m_server;
     Session *m_session;
     Router *m_router;
     ClientUpdate *m_update;
+    RemotePageLoader *m_pageLoader{nullptr};
+    QObject *m_pagesFacade{nullptr};
+    QQmlEngine *m_engine;
     QNetworkAccessManager *m_network{nullptr};
 
     QRemoteObjectNode *m_node{nullptr};

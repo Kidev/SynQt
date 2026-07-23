@@ -30,5 +30,18 @@ target_compile_definitions(tst_pagestore PRIVATE
 add_test(NAME pagestore COMMAND tst_pagestore)
 
 qt_add_executable(tst_remotepage tst_remotepage.cpp)
+
+# The compiled-in half of the route table, reused from Plan A's url-routing fixtures
+# rather than duplicated: the "compiled-in route wins" test needs a real qrc URL.
+qt_add_resources(tst_remotepage "remotepage_fixtures"
+    PREFIX "/fixtures"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/../url-routing/fixtures"
+    FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/../url-routing/fixtures/Home.qml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../url-routing/fixtures/Summary.qml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../url-routing/fixtures/Campaign.qml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../url-routing/fixtures/Admin.qml"
+)
+
 target_link_libraries(tst_remotepage PRIVATE SynQtClient Qt6::Test Qt6::Qml)
 add_test(NAME remotepage COMMAND tst_remotepage)

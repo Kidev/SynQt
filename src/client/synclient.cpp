@@ -4,13 +4,23 @@
 #include "synclient.h"
 
 #include "clientupdate.h"
+#include "consumerbase.h"
+#include "promise.h"
+#include "qmlpalette.h"
+#include "remotepageloader.h"
 #include "router.h"
 #include "serveraccessor.h"
 #include "session.h"
 #include "websockettransport.h"
 
+#include <QJSEngine>
+#include <QJSValue>
+#include <QJSValueList>
+#include <QMetaObject>
+#include <QQmlEngine>
 #include <QRemoteObjectNode>
 #include <QTimer>
+#include <QVariantMap>
 #include <QWebSocket>
 
 #ifndef Q_OS_WASM
@@ -26,6 +36,43 @@
 #include <utility>
 
 namespace SynQt {
+
+namespace {
+
+/// Promise::then() is the QML-facing API ("slot(args).then(value => ...)"): it only
+/// accepts a callable QJSValue, because a consumer facade's returning slot is meant to
+/// settle into a QML callback. SynClient's own Pages wiring needs the same reply from
+/// plain C++, so this bridges the two: a throwaway QObject exposes the one call the
+/// reply drives, and the app's own QML engine wraps it into a JS closure (there being no
+/// C++-native way to construct a callable QJSValue). It has no parent, so once the
+/// settled Promise drops its handler list (immediately after dispatch), the engine's
+/// garbage collector is free to reclaim it like any other unreachable JS-owned QObject.
+class PageReplyBridge : public QObject
+{
+    Q_OBJECT
+
+public:
+    PageReplyBridge(Router *router, QString route)
+        : m_router{router}
+        , m_route{std::move(route)}
+    {
+    }
+
+    Q_INVOKABLE void deliver(const QVariant &value)
+    {
+        const QVariantMap fields{value.toMap()};
+        m_router->onPageDelivered(m_route, fields.value(QStringLiteral("qml")).toString(),
+                                  fields.value(QStringLiteral("hash")).toString(),
+                                  fields.value(QStringLiteral("seed")).toString(),
+                                  fields.value(QStringLiteral("status")).toString());
+    }
+
+private:
+    Router *m_router;
+    QString m_route;
+};
+
+} // namespace
 
 #ifndef Q_OS_WASM
 namespace {
@@ -54,6 +101,7 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
     , m_session{new Session{m_config, this}}
     , m_router{new Router{m_config, m_session, engine, this}}
     , m_update{new ClientUpdate{this}}
+    , m_engine{engine}
     , m_reconnectTimer{new QTimer{this}}
     , m_backoffMs{m_config.reconnectBaseMs}
 {
@@ -61,6 +109,13 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
     // Reconnect through start() so a native client re-bootstraps its session (the edge
     // may have restarted); on WASM start() just reconnects (the browser holds the cookie).
     connect(m_reconnectTimer, &QTimer::timeout, this, [this]() { start(); });
+
+    // An empty palette means the app uses no remote pages; give it no loader, so
+    // resolveRemote() falls through to Error rather than silently going Loading forever.
+    if (!m_config.remotePalette.isEmpty()) {
+        m_pageLoader = new RemotePageLoader{engine, QmlPalette{m_config.remotePalette}, this};
+        m_router->setRemotePageLoader(m_pageLoader);
+    }
 }
 
 SynClient::~SynClient()
@@ -181,6 +236,9 @@ void SynClient::connectToEdge()
 #endif
 
     m_server->bindNode(m_node);
+    if (m_pageLoader) {
+        bindPagesConnectPoint();
+    }
 }
 
 void SynClient::onConnected()
@@ -225,6 +283,84 @@ void SynClient::teardown()
     }
 }
 
+void SynClient::bindPagesConnectPoint()
+{
+    // The Pages connect point is framework plumbing, not something an app declares for
+    // its own use, but it is still just an ordinary consumed connect point: it rides the
+    // same acquire-and-bind path as any other name in m_config.connectPoints (populated
+    // for a remote-pages app by the generated topology), so no separate acquisition
+    // mechanism is introduced here. Nothing to bind yet if that entry has not arrived.
+    QString pointName;
+    for (const ClientConnectPoint &point : std::as_const(m_config.connectPoints)) {
+        if (point.contract == QStringLiteral("Pages")) {
+            pointName = point.name;
+            break;
+        }
+    }
+    if (pointName.isEmpty()) {
+        return;
+    }
+
+    auto *facade{qobject_cast<ConsumerBase *>(
+        m_server->value(pointName).value<QObject *>())};
+    if (!facade) {
+        // No consumer facade registered for "Pages" in this build: a raw Replica alone
+        // cannot answer fetchPage() with a value this class can read generically (its
+        // reply type is declared per app by the generated contract). Warn once rather
+        // than resolve every remote route to a silent Error.
+        qWarning("SynQt: the 'Pages' connect point has no consumer facade; edge-delivered "
+                 "pages will not resolve");
+        return;
+    }
+    m_pagesFacade = facade;
+
+    connect(m_router, &Router::pageRequested, this,
+            [this, facade](const QString &route, const QString &haveHash) {
+        SynQt::Promise *promise{nullptr};
+        QMetaObject::invokeMethod(facade, "fetchPage",
+                                  Q_RETURN_ARG(SynQt::Promise *, promise),
+                                  Q_ARG(QString, route), Q_ARG(QString, haveHash));
+        if (!promise) {
+            m_router->onPageDelivered(route, QString{}, QString{}, QString{},
+                                      QStringLiteral("error"));
+            return;
+        }
+        if (!m_engine) {
+            return;
+        }
+        auto *bridge{new PageReplyBridge{m_router, route}};
+        // then() only takes a callable QJSValue; wrap the bridge's one invokable method
+        // into a JS closure over it, rather than exposing it as a named global.
+        QJSValue factory{m_engine->evaluate(QStringLiteral(
+            "(function (bridge) { return function (value) { bridge.deliver(value); }; })"))};
+        promise->then(factory.call(QJSValueList{m_engine->newQObject(bridge)}));
+    });
+
+    // Old-style string connects: the facade's concrete type (and so its pageChanged/
+    // routeTableChanged signals) is generated per app, so it is only ever held here
+    // through the generic ConsumerBase surface.
+    connect(facade, SIGNAL(pageChanged(QString, QString)), this,
+            SLOT(handlePagesPageChanged(QString, QString)));
+    connect(facade, SIGNAL(routeTableChanged()), this, SLOT(handlePagesRouteTableChanged()));
+    // Pull whatever the table already holds (a reconnect rebinds the same facade to a
+    // fresh Replica, which re-notifies once initialized; the first bind on a plain
+    // property read needs no signal to have fired yet).
+    handlePagesRouteTableChanged();
+}
+
+void SynClient::handlePagesPageChanged(const QString &route, const QString &hash)
+{
+    m_router->onPageChanged(route, hash);
+}
+
+void SynClient::handlePagesRouteTableChanged()
+{
+    if (!m_pagesFacade) {
+        return;
+    }
+    m_router->applyRemoteRouteTable(m_pagesFacade->property("routeTable").toString());
+}
+
 void SynClient::setState(const QString &state)
 {
     if (m_state != state) {
@@ -235,3 +371,5 @@ void SynClient::setState(const QString &state)
 }
 
 } // namespace SynQt
+
+#include "synclient.moc"

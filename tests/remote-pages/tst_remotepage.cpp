@@ -6,6 +6,8 @@
 
 #include "qmlpalette.h"
 #include "remotepageloader.h"
+#include "router.h"
+#include "session.h"
 
 #include <QQmlComponent>
 #include <QQmlEngine>
@@ -40,6 +42,13 @@ private slots:
     void loaderReplacesTheComponentWhenTheHashChanges();
     void loaderFailsOnUnparseableSource();
     void loaderInvalidateDropsTheCache();
+
+    void routerReportsLoadingWhileAPageIsFetched();
+    void routerShowsTheDeliveredPage();
+    void routerSetsTheSeedBeforeTheComponent();
+    void routerAddsRoutesFromTheEdgeTable();
+    void routerPrefersACompiledInRouteOverAnEdgeOne();
+    void routerReportsForbiddenWhenTheEdgeRefuses();
 };
 
 void tst_RemotePage::paletteAcceptsDeclaredModules()
@@ -265,6 +274,138 @@ void tst_RemotePage::loaderInvalidateDropsTheCache()
     loader.invalidate(QStringLiteral("/c"));
     QVERIFY(loader.hashFor(QStringLiteral("/c")).isEmpty());
     QVERIFY(loader.componentFor(QStringLiteral("/c")) == nullptr);
+}
+
+namespace {
+
+SynQt::SynClientConfig remoteFixture()
+{
+    SynQt::SynClientConfig config;
+    config.routerFallback = QStringLiteral("/");
+    config.routerBase = QStringLiteral("/");
+    config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("staff")};
+    config.defaultScope = QStringLiteral("anonymous");
+    config.remotePalette = {QStringLiteral("QtQuick")};
+    config.routes = {
+        SynQt::RouteConfig{QStringLiteral("/"), QStringLiteral("Home.qml"), QString{},
+                           QStringLiteral("qrc:/fixtures/Home.qml")},
+    };
+    return config;
+}
+
+} // namespace
+
+void tst_RemotePage::routerReportsLoadingWhileAPageIsFetched()
+{
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+
+    router.go(QStringLiteral("/c/summer"));
+    QCOMPARE(router.pageStatus(), SynQt::Router::Loading);
+    QCOMPARE(router.path(), QStringLiteral("/c/summer"));
+}
+
+void tst_RemotePage::routerShowsTheDeliveredPage()
+{
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+    router.go(QStringLiteral("/c/summer"));
+
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"), QStringLiteral("{}"),
+                           QStringLiteral("ok"));
+
+    QCOMPARE(router.pageStatus(), SynQt::Router::Ready);
+    QVERIFY(router.pageComponent() != nullptr);
+}
+
+void tst_RemotePage::routerSetsTheSeedBeforeTheComponent()
+{
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+    router.go(QStringLiteral("/c/summer"));
+
+    // The seed must already be readable the moment the component appears, or a binding in
+    // the new page reads the previous page's seed on its first evaluation.
+    QVariantMap seenSeed;
+    connect(&router, &SynQt::Router::pageChanged, &router, [&]() {
+        seenSeed = router.pageSeed();
+    });
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Summer\"}"),
+                           QStringLiteral("ok"));
+
+    QCOMPARE(seenSeed.value(QStringLiteral("headline")).toString(),
+             QStringLiteral("Summer"));
+}
+
+void tst_RemotePage::routerAddsRoutesFromTheEdgeTable()
+{
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+
+    // Before the table arrives the path is unknown.
+    router.go(QStringLiteral("/c/summer"));
+    QCOMPARE(router.pageStatus(), SynQt::Router::NotFound);
+
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+    router.go(QStringLiteral("/c/summer"));
+    QCOMPARE(router.pageStatus(), SynQt::Router::Loading);
+}
+
+void tst_RemotePage::routerPrefersACompiledInRouteOverAnEdgeOne()
+{
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    // The edge claims "/", which the bundle already owns. The bundle wins, so an edge can
+    // never replace a page that shipped with the client.
+    router.applyRemoteRouteTable(QStringLiteral("[{\"path\":\"/\",\"scope\":\"\"}]"));
+
+    router.go(QStringLiteral("/"));
+    QCOMPARE(router.pageStatus(), SynQt::Router::Ready);
+    QVERIFY(router.pageComponent() != nullptr);
+}
+
+void tst_RemotePage::routerReportsForbiddenWhenTheEdgeRefuses()
+{
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/admin\",\"scope\":\"staff\"}]"));
+    router.go(QStringLiteral("/admin"));
+
+    router.onPageDelivered(QStringLiteral("/admin"), QString{}, QString{}, QString{},
+                           QStringLiteral("forbidden"));
+    QCOMPARE(router.pageStatus(), SynQt::Router::Forbidden);
+    QVERIFY(router.pageComponent() == nullptr);
 }
 
 QTEST_MAIN(tst_RemotePage)

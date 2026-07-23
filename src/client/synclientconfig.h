@@ -58,6 +58,10 @@ struct SynClientConfig
     /// resolved against it, so an app under "/shop" still routes in application paths.
     QString routerBase{QStringLiteral("/")};
 
+    /// Which QML modules a page delivered by the edge may import. Empty means the app
+    /// uses no remote pages, and one arriving anyway is refused.
+    QStringList remotePalette;
+
     /// Scope vocabulary (for Session.hasScope).
     QStringList scopeOrder{QStringLiteral("anonymous")};
     bool scopesHierarchical{true};

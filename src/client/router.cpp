@@ -4,9 +4,13 @@
 #include "router.h"
 
 #include "browserhistory.h"
+#include "remotepageloader.h"
 #include "resumepath.h"
 #include "session.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QUrl>
@@ -143,6 +147,59 @@ Router::PageStatus Router::pageStatus() const
     return m_pageStatus;
 }
 
+QVariantMap Router::pageSeed() const
+{
+    return m_pageSeed;
+}
+
+void Router::setRemotePageLoader(RemotePageLoader *loader)
+{
+    m_loader = loader;
+}
+
+void Router::applyRemoteRouteTable(const QString &json)
+{
+    // Not brace-initialized: QJsonArray/QJsonObject have an initializer_list
+    // constructor, and QJsonArray converts implicitly to QJsonValue, so
+    // QJsonArray entries{someArray} would wrap someArray as this array's one
+    // element instead of copying it.
+    const QJsonArray entries = QJsonDocument::fromJson(json.toUtf8()).array();
+    QList<Route> remote;
+    remote.reserve(entries.size());
+    for (const QJsonValue &value : entries) {
+        const QJsonObject entry = value.toObject();
+        RouteConfig config;
+        config.path = entry.value(QStringLiteral("path")).toString();
+        config.scope = entry.value(QStringLiteral("scope")).toString();
+        // No componentUrl: an empty one is what marks a route as edge-delivered.
+        const RoutePattern pattern{config.path};
+        if (!pattern.isValid()) {
+            qWarning("SynQt: ignoring malformed remote route %s",
+                     qUtf8Printable(config.path));
+            continue;
+        }
+        remote.append(Route{pattern, config});
+    }
+    m_remoteRoutes = std::move(remote);
+
+    QList<Route> merged{compiledRoutes()};
+    QStringList compiledPaths;
+    compiledPaths.reserve(merged.size());
+    for (const Route &route : merged) {
+        compiledPaths.append(route.config.path);
+    }
+    for (const Route &route : m_remoteRoutes) {
+        if (compiledPaths.contains(route.config.path)) {
+            qWarning("SynQt: the edge offered route %s, which the bundle already owns; "
+                     "keeping the compiled-in page",
+                     qUtf8Printable(route.config.path));
+            continue;
+        }
+        merged.append(route);
+    }
+    applyRoutes(std::move(merged));
+}
+
 QList<Router::Route> Router::compiledRoutes() const
 {
     QList<Route> routes;
@@ -257,10 +314,18 @@ void Router::resolve(QString path, bool queryChanged)
     QString target{path};
     PageStatus status{Ready};
 
+    // A route actually served by a remote page loader defers its scope check to the
+    // edge (PagesService is the real boundary; the client-side guard below protects
+    // nothing a browser could not already see). Without a loader installed, an empty
+    // componentUrl is just a route with no view yet, and the ordinary local guard below
+    // still applies to it exactly as it always has.
+    const bool isRemoteRoute{route && route->config.componentUrl.isEmpty()
+                             && m_loader != nullptr};
+
     if (!route) {
         target = m_config.routerFallback;
         status = NotFound;
-    } else if (!isReachable(route->config)) {
+    } else if (!isRemoteRoute && !isReachable(route->config)) {
         // A guard is a redirect, not secrecy: steer to the fallback and say
         // why.
         target = m_config.routerFallback;
@@ -325,8 +390,68 @@ bool Router::isReachable(const RouteConfig &route) const
 bool Router::resolveRemote(const QString &path, const RouteConfig &route)
 {
     Q_UNUSED(path);
-    Q_UNUSED(route);
-    return false;
+    if (!m_loader) {
+        return false;
+    }
+    m_pendingRoute = route.path;
+    QQmlComponent *cached{m_loader->componentFor(route.path)};
+    if (cached) {
+        // Already held: show it now and still ask, so a changed page updates in place.
+        setPageComponent(cached, Ready);
+    } else {
+        setPageComponent(nullptr, Loading);
+    }
+    emit pageRequested(route.path, m_loader->hashFor(route.path));
+    return true;
+}
+
+void Router::onPageDelivered(const QString &route, const QString &qml,
+                             const QString &hash, const QString &seed,
+                             const QString &status)
+{
+    if (route != m_pendingRoute) {
+        return;
+    }
+    if (status == QLatin1String("forbidden")) {
+        setPageComponent(nullptr, Forbidden);
+        return;
+    }
+    if (status == QLatin1String("notFound")) {
+        setPageComponent(nullptr, NotFound);
+        return;
+    }
+    if (!m_loader) {
+        setPageComponent(nullptr, Error);
+        return;
+    }
+
+    QString reason;
+    const RemotePageLoader::Outcome outcome{
+        m_loader->deliver(route, qml, hash, &reason)};
+    if (outcome == RemotePageLoader::Outcome::Rejected
+        || outcome == RemotePageLoader::Outcome::Failed) {
+        qWarning("SynQt: refusing delivered page %s: %s", qUtf8Printable(route),
+                 qUtf8Printable(reason));
+        setPageComponent(nullptr, Error);
+        return;
+    }
+
+    // The seed is in place before the component is, so a binding in the new page never
+    // evaluates against the previous page's seed.
+    m_pageSeed = QJsonDocument::fromJson(seed.toUtf8()).object().toVariantMap();
+    setPageComponent(m_loader->componentFor(route), Ready);
+}
+
+void Router::onPageChanged(const QString &route, const QString &hash)
+{
+    Q_UNUSED(hash);
+    if (!m_loader) {
+        return;
+    }
+    m_loader->invalidate(route);
+    if (route == m_pendingRoute) {
+        emit pageRequested(route, QString{});
+    }
 }
 
 void Router::setPageUrl(const QString &componentUrl, PageStatus status)

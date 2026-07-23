@@ -24,6 +24,7 @@ QT_END_NAMESPACE
 namespace SynQt {
 
 class BrowserHistory;
+class RemotePageLoader;
 class Session;
 
 /// Scope-gated navigation over the route table, and the browser's address bar
@@ -46,6 +47,7 @@ class Router : public QObject
     Q_PROPERTY(QVariantMap query READ query NOTIFY pathChanged)
     Q_PROPERTY(QQmlComponent *pageComponent READ pageComponent NOTIFY pageChanged)
     Q_PROPERTY(PageStatus pageStatus READ pageStatus NOTIFY pageChanged)
+    Q_PROPERTY(QVariantMap pageSeed READ pageSeed NOTIFY pageChanged)
 
 public:
     /// Why the current route shows what it shows. An app can tell "you may
@@ -69,6 +71,22 @@ public:
     QVariantMap query() const;
     QQmlComponent *pageComponent() const;
     PageStatus pageStatus() const;
+    QVariantMap pageSeed() const;
+
+    /// Give the router somewhere to put delivered pages. Without one, a remote route
+    /// resolves to Error rather than silently showing nothing.
+    void setRemotePageLoader(RemotePageLoader *loader);
+
+    /// Replace the edge-delivered half of the route table. A path the bundle already
+    /// declares is kept, so the edge cannot shadow a compiled-in page.
+    void applyRemoteRouteTable(const QString &json);
+
+    /// The edge answered a fetch.
+    void onPageDelivered(const QString &route, const QString &qml, const QString &hash,
+                         const QString &seed, const QString &status);
+
+    /// The edge reports a page changed; drop it and refetch if it is on screen.
+    void onPageChanged(const QString &route, const QString &hash);
 
     /// Navigate to path, pushing a history entry. A route whose scope the
     /// session lacks redirects to router.fallback with pageStatus Forbidden.
@@ -95,6 +113,9 @@ signals:
     void pathChanged();
     void pageChanged();
 
+    /// Ask the runtime to call fetchPage. The router does not own the connect point.
+    void pageRequested(const QString &route, const QString &haveHash);
+
 protected:
     /// One resolved entry of the table.
     struct Route
@@ -103,9 +124,10 @@ protected:
         RouteConfig config;
     };
 
-    /// Hook for a page this class cannot build itself. Returns false here;
-    /// Plan B's edge-delivered pages override it to start a fetch and report
-    /// Loading.
+    /// Hook for a page this class cannot build itself. Plan A's default (kept
+    /// for OverridingRouter-style subclasses in the url-routing regression
+    /// suite) returns false; here it starts a fetch through the loader and
+    /// reports Loading.
     virtual bool resolveRemote(const QString &path, const RouteConfig &route);
 
     /// Table lookup, most-literal-first. Returns nullptr when nothing matches.
@@ -156,6 +178,11 @@ private:
     /// redirect that is supposed to replace it.
     std::optional<QString> m_pageUrl;
     PageStatus m_pageStatus{NotFound};
+
+    RemotePageLoader *m_loader{nullptr};
+    QList<Route> m_remoteRoutes;
+    QVariantMap m_pageSeed;
+    QString m_pendingRoute;
 };
 
 } // namespace SynQt
