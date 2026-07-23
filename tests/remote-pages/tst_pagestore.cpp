@@ -5,7 +5,9 @@
 // authorization is what actually keeps a scoped page off an under-scoped session.
 
 #include "rep_pages_source.h"
+#include "pagesservice.h"
 #include "pagestore.h"
+#include "caller.h"
 
 #include <QDir>
 #include <QFile>
@@ -27,6 +29,11 @@ private slots:
     void storeEmitsWhenAWatchedPageChanges();
     void storeRouteTableCarriesPathsAndScopes();
     void storeWatchSurvivesAnAtomicReplace();
+    void fetchRefusesAnUnderScopedCaller();
+    void fetchServesAnAuthorizedCaller();
+    void fetchReportsNotModifiedForAMatchingHash();
+    void fetchRefusesAnUndeclaredRoute();
+    void fetchSeedsThePageWhenAProviderIsSet();
 };
 
 void tst_PageStore::contractLowersToAUsablePod()
@@ -167,6 +174,100 @@ void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
     QCOMPARE(changed.count(), 2);
     QCOMPARE(changed.at(1).at(0).toString(), QStringLiteral("/c"));
     QVERIFY(store.hashFor(QStringLiteral("/c")) != afterFirst);
+}
+
+void tst_PageStore::fetchRefusesAnUnderScopedCaller()
+{
+    QTemporaryDir pages;
+    writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"),
+              "import QtQuick\nItem { objectName: \"secretRules\" }");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/admin/rules"), QStringLiteral("Rules.qml"),
+                  QStringLiteral("staff"));
+    SynQt::PagesService service{&store};
+
+    SynQt::Caller anonymous;
+    anonymous.setScope(QStringLiteral("anonymous"));
+    const PageResponse response{service.fetchPageFor(
+        QStringLiteral("/admin/rules"), QString{}, &anonymous)};
+
+    QCOMPARE(response.status(), QStringLiteral("forbidden"));
+    // The confidentiality guarantee is that nothing of the page comes back, not merely
+    // that a flag says no.
+    QVERIFY(response.qml().isEmpty());
+    QVERIFY(!response.qml().contains(QStringLiteral("secretRules")));
+    QVERIFY(response.hash().isEmpty());
+}
+
+void tst_PageStore::fetchServesAnAuthorizedCaller()
+{
+    QTemporaryDir pages;
+    writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"),
+              "import QtQuick\nItem { objectName: \"secretRules\" }");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/admin/rules"), QStringLiteral("Rules.qml"),
+                  QStringLiteral("staff"));
+    SynQt::PagesService service{&store};
+
+    SynQt::Caller staff;
+    staff.setScope(QStringLiteral("staff"));
+    const PageResponse response{service.fetchPageFor(
+        QStringLiteral("/admin/rules"), QString{}, &staff)};
+
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QVERIFY(response.qml().contains(QStringLiteral("secretRules")));
+    QCOMPARE(response.hash(), store.hashFor(QStringLiteral("/admin/rules")));
+}
+
+void tst_PageStore::fetchReportsNotModifiedForAMatchingHash()
+{
+    QTemporaryDir pages;
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/c"), QStringLiteral("C.qml"), QString{});
+    SynQt::PagesService service{&store};
+
+    SynQt::Caller caller;
+    const QString hash{store.hashFor(QStringLiteral("/c"))};
+    const PageResponse response{
+        service.fetchPageFor(QStringLiteral("/c"), hash, &caller)};
+
+    QCOMPARE(response.status(), QStringLiteral("notModified"));
+    QVERIFY(response.qml().isEmpty());
+}
+
+void tst_PageStore::fetchRefusesAnUndeclaredRoute()
+{
+    QTemporaryDir pages;
+    SynQt::PageStore store{pages.path()};
+    SynQt::PagesService service{&store};
+    SynQt::Caller caller;
+    const PageResponse response{
+        service.fetchPageFor(QStringLiteral("/anything"), QString{}, &caller)};
+    QCOMPARE(response.status(), QStringLiteral("notFound"));
+    QVERIFY(response.qml().isEmpty());
+}
+
+void tst_PageStore::fetchSeedsThePageWhenAProviderIsSet()
+{
+    QTemporaryDir pages;
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/c/:campaign"), QStringLiteral("C.qml"), QString{});
+    SynQt::PagesService service{&store};
+    service.setSeedProvider([](const QString &route, const QVariantMap &parameters,
+                              SynQt::Caller *caller) {
+        Q_UNUSED(route);
+        Q_UNUSED(caller);
+        return QStringLiteral("{\"campaign\":\"%1\"}")
+            .arg(parameters.value(QStringLiteral("campaign")).toString());
+    });
+
+    SynQt::Caller caller;
+    const PageResponse response{service.fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, &caller)};
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QCOMPARE(response.seed(), QStringLiteral("{\"campaign\":\"summer\"}"));
 }
 
 QTEST_MAIN(tst_PageStore)

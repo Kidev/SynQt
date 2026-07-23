@@ -16,13 +16,14 @@ qt_standard_project_setup()
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
-include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 enable_testing()
 
+# Pages is the framework's own contract, generated once as part of SynQtService itself
+# (see src/service/CMakeLists.txt) and exposed publicly from there; this test reaches
+# "rep_pages_source.h" and PagesService through that link rather than generating (and
+# then linking) a second, colliding copy of PagesSourceHelper/PagesCaller of its own.
 qt_add_executable(tst_pagestore tst_pagestore.cpp)
-synqt_add_contract(tst_pagestore ROLE source
-    SYN "${CMAKE_CURRENT_SOURCE_DIR}/../../src/service/contracts/Pages.syn")
 target_link_libraries(tst_pagestore PRIVATE SynQtService Qt6::Test)
 target_compile_definitions(tst_pagestore PRIVATE
     REMOTE_PAGES_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")

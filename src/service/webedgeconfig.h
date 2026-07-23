@@ -31,6 +31,14 @@ struct WebEdgeConnectPoint
     InstanceMode instance{InstanceMode::Shared};
 };
 
+/// One page the edge delivers rather than the bundle carrying it.
+struct WebEdgePage
+{
+    QString path;   ///< the route, possibly with :parameters
+    QString file;   ///< relative to WebEdgeConfig::pagesDir
+    QString scope;  ///< minimum session scope; empty == any session may fetch it
+};
+
 /// The browser-facing configuration of a web edge: where it serves the bundle, the
 /// public TLS, the browser-hardening policy, and the resource limits. Defaults are the
 /// safe ones from [Security](https://synqt.org/security/).
@@ -77,6 +85,11 @@ struct WebEdgeConfig
     qint64 maxMessageBytes{1048576};
 
     QList<WebEdgeConnectPoint> connectPoints;
+
+    /// Edge-delivered pages (see https://synqt.org/remote-pages/). Empty disables the
+    /// Pages connect point entirely, so an app that does not use the feature pays nothing.
+    QString pagesDir;
+    QList<WebEdgePage> pages;
 
     /// Login and identity (M8). Disabled by default; `synqt add auth` enables it.
     IdentityConfig identity;

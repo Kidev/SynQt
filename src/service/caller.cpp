@@ -28,7 +28,7 @@ Caller *Caller::create(const QString &contract, QObject *parent)
     if (factory) {
         return factory(parent);
     }
-    return new Caller{parent};  // a member may reach the protected base constructor
+    return new Caller{parent};
 }
 
 Caller::Caller(QObject *parent)
@@ -51,6 +51,7 @@ Caller *Caller::forUser(const QString &contract, SessionManager *sessions,
     caller->m_sessions = sessions;
     caller->m_sessionId = sessionId;
     caller->m_source = source;
+    caller->m_boundToRole = true;
     return caller;
 }
 
@@ -62,6 +63,7 @@ Caller *Caller::forEntity(const QString &contract, const QString &entityName, bo
     caller->m_entity = entityName;
     caller->m_entityVerified = verified;
     caller->m_source = source;
+    caller->m_boundToRole = true;
     return caller;
 }
 
@@ -121,6 +123,11 @@ QVariant Caller::identity() const
 
 QString Caller::scope() const
 {
+    if (!m_boundToRole) {
+        // Not bound to a live session (a standalone caller): the scope setScope() held
+        // directly on this instance is authoritative.
+        return m_localScope;
+    }
     const SessionRecord *rec{record()};
     return rec ? rec->scope : QString{};
 }
@@ -135,11 +142,18 @@ bool Caller::hasScope(const QString &scope) const
     if (!m_isUser) {
         return false;  // entity callers are not scoped; use Caller.entity
     }
-    const SessionRecord *rec{record()};
-    if (!rec) {
-        return false;
+    QString granted{};
+    if (!m_boundToRole) {
+        // Standalone caller: no session store to consult, so the scope setScope() held
+        // directly on this instance is authoritative.
+        granted = m_localScope;
+    } else {
+        const SessionRecord *rec{record()};
+        if (!rec) {
+            return false;
+        }
+        granted = rec->scope;
     }
-    const QString granted{rec->scope};
     if (granted == scope) {
         return true;
     }
@@ -153,6 +167,15 @@ bool Caller::hasScope(const QString &scope) const
 
 void Caller::setScope(const QString &scope, const QVariantMap &identity)
 {
+    if (!m_boundToRole) {
+        // Never bound to a live session or a verified entity (a plain, directly
+        // constructed Caller): become a standalone scoped user, holding the scope here
+        // rather than rotating a session that does not exist.
+        m_isUser = true;
+        m_localScope = scope;
+        Q_UNUSED(identity); // no session store to carry an identity through, standalone
+        return;
+    }
     if (!m_isUser || m_sessions.isNull()) {
         return;
     }

@@ -50,6 +50,15 @@ public:
     using CallerFactory = std::function<Caller *(QObject *)>;
     static void registerCallerFactory(const QString &contract, CallerFactory factory);
 
+    /// A standalone caller, bound to neither a live session nor a verified entity. Its
+    /// setScope() holds the scope directly on this instance instead of rotating a session,
+    /// so a plain SynQt::Caller can act as an already-scoped user in isolation (a unit
+    /// test exercising owner-side scope gating without a SessionManager). forUser() and
+    /// forEntity() are the paths a real connection takes; this constructor is what those
+    /// two factories build on top of, and what a caller with no factory to go through uses
+    /// directly.
+    explicit Caller(QObject *parent = nullptr);
+
     /// A browser user caller, backed by a live session. The manager is read live so
     /// setScope and login elevation are reflected without rebuilding the Caller. `contract`
     /// selects the typed subclass for the emit<Signal> sugar (empty for the scope gate).
@@ -96,14 +105,8 @@ public:
     /// is created, since the Source's QML context needs the Caller first.
     void setSource(QObject *source);
 
-protected:
-    /// The generated `\<Contract\>Caller` subclass constructs through this; its typed
-    /// emit<Signal>(...) methods forward to the inherited emitSignal.
-    explicit Caller(QObject *parent);
-
 private:
     /// Build the Caller for a contract: its registered `\<Contract\>Caller`, or the base Caller.
-    /// A member, so it may reach the protected base constructor.
     static Caller *create(const QString &contract, QObject *parent);
 
     const SessionRecord *record() const;
@@ -113,9 +116,17 @@ private:
     QString m_entity;
     QPointer<QObject> m_source;
     QStringList m_scopeOrder;
+    /// The scope held directly on a standalone caller (unset until setScope() is called
+    /// on one). Meaningless once m_boundToRole is true; the session record is authoritative
+    /// then.
+    QString m_localScope;
     bool m_isUser{false};
     bool m_entityVerified{false};
     bool m_hierarchical{true};
+    /// True once forUser() or forEntity() has assigned this caller its role. False for a
+    /// plain, directly-constructed Caller, which is what lets setScope() tell "not yet
+    /// bound to anything" apart from "bound to an entity, which is never scoped".
+    bool m_boundToRole{false};
 };
 
 } // namespace SynQt
