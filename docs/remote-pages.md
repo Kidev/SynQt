@@ -137,10 +137,11 @@ parameters paints the new parameters, not the old page's data.
 > Leave `seedFor`'s parameters untyped. The edge invokes the hook generically, passing
 > every argument as a `QVariant`. Annotating a parameter with a concrete type, for example
 > `seedFor(route: string, ...)`, changes the QML method signature the edge is trying to
-> call, so the edge's `QVariant` call no longer matches it, and the page is delivered with
-> no seed at all. Nothing surfaces in the browser, so the page just paints with an empty
-> `Router.pageSeed`; the cause is in the edge log, which prints `SynQt: page seed hook
-> <file> (route <route>) could not be called; the page is delivered with no seed`. The
+> call, so the edge's `QVariant` call could never match it, and the page is delivered with
+> no seed at all. The edge catches this when it loads the hook, not per request, and logs
+> `SynQt: page seed hook <file> declares seedFor with typed parameters; the edge calls it
+> with untyped (QVariant) arguments, so leave seedFor's parameters untyped or the page is
+> delivered with no seed`. Nothing surfaces in the browser, so watch the edge log. The
 > return type may be annotated
 > `: var`, which does match, because a seed is a plain object. The reference hook is
 > [`examples/stall/web/campaign-seed.qml`](https://github.com/Kidev/SynQt/blob/main/examples/stall/web/campaign-seed.qml),

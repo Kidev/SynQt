@@ -70,6 +70,7 @@ private slots:
     void edgePageWithoutAHookHasAnEmptySeed();
     void edgeDegradesAHookThatFailsToLoad();
     void edgeDegradesAHookWithNoSeedFunction();
+    void edgeDegradesAHookWithTypedParameters();
     void edgeLogsAHookWithNoSeedFunctionOnlyOnce();
     void edgeRefusesASeedThatIsNotAnObject();
     void edgeRefusesASeedNestedTooDeeply();
@@ -860,6 +861,36 @@ void tst_PageStore::edgeDegradesAHookWithNoSeedFunction()
 
     // The hook loaded but declares no seedFor: it is dropped when it is built, and that
     // degrades to "no seed", never to a refused or half-built page.
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QVERIFY(!response.qml().isEmpty());
+    QVERIFY(response.seed().isEmpty());
+}
+
+void tst_PageStore::edgeDegradesAHookWithTypedParameters()
+{
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{edgeConfigWithASeededPage(
+        bundle.path(), pages.path(),
+        QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/Typed.qml"))};
+    SynQt::WebEdge edge{config, &engine};
+    // The edge calls seedFor with untyped (QVariant) arguments, so a typed parameter can
+    // never bind. It is caught when the hook is built, with a message that names the cause,
+    // rather than left to fail (and let Qt log) on every request.
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression{QStringLiteral("typed parameters")});
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+    const PageResponse response{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, caller)};
+
+    // A typed seedFor is dropped at build time, so the page degrades to no seed rather than
+    // being delivered bound to a hook that can never run.
     QCOMPARE(response.status(), QStringLiteral("ok"));
     QVERIFY(!response.qml().isEmpty());
     QVERIFY(response.seed().isEmpty());
