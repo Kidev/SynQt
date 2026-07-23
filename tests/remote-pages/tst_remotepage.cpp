@@ -5,7 +5,10 @@
 // it may import is checked before anything is instantiated.
 
 #include "qmlpalette.h"
+#include "remotepageloader.h"
 
+#include <QQmlComponent>
+#include <QQmlEngine>
 #include <QTest>
 
 using SynQt::QmlPalette;
@@ -30,6 +33,13 @@ private slots:
     void paletteAcceptsATabSeparatedPragma();
     void paletteAllowsASlashSlashInsideAStringLiteral();
     void paletteRejectsAnImportHiddenByAFakeBlockComment();
+
+    void loaderBuildsAComponentFromDeliveredSource();
+    void loaderRejectsAPageOutsideThePalette();
+    void loaderReusesACachedComponentForTheSameHash();
+    void loaderReplacesTheComponentWhenTheHashChanges();
+    void loaderFailsOnUnparseableSource();
+    void loaderInvalidateDropsTheCache();
 };
 
 void tst_RemotePage::paletteAcceptsDeclaredModules()
@@ -180,6 +190,81 @@ void tst_RemotePage::paletteRejectsAnImportHiddenByAFakeBlockComment()
         "*/\n"
         "Item { }\n")};
     QVERIFY(!palette.isAcceptable(source, nullptr));
+}
+
+void tst_RemotePage::loaderBuildsAComponentFromDeliveredSource()
+{
+    QQmlEngine engine;
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    const auto outcome{loader.deliver(QStringLiteral("/c"),
+                                      QStringLiteral("import QtQuick\nItem { }\n"),
+                                      QStringLiteral("h1"), nullptr)};
+    QCOMPARE(outcome, SynQt::RemotePageLoader::Outcome::Ready);
+    QVERIFY(loader.componentFor(QStringLiteral("/c")) != nullptr);
+    QCOMPARE(loader.hashFor(QStringLiteral("/c")), QStringLiteral("h1"));
+}
+
+void tst_RemotePage::loaderRejectsAPageOutsideThePalette()
+{
+    QQmlEngine engine;
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    QString reason;
+    const auto outcome{loader.deliver(QStringLiteral("/c"),
+                                      QStringLiteral("import Evil\nItem { }\n"),
+                                      QStringLiteral("h1"), &reason)};
+    QCOMPARE(outcome, SynQt::RemotePageLoader::Outcome::Rejected);
+    QVERIFY(loader.componentFor(QStringLiteral("/c")) == nullptr);
+    QVERIFY(!reason.isEmpty());
+}
+
+void tst_RemotePage::loaderReusesACachedComponentForTheSameHash()
+{
+    QQmlEngine engine;
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    loader.deliver(QStringLiteral("/c"), QStringLiteral("import QtQuick\nItem { }\n"),
+                   QStringLiteral("h1"), nullptr);
+    QQmlComponent *first{loader.componentFor(QStringLiteral("/c"))};
+    const auto outcome{loader.deliver(QStringLiteral("/c"), QString{},
+                                      QStringLiteral("h1"), nullptr)};
+    QCOMPARE(outcome, SynQt::RemotePageLoader::Outcome::NotModified);
+    QCOMPARE(loader.componentFor(QStringLiteral("/c")), first);
+}
+
+void tst_RemotePage::loaderReplacesTheComponentWhenTheHashChanges()
+{
+    QQmlEngine engine;
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    loader.deliver(QStringLiteral("/c"), QStringLiteral("import QtQuick\nItem { }\n"),
+                   QStringLiteral("h1"), nullptr);
+    QQmlComponent *first{loader.componentFor(QStringLiteral("/c"))};
+    loader.deliver(QStringLiteral("/c"),
+                   QStringLiteral("import QtQuick\nItem { objectName: \"v2\" }\n"),
+                   QStringLiteral("h2"), nullptr);
+    QVERIFY(loader.componentFor(QStringLiteral("/c")) != first);
+    QCOMPARE(loader.hashFor(QStringLiteral("/c")), QStringLiteral("h2"));
+}
+
+void tst_RemotePage::loaderFailsOnUnparseableSource()
+{
+    QQmlEngine engine;
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    QString reason;
+    const auto outcome{loader.deliver(QStringLiteral("/c"),
+                                      QStringLiteral("import QtQuick\nItem { {{{\n"),
+                                      QStringLiteral("h1"), &reason)};
+    QCOMPARE(outcome, SynQt::RemotePageLoader::Outcome::Failed);
+    QVERIFY(!reason.isEmpty());
+}
+
+void tst_RemotePage::loaderInvalidateDropsTheCache()
+{
+    QQmlEngine engine;
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    loader.deliver(QStringLiteral("/c"), QStringLiteral("import QtQuick\nItem { }\n"),
+                   QStringLiteral("h1"), nullptr);
+    loader.invalidate(QStringLiteral("/c"));
+    QVERIFY(loader.hashFor(QStringLiteral("/c")).isEmpty());
+    QVERIFY(loader.componentFor(QStringLiteral("/c")) == nullptr);
 }
 
 QTEST_MAIN(tst_RemotePage)
