@@ -440,6 +440,21 @@ def _scope_vocab(config: Dict[str, Any]) -> List[str]:
     return list(config.get("scopes", {}).get("order", ["anonymous"]))
 
 
+def scopes_hierarchical(config: Dict[str, Any]) -> bool:
+    """Whether scope checks rank the vocabulary (a higher scope satisfies a lower one) or
+    treat it as an unordered set (a scope satisfies only itself).
+
+    Defaults to true, matching SynClientConfig and WebEdgeConfig. Emitted into BOTH mains:
+    the edge is the authoritative check, so a project that sets `scopes.hierarchical: false`
+    for set-based scopes must reach the edge, not just the client's navigation guard, or the
+    edge would keep granting a lower scope to any holder of a higher-ranked one.
+
+    Public because `synqt check` warns when a project sets false today (it would silently
+    take effect only once this is wired), reading the setting the one way the generator does.
+    """
+    return bool(config.get("scopes", {}).get("hierarchical", True))
+
+
 def _string_list_literal(values: List[str]) -> str:
     return ", ".join('QStringLiteral("%s")' % value for value in values)
 
@@ -579,6 +594,7 @@ int main(int argc, char *argv[])
     config.edgeUrl = resolveEdgeUrl();
     config.connectPoints = {{{cp_list}}};
     config.scopeOrder = {{{_string_list_literal(scopes)}}};
+    config.scopesHierarchical = {"true" if scopes_hierarchical(config) else "false"};
     config.routerFallback = QStringLiteral("{router_fallback}");
     config.routerBase = QStringLiteral("{router_base}");
     config.routes = {{{route_list}}};
@@ -636,6 +652,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         if owner and owner not in mesh_owners:
             mesh_owners.append(owner)
     scope_literal = _string_list_literal(_scope_vocab(config))
+    hierarchical_literal = "true" if scopes_hierarchical(config) else "false"
     singleton_section = _singleton_registrations(name, singletons or [])
     # Cross-origin isolation is forced on by a multi-threaded client (it cannot get
     # SharedArrayBuffer otherwise) and can also be set on its own; the edge then serves
@@ -771,6 +788,7 @@ int main(int argc, char *argv[])
     config.certFile = parser.value(certOption);
     config.keyFile = parser.value(keyOption);
     config.scopeOrder = {{{scope_literal}}};
+    config.scopesHierarchical = {hierarchical_literal};
     config.crossOriginIsolation = {coi_literal};
     config.serviceWorker = {sw_literal};
 

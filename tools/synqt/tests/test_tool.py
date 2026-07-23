@@ -320,6 +320,30 @@ class AppGenTest(unittest.TestCase):
         self.assertIn('config.routerFallback = QStringLiteral("/c");', client_main)
         self.assertNotIn('QStringLiteral("/c//")', client_main)
 
+    def test_mains_emit_scopes_hierarchical(self):
+        # scopes.hierarchical must reach BOTH generated mains: the edge is the authoritative
+        # check, so a set-based-scope project (false) that only told the client would still
+        # have the edge grant a lower scope to any holder of a higher-ranked one. Default true.
+        base = {
+            "project": {"name": "gate", "qt_version": "6.11.1"},
+            "scopes": {"order": ["anonymous", "user", "moderator"]},
+            "entities": [
+                {"name": "client", "kind": "client", "targets": ["wasm"]},
+                {"name": "web", "kind": "service", "capability": "web_edge"},
+            ],
+        }
+        uri = appgen.qml_uri(base["project"]["name"])
+        client_default = appgen.render_client_main(base, uri)
+        edge_default = appgen.render_edge_main(base, base["entities"][1])
+        self.assertIn("config.scopesHierarchical = true;", client_default)
+        self.assertIn("config.scopesHierarchical = true;", edge_default)
+
+        setbased = {**base, "scopes": {"order": base["scopes"]["order"], "hierarchical": False}}
+        client_set = appgen.render_client_main(setbased, uri)
+        edge_set = appgen.render_edge_main(setbased, setbased["entities"][1])
+        self.assertIn("config.scopesHierarchical = false;", client_set)
+        self.assertIn("config.scopesHierarchical = false;", edge_set)
+
     def test_edge_main_composes_entity_runtime_for_its_mesh_side(self):
         # A web edge that consumes a database connect point over the mesh reaches it through
         # an EntityRuntime (WebEdge keeps the browser side); each acquired accessor is injected

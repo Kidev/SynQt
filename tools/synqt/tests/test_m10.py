@@ -196,6 +196,28 @@ class CheckTest(unittest.TestCase):
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
 
+    def test_set_based_scopes_pass(self):
+        # scopes.hierarchical: false is a legitimate, fully-honored setting (both mains
+        # emit it now), so it must validate clean.
+        config = self._base()
+        config["connect_points"] = [
+            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+        config["scopes"] = {"order": ["anonymous", "user"], "hierarchical": False}
+        ok, messages = check.validate(config)
+        self.assertTrue(ok, messages)
+
+    def test_non_boolean_scopes_hierarchical_is_an_error(self):
+        # The string "false" is truthy in Python, so a quoted value would silently stay
+        # hierarchical -- the authorization surprise the setter meant to turn off. Refuse it.
+        config = self._base()
+        config["connect_points"] = [
+            {"name": "todo", "owner": "web", "consumers": ["client"]}]
+        config["scopes"] = {"order": ["anonymous", "user"], "hierarchical": "false"}
+        ok, messages = check.validate(config)
+        self.assertFalse(ok)
+        self.assertTrue(any("scopes.hierarchical must be true or false" in m
+                            for m in messages))
+
 
 class NewBuildDoctorTest(unittest.TestCase):
     def setUp(self):
