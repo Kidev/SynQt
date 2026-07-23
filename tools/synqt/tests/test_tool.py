@@ -305,6 +305,21 @@ class AppGenTest(unittest.TestCase):
             client_main)
         self.assertNotIn("#ifdef QT_NO_DEBUG", client_main)
 
+    def test_client_main_normalizes_the_router_fallback(self):
+        # `synqt check` treats "/c" and "/c//" as one route (RoutePattern skips empty
+        # segments), so a fallback spelled "/c//" passes. The client, though, looks the
+        # fallback up with RoutePattern::matches(), which tolerates only one trailing
+        # slash: the raw "/c//" would match nothing and blank the page. The generator
+        # writes the fallback through the same collapse rule so the two agree.
+        config = {
+            "project": {"name": "shop", "qt_version": "6.11.1"},
+            "router": {"fallback": "/c//"},
+            "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
+        }
+        client_main = appgen.render_client_main(config, appgen.qml_uri(config["project"]["name"]))
+        self.assertIn('config.routerFallback = QStringLiteral("/c");', client_main)
+        self.assertNotIn('QStringLiteral("/c//")', client_main)
+
     def test_edge_main_composes_entity_runtime_for_its_mesh_side(self):
         # A web edge that consumes a database connect point over the mesh reaches it through
         # an EntityRuntime (WebEdge keeps the browser side); each acquired accessor is injected

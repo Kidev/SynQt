@@ -173,15 +173,11 @@ def _is_route_parameter_name(name: str) -> bool:
 
 
 def _normalized_route_path(path: str) -> str:
-    """A route path as the runtime matcher sees it.
-
-    RoutePattern splits a pattern with Qt::SkipEmptyParts, so an empty segment is not a
-    segment: "/c", "/c/" and "/c//" are one route, and so are "/a//b" and "/a/b".
-    Comparing the raw strings would let two of them be declared, leaving the second
-    permanently unreachable. Rebuilding the path from its non-empty segments is the same
-    rule, so the root comes back as "/": it is the one path that is nothing but slashes.
-    """
-    return "/" + "/".join(segment for segment in path.split("/") if segment)
+    """A route path as the runtime matcher sees it: "/c", "/c/" and "/c//" are one route,
+    and so are "/a//b" and "/a/b". The generator writes a router.fallback through the same
+    rule, so a fallback this check accepts is one the client can actually match; two copies
+    of the spelling would drift and disagree."""
+    return appgen.normalize_route_path(path)
 
 
 # The OAuth routes' yaml keys and their defaults (docs/project-layout-and-config.md,
