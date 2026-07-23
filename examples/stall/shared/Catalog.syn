@@ -1,0 +1,11 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The shape of the storefront the browser and the edge share. The edge owns the offers
+// and fills them from the database; the browser watches the model and asks to add to the
+// cart. Only these two roles cross the wire: the internal sku the edge keys stock on never
+// reaches the browser-facing offers model.
+contract Catalog {
+    model offers(title, price)   // the live list of offers the browser watches
+    slot addToCart(string sku)   // a consumer (a browser) asks to add one to its cart
+}

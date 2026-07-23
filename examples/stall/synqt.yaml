@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The stall storefront: a browser client, a web edge that owns the live catalog and
+# delivers marketing campaign pages on demand, and a database that holds the durable
+# stock the browser reaches only through the edge. The product grid and cart are compiled
+# into the client; the campaign pages are edge-delivered, so a merchandiser changes a
+# campaign without a client rebuild.
+project:
+  name: stall
+  version: 0.1.0
+  qt_version: 6.11.1
+  origin_model: same_origin
+
+scopes:
+  order: [anonymous, user]
+  hierarchical: true
+  default: anonymous
+
+security:
+  allowed_origins: [self]
+  cross_origin_isolation: false
+
+build:
+  client_threads: single
+
+entities:
+  - name: client
+    kind: client
+    targets: [wasm]
+
+  - name: web
+    kind: service
+    capability: web_edge
+
+  - name: stock
+    kind: service
+    blueprint: persistence
+
+connect_points:
+  # The offers the browser watches: owned by the edge, filled from the database.
+  - name: catalog
+    contract: Catalog
+    owner: web
+    consumers: [client]
+    server: web/Catalog.qml
+    instance: shared
+
+  # The durable stock: owned by the database, reachable only by the edge (never the
+  # browser; a client consumer here fails `synqt check`, since the database is not a
+  # web edge). This is the "database unreachable from the browser" connect point.
+  - name: inventory
+    contract: Inventory
+    owner: stock
+    consumers: [web]
+    server: stock/Inventory.qml
+    instance: per_peer
+
+# The route table (top level, docs/project-layout-and-config.md). A route with `view:` is
+# compiled into the client bundle; a route with `remote:` is delivered by the edge at
+# navigation time, so it can be added or changed without a client rebuild.
+routes:
+  - path: /
+    view: Home.qml
+  - path: /cart
+    view: Cart.qml
+  # The public campaign page: one Campaign.qml serves every slug, painted on its first
+  # frame from a per-request seed the edge builds (see web/campaign-seed.qml).
+  - path: /c/:campaign
+    remote: Campaign.qml
+    seed: web/campaign-seed.qml
+  # A members-only edge-delivered page: an under-scoped fetch is refused with no markup.
+  - path: /members
+    remote: Members.qml
+    scope: user
+
+router:
+  fallback: /
+  base: /
+  palette: [QtQuick, QtQuick.Layouts]

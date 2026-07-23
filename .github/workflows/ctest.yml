@@ -337,6 +337,7 @@ jobs:
             tests/custom-provider/run-customprovider.sh
             tests/fix1-auction/run-fix1.sh
             tests/fix2-arena/run-fix2.sh
+            tests/fix3-stall/run-fix3.sh
             tests/appgen-native/run-appgen-native.sh
             tests/desktop-client/run-desktop-client.sh
             tests/url-routing/run-urlrouting.sh

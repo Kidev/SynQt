@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The durable stock contract: owned by the database entity, consumed only by the web edge
+// over the mesh. The database authorizes the calling ENTITY (Caller.entity === "web"),
+// never a user. A restocked item is announced as a scalar signal (scalars replicate
+// reliably), and the edge maintains the browser-facing Catalog from it; the browser never
+// reaches the database directly.
+contract Inventory {
+    model items(sku, title, price)                            // the durable stock
+    slot restock(string sku, string title, int price)          // edge -> database
+    signal itemStocked(string sku, string title, int price)    // database -> edge
+}
