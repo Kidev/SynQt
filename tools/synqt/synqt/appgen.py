@@ -560,11 +560,12 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     router_fallback = normalize_route_path(router.get("fallback") or "/")
     # The import palette a delivered page is held to (checked at build time by
     # check.lint_remote_pages, enforced at run time by the client's QmlPalette). Emitted
-    # only when non-empty, so a project with no remote routes keeps this line out of its
-    # generated main entirely.
+    # only when there is a remote route to enforce it on, so a project that sets
+    # router.palette but declares no remote route keeps this line out of its generated
+    # main entirely -- render_edge_main's pages block is gated on the same condition.
     palette = router.get("palette") or []
     palette_line = (f'\n    config.remotePalette = {{{_string_list_literal(palette)}}};'
-                    if palette else "")
+                    if palette and any(_is_remote_route(r) for r in routes) else "")
 
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from

@@ -89,6 +89,64 @@ def test_a_project_with_no_remote_routes_is_clean(tmp_path):
     assert check.lint_remote_pages(config, str(root)) == []
 
 
+def test_lint_routes_accepts_a_remote_route(tmp_path):
+    # Before this fix, lint_routes ran the view-existence rule (_route_view_findings)
+    # on every route regardless of `remote:`, so a project that only used remote pages
+    # could never pass `synqt check`: a correct remote route always reported "declares
+    # no view". A remote route's file is validated by lint_remote_pages, under
+    # `<edge>/pages`, not by this rule against the client directory.
+    (tmp_path / "client").mkdir()
+    config = {
+        "entities": [{"name": "web", "kind": "web_edge"},
+                     {"name": "client", "kind": "client"}],
+        "routes": [{"path": "/c/:id", "remote": "C.qml"}],
+        "router": {"fallback": "/c/:id"},
+    }
+    findings = check.lint_routes(config, str(tmp_path))
+    assert not any("declares no view" in f for f in findings), findings
+    assert findings == []
+
+
+def test_lint_routes_still_catches_a_duplicate_path_with_a_remote_route(tmp_path):
+    # Skipping the view-existence rule for a remote route must not skip the
+    # duplicate-path rule too: two routes racing for the same path is still a real
+    # conflict, remote or not.
+    (tmp_path / "client").mkdir()
+    (tmp_path / "client" / "A.qml").write_text("import QtQuick\nItem { }\n")
+    config = {
+        "entities": [{"name": "web", "kind": "web_edge"},
+                     {"name": "client", "kind": "client"}],
+        "routes": [{"path": "/c", "view": "A.qml"},
+                   {"path": "/c", "remote": "C.qml"}],
+        "router": {"fallback": "/c"},
+    }
+    findings = check.lint_routes(config, str(tmp_path))
+    assert any("duplicate route path" in f.lower() for f in findings), findings
+
+
+def test_a_route_setting_both_view_and_remote_does_not_also_shadow_itself(tmp_path):
+    # A single route with both 'view:' and 'remote:' set is a mutual-exclusion error,
+    # not a shadow of itself: only a separate view route at the same path is a real
+    # shadow (test_a_remote_route_may_not_shadow_a_compiled_in_one covers that case).
+    config, root = _project(
+        tmp_path, [{"path": "/c", "view": "C.qml", "remote": "C.qml"}],
+        palette=["QtQuick"], page_bodies={"C.qml": "import QtQuick\nItem { }\n"})
+    findings = check.lint_remote_pages(config, str(root))
+    assert not any("shadows a compiled-in route" in f for f in findings), findings
+
+
+def test_appgen_does_not_emit_the_palette_without_a_remote_route():
+    # A project may set router.palette for reasons unrelated to remote pages (or in
+    # preparation for adding one); with no remote route to enforce it on, the client
+    # main must stay exactly what it is without a palette at all.
+    source = appgen.render_client_main(
+        {"entities": [{"name": "client", "kind": "client"}],
+         "routes": [{"path": "/", "view": "Home.qml"}],
+         "router": {"palette": ["QtQuick"]}},
+        uri="Shop")
+    assert "config.remotePalette" not in source
+
+
 def test_appgen_emits_the_palette():
     source = appgen.render_client_main(
         {"entities": [{"name": "client", "kind": "client"}],
