@@ -90,6 +90,8 @@ qt_add_library(SynQtService STATIC
     jwksverifier.h
     stubidentityserver.cpp
     stubidentityserver.h
+    pagestore.cpp
+    pagestore.h
     webedgeconfig.h
     webedge.cpp
     webedge.h
