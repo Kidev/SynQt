@@ -33,6 +33,8 @@ qt_add_library(SynQtClient STATIC
     browserhistory.h
     clientupdate.cpp
     clientupdate.h
+    qmlpalette.cpp
+    qmlpalette.h
     replicaregistry.cpp
     replicaregistry.h
     resumepath.cpp
