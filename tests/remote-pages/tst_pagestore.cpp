@@ -26,6 +26,7 @@ private slots:
     void storeRefusesAnUndeclaredRoute();
     void storeEmitsWhenAWatchedPageChanges();
     void storeRouteTableCarriesPathsAndScopes();
+    void storeWatchSurvivesAnAtomicReplace();
 };
 
 void tst_PageStore::contractLowersToAUsablePod()
@@ -50,6 +51,18 @@ QString writePage(const QDir &dir, const QString &name, const QByteArray &body)
     file.write(body);
     file.close();
     return name;
+}
+
+// Replace name with new content under a fresh inode: write a sibling temp
+// file, then rename it over the watched path. Unlike writePage's in-place
+// truncate (same inode), this is what a real editor's atomic save does, and
+// it is what drops a naive QFileSystemWatcher watch.
+void replacePage(const QDir &dir, const QString &name, const QByteArray &body)
+{
+    const QString temporaryName{name + QStringLiteral(".tmp")};
+    writePage(dir, temporaryName, body);
+    QFile::remove(dir.filePath(name));
+    QFile::rename(dir.filePath(temporaryName), dir.filePath(name));
 }
 
 } // namespace
@@ -123,6 +136,37 @@ void tst_PageStore::storeRouteTableCarriesPathsAndScopes()
              QStringLiteral("/admin/rules"));
     QCOMPARE(table.at(0).toObject().value(QStringLiteral("scope")).toString(),
              QStringLiteral("staff"));
+}
+
+void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
+{
+    QTemporaryDir pages;
+    const QDir dir{pages.path()};
+    writePage(dir, QStringLiteral("Campaign.qml"), "import QtQuick\nItem {}");
+
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/c"), QStringLiteral("Campaign.qml"), QString{});
+    store.setWatching(true);
+
+    QSignalSpy changed{&store, &SynQt::PageStore::pageChanged};
+
+    replacePage(dir, QStringLiteral("Campaign.qml"),
+                "import QtQuick\nItem { objectName: \"first\" }");
+    QVERIFY(changed.wait(5000));
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(changed.at(0).at(0).toString(), QStringLiteral("/c"));
+    const QString afterFirst{store.hashFor(QStringLiteral("/c"))};
+    QVERIFY(!afterFirst.isEmpty());
+
+    // The watch must have survived the first replace: a second replace still
+    // has to be observed, proving onFileChanged re-armed the watcher instead
+    // of silently losing it.
+    replacePage(dir, QStringLiteral("Campaign.qml"),
+                "import QtQuick\nItem { objectName: \"second\" }");
+    QVERIFY(changed.wait(5000));
+    QCOMPARE(changed.count(), 2);
+    QCOMPARE(changed.at(1).at(0).toString(), QStringLiteral("/c"));
+    QVERIFY(store.hashFor(QStringLiteral("/c")) != afterFirst);
 }
 
 QTEST_MAIN(tst_PageStore)

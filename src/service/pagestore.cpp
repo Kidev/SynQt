@@ -113,15 +113,22 @@ void PageStore::onFileChanged(const QString &path)
     if (route.isEmpty()) {
         return;
     }
-    if (!reload(route)) {
-        return;
+    const bool reloaded{reload(route)};
+    // An atomic replace (write a sibling, rename over the watched path) can
+    // deliver this notification while the old inode is briefly gone, so
+    // reload() above may have failed; recovery below must run regardless.
+    if (m_watcher && !m_watcher->files().contains(path)) {
+        if (QFileInfo::exists(path)) {
+            m_watcher->addPath(path);
+        } else {
+            qWarning("SynQt: page file for route %s is gone; its edits will "
+                     "no longer reach open tabs until the dev server restarts",
+                     qUtf8Printable(route));
+        }
     }
-    // An editor that replaces rather than rewrites the file drops the watch,
-    // so re-add it.
-    if (m_watcher && !m_watcher->files().contains(path) && QFileInfo::exists(path)) {
-        m_watcher->addPath(path);
+    if (reloaded) {
+        emit pageChanged(route, m_pages.value(route).hash);
     }
-    emit pageChanged(route, m_pages.value(route).hash);
 }
 
 } // namespace SynQt
