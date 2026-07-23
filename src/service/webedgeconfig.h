@@ -37,6 +37,11 @@ struct WebEdgePage
     QString path;   ///< the route, possibly with :parameters
     QString file;   ///< relative to WebEdgeConfig::pagesDir
     QString scope;  ///< minimum session scope; empty == any session may fetch it
+    /// The page seed hook: a QML file deriving from SynQt::PageSeed that adds
+    /// `function seedFor(route, parameters, caller)`, called after the scope check to
+    /// build the data this page paints with on its first frame. Empty (the common case)
+    /// means the route has no seed, and then nothing is built and nothing is sent.
+    QString seed;
 };
 
 /// The browser-facing configuration of a web edge: where it serves the bundle, the

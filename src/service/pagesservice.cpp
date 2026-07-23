@@ -99,16 +99,21 @@ PageResponse PagesService::fetchPageFor(const QString &requestPath,
         return refusal(QStringLiteral("forbidden"));
     }
 
+    // Past this point the caller is authorized for this route, so a reply may carry the
+    // page. The hash is the hash of the page FILE, so it is the same for every
+    // parameterization of one route: a caller who already holds the component sends that
+    // hash with a different concrete path, and only the bulky qml payload is worth
+    // skipping. The seed is small and parameter-dependent, and the client keeps its
+    // previous seed on an empty one (router.cpp), so producing it only on the ok path
+    // would paint the new parameters with the old page's data.
     const QString hash{m_store->hashFor(matched)};
-    if (!haveHash.isEmpty() && haveHash == hash) {
-        PageResponse response{refusal(QStringLiteral("notModified"))};
-        response.setHash(hash);
-        return response;
-    }
+    const bool alreadyHeld{!haveHash.isEmpty() && haveHash == hash};
 
     PageResponse response{};
-    response.setStatus(QStringLiteral("ok"));
-    response.setQml(m_store->sourceFor(matched));
+    response.setStatus(alreadyHeld ? QStringLiteral("notModified") : QStringLiteral("ok"));
+    if (!alreadyHeld) {
+        response.setQml(m_store->sourceFor(matched));
+    }
     response.setHash(hash);
     if (m_seedProvider) {
         response.setSeed(m_seedProvider(matched, parameters, caller));

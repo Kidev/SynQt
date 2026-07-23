@@ -473,9 +473,11 @@ void Router::onPageDelivered(const QString &route, const QString &qml,
 
     QQmlComponent *component{m_loader->componentFor(m_pendingRoute)};
     // The seed is in place before the component is, so a binding in the new page never
-    // evaluates against the previous page's seed. An empty seed means "unchanged" (a
-    // notModified confirmation carries none), never "clear it": revisiting the same
-    // cached page must not wipe a seed a previous visit already delivered.
+    // evaluates against the previous page's seed. An empty seed means "unchanged" (the
+    // page declares no seed hook at all), never "clear it": revisiting the same cached
+    // page must not wipe a seed a previous visit already delivered. A notModified reply
+    // still carries a seed when the page has a hook, because one page file serves every
+    // parameterization of its route and so answers all of them with the same hash.
     bool seedChanged{false};
     if (!seed.isEmpty()) {
         const QVariantMap newSeed{QJsonDocument::fromJson(seed.toUtf8()).object().toVariantMap()};

@@ -5,6 +5,7 @@
 
 #include "caller.h"
 #include "identityprovider.h"
+#include "pageseed.h"
 #include "pagesedgesource.h"
 #include "pagesservice.h"
 #include "pagestore.h"
@@ -24,6 +25,8 @@
 #include <QHttpServerRequest>
 #include <QHttpServerResponse>
 #include <QHttpServerWebSocketUpgradeResponse>
+#include <QJSValue>
+#include <QJsonDocument>
 #include <QNetworkRequest>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -137,6 +140,77 @@ SessionManager *WebEdge::sessionManager() const
 IdentityProvider *WebEdge::identityProvider() const
 {
     return m_identity;
+}
+
+PagesService *WebEdge::pagesService() const
+{
+    return m_pagesService;
+}
+
+void WebEdge::buildPageSeedHooks()
+{
+    // The app-facing page seed hook, built the way the identity mapping hook is
+    // (identityprovider.cpp): the app writes a PageSeed QML object carrying
+    // `function seedFor(route, parameters, caller)`, and the edge calls it after the
+    // route's scope check. Each hook is built once here, never per request and never per
+    // connection; a project whose routes declare no seed builds nothing at all.
+    qmlRegisterType<PageSeed>("SynQt", 1, 0, "PageSeed");
+    for (const WebEdgePage &page : m_config.pages) {
+        if (page.seed.isEmpty()) {
+            continue;
+        }
+        if (!m_engine) {
+            qWarning("SynQt: no QML engine, so the page seed hook %s is not loaded",
+                     qUtf8Printable(page.seed));
+            continue;
+        }
+        QQmlComponent *component{
+            new QQmlComponent{m_engine, QUrl::fromLocalFile(page.seed), this}};
+        QObject *hook{component->create()};
+        if (!hook) {
+            // The hook's own file and QML diagnostic, which the developer wrote; never
+            // the page's source, and never anything the hook could have read.
+            qWarning("SynQt: page seed hook %s failed to load: %s",
+                     qUtf8Printable(page.seed), qUtf8Printable(component->errorString()));
+            continue;
+        }
+        hook->setParent(this);
+        m_pageSeedHooks.insert(page.path, hook);
+    }
+    if (m_pageSeedHooks.isEmpty()) {
+        return;
+    }
+    m_pagesService->setSeedProvider([this](const QString &route,
+                                           const QVariantMap &parameters,
+                                           Caller *caller) -> QString {
+        // Installed once on the shared service, but handed the calling connection's own
+        // Caller on every call: read the argument, never capture or cache one, or one
+        // browser's authorization would answer for another's.
+        QObject *hook{m_pageSeedHooks.value(route)};
+        if (!hook) {
+            return QString{};
+        }
+        QVariant result{};
+        if (!QMetaObject::invokeMethod(hook, "seedFor", Qt::DirectConnection,
+                                       Q_RETURN_ARG(QVariant, result),
+                                       Q_ARG(QVariant, QVariant{route}),
+                                       Q_ARG(QVariant, QVariant{parameters}),
+                                       Q_ARG(QVariant, QVariant::fromValue(
+                                           static_cast<QObject *>(caller))))) {
+            // A hook missing seedFor degrades to "no seed": the page is still
+            // delivered, it just paints with nothing until its connect points push.
+            return QString{};
+        }
+        // A QML function returning an object literal comes back wrapped in a QJSValue,
+        // which QJsonDocument::fromVariant() knows nothing about; unwrap it to the plain
+        // container first, or every hook would silently produce an empty seed.
+        if (result.canConvert<QJSValue>()) {
+            result = result.value<QJSValue>().toVariant();
+        }
+        // Whatever the hook returns goes to the browser, verbatim.
+        return QString::fromUtf8(
+            QJsonDocument::fromVariant(result).toJson(QJsonDocument::Compact));
+    });
 }
 
 void WebEdge::setContextObject(const QString &name, QObject *object)
@@ -458,6 +532,7 @@ bool WebEdge::start()
             m_pageStore->setWatching(true);
         }
         m_pagesService = new PagesService{m_pageStore, this};
+        buildPageSeedHooks();
     }
 
     // 2. The HTTP server: serve the bundle, stamp headers, and verify upgrades.

@@ -94,6 +94,7 @@ qt_add_library(SynQtService STATIC
     jwksverifier.h
     stubidentityserver.cpp
     stubidentityserver.h
+    pageseed.h
     pagestore.cpp
     pagestore.h
     pagesservice.cpp

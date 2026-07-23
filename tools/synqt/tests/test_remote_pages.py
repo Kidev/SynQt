@@ -6,6 +6,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from synqt import appgen, check
 
@@ -178,6 +179,77 @@ def test_appgen_edge_emits_pages():
     assert 'QStringLiteral("Campaign.qml")' in source
     assert 'QStringLiteral("/c/:campaign")' in source
     assert 'QStringLiteral("member")' in source
+
+
+def test_a_seed_on_a_remote_route_passes(tmp_path):
+    config, root = _project(
+        tmp_path, [{"path": "/c/:campaign", "remote": "Campaign.qml",
+                    "seed": "web/seeds/Campaign.qml"}],
+        palette=["QtQuick"],
+        page_bodies={"Campaign.qml": "import QtQuick\nItem { }\n"})
+    seeds = root / "web" / "seeds"
+    seeds.mkdir(parents=True)
+    (seeds / "Campaign.qml").write_text("import SynQt\nPageSeed { }\n")
+    assert check.lint_remote_pages(config, str(root)) == []
+
+
+def test_a_seed_without_a_remote_route_is_rejected(tmp_path):
+    # A seed hook runs on the edge, after the page's scope check, to build what the
+    # delivered page paints with. A compiled-in route has no such moment, so a `seed:`
+    # there would silently never run.
+    config, root = _project(tmp_path, [{"path": "/c", "view": "C.qml",
+                                        "seed": "web/seeds/C.qml"}],
+                            palette=[])
+    seeds = root / "web" / "seeds"
+    seeds.mkdir(parents=True)
+    (seeds / "C.qml").write_text("import SynQt\nPageSeed { }\n")
+    findings = check.lint_remote_pages(config, str(root))
+    assert any(f.startswith("error:") and "seed" in f for f in findings), findings
+
+
+def test_a_missing_seed_file_is_rejected(tmp_path):
+    config, root = _project(
+        tmp_path, [{"path": "/c", "remote": "C.qml", "seed": "web/seeds/Gone.qml"}],
+        palette=["QtQuick"], page_bodies={"C.qml": "import QtQuick\nItem { }\n"})
+    findings = check.lint_remote_pages(config, str(root))
+    assert any(f.startswith("error:") and "gone.qml" in f.lower()
+               for f in findings), findings
+
+
+def test_check_project_fails_on_a_missing_seed_file(tmp_path):
+    # Both new rules must be reachable through `synqt check` itself, not only through a
+    # direct call: an error nobody runs fails nothing.
+    config, root = _project(
+        tmp_path, [{"path": "/c", "remote": "C.qml", "seed": "web/seeds/Gone.qml"}],
+        palette=["QtQuick"], page_bodies={"C.qml": "import QtQuick\nItem { }\n"})
+    config["project"] = {"name": "shop"}
+    config["router"]["fallback"] = "/c"
+    (root / "synqt.yaml").write_text(yaml.safe_dump(config))
+    ok, messages = check.check_project(str(root))
+    assert not ok
+    assert any("Gone.qml" in m for m in messages), messages
+
+
+def test_appgen_edge_emits_the_seed():
+    source = appgen.render_edge_main(
+        {"entities": [{"name": "web", "kind": "web_edge"},
+                      {"name": "client", "kind": "client"}],
+         "routes": [{"path": "/c/:campaign", "remote": "Campaign.qml",
+                     "seed": "web/seeds/Campaign.qml"}]},
+        {"name": "web", "kind": "web_edge"})
+    # Project-root relative, resolved against qmlDir exactly the way serverFile is.
+    assert 'page0.seed = qmlDir + QStringLiteral("/web/seeds/Campaign.qml");' in source
+
+
+def test_appgen_edge_without_a_seed_emits_no_seed():
+    # A project not using seeds must generate byte-for-byte what it did before the
+    # feature existed.
+    source = appgen.render_edge_main(
+        {"entities": [{"name": "web", "kind": "web_edge"},
+                      {"name": "client", "kind": "client"}],
+         "routes": [{"path": "/c/:campaign", "remote": "Campaign.qml"}]},
+        {"name": "web", "kind": "web_edge"})
+    assert ".seed" not in source
 
 
 def test_appgen_edge_without_remote_routes_emits_no_pages():

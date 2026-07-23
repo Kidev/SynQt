@@ -453,9 +453,15 @@ def lint_remote_pages(config: Dict[str, Any],
     (a missing file), a refused delivery (an import outside the palette), or a page
     that quietly shadows one the client bundle already carries.
 
+    A route's optional `seed:` (the page seed hook the edge calls after the scope check)
+    is validated here too: it belongs only to a route that is edge-delivered, and it must
+    name a file that is really there.
+
     Given `project_dir`, a page's existence and its imports are also checked against
     the filesystem, under `<edge>/pages` (the edge entity's directory directly under
     the project root, per Task 7's corrected entity layout -- not `entities/<edge>`).
+    A `seed:` is resolved project-root relative instead (like `identity.mapping`),
+    because a hook is edge code rather than a delivered page.
     Without it, only the config-shape rules run (mutual exclusion, the palette being
     non-empty, shadowing), which is everything a caller holding nothing but a parsed
     config can be told.
@@ -466,6 +472,16 @@ def lint_remote_pages(config: Dict[str, Any],
     if not isinstance(router, dict):
         router = {}
     palette = router.get("palette") or []
+
+    # A page seed hook runs on the edge, after the page's scope check, to build the data
+    # the delivered page paints with on its first frame. A compiled-in route never passes
+    # through the edge at all, so a `seed:` there would silently never run. Checked before
+    # the "no remote routes at all" exit below, which is exactly the case that hides it.
+    for route in routes:
+        if route.get("seed") and not route.get("remote"):
+            findings.append(
+                f"error: route {route.get('path', '')!r} declares 'seed:' but no "
+                "'remote:'; a page seed only applies to an edge-delivered page")
 
     remote_routes = [r for r in routes if r.get("remote")]
     if not remote_routes:
@@ -496,6 +512,15 @@ def lint_remote_pages(config: Dict[str, Any],
             findings.append(
                 f"error: remote route {path!r} shadows a compiled-in route of the "
                 "same path")
+
+        # The seed hook is project-root relative (like `identity.mapping`), not relative
+        # to the pages directory: it is edge code, not a delivered page.
+        seed = route.get("seed")
+        if project_dir is not None and isinstance(seed, str) and seed.strip():
+            if not os.path.isfile(os.path.join(str(project_dir), seed)):
+                findings.append(
+                    f"error: page seed {seed!r} for route {path!r} does not exist "
+                    f"under {project_dir}")
 
         page = route.get("remote")
         if pages_dir is None or not isinstance(page, str) or not page.strip():

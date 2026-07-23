@@ -20,6 +20,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkRequest>
+#include <QQmlEngine>
+#include <QRegularExpression>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
 #include <QScopedPointer>
@@ -45,6 +47,8 @@ private slots:
     void fetchReportsNotModifiedForAMatchingHash();
     void fetchRefusesAnUndeclaredRoute();
     void fetchSeedsThePageWhenAProviderIsSet();
+    void fetchSeedsANotModifiedReplyForTheRequestedParameters();
+    void fetchRefusalsCarryNoSeed();
     void fetchPrefersTheMoreLiteralRoute();
 
     // Task 6b: the Pages connect point actually hosted by WebEdge. These construct
@@ -58,6 +62,14 @@ private slots:
     void hostedPageChangedRelaysToTheSource();
     void edgeWithNoPagesHostsNoPagesConnectPoint();
     void edgeWithPagesHostsAReachablePagesConnectPoint();
+
+    // Task 7b: the app-facing seed hook, built by WebEdge from each page's `seed:` and
+    // dispatched through the one provider installed on the shared PagesService.
+    void edgeSeedsAPageFromItsHook();
+    void edgeSeedHookReadsTheCaller();
+    void edgePageWithoutAHookHasAnEmptySeed();
+    void edgeDegradesAHookThatFailsToLoad();
+    void edgeDegradesAHookWithNoSeedFunction();
 };
 
 void tst_PageStore::contractLowersToAUsablePod()
@@ -138,6 +150,42 @@ SynQt::WebEdgeConfig edgeConfigWithOnePage(const QString &bundleDir, const QStri
     page.scope = QString{};
     config.pages.append(page);
     return config;
+}
+
+// An edge serving one parameterized page whose seed hook is hookFile; an empty hookFile
+// is the common case of a route that declares no seed at all.
+SynQt::WebEdgeConfig edgeConfigWithASeededPage(const QString &bundleDir,
+                                               const QString &pagesDir,
+                                               const QString &hookFile,
+                                               const QString &scope = QString{})
+{
+    SynQt::WebEdgeConfig config{edgeConfigWithNoPages(bundleDir)};
+    config.pagesDir = pagesDir;
+    config.scopeOrder = QStringList{QStringLiteral("anonymous"), QStringLiteral("staff")};
+    SynQt::WebEdgePage page{};
+    page.path = QStringLiteral("/c/:campaign");
+    page.file = QStringLiteral("C.qml");
+    page.scope = scope;
+    page.seed = hookFile;
+    config.pages.append(page);
+    return config;
+}
+
+// A Caller bound to a live session on the edge's own session store, the way
+// WebEdge::hostConnection() binds one per accepted connection.
+SynQt::Caller *edgeCaller(SynQt::WebEdge &edge, const QString &scope, QObject *parent)
+{
+    const QByteArray token{edge.sessionManager()->createSession(scope)};
+    SynQt::Caller *caller{SynQt::Caller::forUser(
+        QStringLiteral("Pages"), edge.sessionManager(), token, nullptr, parent)};
+    static const QStringList order{QStringLiteral("anonymous"), QStringLiteral("staff")};
+    caller->setScopeOrder(order, true);
+    return caller;
+}
+
+QJsonObject seedObject(const PageResponse &response)
+{
+    return QJsonDocument::fromJson(response.seed().toUtf8()).object();
 }
 
 } // namespace
@@ -341,6 +389,96 @@ void tst_PageStore::fetchSeedsThePageWhenAProviderIsSet()
     QCOMPARE(response.seed(), QStringLiteral("{\"campaign\":\"summer\"}"));
 }
 
+void tst_PageStore::fetchSeedsANotModifiedReplyForTheRequestedParameters()
+{
+    // A page's hash is the hash of the page FILE, so every parameterization of one
+    // route shares it. A visitor who reads "/c/summer-sale" and then navigates to
+    // "/c/black-friday" sends the first page's hash along with the second path: the
+    // reply is notModified, and the client deliberately keeps its previous seed on an
+    // empty one (router.cpp). A notModified carrying no seed would therefore paint
+    // black-friday with the summer-sale seed. Only the bulky qml payload is worth
+    // skipping on a cache hit; the seed is small and parameter-dependent, so it must
+    // always describe the request that was actually made.
+    QTemporaryDir pages{};
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/c/:campaign"), QStringLiteral("C.qml"), QString{});
+    SynQt::PagesService service{&store};
+    service.setSeedProvider([](const QString &route, const QVariantMap &parameters,
+                              SynQt::Caller *caller) {
+        Q_UNUSED(route);
+        Q_UNUSED(caller);
+        return QStringLiteral("{\"campaign\":\"%1\"}")
+            .arg(parameters.value(QStringLiteral("campaign")).toString());
+    });
+
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    SynQt::Caller *caller{scopedCaller(sessions, QStringLiteral("anonymous"), this)};
+
+    const PageResponse first{service.fetchPageFor(
+        QStringLiteral("/c/summer-sale"), QString{}, caller)};
+    QCOMPARE(first.status(), QStringLiteral("ok"));
+    QCOMPARE(first.seed(), QStringLiteral("{\"campaign\":\"summer-sale\"}"));
+
+    const PageResponse second{service.fetchPageFor(
+        QStringLiteral("/c/black-friday"), first.hash(), caller)};
+    QCOMPARE(second.status(), QStringLiteral("notModified"));
+    QVERIFY(second.qml().isEmpty());
+    QCOMPARE(second.hash(), first.hash());
+    QCOMPARE(second.seed(), QStringLiteral("{\"campaign\":\"black-friday\"}"));
+}
+
+void tst_PageStore::fetchRefusalsCarryNoSeed()
+{
+    // Producing the seed on the notModified path must not have loosened what a refusal
+    // carries: forbidden and notFound still come back with nothing at all, seed
+    // included, and the provider is never even asked (it runs only after the scope
+    // check, so it may read privileged state).
+    QTemporaryDir pages{};
+    writePage(QDir{pages.path()}, QStringLiteral("Rules.qml"),
+              "import QtQuick\nItem { objectName: \"secretRules\" }");
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/admin/rules"), QStringLiteral("Rules.qml"),
+                  QStringLiteral("staff"));
+    SynQt::PagesService service{&store};
+    bool asked{false};
+    service.setSeedProvider([&asked](const QString &route, const QVariantMap &parameters,
+                                     SynQt::Caller *caller) {
+        Q_UNUSED(route);
+        Q_UNUSED(parameters);
+        Q_UNUSED(caller);
+        asked = true;
+        return QStringLiteral("{\"secret\":\"leaked\"}");
+    });
+
+    SynQt::SessionManager sessions{QStringLiteral("anonymous"), 0};
+    SynQt::Caller *anonymous{scopedCaller(sessions, QStringLiteral("anonymous"), this)};
+
+    const PageResponse forbidden{service.fetchPageFor(
+        QStringLiteral("/admin/rules"), QString{}, anonymous)};
+    QCOMPARE(forbidden.status(), QStringLiteral("forbidden"));
+    QVERIFY(forbidden.qml().isEmpty());
+    QVERIFY(forbidden.hash().isEmpty());
+    QVERIFY(forbidden.seed().isEmpty());
+
+    // Even the hash of the page it already holds must not turn a refusal into a reply.
+    const PageResponse cached{service.fetchPageFor(
+        QStringLiteral("/admin/rules"), store.hashFor(QStringLiteral("/admin/rules")),
+        anonymous)};
+    QCOMPARE(cached.status(), QStringLiteral("forbidden"));
+    QVERIFY(cached.hash().isEmpty());
+    QVERIFY(cached.seed().isEmpty());
+
+    const PageResponse missing{service.fetchPageFor(
+        QStringLiteral("/nowhere"), QString{}, anonymous)};
+    QCOMPARE(missing.status(), QStringLiteral("notFound"));
+    QVERIFY(missing.qml().isEmpty());
+    QVERIFY(missing.hash().isEmpty());
+    QVERIFY(missing.seed().isEmpty());
+
+    QVERIFY2(!asked, "the seed provider must run only after the scope check passes");
+}
+
 void tst_PageStore::fetchPrefersTheMoreLiteralRoute()
 {
     QTemporaryDir pages{};
@@ -542,6 +680,150 @@ void tst_PageStore::edgeWithPagesHostsAReachablePagesConnectPoint()
         node.acquireDynamic(QStringLiteral("Pages"))};
     QVERIFY2(replica->waitForSource(5000),
              "a project that configures pages must expose the Pages connect point");
+}
+
+void tst_PageStore::edgeSeedsAPageFromItsHook()
+{
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{edgeConfigWithASeededPage(
+        bundle.path(), pages.path(),
+        QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/Campaign.qml"))};
+    SynQt::WebEdge edge{config, &engine};
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+    QVERIFY(edge.pagesService() != nullptr);
+
+    SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+    const PageResponse response{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer-sale"), QString{}, caller)};
+
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    const QJsonObject seed{seedObject(response)};
+    // The hook is handed the matched route pattern and the concrete parameters, which is
+    // what makes one page file able to paint every parameterization of its route.
+    QCOMPARE(seed.value(QStringLiteral("route")).toString(),
+             QStringLiteral("/c/:campaign"));
+    QCOMPARE(seed.value(QStringLiteral("headline")).toString(),
+             QStringLiteral("summer-sale"));
+}
+
+void tst_PageStore::edgeSeedHookReadsTheCaller()
+{
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{edgeConfigWithASeededPage(
+        bundle.path(), pages.path(),
+        QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/Scoped.qml"))};
+    SynQt::WebEdge edge{config, &engine};
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    // One provider is installed on the SHARED service, but each call carries its own
+    // connection's Caller: two callers of different scope must get different seeds, or
+    // the provider is capturing a Caller instead of reading the one it is handed.
+    SynQt::Caller *staff{edgeCaller(edge, QStringLiteral("staff"), this)};
+    SynQt::Caller *anonymous{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+
+    const PageResponse privileged{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, staff)};
+    const PageResponse ordinary{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, anonymous)};
+
+    QCOMPARE(seedObject(privileged).value(QStringLiteral("audience")).toString(),
+             QStringLiteral("staff"));
+    QCOMPARE(seedObject(privileged).value(QStringLiteral("margin")).toInt(), 42);
+    QCOMPARE(seedObject(ordinary).value(QStringLiteral("audience")).toString(),
+             QStringLiteral("public"));
+    QVERIFY(!ordinary.seed().contains(QStringLiteral("margin")));
+
+    // The staff seed must not have leaked into the next caller's answer either: ask
+    // again, in the other order, and the two still disagree.
+    const PageResponse again{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, staff)};
+    QCOMPARE(seedObject(again).value(QStringLiteral("margin")).toInt(), 42);
+}
+
+void tst_PageStore::edgePageWithoutAHookHasAnEmptySeed()
+{
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{
+        edgeConfigWithASeededPage(bundle.path(), pages.path(), QString{})};
+    SynQt::WebEdge edge{config, &engine};
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+    const PageResponse response{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, caller)};
+
+    // A project that does not use the feature pays nothing for it: no hook is built and
+    // no seed is sent.
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QVERIFY(response.seed().isEmpty());
+    QVERIFY(!response.qml().isEmpty());
+}
+
+void tst_PageStore::edgeDegradesAHookThatFailsToLoad()
+{
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{edgeConfigWithASeededPage(
+        bundle.path(), pages.path(),
+        QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/Broken.qml"))};
+    SynQt::WebEdge edge{config, &engine};
+    // The hook reports itself once and is then simply absent; a broken hook must never
+    // stop the edge from starting or the page from being delivered.
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression{QStringLiteral("page seed hook .* failed to load")});
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+    const PageResponse response{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, caller)};
+
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QVERIFY(!response.qml().isEmpty());
+    QVERIFY(response.seed().isEmpty());
+}
+
+void tst_PageStore::edgeDegradesAHookWithNoSeedFunction()
+{
+    QTemporaryDir bundle{};
+    QTemporaryDir pages{};
+    QVERIFY(bundle.isValid() && pages.isValid());
+    writePage(QDir{pages.path()}, QStringLiteral("C.qml"), "import QtQuick\nItem {}");
+
+    QQmlEngine engine;
+    SynQt::WebEdgeConfig config{edgeConfigWithASeededPage(
+        bundle.path(), pages.path(),
+        QStringLiteral(REMOTE_PAGES_SRCDIR "/seeds/NoFunction.qml"))};
+    SynQt::WebEdge edge{config, &engine};
+    QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+    SynQt::Caller *caller{edgeCaller(edge, QStringLiteral("anonymous"), this)};
+    const PageResponse response{edge.pagesService()->fetchPageFor(
+        QStringLiteral("/c/summer"), QString{}, caller)};
+
+    // The hook loaded but declares no seedFor: the invocation fails, and that degrades
+    // to "no seed", never to a refused or half-built page.
+    QCOMPARE(response.status(), QStringLiteral("ok"));
+    QVERIFY(!response.qml().isEmpty());
+    QVERIFY(response.seed().isEmpty());
 }
 
 QTEST_MAIN(tst_PageStore)

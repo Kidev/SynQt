@@ -784,11 +784,19 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
             route_path = route.get("path", "")
             page_file = route.get("remote", "")
             scope = route.get("scope", "") or ""
+            # The page seed hook, when the route declares one. It is project-root
+            # relative (like `identity.mapping`), because it is edge code rather than a
+            # delivered page, so it resolves against qmlDir exactly the way a connect
+            # point's serverFile does. A route with no seed emits nothing, so a project
+            # not using the feature generates what it did before it existed.
+            seed = route.get("seed", "") or ""
+            seed_line = (f'\n        {page}.seed = qmlDir + QStringLiteral("/{seed}");'
+                         if seed else "")
             page_blocks.append(f"""    {{
         WebEdgePage {page};
         {page}.path = QStringLiteral("{route_path}");
         {page}.file = QStringLiteral("{page_file}");
-        {page}.scope = QStringLiteral("{scope}");
+        {page}.scope = QStringLiteral("{scope}");{seed_line}
         config.pages.append({page});
     }}""")
         pages_section = (

@@ -58,6 +58,7 @@ private slots:
     void routerSendsTheConcretePathToTheEdge();
     void routerUpdatesTheSeedWhenTheParameterChanges();
     void routerKeepsTheSeedOnANotModifiedReply();
+    void routerRefreshesTheSeedOnANotModifiedReply();
     void routerClearsThePrivilegedPageOnScopeLoss();
     void routerIgnoresALateReplyForAnAbandonedRoute();
 };
@@ -543,9 +544,8 @@ void tst_RemotePage::routerUpdatesTheSeedWhenTheParameterChanges()
 
 void tst_RemotePage::routerKeepsTheSeedOnANotModifiedReply()
 {
-    // Pins Important 4: a notModified confirmation carries an empty seed (see
-    // pagesservice.cpp), which must mean "unchanged", never "clear the seed I already
-    // delivered".
+    // Pins Important 4: an empty seed (a page with no seed hook, so the edge produces
+    // none) must mean "unchanged", never "clear the seed I already delivered".
     QQmlEngine engine;
     SynQt::Session session{remoteFixture()};
     SynQt::Router router{remoteFixture(), &session, &engine};
@@ -565,6 +565,41 @@ void tst_RemotePage::routerKeepsTheSeedOnANotModifiedReply()
 
     QCOMPARE(router.pageSeed().value(QStringLiteral("headline")).toString(),
              QStringLiteral("Summer"));
+}
+
+void tst_RemotePage::routerRefreshesTheSeedOnANotModifiedReply()
+{
+    // The other half of the staleness fix (pagesservice.cpp): the edge now produces a
+    // seed on notModified too, because one page file serves every parameterization of
+    // its route and so answers every one of them with the same hash. The client must
+    // surface that seed-only change, even though the cached component and the Ready
+    // status are both unchanged and setPageComponent would notify nothing.
+    QQmlEngine engine;
+    SynQt::Session session{remoteFixture()};
+    SynQt::Router router{remoteFixture(), &session, &engine};
+    SynQt::RemotePageLoader loader{&engine, QmlPalette{{QStringLiteral("QtQuick")}}};
+    router.setRemotePageLoader(&loader);
+    router.applyRemoteRouteTable(
+        QStringLiteral("[{\"path\":\"/c/:campaign\",\"scope\":\"\"}]"));
+    router.go(QStringLiteral("/c/summer-sale"));
+    router.onPageDelivered(QStringLiteral("/c/:campaign"),
+                           QStringLiteral("import QtQuick\nItem { }\n"),
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Summer Sale\"}"),
+                           QStringLiteral("ok"));
+    QQmlComponent *component{router.pageComponent()};
+
+    router.go(QStringLiteral("/c/black-friday"));
+    QSignalSpy spy{&router, &SynQt::Router::pageChanged};
+    router.onPageDelivered(QStringLiteral("/c/:campaign"), QString{},
+                           QStringLiteral("h1"),
+                           QStringLiteral("{\"headline\":\"Black Friday\"}"),
+                           QStringLiteral("notModified"));
+
+    QCOMPARE(router.pageComponent(), component);
+    QCOMPARE(router.pageSeed().value(QStringLiteral("headline")).toString(),
+             QStringLiteral("Black Friday"));
+    QVERIFY(spy.count() >= 1);
 }
 
 void tst_RemotePage::routerClearsThePrivilegedPageOnScopeLoss()
