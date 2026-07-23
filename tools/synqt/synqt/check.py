@@ -382,6 +382,127 @@ def lint_routes(config: Dict[str, Any],
     return findings
 
 
+def _edge_entity_name(config: Dict[str, Any]) -> Optional[str]:
+    """The name of the project's web_edge entity, also the directory its edge-delivered
+    pages live under (`<edge>/pages`, flat under the project root -- there is no
+    `entities/` prefix).
+
+    Recognized the same way `_is_web_edge` recognizes one (`capability: web_edge` or a
+    truthy `web_edge` flag, the shape `synqt new` scaffolds and examples/gavel uses), and
+    also a bare `kind: web_edge` for a project that spells its edge entity that way
+    directly. None means the project declares no web_edge entity at all.
+    """
+    for entity in config.get("entities") or []:
+        if not isinstance(entity, dict):
+            continue
+        if _is_web_edge(entity) or entity.get("kind") == "web_edge":
+            return entity.get("name")
+    return None
+
+
+# A convenience scan for the module a QML import names: `import QtQuick 2.15` yields
+# 'QtQuick' (the version, if any, is whitespace-separated and dropped); a quoted
+# `import "helpers.js"` starts with a quote right after the keyword and never matches,
+# so a relative script or directory import is not mistaken for a module import.
+_REMOTE_PAGE_IMPORT = re.compile(r"^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)")
+
+
+def _imports_of(qml_file: os.PathLike[str] | str) -> List[str]:
+    """The modules `qml_file` imports, in file order.
+
+    This is a build-time convenience gate; its authoritative counterpart is the
+    client-side C++ `QmlPalette` (Task 4), which is what actually enforces the palette
+    on a delivered page at run time. The two are not byte-identical: `QmlPalette`
+    strips comments and rejects any quoted import outright (a path import is never
+    allowed, regardless of palette), while this scan is a plain per-line regex and
+    treats a quoted import as simply not a module import to check. A page whose only
+    palette problem is a quoted import would pass here and still be refused by
+    `QmlPalette` at run time; every other case -- an unquoted import of a module the
+    palette does not list -- is caught by both.
+    """
+    text = Path(qml_file).read_text(encoding="utf-8", errors="replace")
+    modules: List[str] = []
+    for line in text.splitlines():
+        match = _REMOTE_PAGE_IMPORT.match(line)
+        if match:
+            modules.append(match.group(1))
+    return modules
+
+
+def lint_remote_pages(config: Dict[str, Any],
+                      project_dir: os.PathLike[str] | str | None = None) -> List[str]:
+    """Validate every route's `remote:` (check.remote_pages_valid). Returns findings,
+    empty when clean.
+
+    `routes` and `router` are top level (docs/project-layout-and-config.md), the same
+    place `appgen.render_client_main` reads them to compile the palette and the route
+    table into the client, so it is where they are read here.
+
+    Left unchecked this is the worst kind of defect: a bad remote route builds and
+    serves fine, and only fails a visitor who navigates to it, either as a blank page
+    (a missing file), a refused delivery (an import outside the palette), or a page
+    that quietly shadows one the client bundle already carries.
+
+    Given `project_dir`, a page's existence and its imports are also checked against
+    the filesystem, under `<edge>/pages` (the edge entity's directory directly under
+    the project root, per Task 7's corrected entity layout -- not `entities/<edge>`).
+    Without it, only the config-shape rules run (mutual exclusion, the palette being
+    non-empty, shadowing), which is everything a caller holding nothing but a parsed
+    config can be told.
+    """
+    findings: List[str] = []
+    routes = [r for r in (config.get("routes") or []) if isinstance(r, dict)]
+    router = config.get("router")
+    if not isinstance(router, dict):
+        router = {}
+    palette = router.get("palette") or []
+
+    remote_routes = [r for r in routes if r.get("remote")]
+    if not remote_routes:
+        return findings
+
+    edge = _edge_entity_name(config)
+    if not edge:
+        findings.append(
+            "error: a route declares 'remote:' but the project has no web_edge entity")
+        return findings
+
+    if not palette:
+        findings.append(
+            "error: a route declares 'remote:' but router.palette is empty; a "
+            "delivered page may only import declared modules")
+
+    compiled_paths = {r.get("path") for r in routes if r.get("view")}
+    pages_dir = os.path.join(str(project_dir), edge, "pages") if project_dir is not None \
+        else None
+
+    for route in remote_routes:
+        path = route.get("path", "")
+        if route.get("view"):
+            findings.append(f"error: route {path!r} sets both 'view:' and 'remote:'")
+        if path in compiled_paths:
+            findings.append(
+                f"error: remote route {path!r} shadows a compiled-in route of the "
+                "same path")
+
+        page = route.get("remote")
+        if pages_dir is None or not isinstance(page, str) or not page.strip():
+            continue
+        full = os.path.join(pages_dir, page)
+        if not os.path.isfile(full):
+            findings.append(
+                f"error: remote page {page!r} for route {path!r} does not exist "
+                f"under {pages_dir}")
+            continue
+        for module in _imports_of(full):
+            if module not in palette:
+                findings.append(
+                    f"error: remote page {page!r} imports {module!r}, which is not "
+                    "in router.palette")
+
+    return findings
+
+
 _LOADING_KEYS = ("logo", "icon", "background", "title", "html")
 # The contract an html override keeps with the generated boot script.
 _LOADING_HOOKS = ("synqt-loading", "synqt-bar", "synqt-status", "screen")
@@ -651,9 +772,11 @@ def check_project(project_dir: os.PathLike[str] | str) -> Tuple[bool, List[str]]
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
     route_messages = lint_routes(config, project_dir)
+    remote_page_messages = lint_remote_pages(config, project_dir)
     messages += contract_messages
     messages += loading_messages
     messages += route_messages
+    messages += remote_page_messages
     qml_messages = lint_qml(project_dir)
     messages += client_root_messages
     messages += qml_messages
@@ -662,7 +785,7 @@ def check_project(project_dir: os.PathLike[str] | str) -> Tuple[bool, List[str]]
     ok = ok and not any(
         m.startswith("error:")
         for m in contract_messages + loading_messages + client_root_messages
-        + route_messages + qml_messages)
+        + route_messages + remote_page_messages + qml_messages)
     if not ok:
         # validate() adds its "ok: topology valid" before the lints have run; printing it
         # above a list of errors reads as a pass. The lints get the last word.
