@@ -251,3 +251,20 @@ def test_router_fallback_defaults_to_root_and_is_configurable():
     redirected = appgen.render_client_main(
         {"name": "shop", "routes": [], "router": {"fallback": "/home"}}, uri="Shop")
     assert 'config.routerFallback = QStringLiteral("/home")' in redirected
+
+
+def test_framework_root_honors_a_valid_synqt_root(tmp_path, monkeypatch):
+    # An installed CLI outside the checkout points at a framework via SYNQT_ROOT rather than
+    # deriving the wrong path from its own site-packages location.
+    (tmp_path / "src").mkdir()
+    (tmp_path / "cmake").mkdir()
+    monkeypatch.setenv("SYNQT_ROOT", str(tmp_path))
+    assert appgen.framework_root() == tmp_path.resolve()
+
+
+def test_framework_root_rejects_a_root_without_sources(tmp_path, monkeypatch):
+    # A misresolved root fails here with an actionable message, not as a later CMake
+    # "${SYNQT_ROOT}/cmake/... not found".
+    monkeypatch.setenv("SYNQT_ROOT", str(tmp_path))
+    with pytest.raises(appgen.AppGenError):
+        appgen.framework_root()

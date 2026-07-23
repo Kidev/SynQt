@@ -39,8 +39,24 @@ _HEADER_CMAKE = ("# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
 
 
 def framework_root() -> Path:
-    """The SynQt framework checkout this CLI ships from (holds src/ and cmake/)."""
-    return Path(__file__).resolve().parents[3]
+    """The SynQt framework checkout this CLI builds against (holds src/ and cmake/).
+
+    Set the ``SYNQT_ROOT`` environment variable to name a checkout explicitly; otherwise the
+    root is derived from this file's location, which is correct when the CLI runs from a
+    checkout (directly or as an editable install) and wrong for a standalone wheel install
+    that does not carry the framework sources. The result is validated either way, so a
+    misresolved root fails here with an actionable message instead of a later CMake
+    ``${SYNQT_ROOT}/cmake/... not found``.
+    """
+    override = os.environ.get("SYNQT_ROOT")
+    root = (Path(override).expanduser().resolve() if override
+            else Path(__file__).resolve().parents[3])
+    if not (root / "src").is_dir() or not (root / "cmake").is_dir():
+        raise AppGenError(
+            f"cannot find the SynQt framework sources under {root} "
+            "(expected a checkout holding src/ and cmake/). Run synqt from a SynQt "
+            "checkout, or set SYNQT_ROOT to point at one.")
+    return root
 
 
 def qml_uri(project_name: str) -> str:
