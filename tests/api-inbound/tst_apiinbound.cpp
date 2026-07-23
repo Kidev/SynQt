@@ -26,6 +26,7 @@
 #include <QNetworkRequest>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QStringList>
 #include <QTcpSocket>
@@ -166,6 +167,98 @@ private slots:
         QVERIFY2(m_server->start(), qPrintable(m_server->errorString()));
         m_port = m_server->serverPort();
         QVERIFY(m_port != 0);
+    }
+
+    // What a route table accepts. Every method has its declaration and `route()` takes any,
+    // upper-cased. A path that is not a route, or a handler that is not a function, is
+    // refused with a warning naming it rather than stored to fail at the first request. A
+    // route declared twice keeps the first handler, and one added after the server started
+    // listening is announced, because nothing will route to it until the table is rebuilt.
+    void theRouteTableRefusesWhatCouldNeverAnswer()
+    {
+        QQmlEngine engine;
+        Api api{&engine};
+        const QJSValue first{engine.evaluate(QStringLiteral("(function(r){ return 1; })"))};
+        const QJSValue second{engine.evaluate(QStringLiteral("(function(r){ return 2; })"))};
+        api.put(QStringLiteral("/lots/:id"), first);
+        api.del(QStringLiteral("/lots/:id"), first);
+        api.route(QStringLiteral("patch"), QStringLiteral("/lots/:id"), first);
+        QStringList methods;
+        for (const Api::Route &route : api.routes()) {
+            methods.append(route.method);
+        }
+        methods.sort();
+        QCOMPARE(methods, QStringList({QStringLiteral("DELETE"), QStringLiteral("PATCH"),
+                                       QStringLiteral("PUT")}));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{
+            QStringLiteral("Api.get\\(\"lots\", ...\\) is not a valid route path")});
+        api.get(QStringLiteral("lots"), first);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{
+            QStringLiteral("Api.get\\(\"/lots\", ...\\) was given something that is not a "
+                           "function")});
+        api.get(QStringLiteral("/lots"), QJSValue{42});
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{
+            QStringLiteral("PUT /lots/:id is declared twice; the first handler is kept")});
+        api.put(QStringLiteral("/lots/:id"), second);
+        QCOMPARE(api.routes().size(), 3);
+        for (const Api::Route &route : api.routes()) {
+            if (route.method == QLatin1String("PUT")) {
+                QCOMPARE(route.handler.call({}).toInt(), 1);
+            }
+        }
+
+        QSignalSpy late{&api, &Api::routeAddedLate};
+        api.get(QStringLiteral("/before"), first);
+        QCOMPARE(late.count(), 0);
+        api.setListening(true);
+        api.get(QStringLiteral("/after"), first);
+        QCOMPARE(late.count(), 1);
+        QCOMPARE(late.at(0).at(0).toString(), QStringLiteral("GET"));
+        QCOMPARE(late.at(0).at(1).toString(), QStringLiteral("/after"));
+    }
+
+    // PUT and DELETE are answered like GET and POST, each by its own handler, and a method a
+    // path does not declare is not answered by the handler of another.
+    void putAndDeleteReachTheirOwnHandlers()
+    {
+        QQmlEngine engine;
+        ApiConfig config;
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.anonymous = true;
+        ApiServer server{config, &engine};
+        server.api()->put(QStringLiteral("/lots/:id"), engine.evaluate(QStringLiteral(
+            "(function(r){ return {method: 'put', id: r.params.id}; })")));
+        server.api()->del(QStringLiteral("/lots/:id"), engine.evaluate(QStringLiteral(
+            "(function(r){ return {method: 'delete', id: r.params.id}; })")));
+        QVERIFY2(server.start(), qPrintable(server.errorString()));
+
+        const auto ask = [&](const QByteArray &verb) {
+            QNetworkRequest request{QUrl{QStringLiteral("http://127.0.0.1:%1/lots/7")
+                                             .arg(server.serverPort())}};
+            request.setHeader(QNetworkRequest::ContentTypeHeader,
+                              QByteArrayLiteral("application/json"));
+            QNetworkReply *reply{m_network.sendCustomRequest(request, verb, QByteArray{"{}"})};
+            QSignalSpy finished{reply, &QNetworkReply::finished};
+            finished.wait(5000);
+            Answer answer;
+            answer.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            answer.body = reply->readAll();
+            reply->deleteLater();
+            return answer;
+        };
+        const Answer put{ask(QByteArrayLiteral("PUT"))};
+        QCOMPARE(put.status, 200);
+        QCOMPARE(put.json().value(QStringLiteral("method")).toString(), QStringLiteral("put"));
+        QCOMPARE(put.json().value(QStringLiteral("id")).toString(), QStringLiteral("7"));
+        const Answer removed{ask(QByteArrayLiteral("DELETE"))};
+        QCOMPARE(removed.status, 200);
+        QCOMPARE(removed.json().value(QStringLiteral("method")).toString(),
+                 QStringLiteral("delete"));
+        const Answer got{ask(QByteArrayLiteral("GET"))};
+        QVERIFY2(got.status == 404 || got.status == 405,
+                 qPrintable(QStringLiteral("a GET nobody declared answered %1").arg(got.status)));
     }
 
     void cleanupTestCase()
