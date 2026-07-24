@@ -23,6 +23,7 @@ together.
 | the live push property crosses | replica `value == 42` (set in A's QML) |
 | consumed connect points exposed by capitalized owner name | `accessor("A")` present, `accessorName("database") == "Database"` |
 | a third entity not on the consumer list is refused | `connectionRefused("thing","c")`, C's replica never valid |
+| a shared owner is one state every consumer sees, built before any of them | `aSharedOwnerIsOneStateMirroredToEveryConsumer` (`a/SharedThing.qml`) |
 
 ## How it works
 
@@ -67,7 +68,8 @@ configure time (a project CA plus `a`, `b` and `c` entity certs) into
 - One `ConnectPointHost`, with its own mesh endpoint, per connect point gives
   per-connect-point access control. A peer connects to a specific connect point's
   endpoint, and that endpoint enforces exactly its consumers.
-- `instance: caller` and `instance: link` are implemented. The topology structures the
-  Source instances, and the caller and session machinery arrives with `Caller`.
+- `shared: true` and `shared: false` are both implemented: one Source mirrored to every
+  consumer, or one Source per caller. `aSharedOwnerIsOneStateMirroredToEveryConsumer`
+  covers the first.
 - The generator includes `<QStandardItemModel>` (QtGui) only when a contract has a
   model, so a model-less service entity does not pull in QtGui.

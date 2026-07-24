@@ -377,6 +377,107 @@ private slots:
         }
     }
 
+    // A shared owner is one Source that every consumer reaches through a mirror of its
+    // own. It is built when the owner starts, before any consumer exists, so a consumer
+    // that joins late sees what it did on completion. A poke from one consumer is seen by
+    // the other, which is the whole point of sharing, and inside the shared Source the
+    // Caller is whoever made the forwarded call, not a Caller fixed at build time.
+    void aSharedOwnerIsOneStateMirroredToEveryConsumer()
+    {
+        ConnectPointConfig shared{thingConnectPoint(0)};
+        shared.serverFile = QStringLiteral(M4_SRCDIR "/a/SharedThing.qml");
+        shared.shared = true;
+        shared.consumers = {QStringLiteral("b"), QStringLiteral("c")};
+
+        Topology topologyA;
+        topologyA.entity = QStringLiteral("a");
+        topologyA.credentials = credentialsFor(QStringLiteral("a"));
+        topologyA.connectPoints = {shared};
+        QQmlEngine engineA;
+        EntityRuntime runtimeA{topologyA, &engineA};
+        QVERIFY2(runtimeA.start(), qPrintable(runtimeA.errorString()));
+        const quint16 port{portOf(runtimeA, QStringLiteral("thing"))};
+        QVERIFY(port != 0);
+
+        shared.endpoint.port = port;
+        const auto consumer{[&](const QString &entity, QQmlEngine *engine) {
+            Topology topology;
+            topology.entity = entity;
+            topology.credentials = credentialsFor(entity);
+            topology.connectPoints = {shared};
+            return std::make_unique<EntityRuntime>(topology, engine);
+        }};
+        QQmlEngine engineB;
+        QQmlEngine engineC;
+        const auto runtimeB{consumer(QStringLiteral("b"), &engineB)};
+        const auto runtimeC{consumer(QStringLiteral("c"), &engineC)};
+        QVERIFY2(runtimeB->start(), qPrintable(runtimeB->errorString()));
+        QVERIFY2(runtimeC->start(), qPrintable(runtimeC->errorString()));
+
+        QObject *replicaB{nullptr};
+        QObject *replicaC{nullptr};
+        QTRY_VERIFY((replicaB = runtimeB->consumedReplica(QStringLiteral("a"),
+                                                          QStringLiteral("thing"))) != nullptr);
+        QTRY_VERIFY((replicaC = runtimeC->consumedReplica(QStringLiteral("a"),
+                                                          QStringLiteral("thing"))) != nullptr);
+        QTRY_COMPARE(replicaB->property("value").toInt(), 7);
+        QTRY_COMPARE(replicaC->property("value").toInt(), 7);
+
+        QVERIFY(QMetaObject::invokeMethod(replicaB, "poke", Q_ARG(int, 5)));
+        QTRY_COMPARE(replicaC->property("value").toInt(), 1005);
+        QVERIFY(QMetaObject::invokeMethod(replicaC, "poke", Q_ARG(int, 6)));
+        QTRY_COMPARE(replicaB->property("value").toInt(), 2006);
+    }
+
+    // Because a shared Source is built at start, a file that cannot become one fails the
+    // start and says which file, instead of leaving an owner listening that would refuse
+    // every consumer. A per-caller owner builds nothing until a peer arrives, so the same
+    // file lets it start.
+    void aSharedOwnerThatCannotLoadFailsToStart()
+    {
+        ConnectPointConfig broken{thingConnectPoint(0)};
+        broken.serverFile = QStringLiteral(M4_SRCDIR "/a/NoSuchThing.qml");
+        broken.shared = true;
+        Topology topology;
+        topology.entity = QStringLiteral("a");
+        topology.credentials = credentialsFor(QStringLiteral("a"));
+        topology.connectPoints = {broken};
+
+        QQmlEngine engine;
+        {
+            EntityRuntime runtime{topology, &engine};
+            QVERIFY(!runtime.start());
+            QVERIFY2(runtime.errorString().contains(QStringLiteral("failed to load"))
+                         && runtime.errorString().contains(QStringLiteral("NoSuchThing.qml")),
+                     qPrintable(runtime.errorString()));
+        }
+        topology.connectPoints.first().shared = false;
+        EntityRuntime perCaller{topology, &engine};
+        QVERIFY2(perCaller.start(), qPrintable(perCaller.errorString()));
+    }
+
+    // An owner with no mesh identity is one no consumer can ever connect to. It refuses to
+    // start and names the files it was given and the commands that make them.
+    void anOwnerWithoutAMeshIdentityRefusesToStart()
+    {
+        Topology topology;
+        topology.entity = QStringLiteral("a");
+        topology.credentials = credentialsFor(QStringLiteral("a"));
+        topology.credentials.keyPath = QStringLiteral(M4_CERT_DIR "/nobody.key");
+        topology.connectPoints = {thingConnectPoint(0)};
+
+        QQmlEngine engine;
+        EntityRuntime runtime{topology, &engine};
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral("cannot read the private key")});
+        QVERIFY(!runtime.start());
+        const QString said{runtime.errorString()};
+        QVERIFY2(said.contains(QStringLiteral("no usable mesh identity"))
+                     && said.contains(QStringLiteral("nobody.key"))
+                     && said.contains(QStringLiteral("synqt mesh cert --all")),
+                 qPrintable(said));
+    }
+
     // Restarting a service is an ordinary operation: a deploy, a crash, a machine
     // rebooting. Its consumers have to find it again on their own, or the only way to
     // update one entity is to restart the whole system in dependency order.
