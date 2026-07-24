@@ -478,6 +478,49 @@ private slots:
                  qPrintable(said));
     }
 
+    // `monitoring.levels` is read when the entity starts, not compiled in, so an operator
+    // turns a category up or down during an incident with a restart. "off" refuses every
+    // severity of its category, a word names a floor, and a category or a level this build
+    // does not know is reported and left alone rather than read as the quietest thing it
+    // could have meant.
+    void monitoringLevelsAreAppliedWhenTheEntityStarts()
+    {
+        Tracer *tracer{Tracer::instance()};
+        const Severity callBefore{tracer->level(Category::Call)};
+        const Severity dataBefore{tracer->level(Category::Data)};
+        const Severity transportBefore{tracer->level(Category::Transport)};
+        const QScopeGuard restore{[&]() {
+            tracer->setLevel(Category::Call, callBefore);
+            tracer->setLevel(Category::Data, dataBefore);
+            tracer->setLevel(Category::Transport, transportBefore);
+            tracer->setEnabled(false);
+        }};
+        tracer->setEnabled(true);
+        tracer->setLevel(Category::Transport, Severity::Info);
+
+        Topology topology;
+        topology.entity = QStringLiteral("a");
+        topology.traceLevels = {
+            {QStringLiteral("call"), QStringLiteral("warning")},
+            {QStringLiteral("data"), QStringLiteral("off")},
+            {QStringLiteral("calls"), QStringLiteral("debug")},
+            {QStringLiteral("transport"), QStringLiteral("verbose")},
+        };
+        QQmlEngine engine;
+        EntityRuntime runtime{topology, &engine};
+        QTest::ignoreMessage(QtWarningMsg, "monitoring.levels: unknown category calls");
+        QTest::ignoreMessage(QtWarningMsg,
+                             "monitoring.levels: transport has unknown level verbose");
+        QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
+
+        QVERIFY(!tracer->isEnabled(Category::Call, Severity::Info));
+        QVERIFY(tracer->isEnabled(Category::Call, Severity::Warning));
+        QVERIFY(!tracer->isEnabled(Category::Data, Severity::Fatal));
+        QVERIFY2(tracer->isEnabled(Category::Transport, Severity::Info),
+                 "an unknown level must leave the category as it was");
+        QVERIFY(!tracer->isEnabled(Category::Transport, Severity::Debug));
+    }
+
     // Restarting a service is an ordinary operation: a deploy, a crash, a machine
     // rebooting. Its consumers have to find it again on their own, or the only way to
     // update one entity is to restart the whole system in dependency order.
