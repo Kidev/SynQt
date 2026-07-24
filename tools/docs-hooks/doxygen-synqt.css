@@ -64,6 +64,23 @@ html {
     --md-source-forks-icon: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0M5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0m6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0"/></svg>');
 }
 
+/* MkDocs Material scales its root font size up on wide screens (see #synqt-sitebar
+   below), which makes the site header taller as the window grows. The Doxygen layout
+   below measures itself against this bar's height, so that measurement has to grow with
+   it or the page comes out too tall and floats a second scrollbar. Step it at the same
+   breakpoints as the bar (4rem of the site's 20/22/24px root = 80/88/96px). */
+@media screen and (min-width: 100em) {
+    html {
+        --synqt-topbar-height: 88px;
+    }
+}
+
+@media screen and (min-width: 125em) {
+    html {
+        --synqt-topbar-height: 96px;
+    }
+}
+
 /* The site paints one fixed gradient behind every page (extra.css). Repeat it here so the
    reference sits on the same background instead of a flat panel next to it. */
 body {
@@ -76,12 +93,20 @@ div.header {
     background: transparent;
 }
 
-/* The documentation site's header menu (doxygen-header.html), reproduced from the
-   values MkDocs Material computes for the real one: an 80px #201335 bar, a centered
-   1220px row, the wordmark at the row's full height, and 48px tab items at 14px. It is
-   in the page flow rather than fixed, which is enough to keep it on screen at all times
-   because the layout below scrolls #doc-content, not the window. */
+/* The documentation site's header menu (doxygen-header.html). The site sets it in `rem`,
+   and MkDocs Material scales its root font size up at wide viewports (125% at the base,
+   137.5% above 100em, 150% above 125em), so the bar and everything in it grow on a large
+   screen. A Doxygen page has its own, fixed root font size, so `rem` here would not track
+   the site and the two headers drifted apart, worst of all at full screen. Reproduce the
+   site's scale with a scoped unit instead: `--u` is the site's `1rem` in pixels at each
+   of the same breakpoints, and every measurement below is `calc(<the site's rem value> *
+   var(--u))`, so this bar is the site's bar at every width. `var(--u)` (unlike `em`) does
+   not compound with the smaller font sizes set on the tabs, repository, and facts, so a
+   child's own font size never rescales its box. It is in the page flow rather than fixed,
+   which keeps it on screen at all times because the layout below scrolls #doc-content,
+   not the window. */
 #synqt-sitebar {
+    --u: 20px;
     background: #201335;
     box-shadow: 0 0 4px rgba(0, 0, 0, 0.1), 0 4px 8px rgba(0, 0, 0, 0.2);
     color: #ffffff;
@@ -89,13 +114,25 @@ div.header {
     z-index: 100;
 }
 
+@media screen and (min-width: 100em) {
+    #synqt-sitebar {
+        --u: 22px;
+    }
+}
+
+@media screen and (min-width: 125em) {
+    #synqt-sitebar {
+        --u: 24px;
+    }
+}
+
 #synqt-sitebar .md-header__inner {
     display: flex;
     align-items: center;
-    max-width: 1220px;
+    max-width: calc(61 * var(--u));
     height: var(--synqt-topbar-height);
     margin: 0 auto;
-    padding: 0 4px;
+    padding: 0 calc(0.2 * var(--u));
 }
 
 #synqt-sitebar .md-logo img {
@@ -115,12 +152,12 @@ div.header {
 #synqt-sitebar .md-tabs__item {
     display: flex;
     align-items: center;
-    height: 48px;
-    padding: 0 12px;
+    height: calc(2.4 * var(--u));
+    padding: 0 calc(0.6 * var(--u));
 }
 
 #synqt-sitebar .md-tabs__link {
-    font-size: 14px;
+    font-size: calc(0.7 * var(--u));
     text-decoration: none;
     opacity: 0.7;
 }
@@ -145,10 +182,54 @@ div.header {
     color: #ffffff !important;
 }
 
-/* Pushed to the right edge by the auto margin, where the site puts its repository widget. */
-#synqt-sitebar .md-header__source {
+/* The site's header search box, which the sidebar's own Doxygen search (which searches the
+   C++ reference, a different index) never replaces. A Doxygen page cannot run Material's
+   client-side site search, so this hands the query off to the site, where Material reads
+   the `q` parameter on load and opens its search over the whole documentation. The auto
+   margin pushes it, and the repository widget after it, to the right edge of the row. */
+#synqt-sitebar .synqt-topsearch {
+    display: flex;
+    align-items: center;
     margin-left: auto;
-    padding-right: 12px;
+    height: calc(1.8 * var(--u));
+    padding: 0 calc(0.5 * var(--u));
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: calc(0.2 * var(--u));
+    transition: background 0.15s;
+}
+
+#synqt-sitebar .synqt-topsearch:focus-within {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+#synqt-sitebar .synqt-topsearch__icon {
+    flex: none;
+    width: calc(0.9 * var(--u));
+    height: calc(0.9 * var(--u));
+    fill: #ffffff;
+    opacity: 0.7;
+}
+
+#synqt-sitebar .synqt-topsearch__input {
+    width: calc(8 * var(--u));
+    margin-left: calc(0.3 * var(--u));
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: calc(0.65 * var(--u));
+}
+
+#synqt-sitebar .synqt-topsearch__input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* The repository widget follows the search box, a single row's gap to its right, rather
+   than being pushed to the edge itself: the search box owns the auto margin now. */
+#synqt-sitebar .md-header__source {
+    margin-left: calc(0.8 * var(--u));
+    padding-right: calc(0.6 * var(--u));
     color: #ffffff;
 }
 
@@ -159,7 +240,7 @@ div.header {
 #synqt-sitebar .md-source {
     display: flex;
     align-items: center;
-    font-size: 13px;
+    font-size: calc(0.65 * var(--u));
     line-height: 1.2;
     white-space: nowrap;
     text-decoration: none;
@@ -173,43 +254,76 @@ div.header {
 #synqt-sitebar .md-source__icon {
     display: inline-flex;
     align-items: center;
-    height: 40px;
-    width: 26px;
+    height: calc(2 * var(--u));
+    width: calc(1.3 * var(--u));
 }
 
 #synqt-sitebar .md-source__icon svg {
-    width: 18px;
-    height: 18px;
+    width: calc(0.9 * var(--u));
+    height: calc(0.9 * var(--u));
     fill: currentColor;
 }
 
 #synqt-sitebar .md-source__repository {
-    margin-left: 8px;
+    margin-left: calc(0.4 * var(--u));
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+/* The repository facts (version, stars, forks) are filled in asynchronously by the script
+   in doxygen-header.html, so they appear a moment after the page does. Reproduce the site's
+   reveal exactly (Material for MkDocs): the row wipes open from zero height while each fact
+   fades and rises into place. */
 #synqt-sitebar .md-source__facts {
     display: flex;
-    gap: 8px;
-    margin: 2px 0 0;
+    gap: calc(0.4 * var(--u));
+    margin: calc(0.1 * var(--u)) 0 0;
     padding: 0;
+    width: 100%;
+    overflow: hidden;
     list-style: none;
-    font-size: 11px;
+    font-size: calc(0.55 * var(--u));
     opacity: 0.75;
+    animation: synqt-facts 0.25s ease-in;
 }
 
 #synqt-sitebar .md-source__fact {
     display: inline-flex;
     align-items: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    animation: synqt-fact 0.4s ease-out;
+}
+
+@keyframes synqt-facts {
+    0% {
+        height: 0;
+    }
+    100% {
+        height: calc(0.65 * var(--u));
+    }
+}
+
+@keyframes synqt-fact {
+    0% {
+        opacity: 0;
+        transform: translateY(100%);
+    }
+    50% {
+        opacity: 0;
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 #synqt-sitebar .md-source__fact::before {
     content: "";
     display: inline-block;
-    width: 11px;
-    height: 11px;
-    margin-right: 3px;
+    width: calc(0.55 * var(--u));
+    height: calc(0.55 * var(--u));
+    margin-right: calc(0.15 * var(--u));
     background-color: currentColor;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
@@ -266,6 +380,11 @@ div.header {
     #side-nav {
         top: var(--synqt-topbar-height);
         height: calc(100vh - var(--synqt-topbar-height)) !important;
+        /* Stock navtree.css insets the sidebar with `padding: 0 6px 0 0`. That 6px gap
+           sat between #nav-tree's right border (the vertical divider) and #side-nav's
+           real right edge, so the divider drew short of the panel edge. Drop it so the
+           divider lands on the edge it is meant to mark. */
+        padding: 0;
     }
 
     #nav-tree {
@@ -337,14 +456,26 @@ div.header {
 }
 
 /* The sidebar carries the navigation now, so it is the panel that has to read as one:
-   the same purple as the site header, slightly translucent over the page gradient. */
+   the same purple as the site header, slightly translucent over the page gradient. The
+   tree carries the tint (the panel below the head), and #side-nav carries it too so any
+   space under a short tree stays the same colour; the head (#top) is left transparent so
+   the search box at the top of the sidebar sits directly on the panel rather than on a
+   second stacked tint. */
 #side-nav,
-#top {
+#nav-tree {
     background: rgba(32, 19, 53, 0.92);
 }
 
-#nav-tree {
+#top {
     background: transparent;
+}
+
+/* Stock doxygen-awesome pulls the tree 1px to the right (`margin-right: -1px`) so its
+   border overlapped the old, wider layout's edge. With the sidebar inset removed above,
+   that 1px now overhangs #side-nav's edge and split the divider off it. Remove it so the
+   tree, its border, and the panel edge line up. */
+#nav-tree {
+    margin-right: 0;
 }
 
 /* doxygen-awesome paints two things with --page-background-color as though it were the
