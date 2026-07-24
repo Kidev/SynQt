@@ -3,8 +3,11 @@
 
 """Route table validation: a bad table fails the build, not a visitor's navigation."""
 
+import os
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from synqt import check
 
@@ -238,6 +241,10 @@ def test_a_windows_spelled_escape_is_rejected_on_every_host():
     assert any("parent path" in m for m in messages), messages
 
 
+@pytest.mark.skipif(os.name == "nt",
+                    reason="'a:b.qml' cannot exist on Windows (a colon is drive/ADS syntax "
+                           "there); the platform-independent rule it checks is covered by "
+                           "test_the_check_and_the_generator_refuse_the_same_views")
 def test_a_colon_in_a_filename_is_not_a_windows_drive_path():
     # 'a:b.qml' is a legal POSIX filename sitting in the client directory, not a drive
     # path: the separator after the colon is what makes 'C:/x' the escape it is.
