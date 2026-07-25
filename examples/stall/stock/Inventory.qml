@@ -33,9 +33,9 @@ InventorySource {
     // Seed the opening stock and announce it, so a fresh edge fills its catalog at once.
     Component.onCompleted: {
         const opening = [
-            { sku: "sku-001", title: qsTr("Baked lasagna"), price: 12 },
-            { sku: "sku-002", title: qsTr("Sourdough loaf"), price: 6 },
-            { sku: "sku-003", title: qsTr("Garden salad"), price: 8 }
+            { sku: "sku-001", title: "Baked lasagna", price: 12 },
+            { sku: "sku-002", title: "Sourdough loaf", price: 6 },
+            { sku: "sku-003", title: "Garden salad", price: 8 }
         ];
         for (let i = 0; i < opening.length; ++i) {
             const item = opening[i];

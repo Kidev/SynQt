@@ -3,13 +3,16 @@
 
 /* The home page's "What it looks like" project.
  *
- * The section is one small system, drawn twice: on the left a diagram of the mesh, with
- * a file behind every part of it (the configuration behind the cog, the contract behind
- * the link the browser and the edge share, one QML file behind each entity), and on the
- * right a file view showing exactly one of those files at a time. Pointing at a part of
- * the diagram opens its file, which then stays until another part is pointed at, so the
- * reader can move the pointer into the file and read it. The configuration is shown to
- * begin with, since it is the file the rest of the diagram is generated from.
+ * The section is one small system, drawn three times: a project tree of its six files,
+ * a diagram of the mesh those files build, with a file behind every part of it (the
+ * configuration behind the cog, the contract behind the link the browser and the edge
+ * share, one QML file behind each entity), and a file view showing exactly one of those
+ * files at a time. Pointing at a file in either the tree or the diagram opens it, and
+ * lights it in the other, so the two are one set of triggers over the same six files.
+ * A file stays until another is pointed at, so the reader can move the pointer into the
+ * file and read it, and it takes a moment's dwell to open, so a pointer crossing the
+ * section on its way elsewhere does not leaf through every file behind it. The
+ * configuration is shown to begin with, since it is what the rest is generated from.
  *
  * This script is the whole of that behavior, plus the glossary. Each file in
  * docs/index.md is followed by a hidden list whose entries name a fragment of it and say
@@ -29,8 +32,11 @@
 
   var CURRENT = "synqt-file--current";
   var ON = "synqt-trigger--on";
-  var HINT = "Hover a line of the file for what it does. A line that ends in an arrow "
-    + "opens the page covering it.";
+  var SHOWN = "synqt-flow__hint--on";
+  // Long enough that a pointer crossing the diagram on its way somewhere else does
+  // not open three files behind it, short enough that a pointer that stopped has
+  // not started wondering whether anything is going to happen.
+  var DWELL = 200;
 
   /* Give every line of the highlighted block its own element, so a line can be hovered
    * and marked.
@@ -160,6 +166,11 @@
       }
     }
 
+    function explain(text) {
+      hint.textContent = text || "";
+      hint.classList.toggle(SHOWN, !!text);
+    }
+
     function show(name) {
       for (var at = 0; at < files.length; at++) {
         files[at].classList.toggle(CURRENT, files[at].getAttribute("data-file") === name);
@@ -169,28 +180,50 @@
         triggers[on].classList.toggle(ON, chosen);
         triggers[on].setAttribute("aria-pressed", chosen ? "true" : "false");
       }
-      hint.textContent = HINT;
+      explain("");
+    }
+
+    // A pointer on its way across the section passes over parts of the diagram it
+    // has no interest in, and every one of them would otherwise swap the file being
+    // read. So a part has to be pointed at rather than merely crossed: the file
+    // opens once the pointer has stayed on it, and leaving before then cancels it.
+    // Nothing is queued twice, so a pointer moving back and forth still ends on
+    // whichever part it settled on.
+    var pending = null;
+
+    function cancel() {
+      if (pending !== null) {
+        window.clearTimeout(pending);
+        pending = null;
+      }
     }
 
     for (var wire = 0; wire < triggers.length; wire++) {
       (function (trigger) {
         var name = trigger.getAttribute("data-file");
-        // Pointer and keyboard reach a file the same way: there is nothing to open and
-        // nothing to close, so moving onto a part of the diagram is the whole gesture.
-        // The click is for a touch screen, which has no hover to give.
         trigger.addEventListener("mouseenter", function () {
-          show(name);
+          cancel();
+          pending = window.setTimeout(function () {
+            pending = null;
+            show(name);
+          }, DWELL);
         });
+        trigger.addEventListener("mouseleave", cancel);
+        // Keyboard and touch are deliberate already: there is nothing to cross by
+        // accident, so they open the file with no wait.
         trigger.addEventListener("focus", function () {
+          cancel();
           show(name);
         });
         trigger.addEventListener("click", function (event) {
           event.preventDefault();
+          cancel();
           show(name);
         });
         trigger.addEventListener("keydown", function (event) {
           if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
             event.preventDefault();
+            cancel();
             show(name);
           }
         });
@@ -199,12 +232,11 @@
 
     view.addEventListener("mouseover", function (event) {
       var line = event.target.closest ? event.target.closest(".synqt-code__line") : null;
-      var gloss = line && line.getAttribute("data-gloss");
-      hint.textContent = gloss || HINT;
+      explain(line && line.getAttribute("data-gloss"));
     });
 
     view.addEventListener("mouseleave", function () {
-      hint.textContent = HINT;
+      explain("");
     });
 
     // A line whose gloss names a page opens it, which is how the section hands the

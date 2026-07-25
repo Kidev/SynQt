@@ -699,7 +699,7 @@ import QtQuick.Layouts
 Item {
     id: campaign
 
-    readonly property string headline: Router.pageSeed.headline ?? qsTr("Today's offers")
+    readonly property string headline: Router.pageSeed.headline ?? "Today's offers"
 
     ColumnLayout {
         anchors.fill: parent
@@ -722,7 +722,7 @@ Item {
                 required property string title
                 required property int price
                 width: ListView.view.width
-                text: qsTr("%1  -  %2").arg(title).arg(price)
+                text: title + "  -  " + price
             }
         }
     }
@@ -749,7 +749,7 @@ PageSeed {
         const headline = words
             .map(part => part.charAt(0).toUpperCase() + part.slice(1))
             .join(" ");
-        return { headline: headline.length > 0 ? headline : qsTr("Today's offers") };
+        return { headline: headline.length > 0 ? headline : "Today's offers" };
     }
 }
 ```

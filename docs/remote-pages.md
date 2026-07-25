@@ -118,7 +118,7 @@ PageSeed {
         const headline = words
             .map(part => part.charAt(0).toUpperCase() + part.slice(1))
             .join(" ");
-        return { headline: headline.length > 0 ? headline : qsTr("Today's offers") };
+        return { headline: headline.length > 0 ? headline : "Today's offers" };
     }
 }
 ```

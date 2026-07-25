@@ -146,13 +146,33 @@ sends it back.
 The six files on the right are that whole system: one configuration file, one
 contract, and one QML file per entity. Hover (or focus) any entity in the diagram
 to read its file, the link between browser and web edge for the contract they
-share, or the cog for the configuration; the file stays until you move to another
-one. Hover any line of a file to see what that line does, and a line that ends in
-an arrow opens the page covering it, whether that is a page of this guide or the
-class in the C++ reference.
+share, the cog for the configuration, or any file in the project tree; the file
+stays until you move to another one. Hover any line of a file to see what that
+line does, and a line that ends in an arrow opens the page covering it, whether
+that is a page of this guide or the class in the C++ reference.
 
 <div class="synqt-explorer">
 <div class="synqt-explorer__map">
+
+<div class="synqt-tree">
+<span class="synqt-tree__title">Project tree</span>
+<ul class="synqt-tree__list">
+<li class="synqt-tree__dir">my-app</li>
+<li class="synqt-tree__leaf"><span class="synqt-tree__file" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml">synqt.yaml</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested">shared</li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="contract" tabindex="0" role="button" aria-label="Show shared/Feed.syn">Feed.syn</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested">client</li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/Main.qml">Main.qml</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested">web</li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/Feed.qml">Feed.qml</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested">database</li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="database" tabindex="0" role="button" aria-label="Show database/Access.qml">Access.qml</span></li>
+<li class="synqt-tree__dir synqt-tree__dir--nested">api</li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="api" tabindex="0" role="button" aria-label="Show api/Upstream.qml">Upstream.qml</span></li>
+</ul>
+</div>
+
+<div class="synqt-mesh">
 
 <div class="synqt-config">
 <span class="synqt-config__trigger" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml"><svg class="synqt-config__icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg><span class="synqt-config__label">Configuration</span></span>
@@ -326,11 +346,12 @@ class in the C++ reference.
 
 </div>
 
+</div>
+
 <div class="synqt-explorer__view">
 
 <div class="synqt-file" data-file="config" markdown>
-<strong>configuration</strong>
-<span class="synqt-flow__path">synqt.yaml</span>
+<span class="synqt-file__name"><strong>configuration</strong><span class="synqt-flow__path">synqt.yaml</span></span>
 
 ```yaml
 project:
@@ -388,8 +409,7 @@ connect_points:
 </div>
 
 <div class="synqt-file" data-file="client" markdown>
-<strong>browser</strong>
-<span class="synqt-flow__path">client/Main.qml</span>
+<span class="synqt-file__name"><strong>browser</strong><span class="synqt-flow__path">client/Main.qml</span></span>
 
 ```qml
 import QtQuick
@@ -397,29 +417,29 @@ import QtQuick.Controls
 import SynQt
 
 ApplicationWindow {
-  id: window
+    id: window
 
-  visible: true
-  title: qsTr("My app")
+    visible: true
+    title: "My app"
 
-  Feed.onDenied: reason => banner.text = reason
+    Feed.onDenied: reason => banner.text = reason
 
-  Label {
-    id: banner
-    text: Server.feed.ready ? "" : qsTr("Loading...")
-  }
-
-  ListView {
-    anchors.fill: parent
-    anchors.topMargin: banner.height
-    model: Server.feed.rows
-    delegate: Text {
-      required property var model
-      text: model.title
+    Label {
+        id: banner
+        text: Server.feed.ready ? "" : "Loading..."
     }
-  }
 
-  Component.onCompleted: Server.feed.load()
+    ListView {
+        anchors.fill: parent
+        anchors.topMargin: banner.height
+        model: Server.feed.rows
+        delegate: Text {
+            required property var model
+            text: model.title
+        }
+    }
+
+    Component.onCompleted: Server.feed.load()
 }
 ```
 
@@ -435,15 +455,14 @@ ApplicationWindow {
 </div>
 
 <div class="synqt-file" data-file="contract" markdown>
-<strong>contract</strong>
-<span class="synqt-flow__path">shared/Feed.syn</span>
+<span class="synqt-file__name"><strong>contract</strong><span class="synqt-flow__path">shared/Feed.syn</span></span>
 
 ```syn
 contract Feed {
-  prop bool ready
-  model rows(id, title)
-  slot load()
-  signal denied(string reason)
+    prop bool ready
+    model rows(id, title)
+    slot load()
+    signal denied(string reason)
 }
 ```
 
@@ -458,34 +477,33 @@ contract Feed {
 </div>
 
 <div class="synqt-file" data-file="web" markdown>
-<strong>web edge</strong>
-<span class="synqt-flow__path">web/Feed.qml</span>
+<span class="synqt-file__name"><strong>web edge</strong><span class="synqt-flow__path">web/Feed.qml</span></span>
 
 ```qml
 import QtQuick
 import SynQt
 
 FeedSource {
-  id: feed
+    id: feed
 
-  ready: false
+    ready: false
 
-  function load() {
-    if (!Caller.hasScope("user")) {
-      Caller.emitDenied(qsTr("Please sign in."));
-      return;
+    function load() {
+        if (!Caller.hasScope("user")) {
+            Caller.emitDenied("Please sign in.");
+            return;
+        }
+        Database.access.allows(Caller.identity.sub).then(ok => {
+            if (!ok) {
+                Caller.emitDenied("Not allowed.");
+                return;
+            }
+            Api.upstream.fetch().then(rows => {
+                feed.setRows(rows);
+                feed.ready = true;
+            });
+        });
     }
-    Database.access.allows(Caller.identity.sub).then(ok => {
-      if (!ok) {
-        Caller.emitDenied(qsTr("Not allowed."));
-        return;
-      }
-      Api.upstream.fetch().then(rows => {
-        feed.setRows(rows);
-        feed.ready = true;
-      });
-    });
-  }
 }
 ```
 
@@ -501,24 +519,23 @@ FeedSource {
 </div>
 
 <div class="synqt-file" data-file="database" markdown>
-<strong>database</strong>
-<span class="synqt-flow__path">database/Access.qml</span>
+<span class="synqt-file__name"><strong>database</strong><span class="synqt-flow__path">database/Access.qml</span></span>
 
 ```qml
 import QtQuick
 import SynQt
 
 AccessSource {
-  id: access
+    id: access
 
-  function allows(sub) {
-    if (!Caller.isEntityVerified || Caller.entity !== "web") {
-      return false;
+    function allows(sub) {
+        if (!Caller.isEntityVerified || Caller.entity !== "web") {
+            return false;
+        }
+        const rows = Db.query(
+            "SELECT 1 FROM grants WHERE sub = ?", [sub]);
+        return rows.length > 0;
     }
-    const rows = Db.query(
-      "SELECT 1 FROM grants WHERE sub = ?", [sub]);
-    return rows.length > 0;
-  }
 }
 ```
 
@@ -531,33 +548,32 @@ AccessSource {
 </div>
 
 <div class="synqt-file" data-file="api" markdown>
-<strong>api</strong>
-<span class="synqt-flow__path">api/Upstream.qml</span>
+<span class="synqt-file__name"><strong>api</strong><span class="synqt-flow__path">api/Upstream.qml</span></span>
 
 ```qml
 import QtQuick
 import SynQt
 
 UpstreamSource {
-  id: upstream
+    id: upstream
 
-  property var cached: []
+    property var cached: []
 
-  function fetch() {
-    if (!Caller.isEntityVerified || Caller.entity !== "web") {
-      return [];
+    function fetch() {
+        if (!Caller.isEntityVerified || Caller.entity !== "web") {
+            return [];
+        }
+        return upstream.cached;
     }
-    return upstream.cached;
-  }
 
-  Timer {
-    interval: 30000
-    running: true
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: Http.get("https://data.example/feed")
-                   .then(res => upstream.cached = res.body.rows)
-  }
+    Timer {
+        interval: 30000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: Http.get("https://data.example/feed")
+            .then(res => upstream.cached = res.body.rows)
+    }
 }
 ```
 
@@ -571,6 +587,7 @@ UpstreamSource {
 </div>
 
 <p class="synqt-flow__hint" aria-live="polite"></p>
+<p class="synqt-flow__note">Hover a line for what it does. A line ending in an arrow opens the page covering it.</p>
 
 </div>
 

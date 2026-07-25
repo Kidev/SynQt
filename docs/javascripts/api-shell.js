@@ -48,12 +48,34 @@
     return document.getElementById(FRAME_ID);
   }
 
-  // The frame's `src` in the template is the reference's landing page, so its
-  // directory is the base every other page is resolved against. Reading it from
-  // the element rather than hard coding "/api/ref/" keeps this working when the
-  // site is published under a sub path.
+  // The frame's `data-src` in the template is the reference's landing page, so
+  // its directory is the base every other page is resolved against. Reading it
+  // from the element rather than hard coding "/api/ref/" keeps this working when
+  // the site is published under a sub path.
   function baseUrl(frame) {
-    return new URL(".", frame.src).href;
+    var declared = frame.getAttribute("data-src") || frame.src;
+    return new URL(".", new URL(declared, window.location.href)).href;
+  }
+
+  // Doxygen remembers the last tree entry a reader clicked and reselects that one
+  // on every page it draws, instead of the page on screen. The reference no longer
+  // keeps that memory (tools/docs-hooks/doxygen.py) and clears it as each of its
+  // pages loads (tools/docs-hooks/doxygen-header.html), but a browser still
+  // holding a cached copy of the reference from before those two runs the old code
+  // and stays pinned to whichever entry it remembers. This is the way out that a
+  // cached copy cannot get in front of: the reference is served from this origin,
+  // so its storage is this page's storage, and the frame is not pointed at
+  // anything until after this has run.
+  var NAVPATH = "doxygen_navpath";
+
+  function forgetTreeMemory() {
+    try {
+      window.localStorage.removeItem(NAVPATH);
+      window.sessionStorage.removeItem(NAVPATH);
+    } catch (e) {
+      // Storage can be disabled outright, in which case there is nothing stored.
+    }
+    document.cookie = NAVPATH + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
   }
 
   function framePath(frame) {
@@ -75,6 +97,7 @@
   function sync() {
     var frame = frameElement();
     if (!frame) return;
+    forgetTreeMemory();
     show(frame, requestedPage(), window.location.hash);
   }
 
@@ -123,11 +146,15 @@
     }
   });
 
+  // Straight away as well as on every page change: this script is at the end of
+  // the body, so on a full load of the shell the frame is already parsed and can
+  // start fetching the reference now rather than one event later. It does nothing
+  // on any other page, and setting the same page twice is not a second load.
+  sync();
+
   if (window.document$ && typeof window.document$.subscribe === "function") {
     window.document$.subscribe(sync);
   } else if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", sync);
-  } else {
-    sync();
   }
 })();

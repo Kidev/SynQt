@@ -26,11 +26,18 @@
 
 {% block container %}
   <div class="md-content md-content--api" data-md-component="content">
+    {#- The frame is pointed at the reference by api-shell.js, not by a `src`
+        here, so that nothing inside it loads until the script has run: it clears
+        the sidebar tree's "last entry clicked" memory first, which is what keeps
+        the tree on the page the reader is actually on even for a browser holding
+        a copy of the reference from before that memory was taken out of it. The
+        landing page stays declared here (`data-src`), since it is also the base
+        every `?p=` page is resolved against. -#}
     <iframe
       class="synqt-api__frame"
       id="synqt-api-frame"
       title="{{ page.title | striptags }}"
-      src="{{ 'api/ref/index.html' | url }}"
+      data-src="{{ 'api/ref/index.html' | url }}"
     ></iframe>
     <noscript>
       <p class="synqt-api__noscript">

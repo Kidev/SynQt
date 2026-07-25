@@ -11,7 +11,7 @@ ApplicationWindow {
     visible: true
     width: 320
     height: 220
-    title: qsTr("SynQt Counter")
+    title: "SynQt Counter"
 
     // Telemetry for the end-to-end browser test: surfaces connection state and the
     // counter value to the browser console. Invisible; harmless in the shipped app.
@@ -29,16 +29,16 @@ ApplicationWindow {
             Layout.alignment: Qt.AlignHCenter
             font.pixelSize: 24
             text: Session.state === "connected"
-                  ? qsTr("Value: %1").arg(Server.counter.value)
-                  : qsTr("Connecting...")
+                  ? "Value: " + Server.counter.value
+                  : "Connecting..."
         }
 
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
             spacing: 12
 
-            Button { text: qsTr("-"); onClicked: Server.counter.decrement() }
-            Button { text: qsTr("+"); onClicked: Server.counter.increment() }
+            Button { text: "-"; onClicked: Server.counter.decrement() }
+            Button { text: "+"; onClicked: Server.counter.increment() }
         }
     }
 }

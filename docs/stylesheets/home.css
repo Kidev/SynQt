@@ -16,6 +16,14 @@
    ordinary page level font load, not an SVG-embedded one. */
 @import url('https://fonts.googleapis.com/css2?family=Titillium+Web:wght@700&display=swap');
 
+/* The two glyphs the project tree in "What it looks like" is drawn with, as
+   masks so each takes the colour of the row it sits on (Material Design Icons,
+   folder and file-document-outline). */
+:root {
+  --synqt-icon-folder: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 4H4c-1.11 0-2 .89-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z"/></svg>');
+  --synqt-icon-file: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 9h5.5L13 3.5V9M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4c0-1.11.89-2 2-2m0 2v16h12v-9h-7V4H6Z"/></svg>');
+}
+
 /* --- Escape Material's centered column ------------------------------------- */
 
 .md-main__inner:has(.md-content--home) {
@@ -346,11 +354,12 @@
 /* --- "What it looks like": the diagram, and the file behind the part of it you
        are pointing at ---------------------------------------------------------
 
-   Two columns. On the left the mesh, drawn and animated; on the right a file
-   view showing exactly one of the project's six files. Pointing at a part of the
-   diagram opens its file, and the file stays until another part is pointed at,
-   so the pointer is free to move into the file and read it. The configuration is
-   what the mesh is generated from, so it is the file shown to begin with.
+   Two columns. On the left the project tree and the mesh those files build,
+   drawn and animated; on the right a file view showing exactly one of the six
+   files. Pointing at a file in the tree, or at the part of the diagram it is
+   behind, opens it and lights it in the other, and it stays until another is
+   pointed at, so the pointer is free to move into the file and read it. The
+   configuration is what the mesh is generated from, so it is shown first.
 
    The file used to be a popover hanging off the part it belonged to, which is
    what forced the pin: a popover closes the moment the pointer leaves the node,
@@ -361,21 +370,134 @@
 
 .synqt-explorer {
   display: grid;
-  /* Not an even split: the diagram is a fixed drawing that looks the same at any
-     size, while the file view has to hold a sixty column line of code without
-     scrolling sideways, so the extra width goes to the file. */
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  /* Near enough to even: the file view needs whatever the longest line in these
+     six files measures and no more, and the left column now carries the tree as
+     well as the drawing, so the rest of the width is better spent there. */
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   gap: 1.75rem;
   align-items: center;
   margin-top: 1.5rem;
 }
 
+/* Inside the left column, the same two halves an editor has: the project's files
+   on the left, what they add up to on the right. Both are ways into the same six
+   files, so pointing at either one opens the file and lights the other. */
 .synqt-explorer__map {
   display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  min-width: 0;
+}
+
+.synqt-mesh {
+  display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   align-items: center;
   gap: .9rem;
   min-width: 0;
+}
+
+/* --- The project tree -----------------------------------------------------
+   The six files as they would sit on disk, next to the diagram they build. It
+   is the same set of triggers as the diagram and the cog, in the shape a reader
+   already knows from their editor, so a file whose place in the mesh is not
+   obvious (the contract, on the line between two entities) is still one click
+   away. Directories are labels, not triggers: there is nothing behind them. */
+.synqt-tree {
+  flex: none;
+  align-self: center;
+  padding: .55rem .6rem;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: .3rem;
+  background: rgba(255, 255, 255, .03);
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: .58rem;
+  line-height: 1.55;
+}
+
+.synqt-tree__title {
+  display: block;
+  margin-bottom: .4rem;
+  color: #8f96c4;
+  font-size: .55rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+/* Material styles every list in a page body, so the reset has to reach at least
+   its specificity (`.md-typeset ul li`) to keep the tree from growing bullets
+   and an indent of its own on top of the one it draws itself. */
+.md-typeset .synqt-tree__list,
+.synqt-tree__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.md-typeset .synqt-tree__list li,
+.synqt-tree__list li {
+  margin: 0;
+  list-style: none;
+  white-space: nowrap;
+}
+
+/* The glyphs are masks rather than images, so both take the colour of the row
+   they are on and the file rows light up with their text. */
+.synqt-tree__dir::before,
+.synqt-tree__file::before {
+  content: "";
+  display: inline-block;
+  width: .8em;
+  height: .8em;
+  margin-right: .35em;
+  vertical-align: -.08em;
+  background-color: currentcolor;
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+          mask-size: contain;
+}
+
+.synqt-tree__dir {
+  color: #8f96c4;
+}
+
+.synqt-tree__dir::before {
+  -webkit-mask-image: var(--synqt-icon-folder);
+          mask-image: var(--synqt-icon-folder);
+}
+
+.synqt-tree__file::before {
+  -webkit-mask-image: var(--synqt-icon-file);
+          mask-image: var(--synqt-icon-file);
+}
+
+.synqt-tree__dir--nested,
+.synqt-tree__leaf {
+  padding-left: 1rem;
+}
+
+.synqt-tree__leaf--nested {
+  padding-left: 2rem;
+}
+
+.synqt-tree__file {
+  display: inline-block;
+  padding: 0 .3rem;
+  margin: 0 -.3rem;
+  border-radius: .2rem;
+  color: #c3c9ec;
+  cursor: pointer;
+  transition: color .2s ease, background .2s ease;
+}
+
+.synqt-tree__file:hover,
+.synqt-tree__file:focus-visible,
+.synqt-tree__file.synqt-trigger--on {
+  color: #fff;
+  background: rgba(0, 166, 237, .18);
 }
 
 .synqt-flow {
@@ -521,11 +643,12 @@
 .synqt-explorer__view {
   display: flex;
   flex-direction: column;
-  /* Fixed, and the same for every file: five of the six fit it exactly, and the
-     configuration, which is the only one long enough not to, scrolls its last
-     few lines in. A panel sized to that one file instead would be a third taller
-     again and would leave the six line contract floating in an empty box. */
-  height: 37rem;
+  /* Fixed, and the same for every file: it is the height of the longest QML file
+     of the five, so those five never scroll, and the configuration, at forty one
+     lines the only one longer, scrolls its last few in. A panel sized to that one
+     file instead would be a third taller again, and every other file would be
+     read from the top of a mostly empty box. */
+  height: 36rem;
   min-width: 0;
   background: #0d1224;
   border: 1px solid rgba(255, 255, 255, .15);
@@ -545,6 +668,18 @@
   min-height: 0;
 }
 
+/* One row: what this file is, then where it would live in a project. On one line
+   rather than two, so the code below it starts at the same height in every file
+   and the panel spends its height on the file rather than on its own labels. */
+.synqt-file__name {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: .5rem;
+  margin-bottom: .5rem;
+  min-height: 1.1rem;
+}
+
 .synqt-file strong {
   color: #fff;
   font-size: .65rem;
@@ -553,11 +688,7 @@
   letter-spacing: .08em;
 }
 
-/* The file's own path, so each file says where in a project it would live, and
-   the six of them together read as a directory listing. */
 .synqt-flow__path {
-  display: block;
-  margin: .1rem 0 .55rem;
   color: #8f96c4;
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: .62rem;
@@ -568,11 +699,7 @@
    to synqt-qml, and ```syn is the contract language) and their token colors come
    from Material's own `--md-code-hl-*` variables. Only the block level styling
    (background, margins, the base color for tokens the lexer leaves plain) is
-   reset here, to fit this panel instead of a full width page block.
-
-   A column rather than a plain box, so that the auto margins on the code below
-   can center a short file in the space instead of stranding it against the top
-   with two thirds of the panel empty under it. */
+   reset here, to fit this panel instead of a full width page block. */
 .synqt-file .highlight {
   margin: 0;
   background: none;
@@ -583,8 +710,18 @@
   overflow: auto;
 }
 
+/* Every file starts at the top of the panel. Centering a short one in the space
+   instead reads better standing still, but the six files are read one after
+   another: each change of file would then slide the code up or down by half the
+   difference in their lengths, under a pointer that is on its way to a line.
+   What fills the leftover space is the file's own page (the `code` below), so a
+   six line contract still sits on a full sheet rather than on a strip. */
 .synqt-file pre {
-  margin: auto 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
   background: none;
   overflow: visible;
 }
@@ -601,12 +738,13 @@
   overflow-wrap: normal;
 }
 
-/* The size has to be set on the `code` as well as the `pre`: Material sizes the
-   `code` inside a highlighted block itself, so a rule on the `pre` alone is
-   overridden and the lines come out a third taller than this panel is measured
+/* The size has to be set on the `code` as well as the `pre`, and written as
+   `pre > code` to match: the site's own block size (extra.css) is set on
+   `.md-typeset pre > code`, which outweighs a plain `.synqt-file code`, so a rule
+   on the `pre` alone leaves the lines a fifth taller than this panel is measured
    for. */
 .synqt-file pre,
-.synqt-file code {
+.synqt-file pre > code {
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: .54rem;
   line-height: 1.5;
@@ -619,27 +757,41 @@
    block in the body of a page. */
 .synqt-file code {
   display: block;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  min-height: 100%;
   background: rgba(255, 255, 255, .05);
   border-radius: .2rem;
   color: #d7dafa;
-  padding: .5rem .7rem;
+  /* No padding across: each line carries it instead (below), so a hovered line
+     is marked to the edges of the page without being pulled out of it by a
+     negative margin, which left the page a couple of pixels wider than the box
+     it scrolls in and so a scrollbar under files that fit perfectly well. */
+  padding: .5rem 0;
 }
 
 /* The one file long enough to need it (the configuration, at forty one lines)
-   scrolls the last few in. A thin, dim bar, so a panel that is mostly not
-   scrolling does not carry a scrollbar-shaped stripe down its side. */
-.synqt-file .highlight {
+   scrolls the last few in, inside its own page. A thin, dim bar, so a panel that
+   is mostly not scrolling does not carry a scrollbar-shaped stripe down its
+   side. Both elements are styled: the page (`code`) is what actually scrolls,
+   since Material gives it `overflow: auto`, and `.highlight` is the box around
+   it. */
+.synqt-file .highlight,
+.synqt-file pre > code {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, .18) transparent;
 }
 
 /* No copy button: at this size it sits over the first line of the file. The
    files are here to be read, and each one is a page of the docs away from being
-   read in full. Both names are matched on purpose: Material moved the button
-   from `.md-clipboard` to `.md-code__button`, and a panel that silently grows a
-   button back is worse than one redundant selector. */
+   read in full. All three names are matched on purpose: Material moved the button
+   from `.md-clipboard` to `.md-code__button` inside an `.md-code__nav`, and the
+   nav is drawn whether or not the button in it is, which is the small square that
+   was left in the corner of the file. A panel that silently grows a button back
+   is worse than a redundant selector. */
 .synqt-file .md-clipboard,
-.synqt-file .md-code__button {
+.synqt-file .md-code__button,
+.synqt-file .md-code__nav {
   display: none;
 }
 
@@ -651,9 +803,9 @@
   display: block;
   min-height: 1.5em;
   line-height: 1.5;
-  /* Pulled out to the file's own padding and back in again, so a hovered line is
-     marked all the way across the file rather than in a strip inset from it. */
-  margin: 0 -.7rem;
+  /* The file's own left and right padding, carried by the lines, so a hovered
+     line is marked all the way across the page rather than in a strip inset
+     from it. */
   padding: 0 .7rem;
   border-left: 2px solid transparent;
 }
@@ -669,9 +821,10 @@
 
 /* A line whose explanation names a page (the glossary's `data-href`) opens it:
    the runtime accessors go to their class in the C++ reference, the rest to the
-   page of the docs that covers them. The arrow says so, and it is drawn faintly
-   on every such line rather than only under the pointer, so which lines lead
-   somewhere is visible without hunting for it. */
+   page of the docs that covers them. The arrow appears on the line under the
+   pointer, which is the line whose explanation is being read and so the only one
+   the reader can act on; drawn on all of them at once it was six arrows down the
+   right of a file that is meant to read as code. */
 .synqt-code__line--linked {
   cursor: pointer;
 }
@@ -679,7 +832,7 @@
 .synqt-code__line--linked::after {
   content: " \2192";
   color: #00a6ed;
-  opacity: .4;
+  opacity: 0;
   transition: opacity .15s ease;
 }
 
@@ -687,14 +840,15 @@
   opacity: 1;
 }
 
-/* What the line under the pointer does, and when the pointer is not on a line,
-   what hovering one would give. It is the same element for both, and it has a
-   fixed height, so reading down a file never moves the file.
+/* What the line under the pointer does, and nothing else: it says how to use the
+   panel nowhere, which is the note's job below, so a tinted box on screen always
+   means there is an explanation in it.
 
    Set apart from the code above it rather than trailing off it: an accent rule,
    a tint, and text a size and a shade up from the muted grey it used to be. This
    is the part of the panel a reader is meant to read while their eye is on the
-   code, so it cannot be the quietest thing in the box. */
+   code, so it cannot be the quietest thing in the box. Empty, it fades out but
+   keeps its height, so a file never moves as the pointer crosses its lines. */
 .synqt-flow__hint {
   flex: none;
   margin: .6rem 0 0;
@@ -709,19 +863,81 @@
      box is the same height whichever line is under the pointer and the file
      above it never shifts as the reader moves down it. */
   min-height: 4.75em;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.synqt-flow__hint--on {
+  opacity: 1;
+}
+
+/* How to use the panel, said once, quietly, and out of the way of the box above
+   it. It used to be the placeholder inside that box, which meant the loudest
+   element in the panel was carrying an instruction most of the time and the
+   explanations had to share its voice. */
+.synqt-flow__note {
+  flex: none;
+  margin: .45rem 0 0;
+  color: #8f96c4;
+  font-size: .55rem;
+  line-height: 1.4;
 }
 
 /* One column below the point where two of them stop leaving the file view room
-   for the longest line in these six files, which is measured at 455px and is the
-   `Caller.isEntityVerified` check. Two columns are still wider than one until
-   about 900px, but they clip that line from roughly 1050px down, and a file view
-   that cuts the end off a line of code is worse than one drawn under the diagram
-   rather than beside it. The diagram keeps its own max-width and centers; the
-   file view runs the full width, which is more than it needs. */
-@media screen and (max-width: 66em) {
+   for the longest line in these six files (the `Caller.isEntityVerified` check,
+   sixty five characters, which needs about 475px of file view). Two columns stay
+   wider than one until around 900px, but they clip that line from roughly 1160px
+   down, and a file view that cuts the end off a line of code is worse than one
+   drawn under the diagram rather than beside it. The diagram keeps its own
+   max-width and centers; the file view runs the full width, which is more than
+   it needs. */
+/* The band where the layout is still two columns but the file column is under
+   about 550px: the longest line in these six files (the database's entity check,
+   at sixty five characters) no longer fits it. The file is set a step smaller
+   there rather than clipped or wrapped, which costs a little legibility on a
+   laptop screen and keeps every line of every file whole. */
+@media screen and (min-width: 72.5625em) and (max-width: 85em) {
+  .synqt-file pre,
+  .synqt-file pre > code {
+    font-size: .48rem;
+  }
+}
+
+@media screen and (max-width: 72.5em) {
   .synqt-explorer {
     grid-template-columns: minmax(0, 1fr);
     gap: 1.25rem;
+  }
+
+  /* One column, so the map has the whole width: the tree and the diagram sit
+     side by side in the middle of it rather than pinned to the left edge. */
+  .synqt-explorer__map {
+    justify-content: center;
+  }
+
+  /* Stacked, the file view is nearly twice as wide, so the same files need much
+     less height; at the height two columns call for, a six line contract would
+     sit at the top of a panel two thirds empty. */
+  .synqt-explorer__view {
+    height: 33rem;
+  }
+
+  .synqt-mesh {
+    flex: 0 1 32rem;
+  }
+}
+
+/* Below this the tree and the diagram together are narrower than either wants,
+   so the tree goes above the drawing it indexes. */
+@media screen and (max-width: 44.9375em) {
+  .synqt-explorer__map {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .synqt-mesh {
+    flex: 1 1 auto;
+    width: 100%;
   }
 }
 
@@ -738,6 +954,12 @@
   /* Four lines here: the same explanations, in a column half as wide. */
   .synqt-flow__hint {
     min-height: 6em;
+  }
+
+  /* Wrapped lines make every file taller again, so the panel takes its full
+     height back. */
+  .synqt-explorer__view {
+    height: 36rem;
   }
 }
 .synqt-flow__lines line {

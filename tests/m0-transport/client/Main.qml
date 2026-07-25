@@ -11,7 +11,7 @@ ApplicationWindow {
     visible: true
     width: 480
     height: 640
-    title: qsTr("SynQt M0 transport spike")
+    title: "SynQt M0 transport spike"
 
     ColumnLayout {
         anchors.fill: parent
@@ -20,16 +20,16 @@ ApplicationWindow {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Connection: %1").arg(m0.state)
+            text: "Connection: " + m0.state
             font.bold: true
         }
 
         Label {
-            text: qsTr("PROP counter (push): %1").arg(m0.counter)
+            text: "PROP counter (push): " + m0.counter
         }
 
         Label {
-            text: qsTr("SIGNAL payload: %1").arg(m0.lastSignal)
+            text: "SIGNAL payload: " + m0.lastSignal
         }
 
         RowLayout {
@@ -37,18 +37,18 @@ ApplicationWindow {
             spacing: 8
 
             Button {
-                text: qsTr("Call echo slot")
+                text: "Call echo slot"
                 onClicked: m0.callEcho("from-ui")
             }
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("SLOT reply: %1").arg(m0.lastReply)
+                text: "SLOT reply: " + m0.lastReply
             }
         }
 
         Label {
-            text: qsTr("MODEL rows: %1").arg(m0.modelRows)
+            text: "MODEL rows: " + m0.modelRows
         }
 
         ListView {

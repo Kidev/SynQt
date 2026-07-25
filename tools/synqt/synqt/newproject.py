@@ -95,7 +95,7 @@ ApplicationWindow {
     visible: true
     width: 360
     height: 240
-    title: qsTr("SynQt app")
+    title: "SynQt app"
 
     // Surfaces the connection state to the browser console; a boot sentinel `synqt dev`
     // (and the browser end-to-end check) watch for. Invisible; harmless in the shipped app.
@@ -110,7 +110,7 @@ ApplicationWindow {
         // On one line on purpose: the scaffold ships with check.qml_format on, and
         // qmlformat reflows a wrapped expression, so a hand-wrapped ternary here would
         // report the new project as unformatted on its very first `synqt check`.
-        text: Session.state === "connected" ? qsTr("Connected") : qsTr("Connecting...")
+        text: Session.state === "connected" ? "Connected" : "Connecting..."
     }
 }
 """

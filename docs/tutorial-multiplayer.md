@@ -106,7 +106,7 @@ ApplicationWindow {
     visible: true
     width: 900
     height: 700
-    title: qsTr("Arena")
+    title: "Arena"
     color: "#0d1020"                              // matches the field, for the HUD around it
 
     readonly property real world: 4000            // the arena is 4000 x 4000 units

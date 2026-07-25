@@ -26,7 +26,7 @@ Window {
     height: 720
     visible: true
     color: "#101418"
-    title: qsTr("SynQt client frame-time scene")
+    title: "SynQt client frame-time scene"
 
     Repeater {
         model: root.activeBlobs
@@ -51,7 +51,7 @@ Window {
     Text {
         anchors { left: parent.left; top: parent.top; margins: 12 }
         color: "#8fa3b0"
-        text: qsTr("blobs: %1 / %2").arg(root.activeBlobs).arg(root.maxBlobs)
+        text: "blobs: " + root.activeBlobs + " / " + root.maxBlobs
     }
 
     FrameAnimation {

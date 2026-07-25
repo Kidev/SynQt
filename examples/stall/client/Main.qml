@@ -16,7 +16,7 @@ ApplicationWindow {
     visible: true
     width: 480
     height: 560
-    title: qsTr("Stall")
+    title: "Stall"
 
     Loader {
         id: pageLoader

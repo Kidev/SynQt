@@ -18,7 +18,7 @@ ApplicationWindow {
     visible: true
     width: 480
     height: 420
-    title: qsTr("Gavel")
+    title: "Gavel"
 
     ColumnLayout {
         anchors.fill: parent
@@ -34,8 +34,8 @@ ApplicationWindow {
 
         // Updates by itself whenever the edge changes it.
         Label {
-            text: qsTr("Current bid: %1  (held by %2)")
-                  .arg(Server.auction.highBid).arg(Server.auction.highBidder)
+            text: "Current bid: " + Server.auction.highBid
+                  + "  (held by " + Server.auction.highBidder + ")"
             font.pixelSize: 18
         }
 
@@ -44,7 +44,7 @@ ApplicationWindow {
             spacing: 8
             visible: !Session.hasScope("user")
             Button {
-                text: qsTr("Sign in to bid")
+                text: "Sign in to bid"
                 onClicked: Session.login()
             }
         }
@@ -54,15 +54,15 @@ ApplicationWindow {
             spacing: 8
             visible: Session.hasScope("user")
             Label {
-                text: qsTr("Signed in as %1").arg(Session.identity ? Session.identity.name : "")
+                text: "Signed in as " + (Session.identity ? Session.identity.name : "")
             }
             TextField {
                 id: amountField
-                placeholderText: qsTr("Amount")
+                placeholderText: "Amount"
                 inputMethodHints: Qt.ImhDigitsOnly
             }
             Button {
-                text: qsTr("Place bid")
+                text: "Place bid"
                 onClicked: {
                     Server.auction.placeBid(parseInt(amountField.text));
                     amountField.clear();
@@ -74,9 +74,9 @@ ApplicationWindow {
         RowLayout {
             spacing: 8
             visible: Session.hasScope("admin")
-            TextField { id: nextItemField; placeholderText: qsTr("Next item") }
+            TextField { id: nextItemField; placeholderText: "Next item" }
             Button {
-                text: qsTr("Close lot")
+                text: "Close lot"
                 onClicked: Server.auction.closeLot(nextItemField.text)
             }
         }
@@ -87,7 +87,7 @@ ApplicationWindow {
             visible: text.length > 0
         }
 
-        Label { text: qsTr("Hall of Fame"); font.pixelSize: 18 }
+        Label { text: "Hall of Fame"; font.pixelSize: 18 }
 
         ListView {
             Layout.fillWidth: true
@@ -97,7 +97,7 @@ ApplicationWindow {
                 required property string winner
                 required property string item
                 required property int amount
-                text: qsTr("%1 won %2 for %3").arg(winner).arg(item).arg(amount)
+                text: winner + " won " + item + " for " + amount
             }
         }
 

@@ -13,6 +13,6 @@ Item {
 
     Text {
         anchors.centerIn: parent
-        text: qsTr("Help")
+        text: "Help"
     }
 }

@@ -45,7 +45,7 @@ In `client/Home.qml`, next to the button you already have:
 
 ```qml
 Button {
-    text: qsTr("Black Friday")
+    text: "Black Friday"
     onClicked: Router.go("/c/black-friday")
 }
 ```
@@ -56,7 +56,7 @@ which slug it is showing:
 
 ```qml
 Text {
-    text: qsTr("slug: %1").arg(Router.params.campaign ?? "")
+    text: "slug: " + (Router.params.campaign ?? "")
     Layout.fillWidth: true
 }
 ```

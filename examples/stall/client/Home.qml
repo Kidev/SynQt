@@ -18,7 +18,7 @@ Page {
         spacing: 12
 
         Label {
-            text: qsTr("Stall")
+            text: "Stall"
             font.pixelSize: 24
             Layout.fillWidth: true
         }
@@ -26,11 +26,11 @@ Page {
         RowLayout {
             spacing: 8
             Button {
-                text: qsTr("See today's offers")
+                text: "See today's offers"
                 onClicked: Router.go("/c/summer-sale")
             }
             Button {
-                text: qsTr("Cart")
+                text: "Cart"
                 onClicked: Router.go("/cart")
             }
         }
@@ -45,7 +45,7 @@ Page {
                 required property string title
                 required property int price
                 width: ListView.view.width
-                text: qsTr("%1  -  %2").arg(title).arg(price)
+                text: title + "  -  " + price
             }
         }
     }
