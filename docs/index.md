@@ -143,73 +143,19 @@ allow. Here the browser asks for some data, the web edge checks the database
 whether that caller is allowed, and only then fetches the data from the api and
 sends it back.
 
-The six files below are that whole system: one configuration file, one contract,
-and one QML file per entity. Hover (or focus) any entity to read its file, the
-link between browser and web edge for the contract they share, or the cog for
-the configuration. Click to pin a file open, and then hover any line of it to
-see what that line does; a line that ends in an arrow opens the page covering
-it, whether that is a page of this guide or the class in the C++ reference.
+The six files on the right are that whole system: one configuration file, one
+contract, and one QML file per entity. Hover (or focus) any entity in the diagram
+to read its file, the link between browser and web edge for the contract they
+share, or the cog for the configuration; the file stays until you move to another
+one. Hover any line of a file to see what that line does, and a line that ends in
+an arrow opens the page covering it, whether that is a page of this guide or the
+class in the C++ reference.
+
+<div class="synqt-explorer">
+<div class="synqt-explorer__map">
 
 <div class="synqt-config">
-<span class="synqt-config__trigger" tabindex="0" role="button" aria-label="Show the example synqt.yaml"><svg class="synqt-config__icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg><span class="synqt-config__label">synqt.yaml</span></span>
-<div class="synqt-config__tooltip" markdown>
-<strong>configuration</strong>
-<span class="synqt-flow__path">synqt.yaml</span>
-
-```yaml
-project:
-  name: my-app
-  qt_version: 6.11.1          # pins Qt + Emscripten
-  origin_model: same_origin
-
-scopes:
-  order: [anonymous, user, moderator, admin]
-  default: anonymous
-
-entities:
-  - name: client              # browser (WASM) + optional desktop
-    kind: client
-    edge: web
-  - name: web                 # the only internet-facing entity
-    kind: service
-    capabilities: [web_edge]
-    public: { port: 8443, sync_route: /sync }
-  - name: database            # embedded SQLite by default
-    kind: service
-    blueprint: persistence
-  - name: api                 # outbound HTTP gateway
-    kind: service
-    blueprint: gateway
-
-connect_points:
-  - name: feed                # the browser's one way in
-    contract: Feed
-    owner: web
-    consumers: [client]
-    scope: user               # minimum session scope
-    server: web/Feed.qml
-  - name: access              # edge -> database, over mutual TLS
-    contract: Access
-    owner: database
-    consumers: [web]
-    server: database/Access.qml
-  - name: upstream            # edge -> gateway, over mutual TLS
-    contract: Upstream
-    owner: api
-    consumers: [web]
-    server: api/Upstream.qml
-```
-
-<ul class="synqt-flow__glossary" hidden>
-<li data-code="qt_version" data-href="build-system-and-cli/">One version pins the whole toolchain: Qt, Emscripten, and every entity built from them.</li>
-<li data-code="order: [anonymous" data-href="security/">The scope ladder. Every session sits on one rung, and a connect point can demand a minimum.</li>
-<li data-code="capabilities: [web_edge]" data-href="entities/">The one entity allowed to face the internet. Nothing else gets a public port.</li>
-<li data-code="consumers: [client]" data-href="project-layout-and-config/">Deny by default: an entity that is not on this list cannot open this connect point at all.</li>
-<li data-code="scope: user" data-href="security/">A signed-out browser never even acquires this connect point, so there is nothing to call.</li>
-<li data-code="consumers: [web]" data-href="entities/">The database is reachable by the edge and by nothing else, browser included.</li>
-</ul>
-
-</div>
+<span class="synqt-config__trigger" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml"><svg class="synqt-config__icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg><span class="synqt-config__label">Configuration</span></span>
 </div>
 
 <div class="synqt-flow">
@@ -370,8 +316,78 @@ connect_points:
   </g>
 </svg>
 
-<div class="synqt-flow__hotspot synqt-flow__hotspot--user" tabindex="0" role="button" aria-label="Show client/Main.qml">
-  <div class="synqt-flow__tooltip" markdown>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--user" data-file="client" tabindex="0" role="button" aria-label="Show client/Main.qml"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--hub" data-file="web" tabindex="0" role="button" aria-label="Show web/Feed.qml"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--contract" data-file="contract" tabindex="0" role="button" aria-label="Show shared/Feed.syn"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--database" data-file="database" tabindex="0" role="button" aria-label="Show database/Access.qml"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--api" data-file="api" tabindex="0" role="button" aria-label="Show api/Upstream.qml"></div>
+</div>
+</div>
+
+</div>
+
+<div class="synqt-explorer__view">
+
+<div class="synqt-file" data-file="config" markdown>
+<strong>configuration</strong>
+<span class="synqt-flow__path">synqt.yaml</span>
+
+```yaml
+project:
+  name: my-app
+  qt_version: 6.11.1          # pins Qt + Emscripten
+  origin_model: same_origin
+
+scopes:
+  order: [anonymous, user, moderator, admin]
+  default: anonymous
+
+entities:
+  - name: client              # browser (WASM) + optional desktop
+    kind: client
+    edge: web
+  - name: web                 # the only internet-facing entity
+    kind: service
+    capabilities: [web_edge]
+    public: { port: 8443, sync_route: /sync }
+  - name: database            # embedded SQLite by default
+    kind: service
+    blueprint: persistence
+  - name: api                 # outbound HTTP gateway
+    kind: service
+    blueprint: gateway
+
+connect_points:
+  - name: feed                # the browser's one way in
+    contract: Feed
+    owner: web
+    consumers: [client]
+    scope: user               # minimum session scope
+    server: web/Feed.qml
+  - name: access              # edge -> database, over mutual TLS
+    contract: Access
+    owner: database
+    consumers: [web]
+    server: database/Access.qml
+  - name: upstream            # edge -> gateway, over mutual TLS
+    contract: Upstream
+    owner: api
+    consumers: [web]
+    server: api/Upstream.qml
+```
+
+<ul class="synqt-flow__glossary" hidden>
+<li data-code="qt_version" data-href="build-system-and-cli/">One version pins the whole toolchain: Qt, Emscripten, and every entity built from them.</li>
+<li data-code="order: [anonymous" data-href="security/">The scope ladder. Every session sits on one rung, and a connect point can demand a minimum.</li>
+<li data-code="capabilities: [web_edge]" data-href="entities/">The one entity allowed to face the internet. Nothing else gets a public port.</li>
+<li data-code="consumers: [client]" data-href="project-layout-and-config/">Deny by default: an entity that is not on this list cannot open this connect point at all.</li>
+<li data-code="scope: user" data-href="security/">A signed-out browser never even acquires this connect point, so there is nothing to call.</li>
+<li data-code="consumers: [web]" data-href="entities/">The database is reachable by the edge and by nothing else, browser included.</li>
+</ul>
+
+</div>
+
+<div class="synqt-file" data-file="client" markdown>
 <strong>browser</strong>
 <span class="synqt-flow__path">client/Main.qml</span>
 
@@ -381,29 +397,29 @@ import QtQuick.Controls
 import SynQt
 
 ApplicationWindow {
-    id: window
+  id: window
 
-    visible: true
-    title: qsTr("My app")
+  visible: true
+  title: qsTr("My app")
 
-    Feed.onDenied: reason => banner.text = reason
+  Feed.onDenied: reason => banner.text = reason
 
-    Label {
-        id: banner
-        text: Server.feed.ready ? "" : qsTr("Loading...")
+  Label {
+    id: banner
+    text: Server.feed.ready ? "" : qsTr("Loading...")
+  }
+
+  ListView {
+    anchors.fill: parent
+    anchors.topMargin: banner.height
+    model: Server.feed.rows
+    delegate: Text {
+      required property var model
+      text: model.title
     }
+  }
 
-    ListView {
-        anchors.fill: parent
-        anchors.topMargin: banner.height
-        model: Server.feed.rows
-        delegate: Text {
-            required property var model
-            text: model.title
-        }
-    }
-
-    Component.onCompleted: Server.feed.load()
+  Component.onCompleted: Server.feed.load()
 }
 ```
 
@@ -415,64 +431,19 @@ ApplicationWindow {
 <li data-code="model: Server.feed.rows" data-href="programming-model/">A live model. The edge replaces the rows and every open tab redraws itself.</li>
 <li data-code="Server.feed.load()" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs in the edge, which is free to refuse it.</li>
 </ul>
-  </div>
+
 </div>
 
-<div class="synqt-flow__hotspot synqt-flow__hotspot--hub" tabindex="0" role="button" aria-label="Show web/Feed.qml">
-  <div class="synqt-flow__tooltip" markdown>
-<strong>web edge</strong>
-<span class="synqt-flow__path">web/Feed.qml</span>
-
-```qml
-import QtQuick
-import SynQt
-
-FeedSource {
-    id: feed
-
-    ready: false
-
-    function load() {
-        if (!Caller.hasScope("user")) {
-            Caller.emitDenied(qsTr("Please sign in."));
-            return;
-        }
-        Database.access.allows(Caller.identity.sub).then(ok => {
-            if (!ok) {
-                Caller.emitDenied(qsTr("Not allowed."));
-                return;
-            }
-            Api.upstream.fetch().then(rows => {
-                feed.setRows(rows);
-                feed.ready = true;
-            });
-        });
-    }
-}
-```
-
-<ul class="synqt-flow__glossary" hidden>
-<li data-code="FeedSource" data-href="programming-model/">Generated from the contract. Owning a connect point means writing its Source, and nothing else.</li>
-<li data-code="Caller.hasScope" data-href="api/?p=classSynQt_1_1Caller.html">Who is calling, established by the session the edge issued. A caller cannot claim a scope it lacks.</li>
-<li data-code="Caller.emitDenied" data-href="api/?p=classSynQt_1_1Caller.html">Answers this one caller, not everyone watching. The signal is the contract's, so the client already handles it.</li>
-<li data-code="Database.access.allows" data-href="api/?p=classSynQt_1_1EntityRuntime.html">The mesh call, in the same shape as a local one, over a mutual-TLS link. The subject it passes is the identity the edge established at sign-in, never an argument the browser sent.</li>
-<li data-code="Api.upstream.fetch" data-href="entities/">The gateway holds the third-party credentials and the outbound connection; the edge just asks.</li>
-<li data-code="feed.setRows" data-href="programming-model/">Replaces the model. Only the declared roles cross the wire; anything else on a row is dropped here.</li>
-</ul>
-  </div>
-</div>
-
-<div class="synqt-flow__hotspot synqt-flow__hotspot--contract" tabindex="0" role="button" aria-label="Show shared/Feed.syn">
-  <div class="synqt-flow__tooltip" markdown>
+<div class="synqt-file" data-file="contract" markdown>
 <strong>contract</strong>
 <span class="synqt-flow__path">shared/Feed.syn</span>
 
 ```syn
 contract Feed {
-    prop bool ready
-    model rows(id, title)
-    slot load()
-    signal denied(string reason)
+  prop bool ready
+  model rows(id, title)
+  slot load()
+  signal denied(string reason)
 }
 ```
 
@@ -483,11 +454,53 @@ contract Feed {
 <li data-code="slot load()" data-href="programming-model/">Consumer to owner: the one direction a request travels.</li>
 <li data-code="signal denied(string reason)" data-href="programming-model/">The owner's answer when it refuses, addressed to the caller that asked.</li>
 </ul>
-  </div>
+
 </div>
 
-<div class="synqt-flow__hotspot synqt-flow__hotspot--database" tabindex="0" role="button" aria-label="Show database/Access.qml">
-  <div class="synqt-flow__tooltip" markdown>
+<div class="synqt-file" data-file="web" markdown>
+<strong>web edge</strong>
+<span class="synqt-flow__path">web/Feed.qml</span>
+
+```qml
+import QtQuick
+import SynQt
+
+FeedSource {
+  id: feed
+
+  ready: false
+
+  function load() {
+    if (!Caller.hasScope("user")) {
+      Caller.emitDenied(qsTr("Please sign in."));
+      return;
+    }
+    Database.access.allows(Caller.identity.sub).then(ok => {
+      if (!ok) {
+        Caller.emitDenied(qsTr("Not allowed."));
+        return;
+      }
+      Api.upstream.fetch().then(rows => {
+        feed.setRows(rows);
+        feed.ready = true;
+      });
+    });
+  }
+}
+```
+
+<ul class="synqt-flow__glossary" hidden>
+<li data-code="FeedSource" data-href="programming-model/">Generated from the contract. Owning a connect point means writing its Source, and nothing else.</li>
+<li data-code="Caller.hasScope" data-href="api/?p=classSynQt_1_1Caller.html">Who is calling, established by the session the edge issued. A caller cannot claim a scope it lacks.</li>
+<li data-code="Caller.emitDenied" data-href="api/?p=classSynQt_1_1Caller.html">Answers this one caller, not everyone watching. The signal is the contract's, so the client already handles it.</li>
+<li data-code="Database.access.allows" data-href="api/?p=classSynQt_1_1EntityRuntime.html">A mesh call, shaped like a local one, over mutual TLS. The subject is the identity the edge holds, not a browser value.</li>
+<li data-code="Api.upstream.fetch" data-href="entities/">The gateway holds the third-party credentials and the outbound connection; the edge just asks.</li>
+<li data-code="feed.setRows" data-href="programming-model/">Replaces the model. Only the declared roles cross the wire; anything else on a row is dropped here.</li>
+</ul>
+
+</div>
+
+<div class="synqt-file" data-file="database" markdown>
 <strong>database</strong>
 <span class="synqt-flow__path">database/Access.qml</span>
 
@@ -496,29 +509,28 @@ import QtQuick
 import SynQt
 
 AccessSource {
-    id: access
+  id: access
 
-    function allows(sub) {
-        if (!Caller.isEntityVerified || Caller.entity !== "web") {
-            return false;
-        }
-        const rows = Db.query(
-            "SELECT 1 FROM grants WHERE sub = ?", [sub]);
-        return rows.length > 0;
+  function allows(sub) {
+    if (!Caller.isEntityVerified || Caller.entity !== "web") {
+      return false;
     }
+    const rows = Db.query(
+      "SELECT 1 FROM grants WHERE sub = ?", [sub]);
+    return rows.length > 0;
+  }
 }
 ```
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="AccessSource" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
-<li data-code="Caller.isEntityVerified" data-href="api/?p=classSynQt_1_1Caller.html">The caller here is an entity, not a person, and its name came from the certificate its mesh link presented. The topology already refuses anyone but the edge; the slot refuses them again.</li>
+<li data-code="Caller.isEntityVerified" data-href="api/?p=classSynQt_1_1Caller.html">An entity, not a person, named by the certificate its link presented. Only the edge gets here, and the slot checks again.</li>
 <li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL.</li>
 </ul>
-  </div>
+
 </div>
 
-<div class="synqt-flow__hotspot synqt-flow__hotspot--api" tabindex="0" role="button" aria-label="Show api/Upstream.qml">
-  <div class="synqt-flow__tooltip" markdown>
+<div class="synqt-file" data-file="api" markdown>
 <strong>api</strong>
 <span class="synqt-flow__path">api/Upstream.qml</span>
 
@@ -527,25 +539,25 @@ import QtQuick
 import SynQt
 
 UpstreamSource {
-    id: upstream
+  id: upstream
 
-    property var cached: []
+  property var cached: []
 
-    function fetch() {
-        if (!Caller.isEntityVerified || Caller.entity !== "web") {
-            return [];
-        }
-        return upstream.cached;
+  function fetch() {
+    if (!Caller.isEntityVerified || Caller.entity !== "web") {
+      return [];
     }
+    return upstream.cached;
+  }
 
-    Timer {
-        interval: 30000
-        running: true
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: Http.get("https://data.example/feed")
-                         .then(res => upstream.cached = res.body.rows)
-    }
+  Timer {
+    interval: 30000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: Http.get("https://data.example/feed")
+                   .then(res => upstream.cached = res.body.rows)
+  }
 }
 ```
 
@@ -555,8 +567,11 @@ UpstreamSource {
 <li data-code="Timer" data-href="entities/">The poll. Plain QML, running in the entity, with nothing to schedule and nothing to deploy.</li>
 <li data-code="Http.get" data-href="api/?p=classSynQt_1_1Http.html">Verifies TLS and refuses plaintext in a release build, so gateway code never touches a socket.</li>
 </ul>
-  </div>
+
 </div>
+
+<p class="synqt-flow__hint" aria-live="polite"></p>
+
 </div>
 
 </div>

@@ -3,59 +3,37 @@
 
 /* The home page's "What it looks like" project.
  *
- * The section draws one small system as a diagram, with a file behind every part of it:
- * the configuration behind the cog, the contract behind the link the browser and the edge
- * share, and one QML file behind each entity. Hovering shows a file; this script adds the
- * two things hovering alone cannot give it.
+ * The section is one small system, drawn twice: on the left a diagram of the mesh, with
+ * a file behind every part of it (the configuration behind the cog, the contract behind
+ * the link the browser and the edge share, one QML file behind each entity), and on the
+ * right a file view showing exactly one of those files at a time. Pointing at a part of
+ * the diagram opens its file, which then stays until another part is pointed at, so the
+ * reader can move the pointer into the file and read it. The configuration is shown to
+ * begin with, since it is the file the rest of the diagram is generated from.
  *
- * The first is pinning. A hovered file closes the moment the pointer leaves the node, which
- * is no use for reading twenty lines of QML and impossible on a touch screen. A click pins
- * the file open (one at a time, Escape or a click outside closes it), and a line under each
- * file says which of the two states it is in.
+ * This script is the whole of that behavior, plus the glossary. Each file in
+ * docs/index.md is followed by a hidden list whose entries name a fragment of it and say
+ * what that line does. This wraps every line of the highlighted code in its own element,
+ * hands each gloss to the first line that contains its fragment, and shows the text
+ * under the file while that line is hovered. It reads the fragments rather than line
+ * numbers so that editing a snippet does not silently shift every explanation in it by
+ * one. A gloss that also carries a `data-href` turns its line into a link to the page
+ * that documents it, which is where the section hands the reader on: to the class in the
+ * C++ reference for a runtime accessor, or to the framework page that covers the idea
+ * for everything else.
  *
- * The second is the glossary. Each file in docs/index.md is followed by a hidden list whose
- * entries name a fragment of it and say what that line does. This wraps every line of the
- * highlighted code in its own element, hands each gloss to the first line that contains its
- * fragment, and shows the text under the file while that line is hovered. It reads the
- * fragments rather than line numbers so that editing a snippet does not silently shift
- * every explanation in it by one. A gloss that also carries a `data-href` turns its line
- * into a link to the page that documents it, which is where the section hands the reader
- * on: to the class in the C++ reference for a runtime accessor, or to the framework page
- * that covers the idea for everything else.
- *
- * Everything is rebuilt on each page change through Material's `document$` observable, and
- * the document-level listeners are installed once, since the document survives instant
- * navigation.
+ * Everything is rebuilt on each page change through Material's `document$` observable.
  */
 (function () {
   "use strict";
 
-  var PIN = "synqt-pinned";
-  var HINT_UNPINNED = "Click to pin";
-  var HINT_PINNED = "Pinned. Hover a line for what it does, an arrow to open its page. "
-    + "Click again to unpin.";
+  var CURRENT = "synqt-file--current";
+  var ON = "synqt-trigger--on";
+  var HINT = "Hover a line of the file for what it does. A line that ends in an arrow "
+    + "opens the page covering it.";
 
-  // Every part of the diagram that has a file behind it: the five entity and contract
-  // hotspots over the drawing, and the configuration chip above it.
-  function panels() {
-    return Array.prototype.slice.call(
-      document.querySelectorAll(".synqt-flow__hotspot, .synqt-config"));
-  }
-
-  function tooltipOf(panel) {
-    return panel.querySelector(".synqt-flow__tooltip, .synqt-config__tooltip");
-  }
-
-  /* What a reader clicks or focuses to open a file. For an entity it is the hotspot itself,
-   * an invisible target the size of its node in the diagram. For the configuration it is
-   * the chip, not the row the chip is centered in, which spans the width of the page and
-   * would otherwise pin the file from a click in the empty space beside it. */
-  function triggerOf(panel) {
-    return panel.querySelector(".synqt-config__trigger") || panel;
-  }
-
-  /* Give every line of the highlighted block its own element, so a line can be hovered and
-   * marked.
+  /* Give every line of the highlighted block its own element, so a line can be hovered
+   * and marked.
    *
    * The highlighter usually emits a flat run of token spans with plain newline text
    * between them, but it is not required to: a token that covers a blank line, and any
@@ -131,8 +109,8 @@
     return lines;
   }
 
-  function applyGlossary(panel, lines) {
-    var list = panel.querySelector(".synqt-flow__glossary");
+  function applyGlossary(file, lines) {
+    var list = file.querySelector(".synqt-flow__glossary");
     if (!list) {
       return;
     }
@@ -158,101 +136,83 @@
     list.parentNode.removeChild(list);
   }
 
-  function hintOf(panel) {
-    var tooltip = tooltipOf(panel);
-    var hint = tooltip.querySelector(".synqt-flow__hint");
-    if (!hint) {
-      hint = document.createElement("p");
-      hint.className = "synqt-flow__hint";
-      // The text changes under the pointer without the pointer moving to it, so a screen
-      // reader has to be told it changed.
-      hint.setAttribute("aria-live", "polite");
-      tooltip.appendChild(hint);
-    }
-    return hint;
-  }
-
-  function say(panel, text) {
-    hintOf(panel).textContent = text;
-  }
-
-  function unpinAll(except) {
-    var all = panels();
-    for (var index = 0; index < all.length; index++) {
-      if (all[index] !== except && all[index].classList.contains(PIN)) {
-        all[index].classList.remove(PIN);
-        say(all[index], HINT_UNPINNED);
-      }
-    }
-  }
-
-  function togglePin(panel) {
-    var pinned = panel.classList.toggle(PIN);
-    unpinAll(panel);
-    say(panel, pinned ? HINT_PINNED : HINT_UNPINNED);
-    if (pinned && tooltipOf(panel).scrollIntoView) {
-      // A file is twenty lines and the diagram sits mid page, so a card opened near the
-      // fold can end below it. `nearest` scrolls the least that brings it fully in view,
-      // and does nothing at all when it already is.
-      tooltipOf(panel).scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
-  }
-
-  function prepare(panel) {
-    if (panel.getAttribute("data-synqt-flow") === "ready") {
+  function prepare(explorer) {
+    if (explorer.getAttribute("data-synqt-flow") === "ready") {
       return;
     }
-    panel.setAttribute("data-synqt-flow", "ready");
+    explorer.setAttribute("data-synqt-flow", "ready");
 
-    var code = panel.querySelector(".highlight code");
-    if (code) {
-      var lines = wrapLines(code);
-      if (lines) {
-        applyGlossary(panel, lines);
+    var view = explorer.querySelector(".synqt-explorer__view");
+    var hint = explorer.querySelector(".synqt-flow__hint");
+    var files = Array.prototype.slice.call(explorer.querySelectorAll(".synqt-file"));
+    var triggers = Array.prototype.slice.call(explorer.querySelectorAll("[data-file]"))
+      .filter(function (element) {
+        return files.indexOf(element) === -1;
+      });
+    if (!view || !hint || files.length === 0) {
+      return;
+    }
+
+    for (var index = 0; index < files.length; index++) {
+      var code = files[index].querySelector(".highlight code");
+      if (code) {
+        applyGlossary(files[index], wrapLines(code));
       }
     }
-    say(panel, HINT_UNPINNED);
 
-    var trigger = triggerOf(panel);
-
-    // A click on the file itself is a click on text (selecting a line, copying a name), not
-    // a request to close what is being read.
-    trigger.addEventListener("click", function (event) {
-      if (tooltipOf(panel).contains(event.target)) {
-        return;
+    function show(name) {
+      for (var at = 0; at < files.length; at++) {
+        files[at].classList.toggle(CURRENT, files[at].getAttribute("data-file") === name);
       }
-      event.preventDefault();
-      togglePin(panel);
-    });
-
-    trigger.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
-        event.preventDefault();
-        togglePin(panel);
+      for (var on = 0; on < triggers.length; on++) {
+        var chosen = triggers[on].getAttribute("data-file") === name;
+        triggers[on].classList.toggle(ON, chosen);
+        triggers[on].setAttribute("aria-pressed", chosen ? "true" : "false");
       }
-    });
+      hint.textContent = HINT;
+    }
 
-    tooltipOf(panel).addEventListener("mouseover", function (event) {
-      if (!panel.classList.contains(PIN)) {
-        return;
-      }
+    for (var wire = 0; wire < triggers.length; wire++) {
+      (function (trigger) {
+        var name = trigger.getAttribute("data-file");
+        // Pointer and keyboard reach a file the same way: there is nothing to open and
+        // nothing to close, so moving onto a part of the diagram is the whole gesture.
+        // The click is for a touch screen, which has no hover to give.
+        trigger.addEventListener("mouseenter", function () {
+          show(name);
+        });
+        trigger.addEventListener("focus", function () {
+          show(name);
+        });
+        trigger.addEventListener("click", function (event) {
+          event.preventDefault();
+          show(name);
+        });
+        trigger.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+            event.preventDefault();
+            show(name);
+          }
+        });
+      })(triggers[wire]);
+    }
+
+    view.addEventListener("mouseover", function (event) {
       var line = event.target.closest ? event.target.closest(".synqt-code__line") : null;
       var gloss = line && line.getAttribute("data-gloss");
-      say(panel, gloss || HINT_PINNED);
+      hint.textContent = gloss || HINT;
     });
 
-    tooltipOf(panel).addEventListener("mouseleave", function () {
-      if (panel.classList.contains(PIN)) {
-        say(panel, HINT_PINNED);
-      }
+    view.addEventListener("mouseleave", function () {
+      hint.textContent = HINT;
     });
 
     // A line whose gloss names a page opens it, which is how the section hands the
     // reader on: the runtime accessors to their class in the C++ reference, the rest
     // to the page of the docs that covers them. Selecting text inside the file ends in
     // a click too, so a click that finished a selection is left alone.
-    tooltipOf(panel).addEventListener("click", function (event) {
-      if (!panel.classList.contains(PIN) || !event.target.closest) {
+    view.addEventListener("click", function (event) {
+      if (!event.target.closest) {
         return;
       }
       var line = event.target.closest(".synqt-code__line[data-href]");
@@ -266,26 +226,12 @@
       event.preventDefault();
       window.location.href = line.getAttribute("data-href");
     });
+
+    show(files[0].getAttribute("data-file"));
   }
 
-  document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") {
-      unpinAll(null);
-    }
-  });
-
-  document.addEventListener("click", function (event) {
-    var all = panels();
-    for (var index = 0; index < all.length; index++) {
-      if (all[index].contains(event.target)) {
-        return;
-      }
-    }
-    unpinAll(null);
-  });
-
   function setup() {
-    var all = panels();
+    var all = document.querySelectorAll(".synqt-explorer");
     for (var index = 0; index < all.length; index++) {
       prepare(all[index]);
     }

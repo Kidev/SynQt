@@ -343,12 +343,45 @@
   }
 }
 
-/* --- "What it looks like": an animated version of the same diagram --------- */
+/* --- "What it looks like": the diagram, and the file behind the part of it you
+       are pointing at ---------------------------------------------------------
+
+   Two columns. On the left the mesh, drawn and animated; on the right a file
+   view showing exactly one of the project's six files. Pointing at a part of the
+   diagram opens its file, and the file stays until another part is pointed at,
+   so the pointer is free to move into the file and read it. The configuration is
+   what the mesh is generated from, so it is the file shown to begin with.
+
+   The file used to be a popover hanging off the part it belonged to, which is
+   what forced the pin: a popover closes the moment the pointer leaves the node,
+   which is no use for reading forty lines of YAML and impossible on a touch
+   screen. With the file in a column of its own there is nothing to open and
+   nothing to close, so there is no pin either, and the card can no longer cover
+   the diagram it came from. */
+
+.synqt-explorer {
+  display: grid;
+  /* Not an even split: the diagram is a fixed drawing that looks the same at any
+     size, while the file view has to hold a sixty column line of code without
+     scrolling sideways, so the extra width goes to the file. */
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 1.75rem;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+
+.synqt-explorer__map {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .9rem;
+  min-width: 0;
+}
 
 .synqt-flow {
   display: flex;
   justify-content: center;
-  margin-top: 1.5rem;
+  width: 100%;
 }
 
 /* The hotspots below are positioned by percentage, matching the SVG's own
@@ -369,15 +402,35 @@
   height: auto;
 }
 
-/* Invisible hover/focus targets over each node, sized a little larger than
-   the node itself so they're easy to hit. Position and size are both in %,
-   derived from the SVG's own cx/cy/r at viewBox 440x300 (e.g. the hub is at
-   220,150 r=26 -> 50%, 50%; database at 390,80 r=18 -> 88.64%, 26.67%). */
+/* Hover/focus targets over each node, sized a little larger than the node itself
+   so they're easy to hit. Position and size are both in %, derived from the SVG's
+   own cx/cy/r at viewBox 440x300 (e.g. the hub is at 220,150 r=26 -> 50%, 50%;
+   database at 390,80 r=18 -> 88.64%, 26.67%). */
 .synqt-flow__hotspot {
   position: absolute;
   width: 12%;
   height: 17%;
   transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+
+/* The file is drawn in the other column now, so the diagram has to say which of
+   its parts that file belongs to. A glow around the node does it for both states
+   at once: under the pointer, and left on for whichever part is being read. */
+.synqt-flow__hotspot::before {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 166, 237, .38) 0%, rgba(0, 166, 237, 0) 68%);
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+
+.synqt-flow__hotspot:hover::before,
+.synqt-flow__hotspot:focus-visible::before,
+.synqt-flow__hotspot.synqt-trigger--on::before {
+  opacity: 1;
 }
 
 .synqt-flow__hotspot--user {
@@ -412,89 +465,13 @@
   height: 11%;
 }
 
-.synqt-flow__tooltip {
-  position: absolute;
-  left: 50%;
-  top: calc(100% + .5rem);
-  transform: translateX(-50%);
-  width: max-content;
-  /* Wide enough to hold the longest line of these files at the code size below, so
-     the tooltip sizes to its content and never has to scroll sideways.
-     width:max-content makes the box exactly as wide as the widest line (up to this
-     cap), so as long as no line exceeds this, the code pre below has nothing to
-     overflow. */
-  max-width: 27rem;
-  background: #0d1224;
-  border: 1px solid rgba(255, 255, 255, .15);
-  border-radius: .3rem;
-  padding: .6rem .8rem;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity .15s ease;
-  z-index: 5;
-  box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .45);
-}
-
-/* The leftmost and rightmost nodes anchor their tooltip to the edge of the
-   hotspot that faces inward, rather than centering it, so it opens toward
-   the middle of the diagram instead of off the edge of the page. */
-.synqt-flow__hotspot--user .synqt-flow__tooltip {
-  left: 0;
-  transform: none;
-}
-
-.synqt-flow__hotspot--database .synqt-flow__tooltip,
-.synqt-flow__hotspot--api .synqt-flow__tooltip {
-  left: auto;
-  right: 0;
-  transform: none;
-}
-
-.synqt-flow__hotspot:hover .synqt-flow__tooltip,
-.synqt-flow__hotspot:focus .synqt-flow__tooltip,
-.synqt-flow__hotspot:focus-within .synqt-flow__tooltip {
-  opacity: 1;
-  visibility: visible;
-}
-
-/* The snippets are fenced code blocks in docs/index.md, so they go through the
-   same SynQt lexers as every other block on the site (mkdocs.yml routes ```qml
-   to synqt-qml, and ```syn is the contract language) and their token colors come
-   from Material's own `--md-code-hl-*` variables. Only the block level styling
-   (background, margins, the base color for tokens the lexer leaves plain) is
-   reset here, to fit a small card instead of a full width page block. */
-.synqt-flow__tooltip .highlight {
-  margin: 0;
-}
-
-.synqt-flow__tooltip pre {
-  margin: 0;
-  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: .62rem;
-  line-height: 1.5;
-  white-space: pre;
-  /* Material's base `.highlight pre` is `overflow:auto`, which would add a
-     horizontal scrollbar the moment a line reached the tooltip's max-width.
-     The files are sized to fit that width, so nothing needs to scroll. */
-  overflow: visible;
-}
-
-.synqt-flow__tooltip code {
-  background: none;
-  color: #d7dafa;
-  padding: 0;
-}
-
-/* "What it looks like" config peek: a cog + synqt.yaml chip sitting just above
-   the mesh diagram that reveals the example project config on hover or focus.
-   The config is what actually produces the mesh drawn below it. Reuses the flow
-   tooltip's dark card treatment. */
+/* The cog above the diagram. It is a trigger like the five over the drawing, and
+   the only one that is not a part of the mesh: the configuration is the file the
+   mesh is generated from, which is why it sits above the whole drawing rather
+   than on any one node of it. */
 .synqt-config {
-  position: relative;
   display: flex;
   justify-content: center;
-  margin: 1.75rem 0 -0.25rem;
 }
 
 .synqt-config__trigger {
@@ -513,8 +490,9 @@
   transition: color .2s ease, border-color .2s ease, background .2s ease;
 }
 
-.synqt-config:hover .synqt-config__trigger,
-.synqt-config:focus-within .synqt-config__trigger {
+.synqt-config__trigger:hover,
+.synqt-config__trigger:focus-visible,
+.synqt-config__trigger.synqt-trigger--on {
   color: #fff;
   border-color: #00a6ed;
   background: rgba(0, 166, 237, .12);
@@ -527,74 +505,47 @@
   transition: transform .5s ease;
 }
 
-.synqt-config:hover .synqt-config__icon,
-.synqt-config:focus-within .synqt-config__icon {
+.synqt-config__trigger:hover .synqt-config__icon,
+.synqt-config__trigger:focus-visible .synqt-config__icon,
+.synqt-config__trigger.synqt-trigger--on .synqt-config__icon {
   transform: rotate(90deg);
 }
 
-.synqt-config__tooltip {
-  position: absolute;
-  left: 50%;
-  top: calc(100% + .4rem);
-  transform: translateX(-50%) translateY(-.3rem);
-  width: max-content;
-  max-width: min(92vw, 30rem);
+/* --- The file view --------------------------------------------------------
+   One box, one size, whichever file is in it: the height is the tallest file's
+   and the width is the column's, so moving from the six line contract to the
+   forty line configuration changes what is written here and nothing else. A
+   panel that resized itself would move the diagram beside it under the pointer
+   that is still pointing at the diagram. */
+
+.synqt-explorer__view {
+  display: flex;
+  flex-direction: column;
+  /* Fixed, and the same for every file: five of the six fit it exactly, and the
+     configuration, which is the only one long enough not to, scrolls its last
+     few lines in. A panel sized to that one file instead would be a third taller
+     again and would leave the six line contract floating in an empty box. */
+  height: 37rem;
+  min-width: 0;
   background: #0d1224;
   border: 1px solid rgba(255, 255, 255, .15);
   border-radius: .3rem;
-  padding: .6rem .8rem;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity .15s ease, transform .15s ease;
-  z-index: 6;
+  padding: .7rem .9rem;
   box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .45);
 }
 
-.synqt-config:hover .synqt-config__tooltip,
-.synqt-config:focus-within .synqt-config__tooltip {
-  opacity: 1;
-  visibility: visible;
-  transform: translateX(-50%) translateY(0);
-}
-
-.synqt-config__tooltip .highlight {
-  margin: 0;
-  background: none;
-}
-
-.synqt-config__tooltip pre {
-  margin: 0;
-  background: none;
-  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: .62rem;
-  line-height: 1.5;
-  overflow: visible;
-}
-
-.synqt-config__tooltip code {
-  background: none;
-  padding: 0;
-}
-
-/* --- One file in a card: the head, the lines, and the hint under it ---------
-   Shared by the configuration card and the five file cards over the diagram, so
-   the whole section reads as one project rather than six unrelated popovers. */
-
-/* No copy button in these cards; at this size it sits over the first line of the
-   file. The files are here to be read, and each one is a page of the docs away
-   from being read in full. Both names are matched on purpose: Material moved the
-   button from `.md-clipboard` to `.md-code__button`, and a card that silently
-   grows a button back is worse than one redundant selector. */
-.synqt-flow__tooltip .md-clipboard,
-.synqt-flow__tooltip .md-code__button,
-.synqt-config__tooltip .md-clipboard,
-.synqt-config__tooltip .md-code__button {
+.synqt-file {
   display: none;
 }
 
-.synqt-flow__tooltip strong,
-.synqt-config__tooltip strong {
+.synqt-file--current {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.synqt-file strong {
   color: #fff;
   font-size: .65rem;
   font-weight: 700;
@@ -602,134 +553,193 @@
   letter-spacing: .08em;
 }
 
-/* The file's own path, so each card says where in a project its code would live,
-   and the six of them together read as a directory listing. */
+/* The file's own path, so each file says where in a project it would live, and
+   the six of them together read as a directory listing. */
 .synqt-flow__path {
   display: block;
-  margin: .1rem 0 .5rem;
+  margin: .1rem 0 .55rem;
   color: #8f96c4;
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: .62rem;
 }
 
+/* The snippets are fenced code blocks in docs/index.md, so they go through the
+   same SynQt lexers as every other block on the site (mkdocs.yml routes ```qml
+   to synqt-qml, and ```syn is the contract language) and their token colors come
+   from Material's own `--md-code-hl-*` variables. Only the block level styling
+   (background, margins, the base color for tokens the lexer leaves plain) is
+   reset here, to fit this panel instead of a full width page block.
+
+   A column rather than a plain box, so that the auto margins on the code below
+   can center a short file in the space instead of stranding it against the top
+   with two thirds of the panel empty under it. */
+.synqt-file .highlight {
+  margin: 0;
+  background: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.synqt-file pre {
+  margin: auto 0;
+  background: none;
+  overflow: visible;
+}
+
+/* Body code blocks wrap as a backstop against a long line (extra.css). A file
+   here must not: its lines are the file's, and the glossary hands its
+   explanations out one line at a time, so a wrapped line would be one entry
+   spread over two rows. The panel is sized for the longest line these six files
+   have, so there is nothing to wrap; below the width where that stops being true
+   the media query at the end of this section turns wrapping back on. Written as
+   `pre > code` to match the specificity of the rule it is overriding. */
+.synqt-file pre > code {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* The size has to be set on the `code` as well as the `pre`: Material sizes the
+   `code` inside a highlighted block itself, so a rule on the `pre` alone is
+   overridden and the lines come out a third taller than this panel is measured
+   for. */
+.synqt-file pre,
+.synqt-file code {
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: .54rem;
+  line-height: 1.5;
+}
+
+/* The file gets a page of its own inside the panel: a shade lighter than the
+   panel, with its own padding, so a six line contract centered in the space
+   still reads as a file rather than as a stray paragraph. Set here rather than
+   inherited from the site's code block styling, which is sized for a full width
+   block in the body of a page. */
+.synqt-file code {
+  display: block;
+  background: rgba(255, 255, 255, .05);
+  border-radius: .2rem;
+  color: #d7dafa;
+  padding: .5rem .7rem;
+}
+
+/* The one file long enough to need it (the configuration, at forty one lines)
+   scrolls the last few in. A thin, dim bar, so a panel that is mostly not
+   scrolling does not carry a scrollbar-shaped stripe down its side. */
+.synqt-file .highlight {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .18) transparent;
+}
+
+/* No copy button: at this size it sits over the first line of the file. The
+   files are here to be read, and each one is a page of the docs away from being
+   read in full. Both names are matched on purpose: Material moved the button
+   from `.md-clipboard` to `.md-code__button`, and a panel that silently grows a
+   button back is worse than one redundant selector. */
+.synqt-file .md-clipboard,
+.synqt-file .md-code__button {
+  display: none;
+}
+
 /* One line of a file, wrapped by home-flow.js so it can be hovered. Block, not
-   inline, so the hover reaches the full width of the card rather than stopping
+   inline, so the hover reaches the full width of the panel rather than stopping
    at the end of the text; the minimum height is one line box, which is what
    keeps a blank line blank now that the newlines between lines are gone. */
 .synqt-code__line {
   display: block;
   min-height: 1.5em;
   line-height: 1.5;
-  margin: 0 -.35rem;
-  padding: 0 .35rem;
+  /* Pulled out to the file's own padding and back in again, so a hovered line is
+     marked all the way across the file rather than in a strip inset from it. */
+  margin: 0 -.7rem;
+  padding: 0 .7rem;
   border-left: 2px solid transparent;
 }
 
-/* Only a line that has something to say invites a hover, and only while the card
-   is pinned, since an unpinned card closes the moment the pointer leaves the
-   node it belongs to. */
-.synqt-pinned .synqt-code__line--gloss {
+.synqt-code__line--gloss {
   cursor: help;
 }
 
-.synqt-pinned .synqt-code__line--gloss:hover {
-  background: rgba(0, 166, 237, .12);
+.synqt-code__line--gloss:hover {
+  background: rgba(0, 166, 237, .16);
   border-left-color: #00a6ed;
 }
 
 /* A line whose explanation names a page (the glossary's `data-href`) opens it:
    the runtime accessors go to their class in the C++ reference, the rest to the
-   page of the docs that covers them. The arrow is what says so, and it is only
-   drawn while the card is pinned, which is the only state the pointer can reach
-   a line in. */
-.synqt-pinned .synqt-code__line--linked {
+   page of the docs that covers them. The arrow says so, and it is drawn faintly
+   on every such line rather than only under the pointer, so which lines lead
+   somewhere is visible without hunting for it. */
+.synqt-code__line--linked {
   cursor: pointer;
 }
 
-.synqt-pinned .synqt-code__line--linked::after {
+.synqt-code__line--linked::after {
   content: " \2192";
   color: #00a6ed;
-  opacity: 0;
+  opacity: .4;
   transition: opacity .15s ease;
 }
 
-.synqt-pinned .synqt-code__line--linked:hover::after {
+.synqt-code__line--linked:hover::after {
   opacity: 1;
 }
 
-/* The state of the card, in a line: how to open it, and once open, what it can
-   do next. It is the same element that carries a line's explanation while that
-   line is hovered (home-flow.js), so the card never grows or shifts as the
-   pointer moves down the file.
+/* What the line under the pointer does, and when the pointer is not on a line,
+   what hovering one would give. It is the same element for both, and it has a
+   fixed height, so reading down a file never moves the file.
 
-   Sized to sit under the code rather than compete with it, and kept out of the
-   scrolling part of a pinned card (see the flex column below): the tallest file
-   here is forty lines, so a hint that scrolled with the code would be a line of
-   instructions the reader has to go looking for. */
+   Set apart from the code above it rather than trailing off it: an accent rule,
+   a tint, and text a size and a shade up from the muted grey it used to be. This
+   is the part of the panel a reader is meant to read while their eye is on the
+   code, so it cannot be the quietest thing in the box. */
 .synqt-flow__hint {
   flex: none;
-  margin: .4rem 0 0;
-  padding-top: .35rem;
-  border-top: 1px solid rgba(255, 255, 255, .12);
-  color: #9aa0c8;
-  font-size: .55rem;
-  line-height: 1.35;
-  min-height: 2.7em;
+  margin: .6rem 0 0;
+  padding: .45rem .6rem;
+  border-left: 2px solid #00a6ed;
+  border-radius: 0 .2rem .2rem 0;
+  background: rgba(0, 166, 237, .08);
+  color: #e2e6ff;
+  font-size: .6rem;
+  line-height: 1.45;
+  /* Three lines, which is the longest explanation at this column width, so the
+     box is the same height whichever line is under the pointer and the file
+     above it never shifts as the reader moves down it. */
+  min-height: 4.75em;
 }
 
-.synqt-pinned .synqt-flow__hint {
-  color: #c3c9ec;
+/* One column below the point where two of them stop leaving the file view room
+   for the longest line in these six files, which is measured at 455px and is the
+   `Caller.isEntityVerified` check. Two columns are still wider than one until
+   about 900px, but they clip that line from roughly 1050px down, and a file view
+   that cuts the end off a line of code is worse than one drawn under the diagram
+   rather than beside it. The diagram keeps its own max-width and centers; the
+   file view runs the full width, which is more than it needs. */
+@media screen and (max-width: 66em) {
+  .synqt-explorer {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+  }
 }
 
-/* Every card is a column of head, file and hint, so that the pinned rule below
-   can cap the card's height and let the file alone take up the slack. */
-.synqt-flow__tooltip,
-.synqt-config__tooltip {
-  display: flex;
-  flex-direction: column;
-}
+/* Narrow enough that no readable code size fits a sixty column line: wrap
+   instead, which costs the file its exact line count but keeps the panel from
+   scrolling sideways. The height is fixed, so a wrapped file scrolls down
+   inside it. */
+@media screen and (max-width: 44.9375em) {
+  .synqt-file pre > code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 
-/* Pinned: the card stays open with the pointer somewhere else, and becomes
-   interactive so its lines can be hovered and its text selected. A tall file is
-   allowed to scroll here, which is the one place it can: an unpinned card cannot
-   be reached by the pointer at all. Only the file scrolls; the name, the path and
-   the hint stay put, so the card always says which file this is and what the
-   reader can do with it. */
-.synqt-flow__hotspot.synqt-pinned .synqt-flow__tooltip,
-.synqt-config.synqt-pinned .synqt-config__tooltip {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  z-index: 10;
-  max-height: 75vh;
-  overflow: hidden;
-  border-color: rgba(0, 166, 237, .55);
+  /* Four lines here: the same explanations, in a column half as wide. */
+  .synqt-flow__hint {
+    min-height: 6em;
+  }
 }
-
-.synqt-pinned .synqt-flow__tooltip .highlight,
-.synqt-pinned .synqt-config__tooltip .highlight {
-  /* `min-height: 0` is what actually lets this shrink: a flex item's default
-     minimum size is its content, so without it the file pushes the card past its
-     cap instead of scrolling inside it. */
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.synqt-config.synqt-pinned .synqt-config__tooltip {
-  transform: translateX(-50%) translateY(0);
-}
-
-.synqt-config.synqt-pinned .synqt-config__trigger {
-  color: #fff;
-  border-color: #00a6ed;
-  background: rgba(0, 166, 237, .12);
-}
-
-.synqt-config.synqt-pinned .synqt-config__icon {
-  transform: rotate(90deg);
-}
-
 .synqt-flow__lines line {
   stroke: #6a5b99;
   stroke-opacity: .35;

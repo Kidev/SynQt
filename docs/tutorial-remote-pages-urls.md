@@ -120,8 +120,8 @@ can mint one at any scope for testing, and it is gated so it can never ship.
 > Ask for `/c/summer.sale`, with a dot instead of a hyphen. It is a perfectly good path, and
 > `/c/:campaign` matches it. What comes back, and why is that the right answer?
 
-<details class="question" markdown>
-<summary>Try it, then open this</summary>
+<details class="solution" markdown>
+<summary>Solution</summary>
 
 A 404, not the app.
 

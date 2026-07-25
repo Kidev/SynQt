@@ -240,6 +240,15 @@ def _forget_selected_page(html_dir):
     The toggle itself is hidden here (there is one navigation panel in this layout, so
     there is no second panel to synchronize with), so the fix is to make the cache
     always empty, which is exactly the synchronized behavior: the tree follows the page.
+
+    Reading it is neutralized first, and then writing it, which matters for one reader:
+    the one whose browser still has a copy of this file from before the first half of
+    this fix. Under Chrome the entry is a `sessionStorage` key rather than a cookie, so
+    it survives every navigation of a tab, including leaving the reference and coming
+    back, and that stale copy keeps rewriting it. Emptying it on the way out means such a
+    reader is one page load from being fixed permanently rather than stuck until they
+    clear their storage; doxygen-header.html empties it on the way in for the same
+    reason, from a script a stale navtree.js cannot preempt.
     """
     path = html_dir / "navtree.js"
     if not path.is_file():
@@ -255,7 +264,18 @@ def _forget_selected_page(html_dir):
         log.warning("doxygen: navtree.js no longer has the link cache this hook disables; "
                     "the sidebar tree may keep a stale selection")
         return
-    path.write_text(patched, encoding="utf-8")
+    stored = re.sub(
+        r"const storeLink = function\(link\) \{\n(?:[^{}]*\{[^{}]*\}\n)*[^{}]*\}",
+        "const storeLink = function(link) {\n"
+        "    // SynQt: nothing reads this, so writing it only strands an older cached\n"
+        "    // copy of this file; see tools/docs-hooks/doxygen.py\n"
+        "    Cookie.eraseSetting(NAVPATH_COOKIE_NAME);\n"
+        "  }",
+        patched, count=1)
+    if stored == patched:
+        log.warning("doxygen: navtree.js no longer writes the link cache the way this hook "
+                    "clears it; a reader holding an older copy may stay stuck")
+    path.write_text(stored, encoding="utf-8")
 
 
 def _version_tree_data(html_dir):

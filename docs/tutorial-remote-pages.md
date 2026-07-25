@@ -194,8 +194,8 @@ per-request seed on the wire. The page arrives once; the headline is fresh every
 > route table (you wrote that route in Step 1). Sign out, then navigate to `/members` in the
 > address bar. What does the edge send? Now sign in and try again.
 
-<details class="question" markdown>
-<summary>Try it, then open this</summary>
+<details class="solution" markdown>
+<summary>Solution</summary>
 
 Signed out, the edge refuses the page: it checks the route's `scope: user` against the
 session before it delivers a single byte, and an under-scoped fetch comes back `forbidden`

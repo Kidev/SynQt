@@ -151,8 +151,8 @@ available. Bid, and your real name holds the high bid.
 >
 > Predict what happens before you press Enter.
 
-<details class="question" markdown>
-<summary>Try it, then open this</summary>
+<details class="solution" markdown>
+<summary>Solution</summary>
 
 The bid is rejected. You see nothing change, and if you were listening you would
 get "Please sign in to bid."
