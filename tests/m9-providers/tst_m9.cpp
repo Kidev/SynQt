@@ -188,6 +188,45 @@ private:
         return reason;
     }
 
+    // The engines tests/lib/live-engines.sh starts answer TLS with a certificate for
+    // `localhost` and 127.0.0.1 from a test CA, beside a second CA that signed nothing.
+    // These say where that is, or why a proof cannot run.
+    static QString engineCa() { return qEnvironmentVariable("SYNQT_TEST_ENGINE_CA"); }
+    static QString wrongCa() { return qEnvironmentVariable("SYNQT_TEST_ENGINE_WRONG_CA"); }
+
+    // A relational engine's live configuration, from the variables live-engines.sh exports
+    // under `prefix` (SYNQT_TEST_PG, SYNQT_TEST_MYSQL), verified against the test CA, as a
+    // release build would connect.
+    static ProviderConfig verifiedEngine(const QString &name, const char *prefix)
+    {
+        const auto variable{[prefix](const char *suffix) {
+            return qEnvironmentVariable(QByteArray{prefix}.append(suffix).constData());
+        }};
+        ProviderConfig config;
+        config.name = name;
+        config.host = variable("_HOST");
+        config.port = variable("_PORT").toInt();
+        config.database = variable("_DB");
+        config.user = variable("_USER");
+        config.password = variable("_PASSWORD");
+        config.sslMode = QStringLiteral("verify-full");
+        config.caCert = engineCa();
+        config.poolSize = 1;
+        config.release = true;
+        return config;
+    }
+
+    // The one-column answer of a query that returns one row, or an invalid variant.
+    static QVariant scalar(IPersistenceProvider *provider, const QString &sql)
+    {
+        const DbResult result{provider->query(sql, {})};
+        if (!result.ok || result.rows.isEmpty()) {
+            return QVariant{};
+        }
+        const QVariantMap row{result.rows.first().toMap()};
+        return row.isEmpty() ? QVariant{} : row.constBegin().value();
+    }
+
 private slots:
     // A directory of its own per pass. Every database file below is named, so a second
     // pass over the suite in one process (how tests/memory measures what a pass keeps)
@@ -683,6 +722,88 @@ private slots:
         QCOMPARE(mysqlRows, sqliteRows);
     }
 
+    // Verified TLS to a live postgres, as a release build connects. The session the pool
+    // opened is encrypted, according to the server itself; a certificate from another CA
+    // is refused; and verify-full checks the name, so the same server reached through an
+    // address its certificate does not name is refused under verify-full and accepted under
+    // verify-ca, which checks the chain alone.
+    void postgresVerifiedTlsIsEncryptedAndChecksItsAnchorAndName()
+    {
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_PG_HOST") || engineCa().isEmpty()) {
+            QSKIP("no live postgres with TLS (tests/lib/live-engines.sh up, then env)");
+        }
+        const QString driverProblem{driverLoadFailure(QStringLiteral("QPSQL"))};
+        if (!driverProblem.isEmpty()) {
+            QSKIP(qPrintable(driverProblem));
+        }
+        const ProviderConfig verified{verifiedEngine(QStringLiteral("postgres"),
+                                                     "SYNQT_TEST_PG")};
+        QString error;
+        {
+            PostgresProvider postgres{verified};
+            QVERIFY2(postgres.connect(&error), qPrintable(error));
+            QCOMPARE(scalar(&postgres, QStringLiteral(
+                         "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")).toBool(),
+                     true);
+        }
+
+        ProviderConfig foreign{verified};
+        foreign.caCert = wrongCa();
+        QVERIFY2(!PostgresProvider{foreign}.connect(&error),
+                 "a certificate from another CA must not be accepted");
+
+        ProviderConfig elsewhere{verified};
+        elsewhere.host = QStringLiteral("127.0.0.2");
+        QVERIFY2(!PostgresProvider{elsewhere}.connect(&error),
+                 "verify-full must refuse a certificate that does not name the host");
+        elsewhere.sslMode = QStringLiteral("verify-ca");
+        PostgresProvider chainOnly{elsewhere};
+        QVERIFY2(chainOnly.connect(&error), qPrintable(error));
+    }
+
+    // The same for MySQL through MariaDB Connector/C. `verify-ca` and `verify-full` both ask
+    // the driver to verify the server certificate, and Connector/C checks the name whenever it
+    // verifies, so on this engine the two are one mode; `require` encrypts without asking who
+    // is answering, and is what reaches the address the certificate does not name.
+    void mysqlVerifiedTlsIsEncryptedAndChecksItsAnchorAndName()
+    {
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_MYSQL_HOST") || engineCa().isEmpty()) {
+            QSKIP("no live mysql with TLS (tests/lib/live-engines.sh up, then env)");
+        }
+        const QString driverProblem{driverLoadFailure(QStringLiteral("QMYSQL"))};
+        if (!driverProblem.isEmpty()) {
+            QSKIP(qPrintable(driverProblem));
+        }
+        const ProviderConfig verified{verifiedEngine(QStringLiteral("mysql"),
+                                                     "SYNQT_TEST_MYSQL")};
+        QString error;
+        {
+            MysqlProvider mysql{verified};
+            QVERIFY2(mysql.connect(&error), qPrintable(error));
+            const DbResult cipher{mysql.query(
+                QStringLiteral("SHOW SESSION STATUS LIKE 'Ssl_cipher'"), {})};
+            QVERIFY2(cipher.ok && !cipher.rows.isEmpty(), qPrintable(cipher.error));
+            QVERIFY2(!cipher.rows.first().toMap().value(QStringLiteral("Value")).toString()
+                          .isEmpty(),
+                     "the session is not encrypted");
+        }
+
+        ProviderConfig foreign{verified};
+        foreign.caCert = wrongCa();
+        QVERIFY2(!MysqlProvider{foreign}.connect(&error),
+                 "a certificate from another CA must not be accepted");
+
+        ProviderConfig elsewhere{verified};
+        elsewhere.host = QStringLiteral("127.0.0.2");
+        QVERIFY2(!MysqlProvider{elsewhere}.connect(&error),
+                 "verify-full must refuse a certificate that does not name the host");
+        // A development build: release refuses `require` to anything but loopback.
+        elsewhere.sslMode = QStringLiteral("require");
+        elsewhere.release = false;
+        MysqlProvider encryptedOnly{elsewhere};
+        QVERIFY2(encryptedOnly.connect(&error), qPrintable(error));
+    }
+
     void memoryCacheEvictsAndHonoursBound()
     {
         ProviderConfig config;
@@ -1014,6 +1135,107 @@ private slots:
         // Leave the collection empty so it does not accumulate across runs.
         docs->remove(users, {});
         docs->disconnect();
+    }
+
+    // Verified TLS to a live Redis. The TLS port answers a provider holding the right CA;
+    // a certificate from another CA is refused; and a certificate that does not name the host
+    // is refused too, which hiredis does not check by itself: it passes the name as SNI and
+    // nothing more, so without a check of SynQt's own any certificate the anchor signed would
+    // do for any host, and with no ca_cert the anchor is every public CA there is.
+    void redisVerifiedTlsChecksItsAnchorAndName()
+    {
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_REDIS_TLS_PORT") || engineCa().isEmpty()) {
+            QSKIP("no live redis with TLS (tests/lib/live-engines.sh up, then env)");
+        }
+        ProviderConfig redis;
+        redis.name = QStringLiteral("redis");
+        redis.host = QStringLiteral("localhost");
+        redis.port = qEnvironmentVariableIntValue("SYNQT_TEST_REDIS_TLS_PORT");
+        redis.caCert = engineCa();
+        redis.tls = true;
+        redis.release = true;
+
+        QString error;
+        std::unique_ptr<ICacheProvider> cache{makeCacheProvider(redis, &error)};
+        if (cache == nullptr) {
+            QSKIP(qPrintable(QStringLiteral("redis provider not built: %1").arg(error)));
+        }
+        if (!cache->connect(&error) && error.contains(QStringLiteral("no Redis TLS"))) {
+            QSKIP(qPrintable(error));
+        }
+        QVERIFY2(cache->isHealthy(), qPrintable(error));
+        const QString key{QStringLiteral("synqt:m9:tls")};
+        cache->set(key, QStringLiteral("sealed"), 30);
+        QCOMPARE(cache->get(key).toString(), QStringLiteral("sealed"));
+        cache->del(key);
+        cache->disconnect();
+
+        ProviderConfig foreign{redis};
+        foreign.caCert = wrongCa();
+        std::unique_ptr<ICacheProvider> refused{makeCacheProvider(foreign, &error)};
+        QVERIFY2(!refused->connect(&error), "a certificate from another CA must not be accepted");
+
+        ProviderConfig byAddress{redis};
+        byAddress.host = QStringLiteral("127.0.0.1");
+        std::unique_ptr<ICacheProvider> named{makeCacheProvider(byAddress, &error)};
+        QVERIFY2(named->connect(&error),
+                 qPrintable(QStringLiteral("an address the certificate names is accepted: %1")
+                                .arg(error)));
+
+        ProviderConfig elsewhere{redis};
+        elsewhere.host = QStringLiteral("127.0.0.2");
+        std::unique_ptr<ICacheProvider> unnamed{makeCacheProvider(elsewhere, &error)};
+        QVERIFY2(!unnamed->connect(&error),
+                 "a certificate that does not name the host must not be accepted");
+    }
+
+    // Verified TLS to a live MongoDB. The connection string asks for TLS with the test CA,
+    // and the first operation succeeds; with another CA, nothing the provider does reaches
+    // the server; and a string that switches verification off is refused before any client
+    // exists, whatever the server would have said.
+    void mongoVerifiedTlsChecksItsAnchor()
+    {
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_MONGO_PORT") || engineCa().isEmpty()) {
+            QSKIP("no live mongodb with TLS (tests/lib/live-engines.sh up, then env)");
+        }
+        const QString base{QStringLiteral("mongodb://localhost:%1/?tls=true&"
+                                          "serverSelectionTimeoutMS=3000&tlsCAFile=")
+                               .arg(qEnvironmentVariable("SYNQT_TEST_MONGO_PORT"))};
+        ProviderConfig mongo;
+        mongo.name = QStringLiteral("mongodb");
+        mongo.uri = base + engineCa();
+        mongo.database = QStringLiteral("synqt");
+        mongo.tls = true;
+        mongo.release = true;
+
+        QString error;
+        std::unique_ptr<IDocumentProvider> docs{makeDocumentProvider(mongo, &error)};
+        if (docs == nullptr) {
+            QSKIP(qPrintable(QStringLiteral("mongodb provider not built: %1").arg(error)));
+        }
+        QVERIFY2(docs->connect(&error), qPrintable(error));
+        const QString sealed{QStringLiteral("m9_tls")};
+        docs->remove(sealed, {});
+        QVERIFY(docs->insert(sealed, {{QStringLiteral("state"), QStringLiteral("sealed")}})
+                    .isValid());
+        QCOMPARE(docs->find(sealed, {}, {}).size(), 1);
+        docs->remove(sealed, {});
+        docs->disconnect();
+
+        ProviderConfig foreign{mongo};
+        foreign.uri = base + wrongCa();
+        std::unique_ptr<IDocumentProvider> refused{makeDocumentProvider(foreign, &error)};
+        QVERIFY(refused->connect(&error));  // a client is only a description until used
+        QVERIFY2(!refused->insert(sealed, {{QStringLiteral("state"), QStringLiteral("open")}})
+                      .isValid(),
+                 "a certificate from another CA must not be accepted");
+
+        ProviderConfig insecure{mongo};
+        insecure.uri = mongo.uri + QStringLiteral("&tlsAllowInvalidHostnames=true");
+        std::unique_ptr<IDocumentProvider> unverified{makeDocumentProvider(insecure, &error)};
+        QVERIFY(!unverified->connect(&error));
+        QVERIFY2(error.contains(QStringLiteral("disables certificate verification")),
+                 qPrintable(error));
     }
 
     void gatewayHttpRefusesPlaintextInReleaseAndFetchesInDev()

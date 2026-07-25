@@ -9,9 +9,12 @@
 #include <hiredis/hiredis.h>
 
 #ifdef SYNQT_HAVE_HIREDIS_SSL
-#  include <hiredis/ssl.h>
+#  include <hiredis/hiredis_ssl.h>
+#  include <openssl/ssl.h>
+#  include <openssl/x509v3.h>
 #endif
 
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -19,8 +22,8 @@ namespace SynQt {
 
 namespace {
 
-// hiredis TLS lives in the separate hiredis_ssl library; CMake sets this when its header
-// is present. Without it the provider cannot secure a link and must refuse an exposed one.
+// hiredis TLS is in the separate hiredis_ssl library; CMake defines this when its header
+// exists. Without it the provider cannot secure a link and refuses an exposed one.
 #ifdef SYNQT_HAVE_HIREDIS_SSL
 constexpr bool kTlsSupported{true};
 #else
@@ -61,54 +64,85 @@ QString RedisCacheProvider::name() const
 
 bool RedisCacheProvider::refusesInsecure() const
 {
-    // Exposing an unencrypted cache link off-host in release is refused. Only dev on
-    // localhost may relax it. Without hiredis_ssl the provider cannot offer TLS at all, so
-    // any off-host release link is refused.
+    // An unencrypted off-host cache link is refused in release; only dev on localhost may
+    // relax it. Without hiredis_ssl there is no TLS, so every off-host release link is
+    // refused.
     return m_config.release && !m_config.isLoopbackHost() && (!m_config.tls || !kTlsSupported);
 }
 
-// Wrap the open connection in TLS, or fail. Redis speaks TLS by upgrading the socket
-// immediately after connect (there is no in-protocol STARTTLS), which is what
-// redisInitiateSSLWithContext does. Nothing has been sent on the wire before this runs, so
-// the AUTH below is the first thing that goes out and it goes out encrypted.
+// Wrap the open connection in TLS, or fail. Redis upgrades the socket right after connect
+// (no in-protocol STARTTLS), and nothing has been sent yet, so the AUTH below goes out
+// encrypted.
 //
-// This exists because the config flag alone is not a setting: without it, `tls: true` was a
-// claim the guard above believed while the socket stayed plaintext, and the cache password
-// went out in the clear. The certificate is verified against `ca_cert` when one is named and
-// against the system trust store otherwise. Hiredis sets SSL_VERIFY_PEER either way, so a
-// server this client cannot verify fails here rather than being trusted.
+// The OpenSSL context is built here, not with redisCreateSSLContext, which verifies the
+// chain but not the name: hiredis sends the host as SNI and never checks it against the
+// certificate, and without `ca_cert` every public CA is trusted. The peer is verified
+// against `ca_cert` when named, the system trust store otherwise, and against the
+// configured host: an address against the certificate's IP entries, a name against its DNS
+// entries.
 bool RedisCacheProvider::startTls(QString *error)
 {
 #ifdef SYNQT_HAVE_HIREDIS_SSL
-    redisInitOpenSSL();
-    const QByteArray caCert{m_config.caCert.toUtf8()};
-    const QByteArray serverName{m_config.host.toUtf8()};
-    redisSSLContextError contextError{REDIS_SSL_CTX_NONE};
-    redisSSLContext *context{redisCreateSSLContext(
-        caCert.isEmpty() ? nullptr : caCert.constData(), nullptr, nullptr, nullptr,
-        serverName.isEmpty() ? nullptr : serverName.constData(), &contextError)};
-    if (context == nullptr) {
+    const auto fail{[this, error](const QString &reason) {
         if (error != nullptr) {
-            *error = QStringLiteral("could not build the Redis TLS context: %1")
-                         .arg(QString::fromUtf8(redisSSLContextGetError(contextError)));
+            // Name the fix: the usual cause is a server that does not speak TLS, which for
+            // a local development engine is declared in the config with `tls: false`.
+            *error = QStringLiteral(
+                "Redis TLS handshake with %1 failed: %2. A server that offers no TLS needs "
+                "tls: false, and only a development engine on this machine may have it")
+                         .arg(m_config.host, reason);
         }
         return false;
+    }};
+
+    redisInitOpenSSL();
+    const std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)> context{
+        SSL_CTX_new(TLS_client_method()), &SSL_CTX_free};
+    if (context == nullptr) {
+        return fail(QStringLiteral("no TLS context could be created"));
     }
-    const bool ok{redisInitiateSSLWithContext(m_context, context) == REDIS_OK};
-    if (!ok && error != nullptr) {
-        // Naming the way out matters here. The ordinary cause is a server that speaks no
-        // TLS at all, which for a development engine on this machine is answered by
-        // saying so in the config rather than by turning the check off in the code.
-        *error = QStringLiteral(
-            "Redis TLS handshake with %1 failed: %2. A server that offers no TLS needs "
-            "tls: false, and only a development engine on this machine may have it")
-                     .arg(m_config.host, QString::fromUtf8(m_context->errstr));
+    SSL_CTX_set_min_proto_version(context.get(), TLS1_2_VERSION);
+    SSL_CTX_set_verify(context.get(), SSL_VERIFY_PEER, nullptr);
+    const QByteArray caCert{m_config.caCert.toUtf8()};
+    const int anchored{caCert.isEmpty()
+                           ? SSL_CTX_set_default_verify_paths(context.get())
+                           : SSL_CTX_load_verify_locations(context.get(), caCert.constData(),
+                                                           nullptr)};
+    if (anchored != 1) {
+        return fail(QStringLiteral("the CA at %1 could not be read").arg(m_config.caCert));
     }
-    // The context is per connection here (one provider holds one connection), and the
-    // connection keeps what it needs from it, so it is freed as soon as the handshake is
-    // decided rather than held for a reconnect this provider does not do.
-    redisFreeSSLContext(context);
-    return ok;
+
+    QByteArray host{m_config.host.toUtf8()};
+    X509_VERIFY_PARAM *verify{SSL_CTX_get0_param(context.get())};
+    X509_VERIFY_PARAM_set_hostflags(verify, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+    // set1_ip_asc accepts only an address literal, so it doubles as the test for one.
+    const bool isAddress{X509_VERIFY_PARAM_set1_ip_asc(verify, host.constData()) == 1};
+    if (!isAddress
+        && X509_VERIFY_PARAM_set1_host(verify, host.constData(),
+                                       static_cast<size_t>(host.size())) != 1) {
+        return fail(QStringLiteral("the host name cannot be checked against a certificate"));
+    }
+
+    SSL *ssl{SSL_new(context.get())};
+    if (ssl == nullptr) {
+        return fail(QStringLiteral("no TLS session could be created"));
+    }
+    // SNI names a host, never an address. SSL_ctrl is what SSL_set_tlsext_host_name expands
+    // to, called directly to avoid that macro's cast.
+    if (!isAddress) {
+        SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, host.data());
+    }
+    // On success the connection owns and frees the session; on failure it does not, so the
+    // result is read before the session is freed.
+    if (redisInitiateSSL(m_context, ssl) != REDIS_OK) {
+        const long verdict{SSL_get_verify_result(ssl)};
+        const QString reason{verdict != X509_V_OK
+                                 ? QString::fromUtf8(X509_verify_cert_error_string(verdict))
+                                 : QString::fromUtf8(m_context->errstr)};
+        SSL_free(ssl);
+        return fail(reason);
+    }
+    return true;
 #else
     if (error != nullptr) {
         *error = QStringLiteral(
@@ -144,11 +178,10 @@ bool RedisCacheProvider::connect(QString *error)
         return false;
     }
 
-    // The same bound on every command as on the connect. hiredis is synchronous, so a
-    // command runs on the entity's own event loop, and a server that accepted the
-    // connection and then stopped answering held that loop, and every caller behind it,
-    // for as long as it liked. With this it is an error after two seconds, which the
-    // provider reports as a miss, and the entity keeps answering.
+    // The connect timeout applies to every command. hiredis is synchronous and runs on the
+    // entity's event loop, so a server that stops answering would block the entity. After
+    // two seconds the command fails, the provider reports a miss, and the entity keeps
+    // answering.
     if (redisSetTimeout(m_context, timeout) != REDIS_OK) {
         if (error != nullptr) {
             *error = QStringLiteral("could not bound Redis commands: %1")
@@ -158,9 +191,8 @@ bool RedisCacheProvider::connect(QString *error)
         return false;
     }
 
-    // Asked for TLS means TLS or nothing, on every link and not only the ones the guard
-    // above refuses: a dev loopback link that says `tls: true` and silently gets plaintext
-    // is how a production config that means it ends up untested.
+    // `tls: true` means TLS or nothing on every link, including dev loopback, so a
+    // production config is exercised in development.
     if (m_config.tls && !startTls(error)) {
         disconnect();
         return false;
@@ -268,11 +300,9 @@ void RedisCacheProvider::expire(const QString &key, int ttlSeconds)
     if (m_context == nullptr) {
         return;
     }
-    // A TTL of zero or less means "no expiry" in this family, exactly as it does on `set`,
-    // and PERSIST is how Redis says that. `EXPIRE key 0` says something else entirely: Redis
-    // treats a non-positive TTL as "already expired" and deletes the key. So the same line
-    // of application QML kept a value forever against the memory provider and dropped it
-    // against Redis, which is the one thing swapping a provider is not allowed to do.
+    // A TTL of zero or less means no expiry in this family, as on `set`, and PERSIST is how
+    // Redis says it. `EXPIRE key 0` would delete the key, so the same QML would keep a
+    // value with the memory provider and drop it with Redis.
     const QList<QByteArray> command{
         ttlSeconds > 0
             ? QList<QByteArray>{QByteArrayLiteral("EXPIRE"), key.toUtf8(),

@@ -71,11 +71,20 @@ if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
     target_include_directories(SynQtProviders PRIVATE "${HIREDIS_INCLUDE_DIR}")
     target_link_libraries(SynQtProviders PRIVATE "${HIREDIS_LIBRARY}")
     target_compile_definitions(SynQtProviders PRIVATE SYNQT_HAVE_HIREDIS)
-    find_path(HIREDIS_SSL_INCLUDE_DIR hiredis/ssl.h)
+    # OpenSSL is linked directly as well as through hiredis_ssl: the provider builds its own
+    # context to check the server's name, which hiredis does not (see
+    # RedisCacheProvider::startTls).
+    find_path(HIREDIS_SSL_INCLUDE_DIR hiredis/hiredis_ssl.h)
     find_library(HIREDIS_SSL_LIBRARY hiredis_ssl)
-    if(HIREDIS_SSL_INCLUDE_DIR AND HIREDIS_SSL_LIBRARY)
-        target_link_libraries(SynQtProviders PRIVATE "${HIREDIS_SSL_LIBRARY}")
+    find_package(OpenSSL QUIET)
+    if(HIREDIS_SSL_INCLUDE_DIR AND HIREDIS_SSL_LIBRARY AND OpenSSL_FOUND)
+        target_link_libraries(SynQtProviders PRIVATE
+            "${HIREDIS_SSL_LIBRARY}" OpenSSL::SSL OpenSSL::Crypto)
         target_compile_definitions(SynQtProviders PRIVATE SYNQT_HAVE_HIREDIS_SSL)
+        message(STATUS "SynQt: redis TLS enabled (hiredis_ssl and OpenSSL found)")
+    else()
+        message(STATUS "SynQt: redis TLS disabled (hiredis_ssl or OpenSSL not found); "
+                       "a provider with tls: true refuses to connect")
     endif()
     message(STATUS "SynQt: redis cache provider enabled (hiredis found)")
 else()

@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The real database, cache and document engines the M9 provider proofs need, plus the QMYSQL
-# plugin rebuilt against MariaDB Connector/C. Linux only and best effort. An engine that does
-# not come up leaves its proof skipping. Results reach the calling job through GITHUB_ENV.
+# The real database, cache and document engines the M9 provider proofs need, each answering
+# plaintext and TLS, plus the QMYSQL plugin rebuilt against MariaDB Connector/C. Linux only
+# and best effort. An engine that does not come up leaves its proof skipping. Results reach
+# the calling job through GITHUB_ENV.
 
 name: Live provider engines
 description: Start the throwaway engines the live provider proofs need, and build QMYSQL against Connector/C
@@ -60,57 +61,12 @@ runs:
           echo "QT_PLUGIN_PATH=$HOME/.cache/synqt-qmysql" >> "$GITHUB_ENV"
         fi
 
-    # Plain `docker run` rather than a `services:` block, which a macOS or Windows job cannot
-    # declare. SYNQT_TEST_* is exported only for an engine that answered.
+    # The same script a workstation runs; it exports SYNQT_TEST_* only for engines that answer.
     - name: Start throwaway engines for the live provider proofs (best effort)
       if: runner.os == 'Linux'
       shell: bash
       run: |
         set -u
-        docker run --rm -d --name synqt-pg -e POSTGRES_PASSWORD=synqt \
-            -e POSTGRES_USER=synqt -e POSTGRES_DB=synqt -p 5432:5432 postgres:16 || true
-        docker run --rm -d --name synqt-redis -p 6379:6379 redis:7 || true
-        docker run --rm -d --name synqt-mongo -p 27017:27017 mongo:7 || true
-        # MariaDB, never Oracle's image. The provider is built against Connector/C.
-        docker run --rm -d --name synqt-mysql -e MARIADB_ROOT_PASSWORD=synqt \
-            -e MARIADB_USER=synqt -e MARIADB_PASSWORD=synqt -e MARIADB_DATABASE=synqt \
-            -p 3306:3306 mariadb:11 || true
-
-        ready() {  # name, probe command
-          for _ in $(seq 1 30); do
-            if docker exec "$1" ${@:2} >/dev/null 2>&1; then return 0; fi
-            sleep 1
-          done
-          echo "::warning::$1 did not become ready; its live proof will skip"
-          return 1
-        }
-        if ready synqt-pg pg_isready -U synqt; then
-          {
-            echo "SYNQT_TEST_PG_HOST=127.0.0.1"
-            echo "SYNQT_TEST_PG_PORT=5432"
-            echo "SYNQT_TEST_PG_DB=synqt"
-            echo "SYNQT_TEST_PG_USER=synqt"
-            echo "SYNQT_TEST_PG_PASSWORD=synqt"
-          } >> "$GITHUB_ENV"
-        fi
-        if ready synqt-redis redis-cli ping; then
-          {
-            echo "SYNQT_TEST_REDIS_HOST=127.0.0.1"
-            echo "SYNQT_TEST_REDIS_PORT=6379"
-          } >> "$GITHUB_ENV"
-        fi
-        if ready synqt-mongo mongosh --quiet --eval 'db.runCommand({ping:1})'; then
-          {
-            echo "SYNQT_TEST_MONGO_URI=mongodb://127.0.0.1:27017"
-            echo "SYNQT_TEST_MONGO_DB=synqt"
-          } >> "$GITHUB_ENV"
-        fi
-        if ready synqt-mysql healthcheck.sh --connect; then
-          {
-            echo "SYNQT_TEST_MYSQL_HOST=127.0.0.1"
-            echo "SYNQT_TEST_MYSQL_PORT=3306"
-            echo "SYNQT_TEST_MYSQL_DB=synqt"
-            echo "SYNQT_TEST_MYSQL_USER=synqt"
-            echo "SYNQT_TEST_MYSQL_PASSWORD=synqt"
-          } >> "$GITHUB_ENV"
-        fi
+        tests/lib/live-engines.sh up ||
+            echo "::warning::the live engines did not start; their proofs will skip"
+        tests/lib/live-engines.sh github-env >> "$GITHUB_ENV"

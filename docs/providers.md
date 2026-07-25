@@ -1,26 +1,24 @@
 <!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Providers (backing entities with first party or third party engines)
+# Providers
 
-An entity already hides its backend behind a typed connect point. Consumers call
-`Store.insert(...)` and never know or touch what stores the data. This
-document makes that backend pluggable. An entity type defines a small backend facing
-interface, and a provider implements it for a specific engine. The default provider is
-SynQt's own embedded engine and needs no configuration. A third party engine
-(PostgreSQL, MySQL, MongoDB, Redis, or your own) is selected by one config value
-and masked behind the same entity, so the rest of the system, and its security
-model, do not change.
+An entity hides its backend behind a typed connect point: consumers call
+`Store.insert(...)` and never see what stores the data. Providers make that backend
+pluggable. An entity type defines a small interface toward its backend, and a provider
+implements it for one engine. The default provider is an embedded engine that needs no
+configuration. One config value selects a third party engine (PostgreSQL, MySQL, MongoDB,
+Redis, or your own) behind the same entity, and the rest of the system and its security
+model stay the same.
 
-The default is simple and configuration expands it. A database entity is one line. A
-database entity backed by a managed
-PostgreSQL cluster over verified TLS with a connection pool is a few more lines, in
-the same place, with nothing else in the system aware of the difference.
+A database entity takes one line. A database entity backed by a managed PostgreSQL cluster
+over verified TLS with a connection pool takes a few more lines in the same place, and
+nothing else in the system notices.
 
 ## The two faces of an entity
 
-Every service entity has two faces, the one its consumers call, and the one that
-talks to an engine.
+Every service entity has two faces: the one its consumers call, and the one that talks to
+an engine.
 
 ```mermaid
 flowchart LR
@@ -41,25 +39,23 @@ flowchart LR
   class PG,MG ext;
 ```
 
-The mesh face (inward) is the connect point, the typed contract other entities
-consume, carried over the authenticated mesh, authorized in every slot through
-`Caller`. This face never changes when you swap engines.
+- **The mesh face** is the connect point: the typed contract other entities consume,
+  carried over the authenticated mesh and authorized in every slot through `Caller`. It
+  never changes when you swap engines.
+- **The backend face** is the provider, which fulfills the connect point. Only the provider
+  knows the engine, holds the backend credentials, and opens a connection to an external
+  engine.
 
-The backend face (outward) is the provider, which is how the entity fulfills its
-connect points. The provider is the only part that knows the engine. It is the only
-holder of backend credentials and the only opener of a connection to an external
-engine.
-
-Because the entity sits between them, the engine is masked. A consumer cannot reach
-the engine, cannot see its credentials, and cannot bypass the `Caller` checks the
-entity enforces before any provider call. Swapping SQLite for MongoDB changes the
-provider and its config, and nothing else.
+The entity sits between the two, so the engine stays hidden. A consumer cannot reach the
+engine, see its credentials, or bypass the `Caller` checks the entity runs before any
+provider call. Swapping SQLite for MongoDB changes the provider and its config, and
+nothing else.
 
 ## Entity types define a provider family and interface
 
-Each entity type with an engine behind it targets a family of engines and defines one
-backend interface that every provider in that family implements. A provider declares
-which family it serves.
+Each entity type with an engine targets a family of engines, and defines one interface
+that every provider in the family implements. A provider declares which family it
+serves.
 
 ```mermaid
 flowchart TB
@@ -86,136 +82,133 @@ flowchart TB
   fam2 ~~~ fam3
 ```
 
-The interface is small, native, and the same for every provider in the family. The
-generic lifecycle (connect, disconnect, health) plus the family operations are all
-a provider must implement. The connect point Source calls the interface, never a
-specific engine, so the same `Store.qml` works whether the provider is SQLite or
-PostgreSQL.
+The interface is small, native C++, and the same for every provider in the family. A
+provider implements the lifecycle (connect, disconnect, health) and the family's
+operations, nothing more. The connect point Source calls the interface, never a specific
+engine, so the same `Store.qml` works with SQLite or PostgreSQL.
 
-Family interfaces (illustrative shapes, and the exact C++ signatures live in the
-framework headers):
+The family interfaces (illustrative; the exact C++ signatures are in the framework
+headers):
 
-- Persistence (relational): `connect()`, `health()`, `query(sql, params) -> rows`,
-  `exec(sql, params) -> affected/id`, `begin()/commit()/rollback()`,
-  `migrate(steps)`. Always parameterized. The interface takes parameters
-  separately so a provider can never be handed concatenated SQL.
-- Document: `connect()`, `health()`, `insert(collection, doc)`,
+- **Persistence (relational):** `connect()`, `health()`, `query(sql, params) -> rows`,
+  `exec(sql, params) -> affected/id`, `begin()/commit()/rollback()`, `migrate(steps)`.
+  Always parameterized: parameters arrive separately, so a provider never receives
+  concatenated SQL.
+- **Document:** `connect()`, `health()`, `insert(collection, doc)`,
   `find(collection, filter, options) -> docs`, `update(collection, filter, change)`,
   `remove(collection, filter)`.
-- Cache: `connect()`, `health()`, `get(key)`, `set(key, value, ttl)`, `del(key)`,
-  `incr(key)`, `expire(key, ttl)`. A TTL of zero or less means no expiry, on `expire` as
-  well as on `set`. It is written down because it reads two ways and the engines disagree.
-  Redis takes `EXPIRE key 0` as "already expired" and deletes the key, so a provider
-  wrapping it has to say `PERSIST` instead. A provider that got this wrong would make the
-  same line of application QML keep a value forever behind one engine and drop it behind
-  another, which is the one thing swapping a provider may not do.
+- **Cache:** `connect()`, `health()`, `get(key)`, `set(key, value, ttl)`, `del(key)`,
+  `incr(key)`, `expire(key, ttl)`. A TTL of zero or less means no expiry, for `expire` as
+  well as `set`. This is spelled out because engines disagree: Redis treats
+  `EXPIRE key 0` as "already expired" and deletes the key, so a Redis provider must send
+  `PERSIST` instead. Otherwise the same line of QML would keep a value forever behind one
+  engine and drop it behind another, which swapping a provider must never do.
 
-The entity's QML never holds the interface itself. Each type exposes one helper,
-injected into every owned connect point Source by the entity runtime: `Db` for
-persistence, `Docs` for document, `Cache` for cache, and, outside the provider
-families, `Jobs` for a jobs entity. The helper forwards to whichever provider the
-config selected, which is why the Source never names an engine. (`Http` and `Api` are
-helpers too, but they come from the entity's
+The entity's QML never holds the interface. The runtime gives every owned connect point
+Source one helper per type: `Db` for persistence, `Docs` for documents, `Cache` for
+caches, and, outside the provider families, `Jobs` for a jobs entity. The helper forwards
+to whichever provider the config selected, so the Source never names an engine. (`Http`
+and `Api` are helpers too, but the entity's
 [`network:` block](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it)
-rather than from its type, because what an entity may reach is a deployment's decision.)
-Every member of every helper is listed under [the type
-helpers](runtime-api.md#service-the-type-helpers).
+grants them, not its type, because what an entity may reach is a deployment decision.)
+[The type helpers](runtime-api.md#service-the-type-helpers) lists every member of every
+helper.
 
 ## Bundled providers and how each reaches its engine
 
-SynQt bundles providers across the families. They differ in how they reach the
-engine, and the documentation is explicit about it because it affects the build and
-the trust model.
+SynQt bundles providers for every family. They reach their engines in different ways,
+which affects the build and the trust model, so this section spells it out.
 
-Relational providers map onto Qt SQL driver plugins. Qt ships driver plugins for
-PostgreSQL (QPSQL), MySQL and MariaDB (QMYSQL), Oracle (QOCI), ODBC (QODBC), DB2
-(QDB2), InterBase and Firebird (QIBASE), Mimer (QMIMER), and SQLite (QSQLITE). Two
-facts from the Qt SQL driver documentation drive SynQt's defaults:
+Relational providers use Qt SQL driver plugins. Qt ships plugins for PostgreSQL (QPSQL),
+MySQL and MariaDB (QMYSQL), Oracle (QOCI), ODBC (QODBC), DB2 (QDB2), InterBase and Firebird
+(QIBASE), Mimer (QMIMER) and SQLite (QSQLITE). Two facts from the Qt SQL driver
+documentation set SynQt's defaults:
 
-- SQLite is the in process database with the best test coverage and support on all
-  platforms, and it is the one driver that is always usable straight out of a binary
-  Qt build. So SQLite is the default relational provider, with zero configuration, no
-  external engine, and no extra build step.
-- The other relational drivers need two things SynQt cannot supply for you, the
-  engine's client library on the machine, and a driver plugin that loads against it.
-  A binary Qt build ships more plugin files than SQLite (the pinned Linux kit also
-  carries QPSQL, QMYSQL, QODBC, QOCI, QIBASE, and QMIMER), but a plugin file being
-  present is not the same as a plugin that loads, because each is bound to the client
-  library it was built against. PostgreSQL usually works, because the shipped QPSQL
-  loads against a normally installed libpq. MySQL does not, and the reason is the
-  licensing one.
+- **SQLite always works.** It is the in process database with the best test coverage and
+  platform support, and the only driver that always works straight from a binary Qt
+  build. So it is the default relational provider: no configuration, no external engine,
+  no extra build step.
+- **Every other driver needs a client library and a matching plugin.** SynQt cannot supply
+  the engine's client library on the machine, or a plugin that loads against it. A binary
+  Qt build ships more plugin files than SQLite (the pinned Linux kit also has QPSQL,
+  QMYSQL, QODBC, QOCI, QIBASE and QMIMER), but a plugin file that exists may still fail to
+  load, because each is bound to the client library it was built against. PostgreSQL
+  usually works, because the shipped QPSQL loads against a normal libpq install. MySQL
+  does not, for licensing reasons.
 
-Qt's prebuilt QMYSQL is linked against Oracle's `libmysqlclient`, using its versioned
-symbols. SynQt cannot use that plugin, on two counts at once:
+Qt's prebuilt QMYSQL links against Oracle's `libmysqlclient` and uses its versioned
+symbols. SynQt cannot use that plugin, for two reasons:
 
-- It cannot be conveyed. `libmysqlclient` is GPLv2 only, which is license
-  incompatible with the LGPLv3 Qt modules in the same entity, so an entity linking
-  both cannot be distributed at all (see [licensing](licensing.md)).
-- It does not work anyway. The versioned symbols it imports are Oracle's, and MariaDB
-  Connector/C does not export them, so pointing the shipped plugin at Connector/C
-  fails to load rather than falling back. Qt then reports only `Driver not loaded`,
-  naming nothing.
+- **It cannot be distributed.** `libmysqlclient` is GPLv2 only, which is incompatible with
+  the LGPLv3 Qt modules in the same entity, so an entity linking both cannot legally be
+  distributed at all (see [licensing](licensing.md)).
+- **It would not work anyway.** It imports Oracle's versioned symbols, which MariaDB
+  Connector/C does not export, so pointing the shipped plugin at Connector/C fails to
+  load. Qt then reports only `Driver not loaded`, without naming the cause.
 
 So a `mysql` provider needs the QMYSQL plugin rebuilt against MariaDB Connector/C
-(LGPLv2.1), which is the licensing correct client and the one a SynQt deployment may
-ship. `synqt build` does not do this for you. It is a one time step per machine, and
+(LGPLv2.1), the client whose license lets a SynQt deployment ship it. `synqt build` does not
+do this for you. It is a one time step per machine, done by
 [`tools/qmysql-plugin/build-qmysql-plugin.sh`](https://github.com/Kidev/SynQt/blob/main/tools/qmysql-plugin/build-qmysql-plugin.sh)
-in the SynQt repository does it:
+in the SynQt repository:
 
 ```sh
 tools/qmysql-plugin/build-qmysql-plugin.sh
 export QT_PLUGIN_PATH="$HOME/.cache/synqt-qmysql"
 ```
 
-It needs the Qt sources for your pinned version (the installer's Sources component)
-and Connector/C's headers and library, it refuses to build against Oracle's client,
-and it checks the linkage of what it produced before installing it. `synqt doctor`
-reports the plugin state for every SQL backed provider entity in your project.
+The script needs the Qt sources for your pinned version (the installer's Sources
+component) and Connector/C's headers and library. It refuses to build against Oracle's
+client, and checks the result's linkage before installing it. `synqt doctor` reports the
+plugin state for every SQL backed entity in your project.
 
-That build decides how the `mysql` provider asks for TLS. A Connector/C plugin has no
-ssl mode option at all (Qt compiles the one it has
-out for that client), and the way TLS is turned on is by naming a CA. So any
-`sslmode` other than `disable` needs `ca_cert`, and the provider refuses to connect
-without it rather than opening the plaintext connection the driver would otherwise
-have given you. The certificate check that CA enables covers the host name too, so
-`verify-ca` is honoured at least as strictly as `verify-full`, never more loosely.
+That build decides how the `mysql` provider requests TLS. A Connector/C plugin has no SSL
+mode option (Qt compiles it out for that client); naming a CA is what turns TLS on. So any
+`sslmode` other than `disable` needs `ca_cert`, and without it the provider refuses to
+connect instead of silently opening a plaintext connection. The certificate check the CA
+enables also covers the host name, so `verify-ca` is at least as strict as `verify-full`,
+never looser.
 
-The document and cache providers ask for TLS in their own engine's terms, and each
-checks that it got it. `tls: true` on the `redis` provider upgrades the connection
-before anything is sent, verifying the server against `ca_cert` (or the system trust
-store when no CA is named). A build without `hiredis_ssl`, or a server that offers no
-TLS, is a refused connection with a reason, never a plaintext one. `tls` defaults to
-true, so a development engine you started on this machine with no certificate is the
-one case that needs a line. Write `tls: false` next to it, which the release build then
-refuses to accept for anything but a loopback host. `tls: true` on the
-`mongodb` provider is checked against the connection string the driver is
-handed. A `uri` that does not enable TLS is refused, and so is one that turns the
-certificate check back off with `tlsInsecure`, `tlsAllowInvalidCertificates` or
-`tlsAllowInvalidHostnames`. In both cases what the entity claims and what goes on the
-wire have to be the same thing, or the claim is worse than nothing.
+The document and cache providers request TLS in their engine's own terms, and each checks
+that it got it:
 
-Document and cache providers wrap an external client library, because Qt has no
-official MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client,
-and the Redis provider wraps a Redis client (or speaks RESP over Qt Network). These
-client libraries are pulled through the pinned vcpkg baseline and reviewed. SynQt wraps
-a maintained client behind the entity rather than reimplementing the engine, so a Mongo
-backed entity leaves the rest of the system speaking no Mongo at all.
+- **`redis`:** `tls: true` upgrades the connection before anything is sent, verifying the
+  server against `ca_cert` (or the system trust store when no CA is named) and checking
+  that its certificate names the `host` you wrote, as a DNS name or, for an address, an IP
+  entry. A build without `hiredis_ssl`, or a server that offers no TLS, gets a refused
+  connection with a reason, never a plaintext one. `tls` defaults to true, so only a
+  development engine on your machine without a certificate needs a line: write
+  `tls: false`, which a release build accepts only for a loopback host.
+- **`mongodb`:** `tls: true` is checked against the connection string handed to the
+  driver. A `uri` that does not enable TLS is refused, and so is one that turns off the
+  certificate check with `tlsInsecure`, `tlsAllowInvalidCertificates` or
+  `tlsAllowInvalidHostnames`.
 
-The embedded defaults (SQLite for persistence, in memory for the cache and for
-documents) need no engine and no extra build, which is why they are the defaults and
-why a fresh project runs with none of this configured.
+In both cases, what the entity claims must match what goes on the wire; a false claim is
+worse than none.
 
-They are not all the same promise. SQLite writes a file, so a relational entity on the
-default keeps what it is given across a restart. The other two hold what they are
-given in the entity's own memory. The cache is bounded and is meant to forget, and the
-document store is neither, so it holds everything until the process stops and then holds
-none of it. Move a document entity onto `mongodb` before its data is worth keeping.
-`synqt build` names every one still on the embedded default.
+Document and cache providers wrap an external client library, because Qt has no official
+MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client, and the Redis
+provider wraps a Redis client (or speaks RESP over Qt Network). These libraries come
+through the pinned vcpkg baseline and are reviewed. SynQt wraps a maintained client behind
+the entity instead of reimplementing the engine, so the rest of the system never speaks
+Mongo.
+
+The embedded defaults (SQLite for persistence, memory for the cache and for documents)
+need no engine and no extra build. That is why they are the defaults, and why a new
+project runs with none of this configured.
+
+They do not promise the same thing. SQLite writes a file, so a relational entity on the
+default keeps its data across a restart. The other two keep data in the entity's memory.
+The cache is bounded and meant to forget. The document store is unbounded, keeps
+everything until the process stops, then loses it all. Move a document entity onto
+`mongodb` before its data matters. `synqt build` names every entity still on the embedded
+default.
 
 ## Selecting a provider: graduated configuration
 
-Default. A relational entity with no provider line uses the embedded SQLite
-provider. This is the common case and needs nothing more.
+**Default.** A relational entity with no provider line uses the embedded SQLite provider.
+This is the common case and needs nothing more.
 
 ```yaml
 entities:
@@ -227,8 +220,8 @@ entities:
       busy_timeout_ms: 5000
 ```
 
-Expanded, third party relational. Point the same entity at PostgreSQL. The connect
-points, the contracts, and every consumer stay identical.
+**A third party relational engine.** Point the same entity at PostgreSQL. The connect
+point, the contract and every consumer stay the same.
 
 ```yaml
 entities:
@@ -246,8 +239,7 @@ entities:
       pool_size: 8
 ```
 
-Expanded, document engine. A different type, a third party engine, same
-masking.
+**A document engine.** A different type and a third party engine, hidden the same way.
 
 ```yaml
 entities:
@@ -260,7 +252,7 @@ entities:
       ca_cert: certs/mongo-ca.pem
 ```
 
-Expanded, cache engine.
+**A cache engine.**
 
 ```yaml
 entities:
@@ -275,17 +267,16 @@ entities:
       ca_cert: certs/redis-ca.pem
 ```
 
-The pattern is uniform. `provider.name` names the engine, the rest of the
-`provider` section carries the connection, and secrets are `env:` references resolved
-only on that entity.
-Going from the default to a managed third party engine touches one entity block and
-nothing else in the system.
+The pattern is always the same: `provider.name` names the engine, the rest of the
+`provider` section holds the connection, and secrets are `env:` references resolved only
+on that entity. Moving from the default to a managed third party engine changes one
+entity block and nothing else.
 
 ## The request path through a provider
 
-Nothing about the mesh, the authorization, or the contract changes when a provider
-sits behind the entity. The provider is an internal call after the entity has
-already authenticated and authorized the caller.
+A provider behind the entity changes nothing about the mesh, the authorization or the
+contract. The entity calls the provider internally, after it has authenticated and
+authorized the caller.
 
 ```mermaid
 sequenceDiagram
@@ -303,60 +294,58 @@ sequenceDiagram
   E-->>B: items model updates (no refresh code)
 ```
 
-Two SynQt authorizations happen before the provider is ever called. The provider
-call to the engine is the entity's own authenticated, encrypted connection, with
-credentials only the entity holds.
+Two SynQt authorizations happen before the provider is called. The provider then reaches
+the engine over the entity's own authenticated, encrypted connection, with credentials
+only the entity holds.
 
 ## Writing a custom provider
 
-When no bundled provider fits (a niche engine, an in house store, a SaaS data API),
+When no bundled provider fits (a niche engine, an in-house store, a SaaS data API),
 implement the family interface yourself.
 
 > [!TIP]
-> This section is the reference. For the same thing built step by step, with two complete
-> adaptors, see the [Advanced tutorials](tutorial-advanced.md):
-> [a database of your own](tutorial-advanced-database.md) puts a relational entity in
-> front of an engine reached through a Qt SQL driver, and
-> [a cache of your own](tutorial-advanced-cache.md) writes an engine's wire protocol by
-> hand where Qt has no driver at all.
+> This section is the reference. For a step by step version with two complete adaptors,
+> see the [Advanced tutorials](tutorial-advanced.md):
+> [a database of your own](tutorial-advanced-database.md) puts a relational entity in front
+> of an engine reached through a Qt SQL driver, and
+> [a cache of your own](tutorial-advanced-cache.md) implements an engine's wire protocol by
+> hand where Qt has no driver.
 > [An identity service of your own](tutorial-advanced-identity.md) covers the one
 > customization that is not a provider.
 
-`synqt add provider MyEngine --family relational` writes the whole shape below into
-`providers/custom/myengineprovider.cpp`. The three steps are what it wrote and why.
+`synqt add provider MyEngine --family relational` writes the skeleton below into
+`providers/custom/myengineprovider.cpp`. The three steps explain what it wrote and why.
 
-1. Implement the family interface (for example `IPersistenceProvider`) in a small
-   native module in the entity, including the lifecycle (connect, disconnect,
-   health), the operations, and the error mapping the interface expects.
-2. Register it under a name, with the macro for its family. This is what makes the
-   name selectable, and it runs at static initialization, so linking the file into
-   the entity is all it takes:
+1. Implement the family interface (for example `IPersistenceProvider`) in a small native
+   module in the entity: the lifecycle (connect, disconnect, health), the operations, and
+   the error mapping the interface expects.
+2. Register it under a name with its family's macro. Registration makes the name
+   selectable, and it runs during static initialization, so linking the file into the
+   entity is enough:
 
    ```cpp
    SYNQT_REGISTER_PERSISTENCE_PROVIDER("MyEngine", MyEngineProvider)
    ```
 
-   (`SYNQT_REGISTER_CACHE_PROVIDER` and `SYNQT_REGISTER_DOCUMENT_PROVIDER` for the
-   other two families.) The name here is the bare one, with no `custom:` prefix.
-3. Select it with `provider.name: custom:MyEngine`, with the rest of the `provider` section
-   carrying settings your provider reads from its `ProviderConfig`. That selection is
-   also what compiles `providers/custom/` into the entity, so the registration above
-   runs. There is no CMake to edit. The build writes `generated/synqt.cmake` from the
-   topology every time, and the project's own root `CMakeLists.txt` does nothing but
-   include it.
+   (`SYNQT_REGISTER_CACHE_PROVIDER` and `SYNQT_REGISTER_DOCUMENT_PROVIDER` for the other
+   two families.) Register the bare name, without the `custom:` prefix.
+3. Select it with `provider.name: custom:MyEngine`. The rest of the `provider` section
+   holds settings your provider reads from its `ProviderConfig`. That selection also
+   compiles `providers/custom/` into the entity, so the registration runs. There is no
+   CMake to edit: the build writes `generated/synqt.cmake` from the topology every time,
+   and the project's root `CMakeLists.txt` only includes it.
 
-`custom:` is a namespace. Only a name carrying it is looked up among
-your registrations, so a custom provider can never shadow a bundled one. `sqlite`
-always means the bundled SQLite provider, whatever you register. If the name selects
-nothing, the entity refuses to start and says which providers the family does have,
-rather than starting with a connect point whose every call would fail.
+`custom:` is a namespace: only names that carry it are looked up among your
+registrations, so a custom provider can never shadow a bundled one. `sqlite` always means
+the bundled SQLite provider, whatever you register. If the name selects nothing, the
+entity refuses to start and lists the providers the family has, instead of starting with a
+connect point whose every call would fail.
 
-The contract your provider must honor is documented with the interface. Parameters
-are passed separately (never concatenate), errors are reported through the
-interface's error type (never thrown across the boundary), and `health()` reports
-readiness so the entity can report not ready and retry rather than crash. A custom
-provider is your code, so it is reviewed like any entity code. The framework does
-not weaken its boundary for it.
+The interface documents the contract your provider must follow: parameters are passed
+separately (never concatenate), errors go through the interface's error type (never
+thrown across the boundary), and `health()` reports readiness, so the entity can report
+not ready and retry instead of crashing. A custom provider is your code, so review it
+like any entity code; the framework does not weaken its boundary for it.
 
 ## CLI support
 
@@ -370,44 +359,42 @@ synqt add provider <name> --family <fam>  # Scaffold a custom provider skeleton 
                                            # implements a family interface.
 ```
 
-When you select a provider that needs a native client library or a Qt SQL driver
-plugin, the build resolves it. For a relational provider it builds or locates the
-matching Qt SQL driver plugin (SQLite needs nothing, it is bundled). For a document
-or cache provider it adds the pinned vcpkg client library. `synqt doctor` reports
-any provider whose engine client or driver plugin is missing, before you run.
+When you select a provider that needs a native client library or a Qt SQL driver plugin,
+the build resolves it. For a relational provider, it builds or finds the matching Qt SQL
+driver plugin (SQLite needs nothing; it is bundled). For a document or cache provider, it
+adds the pinned vcpkg client library. `synqt doctor` reports any provider whose engine
+client or driver plugin is missing, before you run.
 
 ## Security of third party backends
 
-Adding an external engine adds a connection that leaves the entity, so the security
-model extends to cover it. The full treatment is in [security](security.md). The
-provider specific points:
+An external engine adds a connection that leaves the entity, so the security model covers
+it too. [Security](security.md) has the full treatment. For providers:
 
-- The entity is the trust boundary, and masking is a security property. The engine
-  is reachable only through the entity, which enforces every `Caller` check before
-  any provider call. An engine with coarser authorization than SynQt is fronted by
-  the entity's fine grained checks. No mesh consumer, and certainly no browser, ever
-  reaches the engine or its credentials.
-- Credentials are `env:` only, on that entity only, never in `synqt.yaml`, never in
-  a client target, never logged. The build rejects a client target that references a
+- **The entity is the trust boundary, and hiding the engine is a security property.** Only
+  the entity reaches the engine, and it runs every `Caller` check before any provider
+  call, so its fine grained checks sit in front of an engine whose own authorization may
+  be coarser. No mesh consumer, and no browser, ever reaches the engine or its
+  credentials.
+- **Credentials are `env:` only,** on that entity only: never in `synqt.yaml`, never in a
+  client target, never logged. The build rejects a client target that references a
   provider secret.
-- The connection to an external engine uses TLS with verification. Relational
-  providers set the engine's verify mode to full (`sslmode: verify-full` or the
-  driver equivalent) against a configured CA. Document and cache providers enable
-  TLS and verify the engine certificate. An unverified or plaintext connection to an
-  external engine is allowed only in dev on localhost, and the build refuses it in
-  release.
-- The engine is segmented like any sensitive entity, on a private address reachable
-  only by its entity, never public, never the mesh's job to expose.
-- Provider client libraries are pinned through vcpkg and reviewed, part of the
-  supply chain discipline. A custom provider is reviewed as entity code.
+- **The connection to an external engine uses verified TLS.** Relational providers set the
+  engine's verify mode to full (`sslmode: verify-full` or the driver's equivalent) against
+  a configured CA. Document and cache providers enable TLS and verify the engine
+  certificate. An unverified or plaintext connection is allowed only in dev on localhost;
+  a release build refuses it.
+- **The engine sits on a private address** that only its entity can reach, like any
+  sensitive entity. It is never public, and the mesh never exposes it.
+- **Provider client libraries are pinned through vcpkg and reviewed,** like the rest of the
+  supply chain. A custom provider is reviewed like entity code.
 
 ## Why this design
 
-The entity model already promised that the contract is the stable boundary and the
-backend can change without touching consumers. Providers make that concrete. The
-same `store` entity can be SynQt's embedded SQLite during early development and a
-managed PostgreSQL or a MongoDB cluster in production, decided by one config value,
-with the mesh authentication, the `Caller` authorization, the data minimization, and
-the deny by default topology all unchanged. The embedded provider needs no
-configuration, and a third party engine is a provider selection plus a connection
-block, masked behind an entity that keeps the system's security model intact.
+In the entity model, the contract is the stable boundary, and the backend can change
+without touching consumers. Providers deliver on that. The same `store` entity can run on
+embedded SQLite during early development and on a managed PostgreSQL or MongoDB cluster in
+production, chosen by one config value. The mesh authentication, the `Caller`
+authorization, the contract's data minimization and the topology that denies by default
+all stay the same. The embedded provider needs no configuration; a third party engine
+needs a provider selection and a connection block, hidden behind an entity that keeps the
+security model intact.

@@ -231,6 +231,20 @@
       "test": "postgresRefusesPlaintextInRelease"
     },
     {
+      "id": "an-engine-certificate-for-another-host",
+      "what": "A release build's cache connection is intercepted by a server presenting a certificate the configured anchor signed, but for a different host. hiredis passes the host name as SNI and never compares it with the certificate, so any certificate that chains verified, and with no ca_cert the anchor is the system trust store: a certificate anyone can have issued for a domain of their own passed for the cache, and the cache password and every value went to it.",
+      "defended_by": "The Redis provider builds its own TLS context, verifying the chain and the configured host (an address against the certificate's IP entries, a name against its DNS entries, no partial wildcards) before hiredis sends a byte. The relational engines are held to the same check by the driver, and each is proven against a live server reached through an address its certificate does not name.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "redisVerifiedTlsChecksItsAnchorAndName"
+    },
+    {
+      "id": "an-engine-certificate-from-another-ca",
+      "what": "A database, cache or document engine is impersonated by a server whose certificate was issued by a CA other than the one the provider was configured to trust.",
+      "defended_by": "Every external provider verifies the engine against its ca_cert in release, and each engine is proven live to refuse a certificate from a second CA that signed nothing it is given.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "postgresVerifiedTlsIsEncryptedAndChecksItsAnchorAndName"
+    },
+    {
       "id": "login-csrf",
       "what": "An attacker hands a victim a valid state and their own authorization code, so the victim ends up signed in as the attacker.",
       "defended_by": "The callback must carry the state cookie the login set in that same browser, compared in constant time.",
