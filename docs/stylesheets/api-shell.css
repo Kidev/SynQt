@@ -1,0 +1,49 @@
+/* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+   SPDX-License-Identifier: Apache-2.0
+
+   The C++ reference shell (/api/, overrides/api.html): the page whose entire
+   content is the generated Doxygen reference in a frame. Everything here exists
+   to give that frame the full width and the exact height left under the site
+   header, so the reference's own three column layout (tree, content, page
+   outline) gets the room it measures itself against, and so the shell page
+   itself never scrolls: the frame scrolls its own content, the way the
+   reference does when it is opened on its own.
+
+   The rules are scoped with `:has()` rather than a class on <body>: the shell is
+   one page among many in a single document that Material's instant navigation
+   reuses, so a marker set once on the document would outlive the page that set
+   it. `.md-content--api` is rendered by the template, so it is present exactly
+   while the shell is the page on screen. */
+
+/* Material centers the content column in a 61rem grid with a top margin. The
+   frame wants the window. */
+.md-main__inner:has(.md-content--api) {
+  max-width: none;
+  margin: 0;
+}
+
+.md-content--api {
+  /* The header is 4rem tall (the wordmark's height, see extra.css), and it is
+     the only other thing on the page, so this is the rest of the window. `dvh`
+     where it is supported, so a phone's retracting toolbar does not leave a
+     strip of page scrolling under the frame. */
+  height: calc(100vh - 4rem);
+  height: calc(100dvh - 4rem);
+  margin: 0;
+}
+
+.synqt-api__frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  /* The reference paints the site's own gradient inside the frame
+     (tools/docs-hooks/doxygen-synqt.css); this keeps the frame itself out of
+     the way while it loads rather than flashing white. */
+  background: transparent;
+  color-scheme: dark;
+}
+
+.synqt-api__noscript {
+  padding: 1rem;
+}

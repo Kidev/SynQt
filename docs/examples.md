@@ -715,7 +715,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            model: Server.Catalog.offers
+            model: Server.catalog.offers
             delegate: Text {
                 required property string title
                 required property int price

@@ -52,6 +52,7 @@ extra_css:
   - stylesheets/extra.css
   - stylesheets/home.css
   - stylesheets/download-modal.css
+  - stylesheets/api-shell.css
 
 # The "Download" nav entry below points at https://get.synqt.org/. That URL now
 # serves the installer script itself (for `curl | sh`), so the user-facing
@@ -59,6 +60,12 @@ extra_css:
 # nav link and opens a modal instead, falling back to the plain link with JS off.
 extra_javascript:
   - javascripts/download-modal.js
+  # Keeps the address bar, the browser tab and the frame on /api/ in step; see
+  # docs/api.md and overrides/api.html.
+  - javascripts/api-shell.js
+  # The home page's "What it looks like" project: pinning, the code glossary, and the
+  # dynamic hint under each file.
+  - javascripts/home-flow.js
 
 extra:
   generator: false
@@ -66,7 +73,8 @@ extra:
   # tab and a search result, where the bare site name says nothing about what SynQt is.
   tagline: Build complete web systems using QML
 
-# Generates the Doxygen C++ reference into the built site under /api/ (see
+# Generates the Doxygen C++ reference into the built site under /api/ref/, which the
+# shell page at /api/ (docs/api.md) shows in a frame, and rewrites its navigation (see
 # docs/api-reference.md). Skipped with a warning when doxygen is not installed.
 hooks:
   - tools/docs-hooks/doxygen.py
@@ -128,9 +136,11 @@ nav:
       - Pages from the edge:
           - Build it: tutorial-remote-pages.md
           - Lighter and live: tutorial-remote-pages-live.md
+          - Links that work: tutorial-remote-pages-urls.md
   - Framework:
       - Architecture: architecture.md
       - Programming model: programming-model.md
+      - Routes and URLs: routing.md
       - Remote pages: remote-pages.md
       - Entities: entities.md
       - Providers: providers.md
@@ -148,8 +158,9 @@ nav:
       - C++ API reference: api-reference.md
       - Browser coverage: browser-proofs.md
   # Straight into the generated Doxygen reference, so it is one click from every page
-  # rather than one click behind the page that introduces it. Absolute because the pages
-  # are generated into the built site by the hook above, not tracked as MkDocs sources
-  # (the same reason the Download entry below is absolute).
-  - C++ reference: https://synqt.org/api/
+  # rather than one click behind the page that introduces it. A real page of this site
+  # (docs/api.md), not an absolute link out of it: the reference is shown in a frame on
+  # that page, so this tab behaves like every other one, keeps its active state, and does
+  # not reload the header on the way in.
+  - C++ reference: api.md
   - Download: https://get.synqt.org/

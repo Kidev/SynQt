@@ -43,6 +43,22 @@ Emscripten:
 Resolution is cached and re runs only when `project.qt_version` or
 `build.client_threads` changes.
 
+The framework sources themselves are found separately from the toolchain, because the
+generated CMake includes them directly (`${SYNQT_ROOT}/cmake/SynQtContracts.cmake`, and the
+runtime libraries under `${SYNQT_ROOT}/src`). Running `synqt` from a SynQt checkout, or from
+an editable install of one, needs nothing: the root is derived from where the CLI itself
+sits. A standalone install that does not carry the framework sources, a released wheel or
+the frozen binary, does need to be told, with the `SYNQT_ROOT` environment variable:
+
+```sh
+export SYNQT_ROOT=/path/to/SynQt
+```
+
+Either way the root is validated before anything is generated, so a wrong one fails with
+`cannot find the SynQt framework sources under ...` rather than with a CMake error about a
+missing include much later. `SYNQT_ROOT` is baked into the generated `CMakeLists.txt` at
+scaffold time and can be overridden per build with `-DSYNQT_ROOT=...`.
+
 Provider dependencies. When an entity selects a non default provider (see
 [providers](providers.md)), its engine client is resolved as part of the build. A
 relational provider (PostgreSQL, MySQL, ODBC, Oracle) needs the matching Qt SQL

@@ -1,0 +1,44 @@
+{#-
+  SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+  SPDX-License-Identifier: Apache-2.0
+
+  The C++ reference shell (docs/api.md, published at /api/).
+
+  Doxygen generates the reference into /api/ref/. This page is the frame around
+  it: an ordinary MkDocs Material page whose whole content is that reference in
+  a full width iframe. The header, the tabs, the search, the repository widget
+  and the Download modal on this page are the site's own, rendered by the same
+  templates as every other page, so there is nothing left to reproduce and
+  nothing that can drift out of place. Because the shell is never reloaded while
+  a reader moves through the reference, the repository widget also animates in
+  once, as it does everywhere else, rather than on every page.
+
+  docs/javascripts/api-shell.js keeps the address bar, the document title and
+  the frame in step (`/api/?p=<page>.html#<anchor>`), and each generated page
+  redirects into this shell when it is opened on its own
+  (tools/docs-hooks/doxygen-header.html).
+
+  Two of base.html's blocks are re-declared: `container`, whose article body is
+  replaced by the frame, and `footer`, which is dropped so the frame can take
+  the full height below the header without the page itself scrolling.
+-#}
+{% extends "main.html" %}
+
+{% block container %}
+  <div class="md-content md-content--api" data-md-component="content">
+    <iframe
+      class="synqt-api__frame"
+      id="synqt-api-frame"
+      title="{{ page.title | striptags }}"
+      src="{{ 'api/ref/index.html' | url }}"
+    ></iframe>
+    <noscript>
+      <p class="synqt-api__noscript">
+        The C++ reference is at
+        <a href="{{ 'api/ref/index.html' | url }}">/api/ref/</a>.
+      </p>
+    </noscript>
+  </div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

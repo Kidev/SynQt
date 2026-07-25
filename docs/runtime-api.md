@@ -124,6 +124,8 @@ server-side and expires the credential. The session returns to `scopes.default`
 `Router` applies the `routes` list and the `router` block from config
 ([configuration](project-layout-and-config.md#router-and-routes-client-navigation)),
 resolves the current URL to a page component, and drives the browser's address bar.
+[Routes and URLs](routing.md) is the same subject written as prose rather than as the
+table below.
 It is the same object on a [native desktop build](desktop.md#navigating-without-an-address-bar),
 where an in-memory stack stands in for the address bar.
 

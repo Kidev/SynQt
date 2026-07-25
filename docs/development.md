@@ -122,17 +122,21 @@ layout the variable can be omitted. Each script configures with Ninja, builds, a
 
 Performance is measured, not assumed, because the client to edge path rides an officially
 unsupported transport. Each harness lives in its own directory (`transport`, `mesh`,
-`fanout`, `sessions`, `persistence`, `edge`, `client`, `capstone`) and writes a JSON result
-under [`benchmarks/results/`](https://github.com/Kidev/SynQt/tree/main/benchmarks/results), keyed by hostname, so a committed baseline fails review when a
-change regresses it. [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) describes each harness and how to run it,
+`fanout`, `sessions`, `persistence`, `edge`, `client`, `remote-pages`, `capstone`) and
+writes a JSON result under
+[`benchmarks/results/`](https://github.com/Kidev/SynQt/tree/main/benchmarks/results), keyed
+by hostname, so a committed baseline fails review when a change regresses it. [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) describes each harness and how to run it,
 including the ones that need a real display or a non sandboxed host.
 
 ## The documentation site (`docs/`)
 
 The site is MkDocs with the Material theme, configured in [`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml). [`overrides/`](https://github.com/Kidev/SynQt/tree/main/overrides)
-carries the theme partials that differ from stock Material, `docs/stylesheets` and
-`docs/javascripts` hold the brand styling and the download modal, and the SynQt QML lexer
-in [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt) colours the code samples. It is built and published by
+carries the theme partials that differ from stock Material (including `api.html`, the shell
+page that frames the generated C++ reference), `docs/stylesheets` and `docs/javascripts`
+hold the brand styling, the download modal, that shell's URL syncing, and the home page's
+"What it looks like" project, and the SynQt QML lexer in
+[`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt)
+colours the code samples. It is built and published by
 [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) on a push to `main`.
 
 ## Continuous integration ([`.github/workflows/`](https://github.com/Kidev/SynQt/tree/main/.github/workflows))

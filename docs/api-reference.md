@@ -4,7 +4,7 @@
 # C++ API reference
 
 The generated class and member reference for SynQt's C++ runtime lives at
-[**/api/**](/api/index.html){ target=_blank }. It is produced by Doxygen from the
+[**/api/**](api.md). It is produced by Doxygen from the
 headers in [`src/`](https://github.com/Kidev/SynQt/tree/main/src), so it never drifts from the code.
 
 This is the reference for working on SynQt itself, or for extending it from C++ (a custom
@@ -33,14 +33,14 @@ is the state it keeps, not the state it exposes.
 ### Finding a class from a QML name
 
 An application knows `Server` and `Caller`, not `ServerAccessor` and the class that binds
-`Client`. The [QML accessors](/api/qmlaccessors.html){ target=_blank } section of the
+`Client`. The [QML accessors](api.md?p=qmlaccessors.html) section of the
 reference bridges the two, with a page per accessor:
-[App](/api/qmlapp.html){ target=_blank },
-[Server](/api/qmlserver.html){ target=_blank },
-[Session](/api/qmlsession.html){ target=_blank },
-[Router](/api/qmlrouter.html){ target=_blank },
-[Caller](/api/qmlcaller.html){ target=_blank }, and
-[Client](/api/qmlclient.html){ target=_blank }. Each says what the name is, which class
+[App](api.md?p=qmlapp.html),
+[Server](api.md?p=qmlserver.html),
+[Session](api.md?p=qmlsession.html),
+[Router](api.md?p=qmlrouter.html),
+[Caller](api.md?p=qmlcaller.html), and
+[Client](api.md?p=qmlclient.html). Each says what the name is, which class
 implements it, and which side of the trust boundary it links into. The members themselves
 are on [runtime API](runtime-api.md), written for the QML that calls them.
 
@@ -48,9 +48,17 @@ are on [runtime API](runtime-api.md), written for the QML that calls them.
 
 The published site includes the reference: `mkdocs build` runs Doxygen through
 [`tools/docs-hooks/doxygen.py`](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen.py) and writes
-it into the site under [`/api/`](/api/index.html). Doxygen is optional for a local site
-build; without it every other page still builds and the hook logs that the reference was
-skipped.
+it into the site under `/api/ref/`, which [`/api/`](api.md) shows in a frame. Doxygen is
+optional for a local site build; without it every other page still builds and the hook
+logs that the reference was skipped.
+
+`/api/` is an ordinary page of this site ([`docs/api.md`](https://github.com/Kidev/SynQt/blob/main/docs/api.md)
+with [`overrides/api.html`](https://github.com/Kidev/SynQt/blob/main/overrides/api.html)),
+so the header, the tabs, the search and the Download button around the reference are the
+site's own rather than a copy of them, and they are drawn once for a whole visit through
+the reference instead of on every page. The address bar follows the page you are on
+(`/api/?p=classSynQt_1_1WebEdge.html`), and a generated page opened on its own redirects
+into that shell, so links into the reference keep working wherever they come from.
 
 Everything else lives in [`Doxyfile`](https://github.com/Kidev/SynQt/blob/main/Doxyfile) at the repository root:
 the input set, the Qt macro handling, and the theme. The pages are styled with
@@ -61,14 +69,18 @@ the primary navigation and carries the search box, with the page outline on the 
 top of it sit a
 [SynQt brand layer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-synqt.css),
 a [custom header](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-header.html)
-carrying this site's header menu across the top, and a
+that joins each page to the shell page above, and a
 [custom footer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-footer.html)
 carrying the license instead of a generator credit.
 
-The header menu is a static copy of the six top-level entries in
-[`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml), because Doxygen
-generates those pages and never sees the MkDocs template. Renaming or reordering a
-top-level entry means editing the header to match.
+The two navigation panels each have one job, which the hook enforces after Doxygen runs.
+The tree on the left lists pages and only pages: Doxygen also files a class's member
+sections there, which are anchors in the page that class already occupies, so entries side
+by side in the tree meant two different things and the same content appeared in both
+panels. The outline on the right lists the sections of the page you are on, which is where
+those members are now. The hook also stops the tree from remembering a selection: Doxygen
+caches the last entry clicked and reselects it on every later page, which left the
+highlight stuck on whatever was opened first.
 
 To generate it on its own, into `build/apidocs/html/index.html`:
 

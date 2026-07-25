@@ -418,11 +418,12 @@
   top: calc(100% + .5rem);
   transform: translateX(-50%);
   width: max-content;
-  /* Wide enough to hold the longest snippet line at the .68rem code size, so
-     the tooltip sizes to its content and never has to scroll. width:max-content
-     makes the box exactly as wide as the widest line (up to this cap), so as
-     long as no line exceeds this, the code pre below has nothing to overflow. */
-  max-width: 24rem;
+  /* Wide enough to hold the longest line of these files at the code size below, so
+     the tooltip sizes to its content and never has to scroll sideways.
+     width:max-content makes the box exactly as wide as the widest line (up to this
+     cap), so as long as no line exceeds this, the code pre below has nothing to
+     overflow. */
+  max-width: 27rem;
   background: #0d1224;
   border: 1px solid rgba(255, 255, 255, .15);
   border-radius: .3rem;
@@ -457,24 +458,12 @@
   visibility: visible;
 }
 
-.synqt-flow__tooltip strong {
-  display: block;
-  color: #fff;
-  font-size: .65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  margin-bottom: .5rem;
-}
-
-/* The snippet is real Pygments output (same "qml" lexer and span classes as
-   every fenced ```qml block elsewhere on the site, generated once with
-   `pygments.highlight(...)` and pasted in as static HTML, since this is raw
-   content, not a markdown fence), so token colors come for free from
-   Material's own `--md-code-hl-*` variables. Only the block level styling
-   (background, margins, the base/fallback text color for tokens Pygments
-   doesn't color, like plain identifiers) needs resetting here, to fit a
-   small tooltip instead of a full width page code block. */
+/* The snippets are fenced code blocks in docs/index.md, so they go through the
+   same SynQt lexers as every other block on the site (mkdocs.yml routes ```qml
+   to synqt-qml, and ```syn is the contract language) and their token colors come
+   from Material's own `--md-code-hl-*` variables. Only the block level styling
+   (background, margins, the base color for tokens the lexer leaves plain) is
+   reset here, to fit a small card instead of a full width page block. */
 .synqt-flow__tooltip .highlight {
   margin: 0;
 }
@@ -482,12 +471,12 @@
 .synqt-flow__tooltip pre {
   margin: 0;
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: .68rem;
+  font-size: .62rem;
   line-height: 1.5;
   white-space: pre;
   /* Material's base `.highlight pre` is `overflow:auto`, which would add a
      horizontal scrollbar the moment a line reached the tooltip's max-width.
-     The snippets are sized to fit that width, so nothing needs to scroll. */
+     The files are sized to fit that width, so nothing needs to scroll. */
   overflow: visible;
 }
 
@@ -553,7 +542,7 @@
   background: #0d1224;
   border: 1px solid rgba(255, 255, 255, .15);
   border-radius: .3rem;
-  padding: .2rem .8rem;
+  padding: .6rem .8rem;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -578,7 +567,7 @@
   margin: 0;
   background: none;
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: .68rem;
+  font-size: .62rem;
   line-height: 1.5;
   overflow: visible;
 }
@@ -588,10 +577,111 @@
   padding: 0;
 }
 
-/* No copy button inside the peek; it would sit over the first config line in
-   such a small card (the QML flow tooltips avoid this by being raw HTML). */
-.synqt-config__tooltip .md-clipboard {
+/* --- One file in a card: the head, the lines, and the hint under it ---------
+   Shared by the configuration card and the five file cards over the diagram, so
+   the whole section reads as one project rather than six unrelated popovers. */
+
+/* No copy button in these cards; at this size it sits over the first line of the
+   file. The files are here to be read, and each one is a page of the docs away
+   from being read in full. Both names are matched on purpose: Material moved the
+   button from `.md-clipboard` to `.md-code__button`, and a card that silently
+   grows a button back is worse than one redundant selector. */
+.synqt-flow__tooltip .md-clipboard,
+.synqt-flow__tooltip .md-code__button,
+.synqt-config__tooltip .md-clipboard,
+.synqt-config__tooltip .md-code__button {
   display: none;
+}
+
+.synqt-flow__tooltip strong,
+.synqt-config__tooltip strong {
+  color: #fff;
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+/* The file's own path, so each card says where in a project its code would live,
+   and the six of them together read as a directory listing. */
+.synqt-flow__path {
+  display: block;
+  margin: .1rem 0 .5rem;
+  color: #8f96c4;
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: .62rem;
+}
+
+/* One line of a file, wrapped by home-flow.js so it can be hovered. Block, not
+   inline, so the hover reaches the full width of the card rather than stopping
+   at the end of the text; the minimum height is one line box, which is what
+   keeps a blank line blank now that the newlines between lines are gone. */
+.synqt-code__line {
+  display: block;
+  min-height: 1.5em;
+  line-height: 1.5;
+  margin: 0 -.35rem;
+  padding: 0 .35rem;
+  border-left: 2px solid transparent;
+}
+
+/* Only a line that has something to say invites a hover, and only while the card
+   is pinned, since an unpinned card closes the moment the pointer leaves the
+   node it belongs to. */
+.synqt-pinned .synqt-code__line--gloss {
+  cursor: help;
+}
+
+.synqt-pinned .synqt-code__line--gloss:hover {
+  background: rgba(0, 166, 237, .12);
+  border-left-color: #00a6ed;
+}
+
+/* The state of the card, in a line: how to open it, and once open, what it can
+   do next. It is the same element that carries a line's explanation while that
+   line is hovered (home-flow.js), so the card never grows or shifts as the
+   pointer moves down the file. */
+.synqt-flow__hint {
+  margin: .5rem 0 0;
+  padding-top: .4rem;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+  color: #9aa0c8;
+  font-size: .6rem;
+  line-height: 1.4;
+  min-height: 2.4em;
+}
+
+.synqt-pinned .synqt-flow__hint {
+  color: #c3c9ec;
+}
+
+/* Pinned: the card stays open with the pointer somewhere else, and becomes
+   interactive so its lines can be hovered and its text selected. A tall file is
+   allowed to scroll here, which is the one place it can: an unpinned card cannot
+   be reached by the pointer at all. */
+.synqt-flow__hotspot.synqt-pinned .synqt-flow__tooltip,
+.synqt-config.synqt-pinned .synqt-config__tooltip {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 10;
+  max-height: 75vh;
+  overflow-y: auto;
+  border-color: rgba(0, 166, 237, .55);
+}
+
+.synqt-config.synqt-pinned .synqt-config__tooltip {
+  transform: translateX(-50%) translateY(0);
+}
+
+.synqt-config.synqt-pinned .synqt-config__trigger {
+  color: #fff;
+  border-color: #00a6ed;
+  background: rgba(0, 166, 237, .12);
+}
+
+.synqt-config.synqt-pinned .synqt-config__icon {
+  transform: rotate(90deg);
 }
 
 .synqt-flow__lines line {

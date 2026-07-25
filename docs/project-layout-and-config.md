@@ -420,7 +420,7 @@ under, and the remote-page palette; `routes` is a block sequence of path to page
 mappings, optionally scope gated. Both are top-level keys in `synqt.yaml`, siblings
 of `project` and `entities`, not nested under any `client` block. Together they are
 the route table the client's [`Router`](runtime-api.md#client-router) resolves every
-URL against.
+URL against; [routes and URLs](routing.md) is what that resolution does, end to end.
 
 ```yaml
 router:
