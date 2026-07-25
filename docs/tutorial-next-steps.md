@@ -34,7 +34,10 @@ Add to `database/Ledger.qml`:
 ```qml
 function saveCurrent(item, amount, bidder) {
     if (Caller.entity !== "web") return
-    Db.exec("INSERT INTO current(id, item, amount, bidder) VALUES(1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item, amount = excluded.amount, bidder = excluded.bidder", [item, amount, bidder])
+    Db.exec("INSERT INTO current(id, item, amount, bidder) VALUES(1, ?, ?, ?)"
+            + " ON CONFLICT(id) DO UPDATE SET item = excluded.item,"
+            + " amount = excluded.amount, bidder = excluded.bidder",
+            [item, amount, bidder])
 }
 
 function loadCurrent() {

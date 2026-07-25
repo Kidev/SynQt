@@ -260,3 +260,39 @@ body {
 .md-typeset table:not([class]) th:first-child code {
   white-space: nowrap;
 }
+
+/* Reserve the scrollbar's width on every page, whether or not that page scrolls.
+   Without this the header is a few pixels off between one page and the next: the
+   header row is centered inside `.md-grid`, so it is centered in the viewport
+   minus the scrollbar on a page long enough to scroll and in the full viewport on
+   one that is not. Nearly every page of the docs is long, but /api/ is exactly one
+   viewport tall (the reference scrolls inside its own frame, not in the shell), so
+   moving between it and any other page visibly shifted the logo, the tabs, the
+   search box and the repository widget sideways. The gutter is zero wide on a
+   platform with overlay scrollbars, where there was never a difference to correct. */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* --- Code blocks fit, rather than scroll ---------------------------------- */
+
+/* A code block that scrolls sideways hides the end of its lines behind a gesture,
+   and these are teaching examples where the comment at the end of the line is
+   often the point. Material's 61rem grid leaves about 76 monospace characters
+   between the two sidebars, which most blocks here exceed. Three changes together
+   make them fit: a wider grid, a slightly smaller block code size, and (as the
+   backstop for a narrow window, where no fixed size can win) wrapping instead of
+   scrolling. The docs' own blocks are kept to 100 columns, which fits with room to
+   spare at this width, so the wrap is a safety net rather than the normal case. */
+.md-grid {
+  max-width: 68rem;
+}
+
+.md-typeset pre > code {
+  font-size: .62rem;
+  /* `pre-wrap` keeps every space and newline the block was written with and only
+     adds breaks where the line runs out of room; `anywhere` covers the one thing it
+     cannot break by itself, an over-long unbroken token such as a URL. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

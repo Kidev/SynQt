@@ -235,7 +235,7 @@ Put `roundMs` back to ten minutes when you are done.
 >
 > Then run `synqt check`. Predict what it says.
 
-<details>
+<details class="question" markdown>
 <summary>Try it, then open this</summary>
 
 `synqt check` rejects it. A connect point the browser consumes must be owned by the web

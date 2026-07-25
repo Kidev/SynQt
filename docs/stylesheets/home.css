@@ -637,28 +637,64 @@
   border-left-color: #00a6ed;
 }
 
+/* A line whose explanation names a page (the glossary's `data-href`) opens it:
+   the runtime accessors go to their class in the C++ reference, the rest to the
+   page of the docs that covers them. The arrow is what says so, and it is only
+   drawn while the card is pinned, which is the only state the pointer can reach
+   a line in. */
+.synqt-pinned .synqt-code__line--linked {
+  cursor: pointer;
+}
+
+.synqt-pinned .synqt-code__line--linked::after {
+  content: " \2192";
+  color: #00a6ed;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.synqt-pinned .synqt-code__line--linked:hover::after {
+  opacity: 1;
+}
+
 /* The state of the card, in a line: how to open it, and once open, what it can
    do next. It is the same element that carries a line's explanation while that
    line is hovered (home-flow.js), so the card never grows or shifts as the
-   pointer moves down the file. */
+   pointer moves down the file.
+
+   Sized to sit under the code rather than compete with it, and kept out of the
+   scrolling part of a pinned card (see the flex column below): the tallest file
+   here is forty lines, so a hint that scrolled with the code would be a line of
+   instructions the reader has to go looking for. */
 .synqt-flow__hint {
-  margin: .5rem 0 0;
-  padding-top: .4rem;
+  flex: none;
+  margin: .4rem 0 0;
+  padding-top: .35rem;
   border-top: 1px solid rgba(255, 255, 255, .12);
   color: #9aa0c8;
-  font-size: .6rem;
-  line-height: 1.4;
-  min-height: 2.4em;
+  font-size: .55rem;
+  line-height: 1.35;
+  min-height: 2.7em;
 }
 
 .synqt-pinned .synqt-flow__hint {
   color: #c3c9ec;
 }
 
+/* Every card is a column of head, file and hint, so that the pinned rule below
+   can cap the card's height and let the file alone take up the slack. */
+.synqt-flow__tooltip,
+.synqt-config__tooltip {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Pinned: the card stays open with the pointer somewhere else, and becomes
    interactive so its lines can be hovered and its text selected. A tall file is
    allowed to scroll here, which is the one place it can: an unpinned card cannot
-   be reached by the pointer at all. */
+   be reached by the pointer at all. Only the file scrolls; the name, the path and
+   the hint stay put, so the card always says which file this is and what the
+   reader can do with it. */
 .synqt-flow__hotspot.synqt-pinned .synqt-flow__tooltip,
 .synqt-config.synqt-pinned .synqt-config__tooltip {
   opacity: 1;
@@ -666,8 +702,18 @@
   pointer-events: auto;
   z-index: 10;
   max-height: 75vh;
-  overflow-y: auto;
+  overflow: hidden;
   border-color: rgba(0, 166, 237, .55);
+}
+
+.synqt-pinned .synqt-flow__tooltip .highlight,
+.synqt-pinned .synqt-config__tooltip .highlight {
+  /* `min-height: 0` is what actually lets this shrink: a flex item's default
+     minimum size is its content, so without it the file pushes the card past its
+     cap instead of scrolling inside it. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .synqt-config.synqt-pinned .synqt-config__tooltip {
@@ -763,6 +809,15 @@
   margin-top: 1.5rem;
 }
 
+/* A column, so the three "Read the ..." links can be pushed to the bottom of
+   their cell and line up with each other. The three paragraphs above them are
+   different lengths, so left to flow they each ended at a different height and
+   the row read as three unrelated blocks. */
+.synqt-deepdive__item {
+  display: flex;
+  flex-direction: column;
+}
+
 .synqt-deepdive__item h3 {
   margin-top: 0;
   font-size: 1rem;
@@ -771,6 +826,11 @@
 
 .synqt-deepdive__item p {
   color: #a7ade0;
+}
+
+.synqt-deepdive__item > p:last-child {
+  margin-top: auto;
+  margin-bottom: 0;
 }
 
 .synqt-deepdive__item a {

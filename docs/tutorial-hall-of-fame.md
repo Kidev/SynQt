@@ -208,7 +208,7 @@ survived the restart, because they live in the database, not in the edge's memor
 >
 > Then run `synqt check`. Predict what it will say.
 
-<details>
+<details class="question" markdown>
 <summary>Try it, then open this</summary>
 
 `synqt check` rejects it. A connect point that the browser consumes must be owned

@@ -169,11 +169,11 @@ A client entity:
 ```yaml
 entities:
   - name: client
-    kind: client              # QML client: browser (WebAssembly) and/or native desktop, connect only
+    kind: client              # QML client: browser (WebAssembly) and/or desktop, connect only
     path: client
     entry: client/Main.qml
     edge: web                 # the web edge entity it connects to
-    targets: [wasm]           # [wasm] (default); add "desktop" for a native Windows/macOS/Linux build
+    targets: [wasm]           # [wasm] (default); add "desktop" for a native app
 ```
 
 A web edge entity, with its nested sub sections for the public (internet facing)
@@ -332,7 +332,10 @@ security:
   # adds "worker-src 'self' blob:" when cross_origin_isolation is on ('self' covers the
   # pinned kit's pthread workers and the shell cache's service worker; blob: is a kept
   # margin for engines not measured yet, see docs/csp.md).
-  csp: "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  csp: >-
+    default-src 'self'; connect-src 'self'; img-src 'self' data:;
+    style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval';
+    object-src 'none'; base-uri 'none'; frame-ancestors 'none'
 
   # Allowed Origin values for the browser wss upgrade (CSWSH protection).
   # "self" expands to the web edge origin. With origin_model: split_origin you
@@ -386,7 +389,8 @@ while `session` and `mapping` are nested maps:
 
 ```yaml
 identity:
-  required: false                 # if true, an unauthenticated browser cannot acquire scoped connect points
+  required: false                 # if true, an unauthenticated browser acquires
+                                  # no scoped connect point at all
   provider_entity: ""             # empty: identity handled in process at the edge (default)
                                   # or an entity name: a dedicated auth entity owns identity
   flow: authorization_code        # server side OAuth2 with PKCE (on by default)

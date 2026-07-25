@@ -13,11 +13,12 @@ Doxygen is optional. Without it the rest of the site still builds, and the hook 
 rather than failing: only the API reference pages are missing. Continuous integration
 installs it (see .github/workflows/docs.yml), so the published site always has them.
 
-After Doxygen runs, three passes rewrite what it produced. `_uniform_navigation_tree` makes
+After Doxygen runs, four passes rewrite what it produced. `_uniform_navigation_tree` makes
 the sidebar tree list pages and nothing else, and stops it from remembering a selection
-across a visit; `_dedupe_index_title` collapses the doubled title on the landing page; and
-`_fingerprint_assets` version-stamps the stylesheets and scripts the pages reference. See
-each for why it is not optional.
+across a visit; `_version_tree_data` stamps the tree's run time data fetches so a cached
+copy cannot outlive the shape this hook gives them; `_dedupe_index_title` collapses the
+doubled title on the landing page; and `_fingerprint_assets` version-stamps the stylesheets
+and scripts the pages reference. See each for why it is not optional.
 """
 
 import hashlib
@@ -257,6 +258,44 @@ def _forget_selected_page(html_dir):
     path.write_text(patched, encoding="utf-8")
 
 
+def _version_tree_data(html_dir):
+    """Make the tree's data files miss a stale browser cache.
+
+    `_fingerprint_assets` covers everything a page names in a `src=`, which is where
+    `navtree.js` and `navtreedata.js` are. It cannot reach the rest of the tree: the
+    per-branch `<name>.js` files and the `navtreeindex*.js` lookup tables are fetched at
+    run time by `getScript`, under names it builds itself, and the host serves them with
+    a four-hour `max-age`. Doxygen alone could live with that, because those files change
+    only when the documented API does.
+
+    This hook breaks that assumption. It rewrites the shape of the tree (anchors removed,
+    every index rebuilt around the pages that are left), so a deploy can hand a returning
+    reader the new `navtree.js` and `navtreedata.js` against the old index files. The tree
+    then resolves the current page through indices that no longer describe it: it opens
+    the wrong branch, or none, and stops following the page entirely. Stamping the fetch
+    with a digest of the data itself is what keeps the two halves in step.
+    """
+    path = html_dir / "navtree.js"
+    if not path.is_file():
+        return
+    digest = hashlib.sha256()
+    for data in sorted(html_dir.glob("*.js")):
+        if data.name != "navtree.js":
+            digest.update(data.read_bytes())
+    stamp = digest.hexdigest()[:8]
+    text = path.read_text(encoding="utf-8")
+    patched = text.replace(
+        "script.src = scriptName+'.js';",
+        "script.src = scriptName+'.js?v=%s'; // SynQt: see tools/docs-hooks/doxygen.py"
+        % stamp,
+        1)
+    if patched == text:
+        log.warning("doxygen: navtree.js no longer loads its data files the way this hook "
+                    "version-stamps; a cached tree may outlive a deploy")
+        return
+    path.write_text(patched, encoding="utf-8")
+
+
 def _uniform_navigation_tree(html_dir):
     """Make the sidebar tree list pages only, and follow the page on screen."""
     _forget_selected_page(html_dir)
@@ -387,6 +426,7 @@ def on_post_build(config, **kwargs):
             log.warning("doxygen: %s", line.strip())
     html_dir = site_dir / "api" / "ref"
     _uniform_navigation_tree(html_dir)
+    _version_tree_data(html_dir)
     _dedupe_index_title(html_dir)
     _fingerprint_assets(html_dir)
     log.info("C++ API reference generated into %s", html_dir)

@@ -121,8 +121,8 @@ synqt add entity <name> --blueprint <kind> --provider <engine>
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
 synqt add contract <Name>                        # Scaffold shared/<Name>.syn.
 synqt add connect-point <name> --owner <entity> [--consumers a,b]
-                                                  # Scaffold a connect point and wire owner and consumers.
-synqt add provider <name> --family <fam>         # Scaffold a custom provider implementing a family interface.
+                                                 # Scaffold a connect point, owner and consumers.
+synqt add provider <name> --family <fam>         # Scaffold a provider for a family interface.
 
 synqt providers         # List available providers per blueprint family.
 synqt mesh ...          # Certificate authority and entity certificates.
