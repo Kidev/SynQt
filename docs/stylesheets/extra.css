@@ -352,3 +352,22 @@ html {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* --- The runtime accessors ------------------------------------------------- */
+
+/* `Server`, `Session`, `Router`, `App`, `Caller`, and `Client` (the table at the
+   top of runtime-api.md) are the objects the framework injects into QML. Nothing
+   declares them and nothing imports them, so reading a block should not cost a
+   moment wondering which file `Caller` came from: it came from SynQt, and this is
+   the color that says so. The lexer gives them Name.Builtin.Accessor, a token
+   Pygments writes out as its own class rather than folding into `nb`, so this
+   rule is the only thing coloring them and Material's palette is left alone.
+
+   Gold, because it has to hold apart from everything already in a QML block on
+   this scheme: the type purple (#c973d9) it used to share, the JavaScript
+   built-ins (#9383e2), keywords (#6791e0), strings (#2fb170), and plain
+   identifiers. Numbers (#e6695b) are the nearest neighbor and are still 34 degrees
+   of hue away, on tokens that never stand where an accessor stands. */
+.highlight .nb-Accessor {
+  color: #e6b450;
+}

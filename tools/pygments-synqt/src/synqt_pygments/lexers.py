@@ -56,7 +56,7 @@ class SynLexer(RegexLexer):
 class SynqtQmlLexer(QmlLexer):
     """QML lexer that colors type names, and understands SynQt's attached handlers.
 
-    Two things the stock QmlLexer gets wrong for these docs.
+    Three things the stock QmlLexer gets wrong for these docs.
 
     A named type falls through to the JavaScript lexer's catch-all identifier
     rule, so it arrives as plain text: the one word that says what an object *is*
@@ -65,6 +65,13 @@ class SynqtQmlLexer(QmlLexer):
     being addressed from a script (`Caller.hasScope(...)`, `Database.access`,
     `Server.feed.rows`). It is the same thing `contract Feed` names in a `.syn`
     file, so it gets the same token, `Name.Class`, and therefore the same color.
+
+    Within those type names, the framework's own accessors (`Server`, `Session`,
+    `Router`, `App`, `Caller`, `Client`, the table at the top of
+    docs/runtime-api.md) are not types at all: nothing declares them, nothing
+    imports them, and one of them exists only inside an owner's slot. They are what
+    SynQt hands you, so they get a color of their own rather than the one that says
+    "a type, and somewhere there is a file defining it".
 
     And any `identifier.chain:` binding is matched as a single Keyword token, so
     `Auth.onLoginFailed:` colors as one blob and the contract type is lost.
@@ -89,6 +96,12 @@ class SynqtQmlLexer(QmlLexer):
         "Symbol", "SyntaxError", "TypeError", "URIError", "WeakMap", "WeakSet",
     )
 
+    # The accessors the framework injects, the full list from the table at the top of
+    # docs/runtime-api.md. They are matched as whole words, so a project type whose name
+    # merely starts or ends with one of them (`SessionSource`, `SynClient`) is untouched
+    # and stays an ordinary type.
+    runtime_accessors = ("App", "Caller", "Client", "Router", "Server", "Session")
+
     tokens = {
         "root": [
             # A module name, so the qualifier rule below leaves it alone: `QtQuick` and
@@ -96,6 +109,11 @@ class SynqtQmlLexer(QmlLexer):
             # module name is not an object being addressed.
             (r"(import|pragma)([ \t]+)([\w.]+)",
              bygroups(Keyword.Reserved, Whitespace, Name.Other)),
+            # An accessor, before every rule that would otherwise claim it as a type. It
+            # is matched wherever it appears rather than only before a dot, because the
+            # point is the name itself: `Caller` is the same object whether it is being
+            # asked a question or handed to something.
+            (words(runtime_accessors, prefix=r"\b", suffix=r"\b"), Name.Builtin.Accessor),
             # A type being instantiated: the name immediately before the brace that
             # opens the object, `ApplicationWindow {` or `QtObject {`, optionally
             # qualified (`Qt.labs.settings.Settings {`). The brace must be on the
