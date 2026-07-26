@@ -47,3 +47,15 @@
 .synqt-api__noscript {
   padding: 1rem;
 }
+
+/* The reference scrolls inside its own frame, so this page has nothing left to
+   scroll and no bar of its own. What is left is the reference's outline panel,
+   whose bar sits a few pixels inboard of where the window's bar sits on every
+   other page and starts under the header rather than at the top of the window,
+   so moving between this page and any other moved the bar on the right. Every
+   page already reserves that width (`scrollbar-gutter: stable`, extra.css), so
+   putting this page's own bar in it costs nothing and there is a bar in the same
+   place, the same height, whichever page is on screen. */
+html:has(.md-content--api) {
+  overflow-y: scroll;
+}

@@ -78,6 +78,29 @@
     document.cookie = NAVPATH + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
   }
 
+  // Clearing it once, as the reference opens, is not enough, and this is the whole of
+  // the bug it took three attempts to place: an older page writes the entry back every
+  // time a tree link is clicked. The tree is right on that page, because the entry and
+  // the page agree, and wrong on every page reached from the content pane afterwards,
+  // because nothing there updates it. That is exactly what a reader sees: the tree
+  // follows a click in the tree, and ignores a click in the page.
+  //
+  // So clear it on the way out of each page as well. The listener is on the capture
+  // phase of the frame's own document, which runs before the click reaches the link
+  // whose handler would store it, and it is installed as each page announces itself,
+  // which is the earliest this side can reach a document it did not load.
+  function guardFrameDocument(frame) {
+    var doc;
+    try {
+      doc = frame.contentDocument;
+    } catch (e) {
+      return; // Only reachable for a cross origin document, which this frame never holds.
+    }
+    if (!doc || doc.synqtTreeGuarded) return;
+    doc.synqtTreeGuarded = true;
+    doc.addEventListener("click", forgetTreeMemory, true);
+  }
+
   function framePath(frame) {
     try {
       var here = frame.contentWindow.location;
@@ -128,7 +151,12 @@
     if (event.origin !== window.location.origin) return;
     var data = event.data;
     if (!data || data.type !== MESSAGE) return;
-    if (!frameElement()) return;
+    var frame = frameElement();
+    if (!frame) return;
+    // A page announces itself from its <head>, several scripts before its tree is
+    // built, so an older page still reading the entry finds nothing left of it.
+    forgetTreeMemory();
+    guardFrameDocument(frame);
     onNavigated(data);
   });
 

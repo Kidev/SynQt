@@ -316,6 +316,27 @@
   animation: synqt-cta-arrow 1s infinite 0.6s;
 }
 
+/* The second button, down to the part of this page that shows a project rather
+   than describing one. It is the same shape as the call to action beside it and
+   deliberately quieter: an outline instead of a fill, one size down, and no
+   chevrons, since it does not leave the page. Declared after the rules above so
+   its own hover wins over theirs at equal specificity. */
+.synqt-hero__actions .cta--quiet {
+  padding: 9px 24px;
+  font-size: 1rem;
+  color: #d5e9fb;
+  background: rgba(0, 166, 237, .08);
+  box-shadow: 4px 4px 0 rgba(125, 255, 168, .45);
+  border: 2px solid rgba(0, 166, 237, .6);
+}
+
+.synqt-hero__actions .cta--quiet:hover {
+  color: #fff;
+  background: rgba(0, 166, 237, .22);
+  border-color: #00a6ed;
+  box-shadow: 6px 6px 0 rgba(70, 244, 119, .6);
+}
+
 @keyframes synqt-cta-arrow {
   0% {
     fill: #fff;
@@ -354,12 +375,16 @@
 /* --- "What it looks like": the diagram, and the file behind the part of it you
        are pointing at ---------------------------------------------------------
 
-   Two columns. On the left the project tree and the mesh those files build,
-   drawn and animated; on the right a file view showing exactly one of the six
-   files. Pointing at a file in the tree, or at the part of the diagram it is
-   behind, opens it and lights it in the other, and it stays until another is
-   pointed at, so the pointer is free to move into the file and read it. The
-   configuration is what the mesh is generated from, so it is shown first.
+   Three columns, in the order an editor puts them: the mesh those files build,
+   drawn and animated, then the file being read, then the project tree. Pointing
+   at a file in the tree, or at the part of the diagram it is behind, opens it
+   and lights it in the other, and it stays until another is pointed at, so the
+   pointer is free to move into the file and read it.
+
+   The two flanking columns take exactly what they need: the file view is as wide
+   as the longest line in these six files and no wider, and the tree is as wide as
+   its longest file name. Everything left over goes to the drawing, which is the
+   part of this that can use it, and which is where a reader looks first.
 
    The file used to be a popover hanging off the part it belonged to, which is
    what forced the pin: a popover closes the moment the pointer leaves the node,
@@ -370,28 +395,17 @@
 
 .synqt-explorer {
   display: grid;
-  /* Near enough to even: the file view needs whatever the longest line in these
-     six files measures and no more, and the left column now carries the tree as
-     well as the drawing, so the rest of the width is better spent there. */
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 1.75rem;
   align-items: center;
   margin-top: 1.5rem;
-}
-
-/* Inside the left column, the same two halves an editor has: the project's files
-   on the left, what they add up to on the right. Both are ways into the same six
-   files, so pointing at either one opens the file and lights the other. */
-.synqt-explorer__map {
-  display: flex;
-  align-items: center;
-  gap: 1.1rem;
-  min-width: 0;
+  /* The size the files are set at, in one place: the file view is sized in
+     columns of this font (`ch`), so the two cannot drift apart. */
+  --synqt-code-size: .54rem;
 }
 
 .synqt-mesh {
   display: flex;
-  flex: 1 1 auto;
   flex-direction: column;
   align-items: center;
   gap: .9rem;
@@ -399,13 +413,12 @@
 }
 
 /* --- The project tree -----------------------------------------------------
-   The six files as they would sit on disk, next to the diagram they build. It
+   The six files as they would sit on disk, beside the file view they open. It
    is the same set of triggers as the diagram and the cog, in the shape a reader
    already knows from their editor, so a file whose place in the mesh is not
    obvious (the contract, on the line between two entities) is still one click
    away. Directories are labels, not triggers: there is nothing behind them. */
 .synqt-tree {
-  flex: none;
   align-self: center;
   padding: .55rem .6rem;
   border: 1px solid rgba(255, 255, 255, .12);
@@ -515,7 +528,11 @@
 .synqt-flow__stage {
   position: relative;
   width: 100%;
-  max-width: 32rem;
+  /* The cap is what stops the drawing growing without limit on a very wide
+     screen; below it the column decides. Set so the diagram is a little under
+     half the row, which is the share that reads as the subject of the section
+     rather than as an illustration beside the file. */
+  max-width: 38rem;
 }
 
 .synqt-flow__stage svg {
@@ -577,20 +594,26 @@
   top: 73.33%;
 }
 
-/* Centered on the small document glyph below the "login+request" line (see
-   the SVG), not the whole line/label; the icon is the visible affordance,
-   so the hover target matches its size rather than the wider area around it. */
+/* Over the document glyph below the browser-to-edge line and the name under it
+   (see the SVG), which together are the contract's part of the drawing, the same
+   way a circle and the name under it are an entity's. */
 .synqt-flow__hotspot--contract {
   left: 30%;
-  top: 54.67%;
-  width: 9%;
-  height: 11%;
+  top: 58.5%;
+  width: 10%;
+  height: 14%;
 }
 
 /* The cog above the diagram. It is a trigger like the five over the drawing, and
    the only one that is not a part of the mesh: the configuration is the file the
    mesh is generated from, which is why it sits above the whole drawing rather
-   than on any one node of it. */
+   than on any one node of it.
+
+   Drawn the way the drawing draws everything else that can be pointed at: a disc
+   with a glyph in it and the name under it, in the diagram's own label style. It
+   used to be a pill with the name inside, which made the one trigger that is not
+   an entity the one trigger that did not look like the others, and left a reader
+   to work out that a pill and a circle mean the same thing. */
 .synqt-config {
   display: flex;
   justify-content: center;
@@ -598,31 +621,54 @@
 
 .synqt-config__trigger {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: .45rem;
-  padding: .35rem .75rem;
-  border: 1px solid rgba(255, 255, 255, .15);
-  border-radius: 2rem;
-  background: rgba(255, 255, 255, .04);
+  gap: .3rem;
   color: #c3c9ec;
-  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: .8rem;
-  line-height: 1;
   cursor: pointer;
-  transition: color .2s ease, border-color .2s ease, background .2s ease;
+  transition: color .2s ease;
 }
 
+.synqt-config__disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 1px solid #6a5b99;
+  border-radius: 50%;
+  background: #1a1033;
+  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+
+/* The same accent glow the entity nodes take, so a lit cog and a lit node read
+   as one state rather than two. */
 .synqt-config__trigger:hover,
 .synqt-config__trigger:focus-visible,
 .synqt-config__trigger.synqt-trigger--on {
   color: #fff;
+}
+
+.synqt-config__trigger:hover .synqt-config__disc,
+.synqt-config__trigger:focus-visible .synqt-config__disc,
+.synqt-config__trigger.synqt-trigger--on .synqt-config__disc {
   border-color: #00a6ed;
-  background: rgba(0, 166, 237, .12);
+  background: rgba(0, 166, 237, .16);
+  box-shadow: 0 0 .9rem rgba(0, 166, 237, .55);
+}
+
+/* The name, set as the diagram sets its own labels (.synqt-flow__labels): the
+   two rows of names have to look like one row of names. */
+.synqt-config__label {
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: .55rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
 }
 
 .synqt-config__icon {
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 1.15rem;
+  height: 1.15rem;
   flex: none;
   transition: transform .5s ease;
 }
@@ -634,21 +680,37 @@
 }
 
 /* --- The file view --------------------------------------------------------
-   One box, one size, whichever file is in it: the height is the tallest file's
-   and the width is the column's, so moving from the six line contract to the
-   forty line configuration changes what is written here and nothing else. A
-   panel that resized itself would move the diagram beside it under the pointer
-   that is still pointing at the diagram. */
+   One box, one size, whichever file is in it, so moving from the six line
+   contract to the forty line configuration changes what is written here and
+   nothing else. A panel that resized itself would move the diagram beside it
+   under the pointer that is still pointing at the diagram. */
 
 .synqt-explorer__view {
   display: flex;
   flex-direction: column;
+  /* Wide enough for the longest line in these six files and no wider: this is a
+     column of code, so any width past its longest line is width the drawing next
+     to it could have had.
+     Sixty six columns is that longest line (the database's caller check), and it
+     is measured in `ch`, the width of a digit in the font the files are actually
+     set in, rather than in a length that assumes one. A monospaced face's own
+     metrics decide how wide sixty six columns are, they differ from face to face,
+     and which face a reader gets depends on what their machine has and whether
+     the web font arrived at all; a width in rem is right for one of those cases
+     and clips the end of a line in the rest. The panel's own padding, the padding
+     each line carries, the scrollbar the one long file shows, and a pixel or two
+     of rounding are added on top. It shrinks below this only where the row stacks
+     (`max-width`). */
+  font-family: var(--md-code-font-family, "Roboto Mono", monospace);
+  font-size: var(--synqt-code-size);
+  width: calc(66ch + 4.2rem);
+  max-width: 100%;
   /* Fixed, and the same for every file: it is the height of the longest QML file
      of the five, so those five never scroll, and the configuration, at forty one
      lines the only one longer, scrolls its last few in. A panel sized to that one
-     file instead would be a third taller again, and every other file would be
-     read from the top of a mostly empty box. */
-  height: 36rem;
+     file instead would be half as tall again, with every other file read from the
+     top of a mostly empty box. */
+  height: 32.2rem;
   min-width: 0;
   background: #0d1224;
   border: 1px solid rgba(255, 255, 255, .15);
@@ -680,7 +742,10 @@
   min-height: 1.1rem;
 }
 
+/* The panel is set in the code face so its width can be measured in columns of
+   it (`ch`, above); everything in it that is prose rather than code says so. */
 .synqt-file strong {
+  font-family: var(--md-text-font-family, sans-serif);
   color: #fff;
   font-size: .65rem;
   font-weight: 700;
@@ -714,11 +779,12 @@
    instead reads better standing still, but the six files are read one after
    another: each change of file would then slide the code up or down by half the
    difference in their lengths, under a pointer that is on its way to a line.
-   What fills the leftover space is the file's own page (the `code` below), so a
-   six line contract still sits on a full sheet rather than on a strip. */
+   The file ends where the file ends: a short one leaves the rest of the panel
+   empty rather than being drawn on a sheet three times its length, which is a
+   lot of nothing to look at and says the file is longer than it is. */
 .synqt-file pre {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
   min-height: 0;
   margin: 0;
@@ -746,20 +812,19 @@
 .synqt-file pre,
 .synqt-file pre > code {
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
-  font-size: .54rem;
+  font-size: var(--synqt-code-size);
   line-height: 1.5;
 }
 
 /* The file gets a page of its own inside the panel: a shade lighter than the
-   panel, with its own padding, so a six line contract centered in the space
-   still reads as a file rather than as a stray paragraph. Set here rather than
-   inherited from the site's code block styling, which is sized for a full width
-   block in the body of a page. */
+   panel, with its own padding, so a six line contract still reads as a file
+   rather than as a stray paragraph. Set here rather than inherited from the
+   site's code block styling, which is sized for a full width block in the body
+   of a page. It is as tall as its own lines, so the page ends with the file. */
 .synqt-file code {
   display: block;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   box-sizing: border-box;
-  min-height: 100%;
   background: rgba(255, 255, 255, .05);
   border-radius: .2rem;
   color: #d7dafa;
@@ -851,6 +916,7 @@
    keeps its height, so a file never moves as the pointer crosses its lines. */
 .synqt-flow__hint {
   flex: none;
+  font-family: var(--md-text-font-family, sans-serif);
   margin: .6rem 0 0;
   padding: .45rem .6rem;
   border-left: 2px solid #00a6ed;
@@ -877,67 +943,57 @@
    explanations had to share its voice. */
 .synqt-flow__note {
   flex: none;
+  font-family: var(--md-text-font-family, sans-serif);
   margin: .45rem 0 0;
   color: #8f96c4;
   font-size: .55rem;
   line-height: 1.4;
 }
 
-/* One column below the point where two of them stop leaving the file view room
-   for the longest line in these six files (the `Caller.isEntityVerified` check,
-   sixty five characters, which needs about 475px of file view). Two columns stay
-   wider than one until around 900px, but they clip that line from roughly 1160px
-   down, and a file view that cuts the end off a line of code is worse than one
-   drawn under the diagram rather than beside it. The diagram keeps its own
-   max-width and centers; the file view runs the full width, which is more than
-   it needs. */
-/* The band where the layout is still two columns but the file column is under
-   about 550px: the longest line in these six files (the database's entity check,
-   at sixty five characters) no longer fits it. The file is set a step smaller
-   there rather than clipped or wrapped, which costs a little legibility on a
-   laptop screen and keeps every line of every file whole. */
-@media screen and (min-width: 72.5625em) and (max-width: 85em) {
-  .synqt-file pre,
-  .synqt-file pre > code {
-    font-size: .48rem;
+/* The three columns need the file view's own width, the tree's, and enough left
+   over for the drawing to still be a drawing. Below that the drawing takes the
+   whole first row and the file and its tree sit under it as a pair, which keeps
+   both of them at exactly the width they were and spends the lost width on the
+   only thing that can give it up. */
+@media screen and (max-width: 88em) {
+  .synqt-explorer {
+    grid-template-columns: auto auto;
+    justify-content: center;
+    gap: 1.5rem;
+  }
+
+  .synqt-mesh {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  /* A row of its own is far more width than the drawing needs, and taken it
+     would push the file it explains most of a screen further down. */
+  .synqt-flow__stage {
+    max-width: 30rem;
   }
 }
 
-@media screen and (max-width: 72.5em) {
+/* One column: the file view and the tree together no longer fit a row, so the
+   tree follows the drawing (both are ways of picking a file) and the file it
+   opens comes last, under them both. */
+@media screen and (max-width: 50em) {
   .synqt-explorer {
     grid-template-columns: minmax(0, 1fr);
-    gap: 1.25rem;
+    justify-items: center;
   }
 
-  /* One column, so the map has the whole width: the tree and the diagram sit
-     side by side in the middle of it rather than pinned to the left edge. */
-  .synqt-explorer__map {
-    justify-content: center;
+  .synqt-mesh {
+    grid-column: auto;
+    order: 1;
   }
 
-  /* Stacked, the file view is nearly twice as wide, so the same files need much
-     less height; at the height two columns call for, a six line contract would
-     sit at the top of a panel two thirds empty. */
+  .synqt-tree {
+    order: 2;
+  }
+
   .synqt-explorer__view {
-    height: 33rem;
-  }
-
-  .synqt-mesh {
-    flex: 0 1 32rem;
-  }
-}
-
-/* Below this the tree and the diagram together are narrower than either wants,
-   so the tree goes above the drawing it indexes. */
-@media screen and (max-width: 44.9375em) {
-  .synqt-explorer__map {
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .synqt-mesh {
-    flex: 1 1 auto;
-    width: 100%;
+    order: 3;
   }
 }
 
@@ -956,10 +1012,10 @@
     min-height: 6em;
   }
 
-  /* Wrapped lines make every file taller again, so the panel takes its full
-     height back. */
+  /* Wrapped lines make every file taller again, so the panel takes back the
+     height the unwrapped files no longer need. */
   .synqt-explorer__view {
-    height: 36rem;
+    height: 34rem;
   }
 }
 .synqt-flow__lines line {
@@ -1065,9 +1121,12 @@
   margin-bottom: 0;
 }
 
+/* The arrow belongs to the last word (a non-breaking space holds it there,
+   docs/index.md), not to the whole line: keeping the line itself unbreakable
+   made the longest of the three links wider than its column between about 760
+   and 900 pixels, which put a horizontal scrollbar on the page. */
 .synqt-deepdive__item a {
   font-weight: 700;
-  white-space: nowrap;
 }
 
 @media screen and (max-width: 44.9375em) {
