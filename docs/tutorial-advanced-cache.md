@@ -486,5 +486,8 @@ exists.
 - Any engine with a syntax has an injection. Encode at the boundary, once, in one
   function.
 
+The same invitation as the last page: if you have built this against a real engine,
+[send it](tutorial-advanced.md#when-yours-works-send-it) rather than keeping it.
+
 Next: [an identity service of your own](tutorial-advanced-identity.md), where there is no
 family interface at all, and the reason why turns out to be the interesting part.

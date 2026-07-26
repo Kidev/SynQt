@@ -58,10 +58,12 @@ class SynqtQmlLexer(QmlLexer):
 
     Two things the stock QmlLexer gets wrong for these docs.
 
-    A type being instantiated (`ApplicationWindow {`, `ListView {`) falls through
-    to the JavaScript lexer's catch-all identifier rule, so it arrives as plain
-    text: the one word that says what an object *is* looks like every local
-    variable around it. It is the same thing `contract Feed` names in a `.syn`
+    A named type falls through to the JavaScript lexer's catch-all identifier
+    rule, so it arrives as plain text: the one word that says what an object *is*
+    looks like every local variable around it. That covers both places a type
+    appears, the object being declared (`ApplicationWindow {`) and the object
+    being addressed from a script (`Caller.hasScope(...)`, `Database.access`,
+    `Server.feed.rows`). It is the same thing `contract Feed` names in a `.syn`
     file, so it gets the same token, `Name.Class`, and therefore the same color.
 
     And any `identifier.chain:` binding is matched as a single Keyword token, so
@@ -76,8 +78,24 @@ class SynqtQmlLexer(QmlLexer):
     filenames = []
     mimetypes = []
 
+    # The JavaScript globals, which the inherited lexer already marks as built-ins and
+    # colors as such. They are addressed exactly like a QML type (`Math.hypot(...)`), so
+    # the qualifier rule below has to step over them by name or it would take the
+    # language's own objects and the ones this project declares and paint them alike.
+    javascript_globals = (
+        "Array", "ArrayBuffer", "Boolean", "Date", "Error", "EvalError", "Function",
+        "Infinity", "Intl", "JSON", "Map", "Math", "NaN", "Number", "Object", "Promise",
+        "Proxy", "RangeError", "ReferenceError", "Reflect", "RegExp", "Set", "String",
+        "Symbol", "SyntaxError", "TypeError", "URIError", "WeakMap", "WeakSet",
+    )
+
     tokens = {
         "root": [
+            # A module name, so the qualifier rule below leaves it alone: `QtQuick` and
+            # `QtQuick.Controls` are the same kind of thing and must look it, and a dotted
+            # module name is not an object being addressed.
+            (r"(import|pragma)([ \t]+)([\w.]+)",
+             bygroups(Keyword.Reserved, Whitespace, Name.Other)),
             # A type being instantiated: the name immediately before the brace that
             # opens the object, `ApplicationWindow {` or `QtObject {`, optionally
             # qualified (`Qt.labs.settings.Settings {`). The brace must be on the
@@ -94,6 +112,12 @@ class SynqtQmlLexer(QmlLexer):
             # `Component.onCompleted:`. Split the type from the handler so the type is
             # not swallowed into the binding keyword.
             (r"([A-Z]\w*)(\.)(on[A-Z]\w*\s*:)", bygroups(Name.Class, Punctuation, Keyword)),
+            # A type being addressed rather than declared: whatever stands to the left of
+            # the dot in `Caller.hasScope(...)`, `Server.feed.rows`, `Layout.fillWidth:`,
+            # or `Text.WordWrap`. Only the head of the chain is a name you could have
+            # written a type for; everything past the first dot is a member of it, and
+            # stays plain so the eye lands on the thing being named.
+            (r"(?!(?:%s)\b)[A-Z]\w*(?=\.)" % "|".join(javascript_globals), Name.Class),
             # An arrow reads as one operator, not `=` then `>`.
             (r"=>", Operator),
             inherit,

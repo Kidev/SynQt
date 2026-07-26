@@ -87,3 +87,36 @@ will do.
 > selection syntax, [entities](entities.md) for what an entity is allowed to be,
 > [authentication](authentication.md) for the identity model, and
 > [security](security.md) for the rules an adaptor inherits rather than chooses.
+
+## When yours works, send it
+
+An adaptor that works is not a private detail of your project. Somebody else is about to
+need the same engine, and what stands between them and it is a file you have already
+written, so please open a pull request against
+[the SynQt repository](https://github.com/Kidev/SynQt) and let it become a bundled
+provider.
+
+That is not a courtesy: it is how the provider list gets past the handful of engines one
+maintainer happens to use. A contributed provider goes in beside `postgres` and `redis`,
+where it is built in CI, kept working across Qt releases, and found by
+`synqt providers` rather than by whoever thinks to search for it.
+
+What a provider needs to be accepted is what this track already had you do: implement the
+family interface and nothing wider, take parameters separately, return errors instead of
+throwing, keep credentials in the entity environment, refuse an unverified connection in
+release, and be honest in the documentation about anything the engine cannot do. Two
+practical things on top of that, both of which are the framework's own rules rather than
+extra hurdles:
+
+- If your provider wraps a third party client library, it must be pinned through the
+  vcpkg baseline and its license must be compatible with the modules in the same entity.
+  This is the reason the bundled MySQL provider builds against MariaDB Connector/C and
+  never Oracle's client, and [licensing](licensing.md) explains why that distinction is
+  not negotiable.
+- Bring a test. The bundled providers each have one, and a provider with no way to
+  exercise it is a provider that quietly stops working on the next Qt release.
+
+The house style and the contribution terms, including the CLA, are in
+[`CONTRIBUTING.md`](https://github.com/Kidev/SynQt/blob/main/CONTRIBUTING.md). If you are
+unsure whether an engine is wanted, open an issue first and ask; the answer is usually
+yes.
