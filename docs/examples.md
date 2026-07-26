@@ -772,5 +772,5 @@ PageSeed {
   owned by `stock` and consumed only by `web`; adding the client as a consumer fails
   `synqt check`, because the browser can only reach a web edge.
 
-The two [remote-pages tutorials](tutorial-remote-pages.md) build this storefront up
-step by step and run the three hands-on checks against it.
+The [light storefront](tutorial-remote-pages.md) tutorial builds this shop up step by
+step and runs the three hands-on checks against it.

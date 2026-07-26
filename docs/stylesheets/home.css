@@ -443,7 +443,7 @@
    borrowed from. */
 .synqt-tree {
   flex: none;
-  padding-left: .8rem;
+  padding-left: .55rem;
   border-left: 1px solid rgba(255, 255, 255, .12);
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: .58rem;
@@ -479,6 +479,20 @@
   margin: 0;
   list-style: none;
   white-space: nowrap;
+}
+
+/* And Material indents a body list twice over, once on the list and again on
+   every item, from rules that carry a direction prefix (`[dir=ltr] .md-typeset
+   ul`, `[dir=ltr] .md-typeset ul li`). That prefix counts for specificity, so
+   those two outrank the reset above and it never took: the tree opened a 24px
+   gutter down its left, which held `my-app` clear of the label over it and made
+   the whole column that much wider than the deepest file name in it. The tree
+   draws its own indent, so this takes theirs back, in either direction. */
+[dir=ltr] .md-typeset .synqt-tree__list,
+[dir=rtl] .md-typeset .synqt-tree__list,
+[dir=ltr] .md-typeset .synqt-tree__list li,
+[dir=rtl] .md-typeset .synqt-tree__list li {
+  margin-inline: 0;
 }
 
 /* The glyphs are masks rather than images, so both take the colour of the row
@@ -675,7 +689,11 @@
 
 .synqt-explorer__view {
   display: flex;
-  gap: .8rem;
+  /* With the rule the tree hangs off, this and the tree's own padding are the
+     whole gutter between the file and the project beside it. Narrow, because
+     every pixel of it is a pixel the drawing in the other column does not get:
+     the editor asks for exactly what it needs and the grid hands the rest over. */
+  gap: .6rem;
   width: max-content;
   max-width: 100%;
   /* Fixed, and the same for every file: it is the height of the longest of the

@@ -54,12 +54,19 @@ class SynLexer(RegexLexer):
 
 
 class SynqtQmlLexer(QmlLexer):
-    """QML lexer that understands SynQt's attached signal handlers.
+    """QML lexer that colors type names, and understands SynQt's attached handlers.
 
-    The stock QmlLexer matches any `identifier.chain:` binding as a single
-    Keyword token, so `Auth.onLoginFailed:` colors as one blob and the contract
-    type is lost. Prepending a rule that splits the leading `Type.` from the
-    `on<Signal>:` handler restores the type, matching the home page tooltip. A
+    Two things the stock QmlLexer gets wrong for these docs.
+
+    A type being instantiated (`ApplicationWindow {`, `ListView {`) falls through
+    to the JavaScript lexer's catch-all identifier rule, so it arrives as plain
+    text: the one word that says what an object *is* looks like every local
+    variable around it. It is the same thing `contract Feed` names in a `.syn`
+    file, so it gets the same token, `Name.Class`, and therefore the same color.
+
+    And any `identifier.chain:` binding is matched as a single Keyword token, so
+    `Auth.onLoginFailed:` colors as one blob and the contract type is lost.
+    Splitting the leading `Type.` from the `on<Signal>:` handler restores it. A
     plain handler like `onClicked:` has no `Type.` prefix and still falls through
     to the inherited rule, so nothing else changes.
     """
@@ -71,10 +78,22 @@ class SynqtQmlLexer(QmlLexer):
 
     tokens = {
         "root": [
-            # A SynQt attached signal handler: `Auth.onLoginFailed:`. Split the
-            # contract type (Name) from the handler (Keyword) so the type is not
-            # swallowed into the binding keyword.
-            (r"([A-Z]\w*)(\.)(on[A-Z]\w*\s*:)", bygroups(Name.Other, Punctuation, Keyword)),
+            # A type being instantiated: the name immediately before the brace that
+            # opens the object, `ApplicationWindow {` or `QtObject {`, optionally
+            # qualified (`Qt.labs.settings.Settings {`). The brace must be on the
+            # same line, which is how QML is written throughout these docs and what
+            # keeps the rule from reaching across a line to an unrelated block.
+            (r"([A-Z]\w*(?:\.[A-Z]\w*)*)([ \t]*)(\{)",
+             bygroups(Name.Class, Whitespace, Punctuation)),
+            # `Behavior on width { ... }`: the same declaration with the property it
+            # animates wedged into the middle of it.
+            (r"(Behavior)(\s+)(on)(\s+)(\w+)([ \t]*)(\{)",
+             bygroups(Name.Class, Whitespace, Keyword, Whitespace, Name, Whitespace,
+                      Punctuation)),
+            # An attached signal handler: SynQt's `Auth.onLoginFailed:`, and QML's own
+            # `Component.onCompleted:`. Split the type from the handler so the type is
+            # not swallowed into the binding keyword.
+            (r"([A-Z]\w*)(\.)(on[A-Z]\w*\s*:)", bygroups(Name.Class, Punctuation, Keyword)),
             # An arrow reads as one operator, not `=` then `>`.
             (r"=>", Operator),
             inherit,

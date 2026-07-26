@@ -43,6 +43,21 @@ flowchart LR
   style db fill:#def,stroke:#39c,color:#1a1a2e
 ```
 
+## What you will learn
+
+- What a contract is, and why both ends of a live value are generated from one
+  file neither side may quietly widen.
+- What a connect point is: an owner, a list of consumers, and the one path
+  between them. This is the idea the rest of SynQt is built on.
+- How a value the owner changes reaches every open browser with no fetch, no
+  refresh, and no synchronizing code of your own.
+- Where a rule belongs. Every check that matters runs on the owner, and you will
+  see for yourself what happens to the same rule written on the client.
+- How a person becomes a session with a scope, and how a slot asks who is calling
+  through `Caller`.
+- What an entity is, why the database is one, and why the browser cannot reach it
+  even though it can see the data the edge chooses to publish.
+
 > [!NOTE]
 > This tutorial is the friendly front door. When you want the full reference for
 > anything it touches, follow the links: the [programming model](programming-model.md),

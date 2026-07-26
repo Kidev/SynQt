@@ -12,7 +12,10 @@ site_author: Kidev
 repo_url: https://github.com/Kidev/SynQt
 repo_name: Kidev/SynQt
 edit_uri: edit/main/docs/
-copyright: (c) 2026 SynQt - kidev
+# The entity, not a literal (c): Material inserts this line into the footer as HTML,
+# and the file itself stays ASCII like the rest of the repository. Quoted, because a
+# bare `&` opens a YAML anchor.
+copyright: "&copy; 2026 SynQt - kidev"
 
 theme:
   name: material
@@ -139,10 +142,16 @@ nav:
           - See the others: tutorial-multiplayer-client.md
           - The round and the Hall of Fame: tutorial-multiplayer-rounds.md
           - Only what you can see: tutorial-multiplayer-run.md
-      - Pages from the edge:
-          - Build it: tutorial-remote-pages.md
+      - The light storefront:
+          - Overview: tutorial-remote-pages.md
+          - Build it: tutorial-remote-pages-build.md
           - Lighter and live: tutorial-remote-pages-live.md
           - Links that work: tutorial-remote-pages-urls.md
+      - Advanced:
+          - Overview: tutorial-advanced.md
+          - A database of your own: tutorial-advanced-database.md
+          - A cache of your own: tutorial-advanced-cache.md
+          - An identity service of your own: tutorial-advanced-identity.md
   - Framework:
       - Architecture: architecture.md
       - Programming model: programming-model.md

@@ -56,6 +56,22 @@ The whole live arena lives in the edge's memory, which is all a fast game needs.
 the permanent leaderboard is durable, so it gets a database, reached by the edge and
 never by the browser, exactly as in [the Hall of Fame](tutorial-hall-of-fame.md).
 
+## What you will learn
+
+- How an owner runs a simulation rather than storing values: a fixed tick that
+  integrates the whole world, and consumers that see the result instead of driving it.
+- Why a server authoritative position is not a policy but a shape. The client sends an
+  aim point, never a position, so there is no position to forge.
+- Client-side prediction: moving your own blob the instant you point, without ever
+  letting your guess become the truth.
+- Entity interpolation: drawing everyone else smoothly between snapshots that arrive
+  ten times a second, rather than teleporting them on each one.
+- Interest management with `instance: per_session`, so one simulation serves everybody
+  while each browser is sent only the slice it can actually see.
+- What it costs to publish to N consumers, and where a single edge stops scaling.
+- How a round, a clock, and a permanent leaderboard sit behind the edge in a database
+  entity the browser never reaches.
+
 This tutorial is in five parts: this overview and the starting scene, then
 [the arena the edge owns](tutorial-multiplayer-world.md) (the edge side),
 [see the others](tutorial-multiplayer-client.md) (the client: camera, prediction, and

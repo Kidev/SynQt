@@ -19,8 +19,9 @@ are for.
 
 This page is the reference for the feature. [Routes and URLs](routing.md) is the other half
 of it: how a path resolves to a page at all, whichever kind of page it turns out to be. The
-[build-it tutorial](tutorial-remote-pages.md) walks through a working storefront that uses
-remote pages, [lighter and live](tutorial-remote-pages-live.md) has the hands-on checks, and
+[light storefront](tutorial-remote-pages.md) tutorial walks through a working shop that uses
+remote pages: [build it](tutorial-remote-pages-build.md) writes it,
+[lighter and live](tutorial-remote-pages-live.md) has the hands-on checks, and
 [links that work](tutorial-remote-pages-urls.md) covers their URLs.
 
 ## Declaring a remote route

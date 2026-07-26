@@ -181,8 +181,10 @@ the loopback redirect instead of in `sessionStorage`.
 
 - [Remote pages](remote-pages.md): the `remote:` half of the table, the palette, and the
   page seed that paints a delivered page's first frame.
-- [Build it](tutorial-remote-pages.md) and [Links that work](tutorial-remote-pages-urls.md):
-  the storefront tutorial, where these are hands-on rather than described.
+- [Build it](tutorial-remote-pages-build.md) and
+  [Links that work](tutorial-remote-pages-urls.md): the
+  [light storefront](tutorial-remote-pages.md) tutorial, where these are hands-on rather
+  than described.
 - [`Router`](runtime-api.md#client-router): every member, with what each one holds after a
   redirect.
 - [`router` and `routes`](project-layout-and-config.md#router-and-routes-client-navigation):

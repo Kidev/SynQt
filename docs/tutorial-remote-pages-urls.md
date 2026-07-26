@@ -3,11 +3,11 @@
 
 # Links that work
 
-The storefront from [part one](tutorial-remote-pages.md) has four routes, and two of them
-are delivered by the edge. This page is about the other half of a route: its URL. A campaign
-page nobody can link to is a campaign page nobody visits, so the address bar has to be real,
-and everything a visitor does to it, bookmark it, refresh it, edit it, press Back, has to
-land where they expect.
+The storefront from [part one](tutorial-remote-pages-build.md) has four routes, and two of
+them are delivered by the edge. This page is about the other half of a route: its URL. A
+campaign page nobody can link to is a campaign page nobody visits, so the address bar has to
+be real, and everything a visitor does to it, bookmark it, refresh it, edit it, press Back,
+has to land where they expect.
 
 Three checks you run yourself. Start the app with `synqt dev` and keep a browser tab on it.
 [Routes and URLs](routing.md) is the reference behind all three.
