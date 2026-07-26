@@ -165,19 +165,24 @@ def _strip_fragment(name, html_dir, fragments):
     return fragments[name]
 
 
-def _tree_index(nodes, html_dir, prefix, entries, visited):
-    """Collect `url -> path of child indices` for every node of the stripped tree.
+def _tree_index(nodes, html_dir, prefix, above, entries, visited):
+    """Collect `url -> path of child indices, urls above it` for every node of the tree.
 
     navtree.js looks a page up here to know which branches to open and which entry to
     select, so the paths have to be recomputed rather than reused: removing the anchor
     entries above shifts the position of every page entry that followed one inside the
     same fragment, and sixteen of the fragments in this reference mix the two.
+
+    The urls of the entries a path passes through come along because most pages are in
+    the tree several times over, and which of those places to send the reader to is
+    decided by what the branch lists rather than by where in it the page sits; see
+    `_one_branch_per_page`.
     """
     for index, node in enumerate(nodes):
         path = prefix + [index]
         url = node[1] if len(node) > 1 else None
         if isinstance(url, str) and url:
-            entries.append((url, path))
+            entries.append((url, path, above))
         children = node[2] if len(node) > 2 else None
         if isinstance(children, str):
             if children in visited:
@@ -186,7 +191,8 @@ def _tree_index(nodes, html_dir, prefix, entries, visited):
             loaded = _load_nodes(html_dir / ("%s.js" % children), children)
             children = loaded[2] if loaded else None
         if isinstance(children, list):
-            _tree_index(children, html_dir, path, entries, visited)
+            below = above + [url] if isinstance(url, str) and url else above
+            _tree_index(children, html_dir, path, below, entries, visited)
 
 
 def _add_source_views(html_dir, entries):
@@ -198,22 +204,63 @@ def _add_source_views(html_dir, entries):
     source listing still selects the file in the tree; the tree entries collected above are
     the tree's, so the source URLs have to be added back.
     """
-    for url, path in list(entries):
+    for url, path, above in list(entries):
         if "#" in url or not url.endswith(".html"):
             continue
         source = "%s_source.html" % url[:-len(".html")]
         if (html_dir / source).is_file():
-            entries.append((source, path))
+            entries.append((source, path, above))
+
+
+# Where each kind of page is listed. Doxygen names a page after what it documents and
+# gives each section a fixed landing page, so a url is enough to say which branch of the
+# tree a page belongs in: a class belongs under the class list, a namespace under the
+# namespace list. Every other kind of page (a file, a directory, a member index, the
+# section landing pages themselves) is in exactly one branch already, or is left where
+# Doxygen put it.
+_LISTED_UNDER = (
+    (re.compile(r"^(?:class|struct|union|interface)"), "annotated.html"),
+    (re.compile(r"^namespace(?!members)"), "namespaces.html"),
+)
+
+
+def _one_branch_per_page(entries):
+    """Keep one place in the tree per page: the one the branch it belongs in gives it.
+
+    Most pages of this reference are in the tree several times over. `SynQt::Caller` is
+    under Classes, under the namespace that declares it, under the class hierarchy, and
+    under the header file it is declared in; this index is what tells the tree which of
+    them to open, and only one of them can win. Doxygen keeps whichever was written last,
+    which is the deepest, so opening a class from the class list sent the tree four levels
+    down `Files > src > service > caller.h` with Classes left collapsed. The tree was
+    following the page, just never to where the reader was, which is the whole point of
+    it following at all.
+
+    So prefer the branch that lists this kind of page (`_LISTED_UNDER`), measured by how
+    many of the entries above the page belong to that branch: the class list path passes
+    through both `Classes` and `Class List`, the class hierarchy path through `Classes`
+    alone, and the namespace and file paths through neither. A page no branch claims, and
+    a tie, keep Doxygen's own answer, the deepest and last, which is what puts a section's
+    landing page on the leaf that expands it (`Classes > Class List`, not `Classes`).
+    """
+    chosen = {}
+    for url, path, above in entries:
+        section = next((where for pattern, where in _LISTED_UNDER if pattern.match(url)),
+                       None)
+        rank = (above.count(section) if section else 0, len(path), path)
+        if url not in chosen or rank > chosen[url][0]:
+            chosen[url] = (rank, path)
+    return sorted((url, chosen[url][1]) for url in chosen)
 
 
 def _write_navigation_index(html_dir, entries):
     """Rewrite the navtreeindex files from `entries`, and report the file boundaries.
 
-    Sorted by url and then by path, so that where one page sits in more than one branch
-    of the tree the deepest, most specific of them is written last and therefore wins in
-    the object literal, which is what Doxygen's own ordering does.
+    Sorted by url, which is what `gotoUrl` (navtree.js) needs: it finds the file holding
+    a page by comparing the page against the first url of each, so the order across the
+    files has to be the order it compares in.
     """
-    entries.sort(key=lambda entry: (entry[0], entry[1]))
+    entries = _one_branch_per_page(entries)
     chunks = [entries[at:at + _INDEX_CHUNK] for at in range(0, len(entries), _INDEX_CHUNK)]
     for number, chunk in enumerate(chunks):
         lines = ',\n'.join('"%s":%s' % (url, json.dumps(path)) for url, path in chunk)
@@ -338,7 +385,7 @@ def _uniform_navigation_tree(html_dir):
     root[2] = _strip_anchor_nodes(children, html_dir, fragments)
 
     entries = []
-    _tree_index(root[2], html_dir, [], entries, set())
+    _tree_index(root[2], html_dir, [], [], entries, set())
     _add_source_views(html_dir, entries)
     boundaries = _write_navigation_index(html_dir, entries)
 

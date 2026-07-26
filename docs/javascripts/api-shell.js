@@ -29,7 +29,12 @@
   // slash, no `..`. `?p=` comes from the address bar, so it decides what the
   // frame loads and is treated as untrusted input; anything that does not look
   // like a page of the reference falls back to its landing page.
-  var PAGE = /^[A-Za-z0-9][\w.-]*(\/[A-Za-z0-9][\w.-]*)*\.html$/;
+  //
+  // `~` is in the set because Doxygen splits a member index by first character
+  // and names each page after it, so the destructors land on `functions_~.html`.
+  // Left out, the letter bar's last entry bounced the reader to the reference's
+  // landing page instead, which looked exactly like the tree losing the page.
+  var PAGE = /^[A-Za-z0-9][\w.~-]*(\/[A-Za-z0-9][\w.~-]*)*\.html$/;
 
   function requestedPage() {
     var match = /[?&]p=([^&#]*)/.exec(window.location.search);
