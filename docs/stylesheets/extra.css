@@ -183,6 +183,22 @@ body {
   }
 }
 
+/* Material pins two labels in place while the list under them scrolls: the active
+   section in the left sidebar ("Framework") and "Table of contents" on the right.
+   Both hide the text passing behind with a .4rem box-shadow drawn in the page's own
+   background colour, which on this dark page is a black halo. The list starts flush
+   against the label, so that halo lies over the first entry at rest and not only
+   mid-scroll: the section's first page and the first line of the table of contents
+   both read as dimmed. Start the list below it. Desktop only, which is where the
+   labels are pinned; in the mobile drawer they are ordinary bars with no shadow. */
+@media screen and (min-width: 76.25em) {
+  .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link
+    + .md-nav > .md-nav__list,
+  .md-nav--secondary > .md-nav__title ~ .md-nav__list {
+    margin-top: 1rem;
+  }
+}
+
 /* The header logo is now the synqt.svg wordmark (theme.logo in mkdocs.yml), so
    the text in the title area next to it is redundant: the site title (first
    topic) at rest, and the page title (second topic) that Material would swap in

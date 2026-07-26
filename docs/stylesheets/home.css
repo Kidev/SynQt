@@ -678,11 +678,11 @@
   gap: .8rem;
   width: max-content;
   max-width: 100%;
-  /* Fixed, and the same for every file: it is the height of the longest QML file
-     of the six, so no file scrolls. A panel sized to the file being read would be
-     a different height for each of them, and would move the diagram beside it
-     under the pointer that is still pointing at the diagram. */
-  height: 32.5rem;
+  /* Fixed, and the same for every file: it is the height of the longest of the
+     six, the configuration, so no file scrolls. A panel sized to the file being
+     read would be a different height for each of them, and would move the diagram
+     beside it under the pointer that is still pointing at the diagram. */
+  height: 37.75rem;
   min-width: 0;
   background: #0d1224;
   border: 1px solid rgba(255, 255, 255, .15);
@@ -997,7 +997,7 @@
 @media screen and (max-width: 50em) {
   .synqt-explorer__view {
     flex-direction: column;
-    height: 36.5rem;
+    height: 41.5rem;
   }
 
   .synqt-tree {
@@ -1054,7 +1054,7 @@
   /* Wrapped lines make every file taller again, so the panel takes back the
      height the unwrapped files no longer need. */
   .synqt-explorer__view {
-    height: 38.5rem;
+    height: 44rem;
   }
 }
 .synqt-flow__lines line {

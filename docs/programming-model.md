@@ -97,6 +97,14 @@ The configurable parts that matter:
   feed). `per_session` means one Source per browser session (a private draft).
   `per_peer` means one Source per calling entity (useful when one service serves
   several others and must keep their state separate).
+- `server`. The file that implements the connect point. Its root element is
+  `<Contract>Source`, so `web/Todo.qml` opens with `TodoSource { ... }`. The suffix
+  is there because both ends of one contract are QML types in the same `SynQt`
+  module and cannot share a name: the plain `Todo` is the consumer side, the
+  attached handler type used for
+  [a connect point's signals](#handling-a-connect-points-signals), and `TodoSource`
+  is the owner side implementation. So a file whose root reads `TodoSource` is
+  unmistakably the authority for that connect point, not a consumer of it.
 
 ## Reaching a connect point: accessors
 

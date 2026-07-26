@@ -14,11 +14,12 @@ rather than failing: only the API reference pages are missing. Continuous integr
 installs it (see .github/workflows/docs.yml), so the published site always has them.
 
 After Doxygen runs, four passes rewrite what it produced. `_uniform_navigation_tree` makes
-the sidebar tree list pages and nothing else, and stops it from remembering a selection
-across a visit; `_version_tree_data` stamps the tree's run time data fetches so a cached
-copy cannot outlive the shape this hook gives them; `_dedupe_index_title` collapses the
-doubled title on the landing page; and `_fingerprint_assets` version-stamps the stylesheets
-and scripts the pages reference. See each for why it is not optional.
+the sidebar tree list pages and nothing else, drops the directories it documents nothing
+in, and stops it from remembering a selection across a visit; `_version_tree_data`
+stamps the tree's run time data fetches so a cached copy cannot outlive the shape this
+hook gives them; `_dedupe_index_title` collapses the doubled title on the landing page;
+and `_fingerprint_assets` version-stamps the stylesheets and scripts the pages
+reference. See each for why it is not optional.
 """
 
 import hashlib
@@ -163,6 +164,103 @@ def _strip_fragment(name, html_dir, fragments):
         path.unlink()
     fragments[name] = bool(kept)
     return fragments[name]
+
+
+# A directory's own page. Doxygen names one `dir_<hash>.html`, and the File List is the
+# only branch of the tree that holds them.
+_DIRECTORY_PAGE = re.compile(r"^dir_[0-9a-f]+\.html$")
+
+
+def _drop_empty_directories(nodes, html_dir, fragments, dropped):
+    """Drop the directory branches that hold none of the documented files.
+
+    Doxygen makes a directory node for the folder of every input file, whether or not it
+    lists anything from that folder. Two of this reference's inputs are the markdown files
+    that open it (the Doxyfile's INPUT), which become pages rather than file entries, so
+    the File List grew a `tools > docs-hooks` branch that expands onto an empty directory
+    page. It told a reader this reference documents a folder that it does not.
+
+    `_drop_directory_pages` then takes the pages themselves out of the site.
+    """
+    kept = []
+    for node in nodes:
+        url = node[1] if len(node) > 1 else None
+        children = node[2] if len(node) > 2 else None
+        if isinstance(children, list):
+            children = _drop_empty_directories(children, html_dir, fragments, dropped) or None
+        elif isinstance(children, str):
+            children = (children if _keep_directory_branch(children, html_dir, fragments,
+                                                           dropped)
+                        else None)
+        if children is None and isinstance(url, str) and _DIRECTORY_PAGE.match(url):
+            dropped.add(url)
+            continue
+        kept.append([node[0], url, children])
+    return kept
+
+
+def _keep_directory_branch(name, html_dir, fragments, dropped):
+    """Prune the tree fragment `name`, and report whether anything is left of it.
+
+    Same shape as `_strip_fragment`, and for the same reasons: fragments are shared, and a
+    fragment left empty is deleted so the tree offers no arrow that opens onto nothing.
+    """
+    if name in fragments:
+        return fragments[name]
+    path = html_dir / ("%s.js" % name)
+    loaded = _load_nodes(path, name) if path.is_file() else None
+    if loaded is None:
+        fragments[name] = path.is_file()
+        return fragments[name]
+    fragments[name] = True
+    text, span, nodes = loaded
+    kept = _drop_empty_directories(nodes, html_dir, fragments, dropped)
+    if kept != nodes:
+        if kept:
+            _write_nodes(path, text, span, kept)
+        else:
+            path.unlink()
+    fragments[name] = bool(kept)
+    return fragments[name]
+
+
+def _drop_directory_pages(html_dir, dropped):
+    """Take the same directories out of the File List, and off the site.
+
+    Three places name a directory besides the tree. `files.html` is that branch of the
+    tree written out as a table, one `<tr>` per entry. `doxygen_crawl.html` is the link
+    farm Doxygen writes for crawlers and link checkers, which is how a page nothing links
+    to is still found and indexed; leave a pruned directory in it and a search result can
+    still hand a reader the branch the tree no longer shows. And the directory pages
+    themselves, which by then have nothing left pointing at them.
+    """
+    if not dropped:
+        return
+    listing = html_dir / "files.html"
+    if listing.is_file():
+        text = listing.read_text(encoding="utf-8")
+        rewritten = re.sub(
+            r"<tr\b[^>]*>.*?</tr>\n?",
+            lambda row: "" if any(url in row[0] for url in dropped) else row[0],
+            text, flags=re.S)
+        if rewritten != text:
+            listing.write_text(rewritten, encoding="utf-8")
+    crawl = html_dir / "doxygen_crawl.html"
+    if crawl.is_file():
+        text = crawl.read_text(encoding="utf-8")
+        rewritten = re.sub(
+            r'<a href="([^"]*)"\s*/?>(?:</a>)?\n?',
+            lambda link: "" if link[1] in dropped else link[0],
+            text)
+        if rewritten != text:
+            crawl.write_text(rewritten, encoding="utf-8")
+    for url in dropped:
+        page = html_dir / url
+        if page.is_file():
+            page.unlink()
+        # And the dependency graph Doxygen drew for that page, which only it showed.
+        for graph in html_dir.glob("%s_dep*" % url[:-len(".html")]):
+            graph.unlink()
 
 
 def _tree_index(nodes, html_dir, prefix, above, entries, visited):
@@ -364,7 +462,7 @@ def _version_tree_data(html_dir):
 
 
 def _uniform_navigation_tree(html_dir):
-    """Make the sidebar tree list pages only, and follow the page on screen."""
+    """Make the sidebar tree list the pages, and only those, and follow the page on screen."""
     _forget_selected_page(html_dir)
     data = html_dir / "navtreedata.js"
     if not data.is_file():
@@ -383,6 +481,9 @@ def _uniform_navigation_tree(html_dir):
     if not isinstance(children, list):
         return
     root[2] = _strip_anchor_nodes(children, html_dir, fragments)
+    dropped = set()
+    root[2] = _drop_empty_directories(root[2], html_dir, {}, dropped)
+    _drop_directory_pages(html_dir, dropped)
 
     entries = []
     _tree_index(root[2], html_dir, [], [], entries, set())
