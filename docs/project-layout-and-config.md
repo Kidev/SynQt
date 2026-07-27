@@ -183,7 +183,7 @@ side, the mesh (service to service) side, the public TLS, and its env file:
   - name: web
     kind: service
     path: web
-    capabilities: [web_edge]  # serves a client bundle and faces the internet
+    capability: web_edge      # serves a client bundle and faces the internet
 
     public:                   # the internet facing side (delivery + browser wss)
       host: 0.0.0.0           # default: all interfaces; the only public bind in the system

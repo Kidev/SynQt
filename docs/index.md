@@ -365,7 +365,7 @@ entities:
   - { name: client, kind: client, edge: web }
   - name: web
     kind: service
-    capabilities: [web_edge]
+    capability: web_edge
     public: { port: 8443, sync_route: /sync }
   - { name: database, kind: service, blueprint: persistence }
   - { name: api, kind: service, blueprint: gateway }
@@ -374,17 +374,19 @@ connect_points:
   - name: feed
     contract: Feed
     owner: web
-    scope: user
+    instance: per_session
     consumers: [client]
     server: web/Feed.qml
   - name: access
     contract: Access
     owner: database
+    instance: per_peer
     consumers: [web]
     server: database/Access.qml
   - name: upstream
     contract: Upstream
     owner: api
+    instance: per_peer
     consumers: [web]
     server: api/Upstream.qml
 ```
@@ -394,10 +396,10 @@ connect_points:
 <li data-code="origin_model" data-href="security/">Whether the page and the sync endpoint share an origin. It decides the session cookie's flags and which origins may open a connection.</li>
 <li data-code="order: [anonymous" data-href="security/">The scope ladder. Every session sits on one rung, and a connect point can demand a minimum.</li>
 <li data-code="name: client" data-href="desktop/">The browser client, built to WebAssembly. The same QML also builds as a native app for Windows, macOS, and Linux, against this same edge.</li>
-<li data-code="capabilities: [web_edge]" data-href="entities/">The one entity allowed to face the internet, on the one public port. Nothing else gets one.</li>
+<li data-code="capability: web_edge" data-href="entities/">The one entity allowed to face the internet, on the one public port. Nothing else gets one.</li>
 <li data-code="blueprint: persistence" data-href="providers/">A database entity: embedded SQLite by default, PostgreSQL or MySQL behind the same interface with one config value.</li>
 <li data-code="blueprint: gateway" data-href="entities/">The outbound HTTP gateway. It holds the third-party credentials, and it is the only entity that calls out.</li>
-<li data-code="scope: user" data-href="security/">The minimum session scope. A signed-out browser never even acquires this connect point, so there is nothing to call.</li>
+<li data-code="instance: per_session" data-href="programming-model/">One Source per browser connection, which is what gives its slots a Caller. The mesh equivalent is per_peer: one Source per calling entity.</li>
 <li data-code="consumers: [client]" data-href="project-layout-and-config/">The browser's one way in, and deny by default: an entity that is not on this list cannot open this connect point at all.</li>
 <li data-code="consumers: [web]" data-href="entities/">The database is reachable by the edge, over mutual TLS, and by nothing else, browser included.</li>
 </ul>
@@ -415,14 +417,25 @@ import SynQt
 ApplicationWindow {
     id: window
 
+    property string notice: "Loading..."
+    readonly property bool feedReady: Server.feed.ready
+
     visible: true
     title: "My app"
 
-    Feed.onDenied: reason => banner.text = reason
+    // The feed arrives when this browser connects, and again
+    // after a reconnect. Ask for it each time it does.
+    onFeedReadyChanged: {
+        if (window.feedReady) {
+            Server.feed.load();
+        }
+    }
+
+    Feed.onDenied: reason => window.notice = reason
 
     Label {
         id: banner
-        text: Server.feed.ready ? "" : "Loading..."
+        text: Server.feed.loaded ? "" : window.notice
     }
 
     ListView {
@@ -434,8 +447,6 @@ ApplicationWindow {
             text: model.title
         }
     }
-
-    Component.onCompleted: Server.feed.load()
 }
 ```
 
@@ -443,7 +454,8 @@ ApplicationWindow {
 <li data-code="import SynQt" data-href="runtime-api/">Brings in the runtime accessors: Server, Session, Router, and the contracts this entity consumes.</li>
 <li data-code="ApplicationWindow" data-href="project-layout-and-config/">The client's Main.qml is the window. A root that is not a window builds fine and renders nothing.</li>
 <li data-code="Feed.onDenied" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The contract's signal, handled where it arrives. No Connections block, no target to wire up.</li>
-<li data-code="Server.feed.ready" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A property the edge pushes. Read-only here: a consumer can never write owner state.</li>
+<li data-code="Server.feed.ready" data-href="api/?p=classSynQt_1_1ConsumerBase.html">The framework's own: true once the edge is hosting this connect point for this browser. It goes false on a disconnect and true again on the reconnect.</li>
+<li data-code="Server.feed.loaded" data-href="programming-model/">The contract's property, pushed by the edge. Read-only here: a consumer can never write owner state.</li>
 <li data-code="model: Server.feed.rows" data-href="programming-model/">A live model. The edge replaces the rows and every open tab redraws itself.</li>
 <li data-code="Server.feed.load()" data-href="api/?p=classSynQt_1_1ServerAccessor.html">A request, not a command. It runs in the edge, which is free to refuse it.</li>
 </ul>
@@ -455,7 +467,7 @@ ApplicationWindow {
 
 ```syn
 contract Feed {
-    prop bool ready
+    prop bool loaded
     model rows(id, title)
     slot load()
     signal denied(string reason)
@@ -464,7 +476,7 @@ contract Feed {
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="contract Feed" data-href="programming-model/">The only thing both sides share. It compiles to the typed layer each of them links.</li>
-<li data-code="prop bool ready" data-href="programming-model/">Owner to consumers, pushed. A consumer sees it change; it cannot set it.</li>
+<li data-code="prop bool loaded" data-href="programming-model/">Owner to consumers, pushed. A consumer sees it change; it cannot set it.</li>
 <li data-code="model rows(id, title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser.</li>
 <li data-code="slot load()" data-href="programming-model/">Consumer to owner: the one direction a request travels.</li>
 <li data-code="signal denied(string reason)" data-href="programming-model/">The owner's answer when it refuses, addressed to the caller that asked.</li>
@@ -482,7 +494,7 @@ import SynQt
 FeedSource {
     id: feed
 
-    ready: false
+    loaded: false
 
     function load() {
         if (!Caller.hasScope("user")) {
@@ -496,7 +508,7 @@ FeedSource {
             }
             Api.upstream.fetch().then(rows => {
                 feed.setRows(rows);
-                feed.ready = true;
+                feed.loaded = true;
             });
         });
     }
@@ -538,7 +550,7 @@ AccessSource {
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="AccessSource" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
 <li data-code="Caller.isEntityVerified" data-href="api/?p=classSynQt_1_1Caller.html">An entity, not a person, named by the certificate its link presented. Only the edge gets here, and the slot checks again.</li>
-<li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL.</li>
+<li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL. The grants table itself comes from database/schema.sql, which the entity applies at startup.</li>
 </ul>
 
 </div>

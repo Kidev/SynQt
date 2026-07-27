@@ -48,7 +48,7 @@ entities:
   - name: web
     kind: service
     path: web
-    capabilities: [web_edge]
+    capability: web_edge
     public:
       port: 8443
 
@@ -167,7 +167,7 @@ entities:
   - name: web
     kind: service
     path: web
-    capabilities: [web_edge]
+    capability: web_edge
     public:
       port: 8443
     tls:
@@ -423,7 +423,7 @@ entities:
   - name: web
     kind: service
     path: web
-    capabilities: [web_edge]
+    capability: web_edge
     public:
       host: 0.0.0.0
       port: 8443
