@@ -1,8 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Build and run the native C++ ctest suites (M1 through M9 plus the client-update, consumer-facade,
-# auction, arena, provider, custom-provider, and app-generator fixtures). The pytest workflow covers
+# Build and run the native C++ ctest suites (M1 through M9 plus the client-update,
+# consumer-facade, auction, arena, stall, provider, custom-provider, app-generator, desktop-client,
+# url-routing, and remote-pages fixtures). The suites list in the run step is the authority, and a
+# guard there fails the workflow if a runner on disk is missing from it. The pytest workflow covers
 # the pure-Python CLI and generator on all
 # three operating systems; this one covers the compiled framework, which needs the pinned Qt
 # 6.11.1 host kit and its add-on modules.
@@ -341,7 +343,33 @@ jobs:
             tests/appgen-native/run-appgen-native.sh
             tests/desktop-client/run-desktop-client.sh
             tests/url-routing/run-urlrouting.sh
+            tests/remote-pages/run-remotepages.sh
           "
+          # The list above is written out rather than globbed, because the order is the
+          # milestone order and a reviewer should be able to read what this workflow runs.
+          # The cost of that is drift: tests/remote-pages went 1849 lines and five commits
+          # without ever being named here, and nothing said so, because a hand-maintained
+          # list cannot report what is not in it. So compare it against what is on disk. A
+          # runner that belongs to another workflow's toolchain has no run-*.sh (m0-transport
+          # and wasm-quick3dphysics are driven from browser-matrix.yml and wasm-proofs.yml),
+          # which is why this glob is the right question to ask.
+          #
+          # Unquoted on purpose: word splitting collapses the list's newlines and indentation
+          # into single spaces, so the case below can match " $found " as a whole entry.
+          listed=" $(echo $suites) "
+          unlisted=""
+          for found in tests/*/run-*.sh; do
+            case "$listed" in
+              *" $found "*) ;;
+              *) unlisted="$unlisted $found" ;;
+            esac
+          done
+          if [ -n "$unlisted" ]; then
+            echo "::error::test suites exist but this workflow never runs them:$unlisted"
+            echo "add each to the suites list above (or delete the runner if it is dead)"
+            exit 1
+          fi
+
           # m6-client's phases 2 and 3 need the WebAssembly kit and a browser, which this
           # workflow does not install (browser-matrix.yml and wasm-proofs.yml own that
           # toolchain). Pointing QT_WASM at a path that cannot exist makes the suite run its
