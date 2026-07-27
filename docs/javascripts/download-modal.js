@@ -30,8 +30,13 @@
   var ONELINER_SH = "curl -fsSL https://get.synqt.org/install.sh | sh";
   var ONELINER_PS = "irm https://get.synqt.org/install.ps1 | iex";
 
+  var API_LATEST = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
+  // Written by source-facts.js from the header's repository facts (see that file).
+  var FACTS_KEY = "synqt-source-facts";
+
   var modal = null;
   var lastFocused = null;
+  var version = null;
 
   function el(tag, attrs, html) {
     var node = document.createElement(tag);
@@ -66,6 +71,64 @@
     a.textContent = "Download for " + label + " (" + arch + ")";
   }
 
+  /* Which release the buttons above actually resolve to. The header already carries
+   * it: Material draws the latest release tag as a repository fact on every page, and
+   * source-facts.js keeps the last one this browser received. Read those two first, so
+   * the common case costs no request at all, and only ask GitHub directly when neither
+   * has it (a first visit whose header fetch was refused). */
+  function versionFromHeader() {
+    var fact = document.querySelector(".md-source__fact--version");
+    return fact ? fact.textContent.trim() : "";
+  }
+
+  function versionFromCache() {
+    var raw;
+    try {
+      raw = window.localStorage.getItem(FACTS_KEY);
+    } catch (e) {
+      return "";
+    }
+    var facts;
+    try {
+      facts = raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return "";
+    }
+    if (!(facts instanceof Array)) return "";
+    for (var i = 0; i < facts.length; i++) {
+      if (facts[i] && facts[i][0] === "version" && facts[i][1]) {
+        return String(facts[i][1]).trim();
+      }
+    }
+    return "";
+  }
+
+  function showVersion(text) {
+    version = text || null;
+    var node = modal && modal.querySelector("#synqt-dl-version");
+    if (!node) return;
+    // No version rather than a wrong one: the row simply drops the release it could
+    // not name, and the buttons still point at whatever "latest" is when clicked.
+    node.parentNode.hidden = !version;
+    node.textContent = version || "";
+  }
+
+  function resolveVersion() {
+    var known = versionFromHeader() || versionFromCache();
+    if (known) {
+      showVersion(known);
+      return;
+    }
+    if (!window.fetch) {
+      showVersion("");
+      return;
+    }
+    fetch(API_LATEST)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { showVersion(data && data.tag_name ? data.tag_name : ""); })
+      .catch(function () { showVersion(""); });
+  }
+
   function detectAndSet() {
     var os = detectOs();
     // Architecture is not reliably exposed to JavaScript. Ask for high entropy
@@ -93,7 +156,10 @@
       '  <button class="synqt-dl__close" id="synqt-dl-close" type="button" aria-label="Close">&times;</button>' +
       '  <h2 class="synqt-dl__title" id="synqt-dl-title">Get SynQt</h2>' +
       '  <p class="synqt-dl__sub">Install the latest release of the SynQt command line tool. It installs and pins the rest of the toolchain for you.</p>' +
-      '  <p class="synqt-dl__platform">Detected platform: <strong id="synqt-dl-platform">checking&hellip;</strong></p>' +
+      '  <p class="synqt-dl__platform">' +
+      '    <span class="synqt-dl__fact" hidden>Release: <strong id="synqt-dl-version"></strong></span>' +
+      '    <span class="synqt-dl__fact">Detected platform: <strong id="synqt-dl-platform">checking&hellip;</strong></span>' +
+      '  </p>' +
       '  <div class="synqt-dl__row">' +
       '    <a class="synqt-dl__btn" id="synqt-dl-download" href="#" rel="noopener">Download latest</a>' +
       '    <a class="synqt-dl__btn synqt-dl__btn--secondary" id="synqt-dl-releases" href="' + LATEST + '" rel="noopener" target="_blank">All releases and platforms</a>' +
@@ -103,7 +169,7 @@
       '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_SH + "</code></pre>" +
       '  <p class="synqt-dl__sublabel">Windows (PowerShell):</p>' +
       '  <pre class="synqt-dl__pre"><button class="synqt-dl__copy" type="button">copy</button><code>' + ONELINER_PS + "</code></pre>" +
-      '  <p class="synqt-dl__muted">Reading a script before piping it to a shell is strongly recommended. Each only downloads, extracts, and copies a single binary into a bin directory. Read <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a> or <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a> yourself before running it.</p>' +
+      '  <p class="synqt-dl__warn"><strong>Read a script before you pipe it to a shell.</strong> Either of these downloads a release, extracts it, and copies one binary into a bin directory, and nothing else. Read <a href="' + INSTALL_SH_URL + '" target="_blank" rel="noopener">install.sh</a> or <a href="' + INSTALL_PS_URL + '" target="_blank" rel="noopener">install.ps1</a> yourself before you run it.</p>' +
       "</div>";
 
     document.body.appendChild(modal);
@@ -157,6 +223,11 @@
   function open() {
     build();
     detectAndSet();
+    if (version) {
+      showVersion(version); // already resolved once this visit; do not ask again
+    } else {
+      resolveVersion();
+    }
     lastFocused = document.activeElement;
     modal.hidden = false;
     document.body.classList.add("synqt-dl-open");

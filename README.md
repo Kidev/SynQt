@@ -119,7 +119,7 @@ function, the framework exposes the caller through `Caller` (a browser session,
 or another entity authenticated by certificate), so the owner can authorize every
 request.
 
-```
+```solidity
 // shared/Todo.syn : the typed API the browser and the edge share.
 contract Todo {
     model items(text, author, done)   // a live list; only these fields cross

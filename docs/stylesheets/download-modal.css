@@ -93,11 +93,24 @@
 }
 
 .synqt-dl__platform {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
   margin: 0 0 1rem;
+  /* Inherited, this row came out at about half the size of the sentence above it,
+     which is too small for the two facts that say what the button will fetch. */
+  font-size: 0.85rem;
 }
 
 .synqt-dl__platform strong {
   font-weight: 700;
+}
+
+/* The release the buttons resolve to, beside the platform they resolve for. The
+   release fact starts hidden and is shown once it is known (download-modal.js), so
+   a reader never sees a placeholder where a version number should be. */
+.synqt-dl__fact[hidden] {
+  display: none;
 }
 
 .synqt-dl__row {
@@ -189,13 +202,56 @@
   outline: none;
 }
 
-.synqt-dl__muted {
+/* The one thing in this modal a reader should not skim: it is asking them to run a
+   script from the internet. It used to be set in the same dimmed grey as the rest of
+   the small print, which is exactly how a caution goes unread. It keeps that size
+   (0.85rem, no taller than before) and earns its attention another way: full contrast
+   text on a warm panel with a thick left edge and a marker in the margin, and the
+   instruction itself first and in the amber. */
+.synqt-dl__warn {
+  position: relative;
   margin: 0.75rem 0 0;
+  padding: 0.7rem 0.9rem 0.7rem 2.4rem;
   font-size: 0.85rem;
-  opacity: 0.72;
+  line-height: 1.5;
+  color: #f4ecdd;
+  background: rgba(230, 180, 80, 0.09);
+  border: 1px solid rgba(230, 180, 80, 0.32);
+  border-left: 0.2rem solid #e6b450;
+  border-radius: 0.5rem;
 }
 
-.synqt-dl__muted code {
+.synqt-dl__warn::before {
+  content: "!";
+  position: absolute;
+  left: 0.85rem;
+  top: 0.72rem;
+  width: 1rem;
+  height: 1rem;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #241a3d;
+  background: #e6b450;
+  border-radius: 50%;
+}
+
+.synqt-dl__warn strong {
+  color: #e6b450;
+  font-weight: 700;
+}
+
+/* The two script links are part of the instruction, so they are set with it rather
+   than at the smaller size the modal's other prose links use. Two classes, because
+   the rule that sets that smaller size (`.synqt-dl a`, below) is written later and
+   would otherwise win on source order at equal specificity. */
+.synqt-dl .synqt-dl__warn a {
+  font-size: inherit;
+}
+
+.synqt-dl__warn code {
   padding: 0.1rem 0.35rem;
   border-radius: 0.3rem;
   background: rgba(255, 255, 255, 0.08);
@@ -210,8 +266,9 @@
   color: var(--md-accent-fg-color, #00a6ed);
 }
 
+/* The prose links (install.sh, install.ps1, all releases) sit inside small print, so
+   they are set at its size rather than the modal's. */
 .synqt-dl a {
-  color: "#000000";
   font-size: 0.75rem;
 }
 
