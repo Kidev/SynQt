@@ -46,13 +46,40 @@ node.setHeartbeatInterval(100);
 auto *replica = node.acquire<EchoReplica>();
 ```
 
+## The unit cases (`tst_wstransport.cpp`)
+
+The acceptance test above cannot prove the device contract underneath it. QtRO reads
+whole frames as soon as they arrive, so it never takes a short read, never sends a
+multi-megabyte message, and never outlives its socket. Those are the paths a change to
+the read buffer would break, and they would break quietly: small messages would keep
+working while large ones lost bytes. `tst_wstransport` is the adapter on its own, over a
+real loopback pair, with no QtRO node on either end:
+
+- **Framing**: one binary message per write, one `readyRead` per message, and a byte
+  stream on the far side (QtRO frames its own protocol inside that stream).
+- **Partial reads**: a consumer that takes less than has arrived keeps the remainder in
+  order, and `bytesAvailable()` keeps telling it the truth. Run both buffered (how QtRO
+  opens the device) and unbuffered, which is what puts a short read on the adapter's own
+  `readData` instead of on the QIODevice buffer above it.
+- **Large messages**: 4 MiB, whole and byte-exact; and 200 messages back to back in both
+  directions at once, still in order.
+- **Close handling**: `close()` closes the socket under it and both ends learn of it;
+  bytes already buffered survive the peer disconnecting; and a socket destroyed before
+  the device leaves the device answering safely rather than reaching through a dangling
+  pointer.
+
+Worth knowing when reading these: the acceptance test passes against a transport that
+throws away everything a short read did not consume. The buffered partial-read row passes
+too. The unbuffered row and the large-message case are what catch it.
+
 ## How to run
 
 ```sh
 tests/m2-transport/run-m2.sh
 ```
 
-Builds the `SynQtClient` library and the test, then runs it via ctest.
+Builds the `SynQtClient` library and both tests, then runs them via ctest: `m2` (the
+acceptance path) and `wstransport` (the unit cases).
 
 ## Notes
 

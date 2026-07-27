@@ -57,3 +57,17 @@ target_link_libraries(tst_m7 PRIVATE
 )
 
 add_test(NAME m7 COMMAND tst_m7)
+
+# The SessionManager and Caller unit cases from the test plan (TTL expiry and its purge,
+# credential rotation, hierarchical versus set-based scope checks). No entities, no
+# transport: the two classes are the subject, and tst_m7 above answers the end-to-end
+# question they serve.
+qt_add_executable(tst_sessions tst_sessions.cpp)
+
+target_link_libraries(tst_sessions PRIVATE
+    SynQtService
+    Qt6::Core
+    Qt6::Test
+)
+
+add_test(NAME sessions COMMAND tst_sessions)

@@ -40,6 +40,28 @@ Proves the M7 acceptance on the three-entity todo: the two identity systems, the
 7. **An unlisted entity is refused at the mesh handshake**: `other`, CA-signed but not a
    consumer, is refused by deny-by-default.
 
+## What the unit test checks (`tst_sessions.cpp`)
+
+The acceptance test above drives one configured edge, so three things it depends on are
+never actually exercised: a session does not age past its time to live inside a test run,
+a rotated credential is invisible from the browser side, and that edge is configured
+hierarchical, so the set-based reading of the same vocabulary is never taken. Each is a
+fail-open if it breaks. `tst_sessions` takes `SessionManager` and `Caller` on their own,
+with no entities and no transport:
+
+- **Expiry**: a session past its TTL is invisible to `lookup`, `isLive`, and `snapshot`,
+  and the purge behind it reclaims the record (silently: expiry is observed, not
+  broadcast) while keeping a record whose queued expiry hint has gone stale.
+- **Rotation**: `setScope` mints a new credential and kills the old one, carries the
+  identity it is not given, falls back to the default scope, and mints nothing at all for
+  a credential nobody issued.
+- **Scope checks**: hierarchical (a moderator satisfies a `user` gate) against set-based
+  (it does not), a scope outside the vocabulary failing closed either way, and an empty
+  vocabulary meaning exact match only.
+- **The Caller**: it follows its own elevation, fails closed once its session is revoked,
+  and, as an entity caller, has no scope at all and reports the colocation-trusted case as
+  unverified.
+
 ## Notes carried from the build
 
 - The generator now dispatches a slot **with parameters** to the owner's QML `function` by
@@ -56,3 +78,5 @@ Proves the M7 acceptance on the three-entity todo: the two identity systems, the
 ```
 ./run-m7.sh
 ```
+
+Builds and runs both tests: `m7` (the acceptance matrix) and `sessions` (the unit cases).
