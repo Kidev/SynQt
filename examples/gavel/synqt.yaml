@@ -40,6 +40,13 @@ entities:
     kind: service
     capability: web_edge
     identity: true
+    # Serving the browser over TLS in a release build. `synqt dev` ignores this and
+    # runs plaintext on localhost; `synqt build --release` and `synqt serve` require
+    # either this block or public.tls_terminated_upstream, so that nothing ships
+    # reachable over http:// with nobody named as the one who was meant to stop it.
+    tls:
+      cert_file: certs/web/fullchain.pem
+      key_file: certs/web/privkey.pem
 
   - name: database
     kind: service

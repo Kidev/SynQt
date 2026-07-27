@@ -14,11 +14,24 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import addentity, appgen, clientcache, toolchain
+from . import addentity, appgen, clientcache, toolchain, topologywriter
 
 
-def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
-    """Return (ok, messages). Messages prefixed 'error:' fail the build; 'warn:' do not."""
+def validate(config: Dict[str, Any], *, release: bool = False,
+             project_dir: Optional[os.PathLike[str] | str] = None,
+             starting: bool = False) -> Tuple[bool, List[str]]:
+    """Return (ok, messages). Messages prefixed 'error:' fail the build; 'warn:' do not.
+
+    ``release`` selects the rules that only bind a production artifact: plaintext to the
+    browser, a cross-host mesh link without mutual TLS, and a desktop client pointed at a
+    plaintext edge are all legitimate on a developer's localhost and none of them may
+    reach a deployment. ``project_dir`` enables the rules that have to look at the disk;
+    without it those are skipped rather than guessed at. ``starting`` marks the moment an
+    entity is actually about to run, which is the only point where a missing mesh
+    certificate is a failure rather than a note: certificates are deployment artifacts
+    issued from the CA, and the CA private key is deliberately not on the machine that
+    builds (docs/security.md), so a release build that demanded one would be demanding
+    the one thing CI must never hold."""
     messages: List[str] = []
     entities = {e.get("name"): e for e in config.get("entities", []) if isinstance(e, dict)}
     if not entities:
@@ -26,6 +39,14 @@ def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
 
     web_edges = {name for name, e in entities.items() if _is_web_edge(e)}
     clients = {name for name, e in entities.items() if e.get("kind") == "client"}
+
+    # The endpoints the build will actually write, not the keys as spelled: a link's
+    # transport and host can come from the owner entity's `mesh:` block as easily as from
+    # the connect point, and a rule that read only one of the two would pass a topology
+    # the generator then wires the other way (see topologywriter.mesh_settings).
+    project_name = (config.get("project") or {}).get("name", "app")
+    endpoints = topologywriter.resolve_endpoints(config, project_name)
+    scope_order = _scope_order(config)
 
     for connect_point in config.get("connect_points", []):
         name = connect_point.get("name", "<unnamed>")
@@ -45,13 +66,23 @@ def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
                     f"error: client '{consumer}' consumes '{name}', owned by '{owner}', "
                     "which is not a web_edge entity (the browser can only reach a web edge)")
 
+        # A scope names the authority a caller needs to acquire this connect point. One
+        # that is not in scopes.order is not a scope at all: hasScope() would never match
+        # it, so the connect point is silently unreachable rather than protected.
+        scope = connect_point.get("scope")
+        if scope is not None and scope_order and str(scope) not in scope_order:
+            messages.append(
+                f"error: connect point '{name}' requires scope '{scope}', which is not in "
+                f"scopes.order ({', '.join(scope_order)}); no session could ever hold it")
+
+        endpoint = endpoints.get(name, {})
+
         # A local-socket link must be opted into explicitly (never picked implicitly), and
         # every local link is surfaced: its Caller.entity is colocation-trusted, not
         # certificate-authenticated, so any same-user process can present that entity name
         # (pitfall 7). Owners that gate a privileged action on entity identity must require
         # Caller.isEntityVerified on such a link.
-        transport = connect_point.get("transport")
-        if transport == "local":
+        if endpoint.get("transport") == "local":
             if not connect_point.get("transport_local_explicit", True):
                 messages.append(f"error: connect point '{name}' uses transport local implicitly")
             else:
@@ -60,11 +91,20 @@ def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
                     "colocation-trusted, not certificate-authenticated (gate privileged "
                     "actions on Caller.isEntityVerified)")
 
+    messages += _mesh_policy_messages(config, endpoints, release)
+    messages += _edge_tls_messages(entities, web_edges, release)
+    messages += _desktop_client_messages(config, entities, clients, release)
+    messages += _identity_messages(config)
+    if project_dir is not None:
+        messages += _mesh_certificate_messages(config, entities, endpoints, project_dir,
+                                               starting)
+
     # No provider secret may be reachable from a client target.
     for name in clients:
         entity = entities[name]
         if entity.get("provider") or entity.get("settings"):
             messages.append(f"error: client '{name}' must not carry a provider/secret block")
+        messages += _client_env_messages(name, entity)
 
     # The client build mode and the cross-origin-isolation it requires must pair up
     # (pitfall 13): a multi-threaded WASM client needs SharedArrayBuffer, which the browser
@@ -102,6 +142,7 @@ def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
     messages += _loading_messages(config)
     for name in sorted(entities):
         messages += _provider_messages(name, entities[name])
+        messages += _provider_secret_messages(name, entities[name])
 
     # How a repeat visitor gets the client back (build.client_cache). Unset is fine: it
     # defaults to the service worker.
@@ -115,6 +156,284 @@ def validate(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
     if ok and not messages:
         messages.append("ok: topology valid")
     return ok, messages
+
+
+def _scope_order(config: Dict[str, Any]) -> List[str]:
+    """The declared scope names, lowest authority first. Empty when none are declared,
+    which turns the scope rules off rather than rejecting every scope in the file."""
+    scopes = config.get("scopes")
+    if not isinstance(scopes, dict):
+        return []
+    order = scopes.get("order")
+    if not isinstance(order, list):
+        return []
+    return [str(entry) for entry in order]
+
+
+def _mesh_policy_messages(config: Dict[str, Any], endpoints: Dict[str, Dict[str, Any]],
+                          release: bool) -> List[str]:
+    """The mesh-wide TLS policy: `mesh.require_mtls_cross_host`, and the links it governs.
+
+    A cross-host link is one whose resolved host is not this machine. It carries entity
+    identity over a wire someone else can reach, so mutual TLS is the only thing standing
+    between the mesh and anyone who can route a packet to that port.
+
+    Which is why the guarantee is mostly structural rather than checked link by link: the
+    two transports are mutual TLS and a local socket, and a local socket is a file on one
+    machine, so a link that leaves the machine is mutual TLS because there is nothing else
+    for it to be. The two rules here are the ways that could stop being true. A local
+    socket with a remote host is a configuration that reads as a cross-host link and is
+    not one, and the consumer would dial a socket path resolving to some other process on
+    its own host. And `require_mtls_cross_host: false` is the switch that would let a
+    future plaintext mesh transport through, which a lab may want and a release may not.
+    """
+    messages: List[str] = []
+    policy = config.get("mesh")
+    policy = policy if isinstance(policy, dict) else {}
+    required = policy.get("require_mtls_cross_host", True)
+
+    if required is False and release:
+        messages.append(
+            "error: mesh.require_mtls_cross_host is false, which a release build does not "
+            "allow: a cross-host link without mutual TLS puts entity identity on a wire "
+            "anyone who can reach the port can speak on (see docs/security.md)")
+
+    for name, endpoint in sorted(endpoints.items()):
+        if endpoint.get("transport") != "local":
+            continue
+        # A local socket is a file on one machine. Naming a remote host next to it does not
+        # make the link cross-host, it makes the configuration a lie about where the owner
+        # is, and the consumer would dial a socket path that resolves to a different
+        # process (or nothing) on its own host.
+        host = str((_link_host(config, name) or "")).strip().lower()
+        if host and host not in topologywriter.LOOPBACK_HOSTS:
+            messages.append(
+                f"error: connect point '{name}' uses transport local with host '{host}': a "
+                "local socket cannot leave the machine, so either drop the host or use "
+                "transport mtls")
+    return messages
+
+
+def _link_host(config: Dict[str, Any], connect_point_name: str) -> Optional[str]:
+    """The host spelled for one link, before the local/mtls resolution drops it."""
+    for connect_point in config.get("connect_points") or []:
+        if isinstance(connect_point, dict) and connect_point.get("name") == connect_point_name:
+            return topologywriter.mesh_settings(config, connect_point).get("host")
+    return None
+
+
+def _edge_tls_messages(entities: Dict[str, Any], web_edges: Set[str],
+                       release: bool) -> List[str]:
+    """A release web edge reaches the browser over TLS, and says which end terminates it.
+
+    Everything the browser link protects rests on that: the session cookie is `Secure`,
+    the upgrade carries the credential, and the client sets no QSslConfiguration of its
+    own because the browser terminates wss. Plaintext is a localhost convenience
+    (`dev.tls: false`), never a deployment, so this reads the entity's own `tls:` block
+    and not the `dev:` section that only ever describes a developer machine.
+
+    There are two right answers and this asks for one of them, rather than assuming the
+    first. The edge terminates TLS itself, with `tls.cert_file` and `tls.key_file`. Or a
+    reverse proxy in front of it does, which docs/security.md recommends for putting the
+    bundle and the sync path on one origin, and then the edge legitimately listens on
+    plaintext loopback and the project says so with `public.tls_terminated_upstream`.
+    What is rejected is neither: an edge that will be reached over `http://` with nobody
+    named as the one who was supposed to stop that.
+    """
+    if not release:
+        return []
+    messages: List[str] = []
+    for name in sorted(web_edges):
+        entity = entities[name]
+        if (entity.get("public") or {}).get("tls_terminated_upstream"):
+            continue
+        tls = entity.get("tls")
+        if not isinstance(tls, dict):
+            messages.append(
+                f"error: web edge '{name}' has no tls section, so a release build would "
+                "serve the browser over plaintext; give it tls.cert_file and tls.key_file, "
+                "or set public.tls_terminated_upstream: true if a reverse proxy in front "
+                "of it terminates TLS")
+            continue
+        missing = [key for key in ("cert_file", "key_file") if not tls.get(key)]
+        if missing:
+            messages.append(
+                f"error: web edge '{name}' tls is missing {' and '.join(missing)}, so a "
+                "release build has nothing to terminate TLS with")
+    return messages
+
+
+def _desktop_client_messages(config: Dict[str, Any], entities: Dict[str, Any],
+                             clients: Set[str], release: bool) -> List[str]:
+    """A native client is not served by an edge, so it has to be told where its edge is.
+
+    The browser client reads its edge from the page it was served by; a desktop build has
+    no serving origin and reads `build.desktop.edge_url`, which the build bakes in
+    (build.py `_desktop_edge_url`). Missing, it connects to nothing and the failure lands
+    on a user's machine rather than here. Plaintext is allowed only against a dev edge on
+    localhost, because a desktop client terminates its own TLS and a `ws://` URL in a
+    shipped binary is a downgrade nobody can see.
+    """
+    messages: List[str] = []
+    desktop = ((config.get("build") or {}).get("desktop") or {})
+    url = str(desktop.get("edge_url") or "").strip()
+    for name in sorted(clients):
+        targets = entities[name].get("targets") or ["wasm"]
+        if "desktop" not in targets:
+            continue
+        if not url:
+            messages.append(
+                f"error: client '{name}' lists the desktop target but there is no "
+                "build.desktop.edge_url; a native client cannot discover its edge")
+            continue
+        if release and not url.startswith("wss://"):
+            messages.append(
+                f"error: build.desktop.edge_url '{url}' is not wss://, which a release "
+                "desktop client does not allow (plaintext is for a dev edge on localhost)")
+    return messages
+
+
+def _identity_messages(config: Dict[str, Any]) -> List[str]:
+    """Every configured identity provider needs a client secret before the edge starts.
+
+    Left to the first login this is a bad failure: the edge comes up, serves the app, and
+    the OAuth exchange fails for the first person who tries to sign in. The secret is
+    always an `env:` reference (the value lives in the entity env, never in synqt.yaml),
+    so what is checked here is that the reference exists and is one.
+    """
+    identity = config.get("identity")
+    if not isinstance(identity, dict):
+        return []
+    messages: List[str] = []
+    providers = identity.get("providers")
+    providers = providers if isinstance(providers, list) else []
+    for provider in providers:
+        if not isinstance(provider, dict):
+            continue
+        name = provider.get("name", "<unnamed>")
+        secret = str(provider.get("client_secret") or "").strip()
+        if not secret:
+            messages.append(
+                f"error: identity provider '{name}' has no client_secret; the token "
+                "exchange would fail at the first login, not at startup")
+        elif not secret.startswith("env:"):
+            messages.append(
+                f"error: identity provider '{name}' has a literal client_secret; it must "
+                "be an env: reference so the value stays out of synqt.yaml")
+        if not str(provider.get("client_id") or "").strip():
+            messages.append(f"error: identity provider '{name}' has no client_id")
+    return messages
+
+
+def _mesh_certificate_messages(config: Dict[str, Any], entities: Dict[str, Any],
+                               endpoints: Dict[str, Dict[str, Any]],
+                               project_dir: os.PathLike[str] | str,
+                               starting: bool) -> List[str]:
+    """Every entity on a mutual-TLS link needs its issued certificate before it starts.
+
+    `synqt dev` issues throwaway development certificates automatically, so this is a
+    warning while you are editing or building and names the command that fixes it. It
+    becomes an error only at the point of starting the entities, which is where a missing
+    certificate stops being a note and becomes a handshake that will fail.
+    """
+    mesh_dir = Path(project_dir) / "synqt" / "mesh"
+    needs_certificate: Set[str] = set()
+    for name, endpoint in endpoints.items():
+        if endpoint.get("transport") != "mtls":
+            continue
+        for connect_point in config.get("connect_points") or []:
+            if not isinstance(connect_point, dict) or connect_point.get("name") != name:
+                continue
+            for party in [connect_point.get("owner"), *(connect_point.get("consumers") or [])]:
+                # The client holds no mesh certificate by design: it reaches the edge over
+                # wss and never joins the mesh.
+                if party in entities and entities[party].get("kind") != "client":
+                    needs_certificate.add(str(party))
+
+    if not (mesh_dir / "ca.crt").exists() and not needs_certificate:
+        return []
+
+    messages: List[str] = []
+    for name in sorted(needs_certificate):
+        if (mesh_dir / f"{name}.crt").exists():
+            continue
+        # `synqt dev` issues its throwaway certificates into synqt/mesh/dev/, so an entity
+        # holding one of those is ready to start under dev and should not be reported as
+        # missing. It is not ready to be served as a deployment, which is what `starting`
+        # marks, and a dev certificate does not count there.
+        if not starting and (mesh_dir / "dev" / f"{name}.crt").exists():
+            continue
+        prefix = "error" if starting else "warn"
+        messages.append(
+            f"{prefix}: entity '{name}' is on a mutual-TLS link with no certificate in "
+            f"synqt/mesh/; run 'synqt mesh cert {name}' (synqt dev issues development "
+            "certificates itself)")
+    return messages
+
+
+def _client_env_messages(name: str, entity: Dict[str, Any]) -> List[str]:
+    """No `env:` reference may be reachable from a client target.
+
+    An `env:` reference is a promise that a value is resolved from the entity environment
+    at run time. A client has no such environment worth the name: a WASM bundle is served
+    to every visitor and a desktop binary is handed to them, so anything the build could
+    resolve there is a value shipped in the artifact. The whole subtree is walked rather
+    than a list of known keys, because the point is that there is no safe key.
+    """
+    hits = sorted(_env_references(entity))
+    if not hits:
+        return []
+    return [f"error: client '{name}' references {', '.join(hits)}: an env: reference on a "
+            "client target would be resolved into an artifact served to every visitor"]
+
+
+def _env_references(node: Any, path: str = "") -> Set[str]:
+    """Every `env:` string in a config subtree, reported by the path that reaches it."""
+    found: Set[str] = set()
+    if isinstance(node, dict):
+        for key, value in node.items():
+            found |= _env_references(value, f"{path}.{key}" if path else str(key))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            found |= _env_references(value, f"{path}[{index}]")
+    elif isinstance(node, str) and node.startswith("env:"):
+        found.add(f"{path or '<root>'} ({node})")
+    return found
+
+
+# Provider keys that carry a credential. `uri` and `connection_string` are on the list
+# because a Mongo or Redis URI embeds user and password in the authority component, so a
+# literal one leaks the password exactly as a literal `password` does.
+_PROVIDER_SECRET_KEYS = ("password", "uri", "connection_string")
+
+
+def _provider_secret_messages(name: str, entity: Dict[str, Any]) -> List[str]:
+    """A provider credential is an `env:` reference or it is a committed secret.
+
+    synqt.yaml is a file people read in review, paste into an issue, and commit. The
+    credential belongs in the entity environment, and the config carries only the name of
+    the variable that holds it (topologywriter passes the name through verbatim, never the
+    value). A literal here is not a weaker configuration, it is a disclosed password.
+    """
+    provider = entity.get("provider")
+    if not isinstance(provider, dict):
+        return []
+    messages: List[str] = []
+    for key in _PROVIDER_SECRET_KEYS:
+        value = provider.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        if value.startswith("env:"):
+            continue
+        # A URI is only a credential when it carries one; a bare host:port is not a secret
+        # and demanding an env: reference for it would be noise.
+        if key != "password" and "@" not in value:
+            continue
+        messages.append(
+            f"error: entity '{name}' sets provider.{key} to a literal value; it must be an "
+            "env: reference (for example 'env:DB_PASSWORD') so the credential lives in the "
+            "entity environment and never in synqt.yaml")
+    return messages
 
 
 def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
@@ -811,11 +1130,18 @@ def lint_qml(project_dir: os.PathLike[str] | str) -> List[str]:
     return messages
 
 
-def check_project(project_dir: os.PathLike[str] | str) -> Tuple[bool, List[str]]:
-    """The full `synqt check`: topology validation + contract lint + loading lint + QML lint."""
+def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
+                  starting: bool = False) -> Tuple[bool, List[str]]:
+    """The full `synqt check`: topology validation + contract lint + loading lint + QML lint.
+
+    `release` turns on the rules that bind only a production artifact. `synqt check` with
+    no argument answers "is this project sound", which is the question a developer asks
+    mid-edit on a localhost topology; `synqt build --release` asks the stricter question
+    and passes release=True."""
     config_path = Path(project_dir) / "synqt.yaml"
     config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
-    ok, messages = validate(config)
+    ok, messages = validate(config, release=release, project_dir=project_dir,
+                            starting=starting)
     contract_messages = lint_contracts(project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)

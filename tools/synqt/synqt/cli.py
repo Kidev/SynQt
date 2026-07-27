@@ -75,6 +75,12 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=helptext)
         if name != "providers":
             p.add_argument("--project-dir", default=".")
+        if name == "check":
+            # The rules that bind only a shipped artifact (TLS to the browser, mutual TLS
+            # off-machine, a wss desktop edge URL) would reject a perfectly good localhost
+            # topology, so they are opt-in here and automatic on `build --release`/`serve`.
+            p.add_argument("--release", action="store_true",
+                           help="also apply the rules a release build and serve apply")
         if name in ("dev", "build"):
             p.add_argument("--release", action="store_true", default=(name == "build"))
             p.add_argument("--debug", action="store_true")
@@ -128,6 +134,29 @@ def build_parser() -> argparse.ArgumentParser:
     for ap in (auth, entity, provider, contract, connect_point):
         ap.add_argument("--project-dir", default=".")
     return parser
+
+
+def _fails_validation(project_dir: str, *, release: bool, starting: bool = False) -> bool:
+    """Run the topology validation ahead of a build or a run, and report it.
+
+    Only the topology half runs here, not the full `synqt check`: the contract, QML, and
+    route lints shell out to qmllint and read every QML file in the project, which is a
+    second or more on each hot reload, and `synqt dev` calls this on every rebuild. The
+    rules that stop a broken or unsafe deployment are all in validate().
+    """
+    config_path = Path(project_dir) / "synqt.yaml"
+    if not config_path.exists():
+        return False  # not a project yet; the command below reports that in its own words
+    config = yaml.safe_load(config_path.read_text()) or {}
+    ok, messages = checkmod.validate(config, release=release, project_dir=project_dir,
+                                     starting=starting)
+    for message in messages:
+        if message.startswith(("error:", "warn:")):
+            print(message, file=sys.stderr if message.startswith("error:") else sys.stdout)
+    if not ok:
+        print("synqt: refusing to continue with an invalid configuration "
+              "(run 'synqt check' for the full report).", file=sys.stderr)
+    return not ok
 
 
 def _run_add(args: argparse.Namespace) -> int:
@@ -184,7 +213,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif args.command == "doctor":
             print(doctor.report(args.project_dir))
         elif args.command == "check":
-            ok, messages = checkmod.check_project(args.project_dir)
+            ok, messages = checkmod.check_project(args.project_dir, release=args.release)
             print("\n".join(messages))
             return 0 if ok else 1
         elif args.command == "clean":
@@ -195,10 +224,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif args.command in ("build", "dev"):
             release = args.release and not args.debug
             if args.command == "dev":
-                # Development keeps mutual TLS with a throwaway dev CA.
+                # Development keeps mutual TLS with a throwaway dev CA. Issued before the
+                # validation below rather than after, so the certificate rule sees the
+                # certificates dev is about to create instead of reporting them missing
+                # and then creating them in the next breath.
                 mesh.init(args.project_dir, dev=True, force=True)
                 mesh.cert_all(args.project_dir, _service_entities(_load_config(args.project_dir)),
                               dev=True)
+            # Fail fast, before anything is compiled or started. Without this the whole
+            # validation contract in docs/project-layout-and-config.md only ever ran when
+            # someone remembered to type `synqt check`, which is not where a plaintext
+            # release edge or a literal database password gets caught.
+            if _fails_validation(args.project_dir, release=release):
+                return 1
             print(buildmod.build(args.project_dir, release=release, client=args.client,
                                  entity=getattr(args, "entity", None),
                                  threads=getattr(args, "threads", None),
@@ -209,6 +247,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                                  open_browser=not args.no_open, client=args.client,
                                  watch=not args.no_watch))
         elif args.command == "serve":
+            # `synqt serve` runs the built artifacts as a deployment, so it holds them to
+            # the release rules even though it does not build anything.
+            if _fails_validation(args.project_dir, release=True, starting=True):
+                return 1
             print(runmod.serve(args.project_dir))
         elif args.command == "test":
             return runmod.test(args.project_dir)
