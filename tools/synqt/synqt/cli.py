@@ -12,16 +12,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
-
 from . import (addauth, addcontract, addentity, addprovider, appgen,
-               build as buildmod, check as checkmod, clientbuild, doctor, mesh,
-               newproject, run as runmod, version as versionmod)
+               build as buildmod, check as checkmod, clientbuild,
+               config as configmod, doctor, mesh, newproject, run as runmod,
+               version as versionmod)
 
 
-def _load_config(project_dir: str) -> Dict[str, Any]:
-    path = Path(project_dir) / "synqt.yaml"
-    return yaml.safe_load(path.read_text()) if path.exists() else {}
+def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, Any]:
+    return configmod.load(project_dir, profile=profile)
 
 
 def _service_entities(config: Dict[str, Any]) -> List[str]:
@@ -75,6 +73,13 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=helptext)
         if name != "providers":
             p.add_argument("--project-dir", default=".")
+        if name in ("dev", "build", "serve", "check", "doctor"):
+            # The commands that read the topology take the profile that layers over it
+            # (docs/project-layout-and-config.md, "Configuration resolution order").
+            # `clean`, `providers`, and `test` read no configuration, so offering them a
+            # profile would only suggest it changes something.
+            p.add_argument("--profile", default=None, metavar="NAME",
+                           help="layer synqt.<NAME>.yaml over synqt.yaml")
         if name == "check":
             # The rules that bind only a shipped artifact (TLS to the browser, mutual TLS
             # off-machine, a wss desktop edge URL) would reject a perfectly good localhost
@@ -113,7 +118,11 @@ def build_parser() -> argparse.ArgumentParser:
     mesh_sub.add_parser("status")
     for mp in (mi, mc, mr):
         mp.add_argument("--project-dir", default=".")
-    meshp.set_defaults(project_dir=".")
+        # A profile may add an entity, and an entity with no certificate cannot join the
+        # mesh, so `mesh cert --all` has to see the same entity list the build will.
+        mp.add_argument("--profile", default=None, metavar="NAME",
+                        help="layer synqt.<NAME>.yaml over synqt.yaml")
+    meshp.set_defaults(project_dir=".", profile=None)
 
     add = sub.add_parser("add", help="add a capability to the project")
     add_sub = add.add_subparsers(dest="what", required=True)
@@ -136,7 +145,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _fails_validation(project_dir: str, *, release: bool, starting: bool = False) -> bool:
+def _fails_validation(project_dir: str, *, release: bool, starting: bool = False,
+                      profile: Optional[str] = None) -> bool:
     """Run the topology validation ahead of a build or a run, and report it.
 
     Only the topology half runs here, not the full `synqt check`: the contract, QML, and
@@ -144,12 +154,13 @@ def _fails_validation(project_dir: str, *, release: bool, starting: bool = False
     second or more on each hot reload, and `synqt dev` calls this on every rebuild. The
     rules that stop a broken or unsafe deployment are all in validate().
     """
-    config_path = Path(project_dir) / "synqt.yaml"
-    if not config_path.exists():
+    if not (Path(project_dir) / "synqt.yaml").exists():
         return False  # not a project yet; the command below reports that in its own words
-    config = yaml.safe_load(config_path.read_text()) or {}
-    ok, messages = checkmod.validate(config, release=release, project_dir=project_dir,
-                                     starting=starting)
+    resolved = configmod.resolve(project_dir, profile=profile)
+    for source in resolved.sources:
+        print(f"synqt: {source}")
+    ok, messages = checkmod.validate(resolved.config, release=release,
+                                     project_dir=project_dir, starting=starting)
     for message in messages:
         if message.startswith(("error:", "warn:")):
             print(message, file=sys.stderr if message.startswith("error:") else sys.stdout)
@@ -180,7 +191,7 @@ def _run_add(args: argparse.Namespace) -> int:
 
 
 def _run_mesh(args: argparse.Namespace) -> int:
-    config = _load_config(args.project_dir)
+    config = _load_config(args.project_dir, args.profile)
     if args.mesh_command == "init":
         print(mesh.init(args.project_dir, force=args.force))
     elif args.mesh_command == "cert":
@@ -211,9 +222,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif args.command == "providers":
             print(addentity.list_providers())
         elif args.command == "doctor":
-            print(doctor.report(args.project_dir))
+            print(doctor.report(args.project_dir, profile=args.profile))
         elif args.command == "check":
-            ok, messages = checkmod.check_project(args.project_dir, release=args.release)
+            ok, messages = checkmod.check_project(args.project_dir, release=args.release,
+                                                  profile=args.profile)
             print("\n".join(messages))
             return 0 if ok else 1
         elif args.command == "clean":
@@ -229,29 +241,31 @@ def main(argv: Optional[List[str]] = None) -> int:
                 # certificates dev is about to create instead of reporting them missing
                 # and then creating them in the next breath.
                 mesh.init(args.project_dir, dev=True, force=True)
-                mesh.cert_all(args.project_dir, _service_entities(_load_config(args.project_dir)),
+                mesh.cert_all(args.project_dir,
+                              _service_entities(_load_config(args.project_dir, args.profile)),
                               dev=True)
             # Fail fast, before anything is compiled or started. Without this the whole
             # validation contract in docs/project-layout-and-config.md only ever ran when
             # someone remembered to type `synqt check`, which is not where a plaintext
             # release edge or a literal database password gets caught.
-            if _fails_validation(args.project_dir, release=release):
+            if _fails_validation(args.project_dir, release=release, profile=args.profile):
                 return 1
             print(buildmod.build(args.project_dir, release=release, client=args.client,
                                  entity=getattr(args, "entity", None),
                                  threads=getattr(args, "threads", None),
-                                 verbose=args.verbose))
+                                 verbose=args.verbose, profile=args.profile))
             if args.command == "dev":
                 print()
                 print(runmod.dev(args.project_dir, port=args.port,
                                  open_browser=not args.no_open, client=args.client,
-                                 watch=not args.no_watch))
+                                 watch=not args.no_watch, profile=args.profile))
         elif args.command == "serve":
             # `synqt serve` runs the built artifacts as a deployment, so it holds them to
             # the release rules even though it does not build anything.
-            if _fails_validation(args.project_dir, release=True, starting=True):
+            if _fails_validation(args.project_dir, release=True, starting=True,
+                                 profile=args.profile):
                 return 1
-            print(runmod.serve(args.project_dir))
+            print(runmod.serve(args.project_dir, profile=args.profile))
         elif args.command == "test":
             return runmod.test(args.project_dir)
         elif args.command == "mesh":
@@ -262,7 +276,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             parser.error("unknown command")
     except (newproject.NewProjectError, addauth.AddAuthError, addentity.AddEntityError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
-            appgen.AppGenError, buildmod.BuildError, FileNotFoundError) as error:
+            appgen.AppGenError, buildmod.BuildError, configmod.ConfigError,
+            FileNotFoundError) as error:
         print(f"synqt {args.command}: {error}", file=sys.stderr)
         return 1
     return 0

@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import appgen, toolchain
+from . import appgen, config as configmod, toolchain
 
 
 def launch_env(root: Path) -> Dict[str, str]:
@@ -108,11 +108,11 @@ def startup_order(config: Dict[str, Any]) -> List[str]:
     return ordered
 
 
-def serve(project_dir: os.PathLike[str] | str) -> str:
+def serve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = None) -> str:
     """Launch the built entities in dependency order; report what is missing to build."""
     from . import build as buildmod
     root = Path(project_dir)
-    config = buildmod.load_config(root)
+    config = buildmod.load_config(root, profile)
     order = startup_order(config)
 
     lines = ["Startup order (owners before consumers):", "  " + " -> ".join(order) or "  (none)"]
@@ -197,7 +197,7 @@ def _terminate(processes: List[Tuple[str, subprocess.Popen]]) -> None:
 
 def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
         open_browser: bool = True, block: bool = True, client: str = "wasm",
-        watch: bool = True) -> str:
+        watch: bool = True, profile: Optional[str] = None) -> str:
     """Serve the built client at the web edge over plaintext localhost and open a browser.
 
     Owners start before consumers; the edge comes up last and serves build/client/. With
@@ -207,7 +207,7 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
     incremental rebuild plus an automatic browser reload."""
     from . import build as buildmod
     root = Path(project_dir)
-    config = buildmod.load_config(root)
+    config = buildmod.load_config(root, profile)
     edge = _edge_entity(config)
     if edge is None:
         return "synqt dev: no web_edge entity in the topology; nothing to serve."
@@ -235,9 +235,10 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
 
     print(summary)
     if watch:
-        print("  Watching *.qml, *.syn and synqt.yaml for changes (hot reload on). "
+        names = " and ".join(configmod.config_filenames(profile))
+        print(f"  Watching *.qml, *.syn and {names} for changes (hot reload on). "
               "Press Ctrl-C to stop.")
-        state = {"processes": processes, "config": config}
+        state = {"processes": processes, "config": config, "profile": profile}
         _watch_loop(root, state, port, client)
         return "synqt dev: stopped."
 
@@ -255,16 +256,23 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
 
 class SourceWatcher:
     """Poll the project's edit surface for changes. Watches ``*.qml`` and ``*.syn`` sources
-    and ``synqt.yaml``; ignores generated output and tooling (``build/``, ``synqt/``,
-    ``.git``). Deliberately does not watch the generated ``main.cpp``/``CMakeLists.txt`` so
-    regenerating them during a rebuild cannot re-trigger the watcher."""
+    and the configuration files in play; ignores generated output and tooling (``build/``,
+    ``synqt/``, ``.git``). Deliberately does not watch the generated
+    ``main.cpp``/``CMakeLists.txt`` so regenerating them during a rebuild cannot re-trigger
+    the watcher.
+
+    ``config_names`` carries the active profile's file as well as ``synqt.yaml``: under
+    ``--profile production`` the profile file is part of the topology, and a watcher that
+    did not know it would keep serving the old wiring with nothing to say it had missed
+    the save."""
 
     _IGNORED_DIRS = {"build", ".git", "synqt", "node_modules", "toolchain"}
     _WATCHED_SUFFIXES = {".qml", ".syn"}
-    _WATCHED_NAMES = {"synqt.yaml"}
 
-    def __init__(self, root: os.PathLike[str] | str) -> None:
+    def __init__(self, root: os.PathLike[str] | str,
+                 config_names: Tuple[str, ...] = ("synqt.yaml",)) -> None:
         self._root = Path(root)
+        self._config_names = set(config_names)
         self._snapshot: Dict[Path, int] = self._scan()
 
     def _scan(self) -> Dict[Path, int]:
@@ -274,7 +282,7 @@ class SourceWatcher:
                            if d not in self._IGNORED_DIRS and not d.startswith(".")]
             for filename in filenames:
                 path = Path(dirpath) / filename
-                if path.suffix in self._WATCHED_SUFFIXES or filename in self._WATCHED_NAMES:
+                if path.suffix in self._WATCHED_SUFFIXES or filename in self._config_names:
                     try:
                         found[path] = path.stat().st_mtime_ns
                     except OSError:
@@ -292,18 +300,18 @@ class SourceWatcher:
         return changed
 
 
-def _categorize(changed: Set[Path], root: Path,
-                config: Dict[str, Any]) -> Tuple[bool, bool]:
+def _categorize(changed: Set[Path], root: Path, config: Dict[str, Any],
+                config_names: Tuple[str, ...] = ("synqt.yaml",)) -> Tuple[bool, bool]:
     """Decide whether a change touches the host side (services/edge), the client side, or
-    both. A topology (synqt.yaml) or contract (.syn) change affects both; an entity's QML
-    is attributed to that entity's side."""
+    both. A topology (a configuration file) or contract (.syn) change affects both; an
+    entity's QML is attributed to that entity's side."""
     services = {e.get("name") for e in config.get("entities", [])
                 if isinstance(e, dict) and e.get("kind") != "client"}
     client_name = next((e.get("name") for e in config.get("entities", [])
                         if isinstance(e, dict) and e.get("kind") == "client"), None)
     host = client = False
     for path in changed:
-        if path.name == "synqt.yaml" or path.suffix == ".syn":
+        if path.name in config_names or path.suffix == ".syn":
             return True, True
         try:
             top = path.relative_to(root).parts[0]
@@ -321,7 +329,7 @@ def _categorize(changed: Set[Path], root: Path,
 
 def _watch_loop(root: Path, state: Dict[str, Any], port: int, client: str) -> None:
     """Watch sources until the edge exits or Ctrl-C: rebuild and reload on every change."""
-    watcher = SourceWatcher(root)
+    watcher = SourceWatcher(root, configmod.config_filenames(state.get("profile")))
     try:
         while True:
             if state["processes"][-1][1].poll() is not None:
@@ -344,14 +352,16 @@ def _hot_reload(root: Path, state: Dict[str, Any], port: int, client: str,
     names = ", ".join(sorted(path.name for path in changed)[:4])
     print(f"synqt dev: change detected ({names}); rebuilding...")
 
-    if any(path.name == "synqt.yaml" for path in changed):
+    config_names = configmod.config_filenames(state.get("profile"))
+    touched_config = sorted(path.name for path in changed if path.name in config_names)
+    if touched_config:
         # Re-read: the topology may have gained or lost entities. A half-typed YAML is the
         # same kind of news as a failed rebuild below, so it is reported and the running
         # system is left alone rather than rebuilt against a topology that no longer parses.
         try:
-            state["config"] = buildmod.load_config(root)
-        except (OSError, yaml.YAMLError) as error:
-            print(f"  synqt.yaml: {error}\n"
+            state["config"] = buildmod.load_config(root, state.get("profile"))
+        except (OSError, yaml.YAMLError, configmod.ConfigError) as error:
+            print(f"  {touched_config[0]}: {error}\n"
                   "  (keeping the running processes; fix and save again)")
             return
     config = state["config"]
@@ -383,7 +393,7 @@ def _hot_reload(root: Path, state: Dict[str, Any], port: int, client: str,
               "  (keeping the running processes; fix and save again)")
         return
 
-    host_changed, _ = _categorize(changed, root, config)
+    host_changed, _ = _categorize(changed, root, config, config_names)
     if host_changed:
         _terminate(state["processes"])
         processes, missing = _launch_entities(root, config, _launch_order(config), port)

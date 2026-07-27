@@ -715,6 +715,42 @@ it changes; unspecified keys fall through to the base file. Secrets never come f
 `synqt.yaml` or any profile file. They come only from a per entity env file or the
 process environment, only on the relevant service entity.
 
+```yaml
+# synqt.production.yaml, applied with: synqt build --release --profile production
+public:
+  port: 443
+  tls:
+    cert_file: certs/web/fullchain.pem
+    key_file: certs/web/privkey.pem
+
+entities:
+  - name: database          # matched by name; the rest of the entry is untouched
+    mesh:
+      host: 10.0.0.10
+```
+
+`entities` and `connect_points` are matched entry by entry on `name`, so a profile
+retunes one entity without restating the topology. Every other list, such as a
+connect point's `consumers` or `scopes.order`, is replaced whole: its membership and
+order are the value. **A profile changes and adds; it never removes.** There is no
+delete syntax, because dropping a consumer or an entity is a security change and it
+belongs in the file that declares the list, not in an overlay.
+
+An environment override names a key inside a section the configuration already
+declares: `SYNQT_PUBLIC_PORT=443`, `SYNQT_BUILD_DESKTOP_EDGE_URL=wss://app.example.com/sync`
+(the nested path is resolved against the structure that is there, so
+`build.desktop.edge_url` and not `build.desktop_edge_url`). A variable naming no
+section is left alone, which is what keeps the runtime's own `SYNQT_ROOT`,
+`SYNQT_EDGE_URL` and `SYNQT_TEST_*` out of the topology; so is a bare section such as
+`SYNQT_ENTITIES`, and so is any path that would reach into a list. The value is read
+as the type the key already has, so `SYNQT_PROJECT_NAME=no` stays the string `no`
+rather than becoming `false`.
+
+Every layer is validated. A profile file and a `SYNQT_...` override are held to the
+rules below exactly as `synqt.yaml` is, so neither is a way to slip in a literal
+password or a release edge with no TLS. `synqt check`, `synqt doctor`, and every
+build report which layers they applied.
+
 ## Validation
 
 Before any build or run, the CLI validates the resolved configuration and fails

@@ -21,21 +21,19 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import yaml
-
-from . import (appgen, clientbuild, clientcache, licenses, manifest, presets, run,
-               toolchain, topologywriter)
+from . import (appgen, clientbuild, clientcache, config as configmod, licenses,
+               manifest, presets, run, toolchain, topologywriter)
 
 
 class BuildError(Exception):
     """A build error surfaced to the CLI (no traceback for the user)."""
 
 
-def load_config(project_dir: os.PathLike[str] | str) -> Dict[str, Any]:
-    config_path = Path(project_dir) / "synqt.yaml"
-    if not config_path.exists():
-        raise FileNotFoundError(f"no synqt.yaml in {project_dir}")
-    return yaml.safe_load(config_path.read_text()) or {}
+def load_config(project_dir: os.PathLike[str] | str,
+                profile: Optional[str] = None) -> Dict[str, Any]:
+    """The effective configuration for a build: synqt.yaml under its profile and the
+    environment layer (see `config.resolve`)."""
+    return configmod.load(project_dir, profile=profile, required=True)
 
 
 def _client_targets(entity: Dict[str, Any], requested: str) -> List[str]:
@@ -349,11 +347,11 @@ def _selected_entities(config: Dict[str, Any], entity: Optional[str]) -> List[Di
 def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
           client: str = "wasm", qt_license_mode: str = "open_source",
           entity: Optional[str] = None, threads: Optional[str] = None,
-          verbose: bool = False) -> str:
+          verbose: bool = False, profile: Optional[str] = None) -> str:
     # Resolve to an absolute path: the cmake invocations below run with cwd set to the
     # project dir, so a relative --project-dir would otherwise be joined against itself.
     root = Path(project_dir).resolve()
-    config = clientbuild.with_threads(load_config(root), threads)
+    config = clientbuild.with_threads(load_config(root, profile), threads)
     build_dir = root / "build"
     build_dir.mkdir(exist_ok=True)
     resolved = toolchain.resolve(root, threads=clientbuild.client_threads(config))

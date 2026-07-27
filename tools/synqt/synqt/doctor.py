@@ -7,17 +7,17 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-import yaml
-
-from . import clientbuild, licenses, toolchain, version as versionmod
+from . import (clientbuild, config as configmod, licenses, toolchain,
+               version as versionmod)
 
 QT_VERSION = toolchain.QT_VERSION
 
 
 def report(project_dir: os.PathLike[str] | str,
-           qt_license_mode: str = "open_source") -> str:
+           qt_license_mode: str = "open_source",
+           profile: Optional[str] = None) -> str:
     root = Path(project_dir)
     # The version block leads the report: a question about a build is nearly always a
     # question about which synqt, Qt, and Emscripten produced it, so it belongs before
@@ -26,10 +26,12 @@ def report(project_dir: os.PathLike[str] | str,
     lines.append("")
     lines.append("synqt doctor:")
 
-    config: Dict[str, Any] = {}
-    config_path = root / "synqt.yaml"
-    if config_path.exists():
-        config = yaml.safe_load(config_path.read_text()) or {}
+    # The resolved configuration, not the base file: doctor reports on the deployment as
+    # it will actually run, and a profile or a SYNQT_ override is part of that.
+    resolved = configmod.resolve(root, profile=profile)
+    config: Dict[str, Any] = resolved.config
+    for source in resolved.sources:
+        lines.append(f"  config layer: {source}")
 
     # Qt license mode and the resulting obligations.
     lines.append(f"  Qt license mode: {qt_license_mode}")

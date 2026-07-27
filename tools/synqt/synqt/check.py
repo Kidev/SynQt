@@ -14,7 +14,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import addentity, appgen, clientcache, toolchain, topologywriter
+from . import (addentity, appgen, clientcache, config as configmod, toolchain,
+               topologywriter)
 
 
 def validate(config: Dict[str, Any], *, release: bool = False,
@@ -1131,17 +1132,24 @@ def lint_qml(project_dir: os.PathLike[str] | str) -> List[str]:
 
 
 def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
-                  starting: bool = False) -> Tuple[bool, List[str]]:
+                  starting: bool = False,
+                  profile: Optional[str] = None) -> Tuple[bool, List[str]]:
     """The full `synqt check`: topology validation + contract lint + loading lint + QML lint.
 
     `release` turns on the rules that bind only a production artifact. `synqt check` with
     no argument answers "is this project sound", which is the question a developer asks
     mid-edit on a localhost topology; `synqt build --release` asks the stricter question
-    and passes release=True."""
-    config_path = Path(project_dir) / "synqt.yaml"
-    config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
+    and passes release=True.
+
+    Everything is checked against the *resolved* configuration, so a profile file and the
+    `SYNQT_...` layer are held to the same rules as `synqt.yaml`. Which layers were applied
+    is reported: a check that passes on a laptop and fails on CI is nearly always a layer
+    the reader did not know was in play."""
+    resolved = configmod.resolve(project_dir, profile=profile)
+    config = resolved.config
     ok, messages = validate(config, release=release, project_dir=project_dir,
                             starting=starting)
+    messages = [f"note: {source} applied" for source in resolved.sources] + messages
     contract_messages = lint_contracts(project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
