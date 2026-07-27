@@ -22,6 +22,7 @@
 #include "memorydocumentprovider.h"
 #include "mysqlprovider.h"
 #include "persistencefactory.h"
+#include "pooledsqlprovider.h"
 #include "postgresprovider.h"
 #include "providerconfig.h"
 #include "providerregistry.h"
@@ -138,6 +139,31 @@ private:
 };
 
 SYNQT_REGISTER_PERSISTENCE_PROVIDER("FakeEngine", FakeEngineProvider)
+
+// The pooled base postgres and mysql share, over the one Qt SQL driver every machine has.
+// Everything above the driver (leases, the pinned transaction connection, migrations, the
+// refusals of a provider that is not connected) is the base's own, so it is proven here in
+// every run rather than only where a live engine answers.
+class PooledSqliteProvider final : public PooledSqlProvider
+{
+public:
+    explicit PooledSqliteProvider(QString file)
+        : m_file{std::move(file)}
+    {
+    }
+    ~PooledSqliteProvider() override { disconnect(); }
+
+    bool connect(QString *error) override
+    {
+        const QString file{m_file};
+        return openPool(QStringLiteral("QSQLITE"),
+                        [file](QSqlDatabase &db) { db.setDatabaseName(file); }, 2, error);
+    }
+    QString name() const override { return QStringLiteral("pooled-sqlite"); }
+
+private:
+    QString m_file;
+};
 
 } // namespace
 
@@ -566,6 +592,71 @@ private slots:
         QVERIFY2(reused.isValid(), qPrintable(error));
         QCOMPARE(pool.openCount(), 2);          // still two connections
         QCOMPARE(opened, openedBefore);         // the released one was reused, not reopened
+    }
+
+    // The base every pooled engine inherits, driven the way a Source drives it through Db.
+    // Before connect every operation is refused with a reason rather than crashing on a
+    // pool that is not there. After it, statements run on a transient lease each; a
+    // transaction pins one connection, so a rolled back write is gone and a committed one is
+    // seen by the next lease; a second begin and a commit with nothing open are refused; a
+    // migration applies once; and a disconnected provider refuses again.
+    void thePooledBaseRunsStatementsTransactionsAndMigrations()
+    {
+        PooledSqliteProvider provider{dbFile(QStringLiteral("pooled.db"))};
+        QString error;
+        QVERIFY(!provider.isHealthy());
+        QCOMPARE(provider.query(QStringLiteral("SELECT 1"), {}).error,
+                 QStringLiteral("provider not connected"));
+        QVERIFY(!provider.begin(&error));
+        QCOMPARE(error, QStringLiteral("provider not connected"));
+        QVERIFY(!provider.migrate(kItemsSchema, &error));
+        QVERIFY(!provider.commit(&error));
+        QCOMPARE(error, QStringLiteral("no transaction is open"));
+        QVERIFY(!provider.rollback(&error));
+
+        QVERIFY2(provider.connect(&error), qPrintable(error));
+        QVERIFY(provider.isHealthy());
+        QVERIFY2(provider.migrate(kItemsSchema, &error), qPrintable(error));
+        QVERIFY2(provider.migrate(kItemsSchema, &error), qPrintable(error));
+        const auto count{[&provider]() {
+            return provider.query(QStringLiteral("SELECT COUNT(*) AS n FROM items"), {})
+                .rows.value(0).toMap().value(QStringLiteral("n")).toInt();
+        }};
+        const QString insert{QStringLiteral("INSERT INTO items (text, author) VALUES (?, ?)")};
+
+        QVERIFY(provider.exec(insert, {QStringLiteral("milk"), QStringLiteral("ada")}).ok);
+        QCOMPARE(count(), 1);
+
+        QVERIFY2(provider.begin(&error), qPrintable(error));
+        QVERIFY(!provider.begin(&error));
+        QCOMPARE(error, QStringLiteral("a transaction is already open"));
+        QVERIFY(provider.exec(insert, {QStringLiteral("eggs"), QStringLiteral("bob")}).ok);
+        QVERIFY2(provider.rollback(&error), qPrintable(error));
+        QCOMPARE(count(), 1);
+
+        QVERIFY2(provider.begin(&error), qPrintable(error));
+        QVERIFY(provider.exec(insert, {QStringLiteral("tea"), QStringLiteral("cy")}).ok);
+        QVERIFY2(provider.commit(&error), qPrintable(error));
+        QCOMPARE(count(), 2);
+
+        provider.disconnect();
+        QVERIFY(!provider.isHealthy());
+        QVERIFY(!provider.exec(insert, {QStringLiteral("late"), QStringLiteral("dee")}).ok);
+    }
+
+    // A connection that will not open is the ordinary start-up failure of a pooled engine: a
+    // wrong host, a wrong password, a certificate that does not verify. The pool gives up on
+    // it and says why, and lets the connection go before removing it, so the failure is the
+    // reason and nothing else. Removed while a handle was still held, Qt warned that the
+    // connection was in use on every refused connect.
+    void aConnectionThatWillNotOpenLeavesNothingInUse()
+    {
+        QTest::failOnWarning(QRegularExpression{QStringLiteral("still in use")});
+        PooledSqliteProvider provider{m_dir.filePath(QStringLiteral("absent/dir/pooled.db"))};
+        QString error;
+        QVERIFY(!provider.connect(&error));
+        QVERIFY2(!error.isEmpty(), "a refused connection says why");
+        QVERIFY(!provider.isHealthy());
     }
 
     void poolRecoversABrokenConnection()
@@ -1187,6 +1278,61 @@ private slots:
         std::unique_ptr<ICacheProvider> unnamed{makeCacheProvider(elsewhere, &error)};
         QVERIFY2(!unnamed->connect(&error),
                  "a certificate that does not name the host must not be accepted");
+    }
+
+    // A filter the driver cannot read matches nothing, on every operation. libbson reads a
+    // key that starts with `$` as extended JSON, so a value shaped like `{"$date": ...}` that
+    // is not a date is a document it refuses to build; a provider that stood an empty
+    // document in for it would hand the driver the filter that matches every document, and a
+    // remove meant for one row would empty the collection. A value that arrives from a caller
+    // is exactly where that shape comes from. The memory provider matches nothing on the same
+    // filter, and the two have to agree.
+    void aFilterTheDriverCannotReadMatchesNothing()
+    {
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_MONGO_URI")) {
+            QSKIP("no live mongodb (tests/lib/live-engines.sh up, then env)");
+        }
+        ProviderConfig mongo;
+        mongo.name = QStringLiteral("mongodb");
+        mongo.uri = qEnvironmentVariable("SYNQT_TEST_MONGO_URI");
+        mongo.database = qEnvironmentVariable("SYNQT_TEST_MONGO_DB", QStringLiteral("synqt"));
+        mongo.tls = false;
+        mongo.release = false;
+        QString error;
+        std::unique_ptr<IDocumentProvider> docs{makeDocumentProvider(mongo, &error)};
+        if (docs == nullptr) {
+            QSKIP(qPrintable(QStringLiteral("mongodb provider not built: %1").arg(error)));
+        }
+        QVERIFY2(docs->connect(&error), qPrintable(error));
+        MemoryDocumentProvider memory{ProviderConfig{}};
+        QVERIFY(memory.connect(nullptr));
+
+        const QString users{QStringLiteral("m9_unreadable_filter")};
+        const QVariantMap unreadable{
+            {QStringLiteral("name"), QVariantMap{{QStringLiteral("$date"),
+                                                  QStringLiteral("not a date")}}}};
+        docs->remove(users, {});
+        for (IDocumentProvider *provider : {docs.get(), static_cast<IDocumentProvider *>(&memory)}) {
+            provider->insert(users, {{QStringLiteral("name"), QStringLiteral("ada")}});
+            provider->insert(users, {{QStringLiteral("name"), QStringLiteral("bob")}});
+        }
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{QStringLiteral("cannot be read")});
+        QCOMPARE(docs->find(users, unreadable, {}).size(), 0);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{QStringLiteral("cannot be read")});
+        QCOMPARE(docs->update(users, unreadable, {{QStringLiteral("name"),
+                                                   QStringLiteral("eve")}}), 0);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{QStringLiteral("cannot be read")});
+        QCOMPARE(docs->remove(users, unreadable), 0);
+        QCOMPARE(docs->find(users, {}, {}).size(), 2);
+        QCOMPARE(memory.find(users, unreadable, {}).size(), 0);
+        QCOMPARE(memory.remove(users, unreadable), 0);
+        QCOMPARE(memory.find(users, {}, {}).size(), 2);
+
+        // A document it cannot read is not stored as an empty one either.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{QStringLiteral("cannot be read")});
+        QVERIFY(!docs->insert(users, unreadable).isValid());
+        QCOMPARE(docs->find(users, {}, {}).size(), 2);
+        docs->remove(users, {});
     }
 
     // Verified TLS to a live MongoDB. The connection string asks for TLS with the test CA,

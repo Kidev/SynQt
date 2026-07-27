@@ -245,6 +245,13 @@
       "test": "postgresVerifiedTlsIsEncryptedAndChecksItsAnchorAndName"
     },
     {
+      "id": "a-document-filter-that-matches-everything",
+      "what": "A caller sends a value shaped like extended JSON, such as {\"$date\": \"not a date\"}, into a document filter. libbson refuses to build it, and the MongoDB provider stood an empty document in for it, which is the filter that matches every document: a remove meant for one row emptied the collection, an update rewrote all of it, and a find returned all of it.",
+      "defended_by": "A filter, an option set or a document the driver cannot read refuses the operation with a warning naming the operation and the collection: find returns nothing, update and remove touch nothing, insert stores nothing. The memory provider matches nothing on the same filter, and a live proof holds the two to it.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "aFilterTheDriverCannotReadMatchesNothing"
+    },
+    {
       "id": "login-csrf",
       "what": "An attacker hands a victim a valid state and their own authorization code, so the victim ends up signed in as the attacker.",
       "defended_by": "The callback must carry the state cookie the login set in that same browser, compared in constant time.",

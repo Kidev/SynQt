@@ -14,16 +14,35 @@ namespace SynQt {
 
 namespace {
 
-// Bridge a map to a BSON document via its JSON form (the driver ships a JSON<->BSON codec,
-// so this stays a thin wrapper rather than a hand-rolled BSON builder).
+// Convert a map to a BSON document through JSON (the driver ships a JSON<->BSON codec).
+//
+// Returns null when libbson cannot build one. libbson reads a `$` key as extended JSON, so
+// `{"$date": "not a date"}` is refused, and the result must be nothing: an empty document
+// is a filter that matches every document.
 bson_t *bsonFromMap(const QVariantMap &map)
 {
     const QByteArray json{
         QJsonDocument{QJsonObject::fromVariantMap(map)}.toJson(QJsonDocument::Compact)};
     bson_error_t error;
-    bson_t *document{bson_new_from_json(reinterpret_cast<const uint8_t *>(json.constData()),
-                                        json.size(), &error)};
-    return document != nullptr ? document : bson_new();
+    return bson_new_from_json(reinterpret_cast<const uint8_t *>(json.constData()),
+                              json.size(), &error);
+}
+
+void destroyIfBuilt(bson_t *document)
+{
+    if (document != nullptr) {
+        bson_destroy(document);
+    }
+}
+
+// Logged once per refused operation, naming the operation and the collection, never the
+// values.
+void warnUnreadable(const char *operation, const QString &collection)
+{
+    qWarning("SynQt: Docs.%s on '%s' was refused: its %s cannot be read as a MongoDB "
+             "document (a key starting with '$' must be a valid extended JSON value)",
+             operation, qUtf8Printable(collection),
+             qstrcmp(operation, "insert") == 0 ? "document" : "filter");
 }
 
 QVariantMap mapFromBson(const bson_t *document)
@@ -56,11 +75,10 @@ QString MongoDocumentProvider::name() const
 
 bool MongoDocumentProvider::refusesInsecure() const
 {
-    // No loopback exemption here, unlike the relational and cache providers, and it is not
-    // an oversight. Where this engine is lives inside the connection string, not in
-    // `host`, so `isLoopbackHost()` would be answering about a field a mongo config does
-    // not set and would exempt every deployment. A release entity says `tls: true` and the
-    // uri backs it up (checked below), or it does not start.
+    // No loopback exemption, unlike the relational and cache providers: the engine address
+    // is inside the connection string, not in `host`, so `isLoopbackHost()` would exempt
+    // every deployment. A release entity sets `tls: true` and its URI must agree (checked
+    // below), or it does not start.
     return m_config.release && !m_config.tls;
 }
 
@@ -89,12 +107,9 @@ bool MongoDocumentProvider::connect(QString *error)
         }
         return false;
     }
-    // What the URI says, not what the config claims. `tls: true` next to a URI
-    // with no `tls=true` in it was a link that read as encrypted everywhere above and was
-    // plaintext on the wire, and `tlsInsecure`/`tlsAllowInvalidCertificates` turn the
-    // certificate check off inside a URI that still spells TLS, which is the same hole one
-    // option deeper. Both are refused here, where the string the driver was handed can be
-    // read, rather than trusted from the flag beside it.
+    // Trust the URI, not the flag: `tls: true` beside a URI without `tls=true` would be
+    // plaintext, and `tlsInsecure` or `tlsAllowInvalidCertificates` turn off certificate
+    // checks inside a TLS URI. Both are refused here.
     if (m_config.tls && !mongoc_uri_get_tls(uri)) {
         mongoc_uri_destroy(uri);
         if (error != nullptr) {
@@ -151,10 +166,14 @@ QVariant MongoDocumentProvider::insert(const QString &collection, const QVariant
     if (m_client == nullptr) {
         return QVariant{};
     }
+    bson_t *doc{bsonFromMap(document)};
+    if (doc == nullptr) {
+        warnUnreadable("insert", collection);
+        return QVariant{};
+    }
     mongoc_collection_t *coll{mongoc_client_get_collection(
         static_cast<mongoc_client_t *>(m_client), m_config.database.toUtf8().constData(),
         collection.toUtf8().constData())};
-    bson_t *doc{bsonFromMap(document)};
 
     // Mint an id when the caller supplied none, and return whatever id the document carries.
     QVariant insertedId;
@@ -183,11 +202,17 @@ QVariantList MongoDocumentProvider::find(const QString &collection, const QVaria
     if (m_client == nullptr) {
         return rows;
     }
+    bson_t *query{bsonFromMap(filter)};
+    bson_t *opts{bsonFromMap(options)};
+    if (query == nullptr || opts == nullptr) {
+        destroyIfBuilt(query);
+        destroyIfBuilt(opts);
+        warnUnreadable("find", collection);
+        return rows;
+    }
     mongoc_collection_t *coll{mongoc_client_get_collection(
         static_cast<mongoc_client_t *>(m_client), m_config.database.toUtf8().constData(),
         collection.toUtf8().constData())};
-    bson_t *query{bsonFromMap(filter)};
-    bson_t *opts{bsonFromMap(options)};
     mongoc_cursor_t *cursor{mongoc_collection_find_with_opts(coll, query, opts, nullptr)};
 
     const bson_t *document{nullptr};
@@ -208,11 +233,17 @@ int MongoDocumentProvider::update(const QString &collection, const QVariantMap &
     if (m_client == nullptr) {
         return 0;
     }
+    bson_t *selector{bsonFromMap(filter)};
+    bson_t *update{bsonFromMap(QVariantMap{{QStringLiteral("$set"), change}})};
+    if (selector == nullptr || update == nullptr) {
+        destroyIfBuilt(selector);
+        destroyIfBuilt(update);
+        warnUnreadable("update", collection);
+        return 0;
+    }
     mongoc_collection_t *coll{mongoc_client_get_collection(
         static_cast<mongoc_client_t *>(m_client), m_config.database.toUtf8().constData(),
         collection.toUtf8().constData())};
-    bson_t *selector{bsonFromMap(filter)};
-    bson_t *update{bsonFromMap(QVariantMap{{QStringLiteral("$set"), change}})};
 
     bson_t reply;
     bson_error_t error;
@@ -233,10 +264,14 @@ int MongoDocumentProvider::remove(const QString &collection, const QVariantMap &
     if (m_client == nullptr) {
         return 0;
     }
+    bson_t *selector{bsonFromMap(filter)};
+    if (selector == nullptr) {
+        warnUnreadable("remove", collection);
+        return 0;
+    }
     mongoc_collection_t *coll{mongoc_client_get_collection(
         static_cast<mongoc_client_t *>(m_client), m_config.database.toUtf8().constData(),
         collection.toUtf8().constData())};
-    bson_t *selector{bsonFromMap(filter)};
 
     bson_t reply;
     bson_error_t error;

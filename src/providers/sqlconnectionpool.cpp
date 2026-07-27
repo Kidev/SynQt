@@ -61,14 +61,10 @@ SqlConnectionPool::SqlConnectionPool(QString driver, Configure configure, int ma
     , m_configure{std::move(configure)}
     , m_maxSize{maxSize > 0 ? maxSize : 1}
 {
-    // Every slot the pool will ever hold, allocated now, so the list never reallocates.
-    //
-    // Not a performance note. `Lease::database()` hands out a `QSqlDatabase &` into this
-    // list, and a lease is held for as long as its caller is running a query. The pool grows
-    // on demand, under a mutex a lease does not hold, so a second caller asking for a
-    // connection while the first is using one would move the list and leave that reference
-    // pointing at freed memory. Reserving the cap is what makes the reference outlive the
-    // growth, since the size can never pass `m_maxSize`.
+    // Every slot the pool will hold, allocated now, so the list never reallocates.
+    // `Lease::database()` returns a `QSqlDatabase &` into this list that lives while a
+    // query runs, and the pool grows on demand under a mutex the lease does not hold.
+    // Reserving `m_maxSize` keeps those references valid.
     m_slots.reserve(m_maxSize);
 }
 
@@ -120,13 +116,15 @@ SqlConnectionPool::Lease SqlConnectionPool::acquire(QString *error)
         Slot slot;
         slot.db = QSqlDatabase::addDatabase(m_driver, name);
         if (!openSlot(slot, error)) {
+            // The handle goes first. Qt keeps a connection that still has one, and says so.
+            slot.db = QSqlDatabase{};
             QSqlDatabase::removeDatabase(name);
             return Lease{};
         }
         m_slots.append(std::move(slot));
         m_slots.last().leased = true;
-        // The slot index is an int throughout the pool (bounded by maxSize). The just-grown
-        // list cannot exceed it, so the narrowing from qsizetype is safe.
+        // The slot index is an int throughout the pool (bounded by maxSize), so narrowing
+        // from qsizetype is safe.
         return Lease{this, static_cast<int>(m_slots.size() - 1)};
     }
 
@@ -166,11 +164,9 @@ void SqlConnectionPool::closeAll()
         }
     }
     m_slots.clear();
-    // And reserved again, because clear() is not obliged to keep the capacity the
-    // constructor asked for and this pool may be used after being closed: `acquire()` grows
-    // it back on demand. The reservation is what keeps `Lease::database()`'s reference into
-    // this list valid while another caller is growing it (see the constructor), so it has to
-    // hold for the pool's whole life and not only until the first disconnect.
+    // Reserved again: clear() may drop the capacity, and the pool may be reused after
+    // closing (`acquire()` grows it). The reservation must hold for the pool's whole life
+    // to keep `Lease::database()` references valid (see the constructor).
     m_slots.reserve(m_maxSize);
 }
 
