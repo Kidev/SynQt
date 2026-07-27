@@ -311,6 +311,3 @@ at a time, at `speedFor(mass)` units per second:
 There is nothing to reconcile and no correction to send back, because the client was
 never the authority on where it is. The client asks for a direction to lean, and the
 edge decides everything that follows from it.
-
-The client half of this, drawing every blob and pellet and sending your aim, is
-[the next part](tutorial-multiplayer-client.md).

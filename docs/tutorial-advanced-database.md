@@ -470,7 +470,3 @@ system with a hole in it fails at startup instead.
 If you write one of these for a real engine, please
 [send it](tutorial-advanced.md#when-yours-works-send-it): a provider that works is one
 somebody else does not have to write.
-
-Next: [a cache of your own](tutorial-advanced-cache.md), where Qt has no driver, the
-engine has no transactions, and its `incr` refuses to create the counter you asked it to
-increment.

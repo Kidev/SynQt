@@ -250,5 +250,4 @@ authorizes the person, and the database authorizes the edge. Put the line back t
 
 The game is now complete and persistent. One thing is still wasteful: the edge
 broadcasts the whole arena to every browser, even the blobs and pellets off your
-screen. [The last part](tutorial-multiplayer-run.md) fixes that, and turns this from a
-demo into something that scales.
+screen. Fixing that is what turns this from a demo into something that scales.
