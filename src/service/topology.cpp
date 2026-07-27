@@ -73,12 +73,18 @@ Topology topologyFromJson(const QJsonObject &object)
     } else {
         topology.provider = object.value(QStringLiteral("settings")).toObject().toVariantMap();
     }
-    const QJsonArray schema{object.value(QStringLiteral("schema")).toArray()};
+    // The three QJsonArray locals below are not brace-initialized. QJsonArray has an
+    // initializer_list constructor and a QJsonArray converts implicitly to QJsonValue,
+    // so `QJsonArray steps{someArray}` builds an array holding that array as its single
+    // element instead of copying it, and every entry then reads back empty. Copy
+    // initialization picks the copy constructor. Same trap, same fix, as
+    // Router::applyRemoteRouteTable.
+    const QJsonArray schema = object.value(QStringLiteral("schema")).toArray();
     for (const QJsonValue &step : schema) {
         topology.schema.append(step.toString());
     }
 
-    const QJsonArray connectPoints{object.value(QStringLiteral("connect_points")).toArray()};
+    const QJsonArray connectPoints = object.value(QStringLiteral("connect_points")).toArray();
     for (const QJsonValue &value : connectPoints) {
         const QJsonObject entry{value.toObject()};
         ConnectPointConfig connectPoint;
@@ -88,7 +94,7 @@ Topology topologyFromJson(const QJsonObject &object)
         connectPoint.serverFile = entry.value(QStringLiteral("server")).toString();
         connectPoint.instance =
             instanceFromString(entry.value(QStringLiteral("instance")).toString());
-        const QJsonArray consumers{entry.value(QStringLiteral("consumers")).toArray()};
+        const QJsonArray consumers = entry.value(QStringLiteral("consumers")).toArray();
         for (const QJsonValue &consumer : consumers) {
             connectPoint.consumers.append(consumer.toString());
         }
