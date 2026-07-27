@@ -672,6 +672,13 @@
       "test": "aRedirectToAnotherEndpointDoesNotCarryTheFirstOnesKey"
     },
     {
+      "id": "an-outbound-answer-too-large-to-hold",
+      "what": "An allowlisted upstream, broken or compromised, answers an outbound call with a body far larger than any API answer, announced or chunked, to exhaust the entity's memory; or announces one and then stalls, holding the call. The ceiling was checked on downloadProgress, which Qt throttles, so an announced oversized body behind a stalled sender was refused only by the thirty second transfer timeout, and a fast one was buffered past the ceiling before it was checked.",
+      "defended_by": "The announced length is refused when the headers arrive and what has arrived is counted on every readyRead, so either shape is refused as it arrives, well inside the transfer timeout.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "anAnswerLargerThanTheCeilingIsRefusedAsItArrives"
+    },
+    {
       "id": "id-token-with-no-expiry",
       "what": "A provider signs an ID token carrying no exp claim, so a copy of it opens a session for as long as the signing key lives. The same token with no sub signs every visitor in as one empty subject.",
       "defended_by": "JwksVerifier requires exp and sub rather than checking exp only when it is present.",

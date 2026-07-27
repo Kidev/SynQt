@@ -17,11 +17,9 @@ namespace SynQt {
 
 namespace {
 
-// Headers the transport owns. Qt derives each of these from the request it is about to
-// send, and a value written over the top of one is either ignored or corrupts the message
-// (a Content-Length that disagrees with the body is a request smuggling primitive, and a
-// Host that disagrees with the URL is how an allowlisted prefix reaches somewhere else).
-// Declaring one is a mistake worth naming rather than a capability worth having.
+// Headers the transport owns. Qt derives each from the request, and overriding one is
+// ignored or corrupts the message: a mismatched Content-Length enables request smuggling,
+// and a mismatched Host sends an allowlisted prefix elsewhere. Declaring one is an error.
 bool isReservedHeader(const QString &name)
 {
     static const QStringList reserved{QStringLiteral("host"),
@@ -56,24 +54,20 @@ QMap<QString, QString> asHeaderMap(const QVariantMap &headers)
     return result;
 }
 
-// How large an answer this helper will hold before it gives up on the call.
+// The largest response this helper holds before failing the call.
 //
-// QNetworkReply buffers the whole body in memory and readAll() hands it over, so without a
-// ceiling the size of an outbound answer is decided by whoever is answering. An allowlisted
-// third party is not the same thing as a trusted one: a compromised or broken
-// endpoint that streams gigabytes takes the entity down with it, and a `Content-Length` is
-// not a promise anybody has to keep. Sixteen mebibytes is far above any JSON API answer and
-// far below what a service can spend on one call.
+// QNetworkReply buffers the whole body, so without a ceiling the responder decides the
+// memory cost. An allowlisted third party is not necessarily trustworthy, and
+// `Content-Length` is not binding. 16 MiB is far above any JSON API response and far below
+// what one call may cost.
 constexpr qint64 kMaxResponseBytes{16 * 1024 * 1024};
 
-// A body as bytes. A string is sent as written. Anything structured (the ordinary case from
-// QML, where a body is an object) is serialized as JSON, which is what the Content-Type
-// already says it is.
+// A body as bytes. A string is sent as written; anything structured (usually an object from
+// QML) is serialized as JSON, matching the Content-Type.
 QByteArray bodyBytes(const QVariant &value)
 {
-    // An object built inside a closure reaches a QVariant parameter as a QJSValue rather
-    // than as a QVariantMap, so unwrap before deciding what this is (the same note is in
-    // src/gateway/apirequest.cpp, where the same thing bit a reply).
+    // An object built inside a closure arrives as a QJSValue, not a QVariantMap, so unwrap
+    // it first (the same applies in src/gateway/apirequest.cpp).
     const QVariant body{value.metaType().id() == qMetaTypeId<QJSValue>()
                             ? value.value<QJSValue>().toVariant()
                             : value};
@@ -116,11 +110,9 @@ void HttpPromise::resolve(const QVariantMap &response)
 
 void HttpPromise::reject(const QString &message)
 {
-    // The first answer wins, and it has to. A refused redirect rejects here and then
-    // aborts the reply, whose `finished` arrives a moment later carrying Qt's own
-    // "Operation canceled". Without this guard that second answer would overwrite the
-    // reason with a generic one, and on a promise nobody attached a handler to it would
-    // also queue a second deleteLater.
+    // The first answer wins. A refused redirect rejects here and aborts the reply, whose
+    // `finished` then arrives with Qt's "Operation canceled"; this guard keeps the real
+    // reason and avoids a second deleteLater.
     if (m_settled) {
         return;
     }
@@ -142,11 +134,10 @@ void HttpPromise::deliver()
         m_handled = true;
         m_onRejected.call(QJSValueList{m_engine->toScriptValue(m_error)});
     }
-    // Settled either way, so this promise has nothing left to do, and it is a child of
-    // the Http helper, which lives as long as the entity does. Retired after the current
-    // turn, which is after `Http.get(url).then(...)` has attached its handler, and
-    // whether or not one was ever attached. A call whose result nobody reads (a fire and
-    // forget POST is the ordinary case) must not be the one that accumulates.
+    // Settled, so the promise is done. It is a child of the Http helper, which lives as
+    // long as the entity, so it is retired after this turn, after `Http.get(url).then(...)`
+    // has attached a handler, whether or not one was attached. A call nobody reads (a
+    // fire-and-forget POST) must not accumulate.
     deleteLater();
 }
 
@@ -244,20 +235,17 @@ QStringList Http::allowed() const
 
 namespace {
 
-// Whether `url` is inside `prefix`, as an allowlist has to mean it. The same scheme, the
-// same host, the same port, and a path at or under the prefix's path.
+// Whether `url` is inside `prefix`: the same scheme, host and port, and a path at or under
+// the prefix path.
 //
-// Not a string prefix. `startsWith` is the obvious way to write this and it is wrong in
-// three ways at once, each of which sends the endpoint's own credential headers to a host
-// the deployment never named:
+// Not a string prefix. `startsWith` fails three ways, each sending the endpoint's
+// credential headers to a host the deployment never named:
 //
-//   https://api.example.com@evil.test/    (userinfo: the host is evil.test, and the
-//                                            declared prefix is a prefix of the string)
+//   https://api.example.com@evil.test/    (userinfo: the host is evil.test)
 //   https://api.example.com.evil.test/    (a suffix on the host)
 //   https://api.example.com/v1evil        (a suffix on the last path segment)
 //
-// So it is compared as a URL. Userinfo is refused outright rather than compared: nothing
-// this framework composes needs it, and it exists here only as the trick above.
+// So URLs are compared. Userinfo is refused outright: nothing here needs it.
 bool isUnder(const QUrl &url, const QUrl &prefix)
 {
     if (!url.isValid() || !prefix.isValid() || url.host().isEmpty()) {
@@ -270,14 +258,13 @@ bool isUnder(const QUrl &url, const QUrl &prefix)
         || url.host().compare(prefix.host(), Qt::CaseInsensitive) != 0) {
         return false;
     }
-    // Defaulted the same way on both sides, so `https://x` and `https://x:443` are one
-    // place and neither is a way past the other.
+    // Default ports on both sides, so `https://x` and `https://x:443` are the same place.
     const int defaultPort{url.scheme() == QLatin1String("https") ? 443 : 80};
     if (url.port(defaultPort) != prefix.port(defaultPort)) {
         return false;
     }
-    // Normalized, so `/v1/../../admin` and its percent-encoded twin collapse before they
-    // are compared. A prefix with no path allows the whole host.
+    // Normalized, so `/v1/../../admin` and its percent-encoded form collapse before
+    // comparison. A prefix without a path allows the whole host.
     const QString base{prefix.adjusted(QUrl::NormalizePathSegments).path()};
     const QString path{url.adjusted(QUrl::NormalizePathSegments).path()};
     if (base.isEmpty() || base == QLatin1String("/")) {
@@ -286,8 +273,8 @@ bool isUnder(const QUrl &url, const QUrl &prefix)
     if (!path.startsWith(base)) {
         return false;
     }
-    // At a segment boundary. `/v1` covers `/v1` and `/v1/things`, and does not cover
-    // `/v1evil`. A prefix written with a trailing slash has already said where it ends.
+    // At a segment boundary: `/v1` covers `/v1` and `/v1/things`, not `/v1evil`. A trailing
+    // slash on the prefix already marks the end.
     return path.size() == base.size()
            || base.endsWith(QLatin1Char('/'))
            || path.at(base.size()) == QLatin1Char('/');
@@ -331,10 +318,8 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
     HttpPromise *promise{new HttpPromise{m_engine, this}};
     const QUrl target{url};
 
-    // The allowlist first, because it is the narrower question and the one the topology
-    // answered. This entity may call these places and nowhere else. Rejected with the list
-    // in the message, since the mistake is nearly always a prefix that does not cover the
-    // path being composed.
+    // The allowlist first: this entity may call these places and no others. The error lists
+    // the prefixes, since the usual mistake is a prefix that does not cover the path.
     const HttpEndpointConfig *endpoint{match(target)};
     if (!endpoint) {
         const QStringList prefixes{allowed()};
@@ -345,8 +330,8 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
         return promise;
     }
 
-    // Refuse plaintext in release. An outbound call must be TLS-verified. https requests
-    // are certificate-verified by QNetworkAccessManager by default.
+    // Refuse plaintext in release: outbound calls must be TLS-verified.
+    // QNetworkAccessManager verifies https certificates by default.
     if (m_release && target.scheme() != QLatin1String("https")) {
         promise->reject(QStringLiteral("refusing a plaintext outbound request in release: %1")
                             .arg(url));
@@ -354,28 +339,21 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
     }
 
     QNetworkRequest request{target};
-    // Redirects are decided here rather than by the transport. Qt's default policy
-    // (NoLessSafeRedirectPolicy) follows a 302 to any host as long as it does not step
-    // down from https to http, and it carries the original request's headers with it,
-    // which on this path are the endpoint's own credential headers, the ones a call site
-    // never sees and cannot choose. So an allowlisted third party that answers with a
-    // redirect (or a path under the prefix that an application composes from user input,
-    // where the redirect target is somebody else's to choose) would send the deployment's
-    // API key to a host `network.outbound` never named, and would reach it besides. The
-    // allowlist checks where the call ends up rather than where it starts, so every hop is
-    // put through `match()` below.
+    // Redirects are decided here, not by the transport. Qt's default
+    // (NoLessSafeRedirectPolicy) follows a redirect to any host that does not downgrade to
+    // http, and carries the original headers, which here are the endpoint's credential
+    // headers. An allowlisted third party that redirects (or a path built from user input)
+    // would then send the deployment's API key to a host `network.outbound` never named.
+    // Every hop goes through `match()` below.
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::UserVerifiedRedirectPolicy);
-    // Every call has an end. Without this a third party that accepts the connection and
-    // then answers nothing (a wedged gateway, a machine that went away mid-request) leaves
-    // a promise that never settles and a reply that is never freed, one per call, for the
-    // life of the entity. A `.catchError()` written for exactly this case never runs. Qt's
-    // own default rather than a number invented here, and it is a deadline on transfer
-    // rather than on the whole exchange, so a slow stream that keeps arriving is not cut
-    // off at an arbitrary total.
+    // Every call has a deadline. Otherwise a peer that accepts the connection and never
+    // answers leaves an unsettled promise and an unfreed reply per call, and
+    // `.catchError()` never runs. This is Qt's own transfer timeout, which applies to
+    // inactivity, so a slow but steady stream is not cut off.
     request.setTransferTimeout();
-    // The endpoint's own headers first, so a call site can add to them but the credential
-    // the deployment declared is not something a call site has to remember to send.
+    // The endpoint's own headers first. A call site can add headers, but does not have to
+    // send the configured credential itself.
     applyHeaders(request, endpoint->headers);
     applyHeaders(request, asHeaderMap(headers));
 
@@ -398,19 +376,15 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
         reply = m_network->post(request, bodyBytes(body));
     }
 
-    // Each hop, before it is taken. `redirectAllowed()` is the only thing that lets the
-    // transport continue under UserVerifiedRedirectPolicy, so a target that is not under
-    // the endpoint this call started at is never allowed. The promise is rejected
-    // with the place it tried to go, and the reply is abandoned before a single header
-    // reaches it.
+    // Each hop, before it is taken. Under UserVerifiedRedirectPolicy the transport
+    // continues only through `redirectAllowed()`, so a target outside the starting endpoint
+    // is refused: the promise rejects with the target, and the reply is abandoned before
+    // any header is sent.
     //
-    // Under this endpoint, and not merely somewhere in the allowlist. The redirected
-    // request is a copy of the original, headers included (Qt drops only Content-Length
-    // and Content-Type, and only when the method downgrades), so whatever follows the
-    // redirect carries this endpoint's credential headers with it. Another entry in the
-    // allowlist is another third party with a key of its own, and this one's key was never
-    // meant for it. A redirect that leaves the endpoint is refused on the same grounds as
-    // one that leaves the list.
+    // The target must be under this endpoint, not just somewhere in the allowlist: the
+    // redirected request copies the original headers, including this endpoint's credentials
+    // (Qt drops only Content-Length and Content-Type on a method downgrade). Another
+    // allowlist entry is another party with its own key.
     const QString endpointUrl{endpoint->url};
     QObject::connect(reply, &QNetworkReply::redirected, promise,
                      [promise, reply, endpointUrl](const QUrl &redirect) {
@@ -425,20 +399,28 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
         emit reply->redirectAllowed();
     });
 
-    // The ceiling, applied while the body is arriving rather than after. Both halves are
-    // needed. The announced length catches a well-formed large answer before a byte of it is
-    // buffered, and the running count catches a chunked one that announces nothing, which
-    // is the shape anybody sending a body deliberately too large would use.
-    QObject::connect(reply, &QNetworkReply::downloadProgress, promise,
-                     [promise, reply](qint64 received, qint64 total) {
-        if (received <= kMaxResponseBytes && total <= kMaxResponseBytes) {
-            return;
-        }
+    // The ceiling is enforced while the body arrives, on Qt's signals. The announced length
+    // is checked when the headers arrive, refusing a large response before its body is
+    // held; the received size is counted on every readyRead, refusing a chunked response
+    // with no length. downloadProgress is not used: Qt throttles it.
+    const auto refuseOversized{[promise, reply]() {
         promise->reject(QStringLiteral("the answer from %1 is larger than the %2 byte "
                                        "limit an outbound call will hold")
                             .arg(reply->url().toString(QUrl::RemoveUserInfo))
                             .arg(kMaxResponseBytes));
         reply->abort();
+    }};
+    QObject::connect(reply, &QNetworkReply::metaDataChanged, promise,
+                     [reply, refuseOversized]() {
+        const QVariant announced{reply->header(QNetworkRequest::ContentLengthHeader)};
+        if (announced.isValid() && announced.toLongLong() > kMaxResponseBytes) {
+            refuseOversized();
+        }
+    });
+    QObject::connect(reply, &QNetworkReply::readyRead, promise, [reply, refuseOversized]() {
+        if (reply->bytesAvailable() > kMaxResponseBytes) {
+            refuseOversized();
+        }
     });
 
     QObject::connect(reply, &QNetworkReply::finished, promise, [promise, reply]() {
@@ -450,9 +432,8 @@ HttpPromise *Http::send(const QString &method, const QString &url, const QVarian
                 {QStringLiteral("status"),
                  reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)},
                 {QStringLiteral("body"), QString::fromUtf8(payload)}};
-            // A JSON reply arrives parsed as well as raw. Nearly every call is to a JSON
-            // API, and `JSON.parse(r.body)` at every call site is a line that can only be
-            // written one way and can only fail one way.
+            // A JSON response is also delivered parsed, since nearly every call is to a
+            // JSON API.
             const QString contentType{
                 reply->header(QNetworkRequest::ContentTypeHeader).toString()};
             if (contentType.contains(QLatin1String("json"), Qt::CaseInsensitive)) {

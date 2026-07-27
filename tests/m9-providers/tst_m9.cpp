@@ -30,6 +30,7 @@
 #include "sqliteprovider.h"
 #include "sqlsupport.h"
 
+#include <QElapsedTimer>
 #include <QJSEngine>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -48,6 +49,7 @@
 #include <QTest>
 #include <QTimer>
 
+#include <functional>
 #include <memory>
 
 using namespace SynQt;
@@ -139,6 +141,74 @@ private:
 };
 
 SYNQT_REGISTER_PERSISTENCE_PROVIDER("FakeEngine", FakeEngineProvider)
+
+// A loopback HTTP/1.1 server that keeps every request it is sent, whole, and answers each
+// with what `answer` returns. Enough of HTTP to read a request with a Content-Length body,
+// which is what the outbound helper sends, and nothing more.
+struct RecordingHttpServer
+{
+    struct Request
+    {
+        QByteArray method;
+        QByteArray path;
+        QMap<QByteArray, QByteArray> headers;  ///< names lower-cased
+        QByteArray body;
+    };
+
+    QTcpServer server;
+    QList<Request> requests;
+    std::function<QByteArray(const Request &)> answer{[](const Request &) {
+        return QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                                 "Content-Length: 11\r\n\r\n{\"ok\":true}");
+    }};
+
+    bool listen()
+    {
+        if (!server.listen(QHostAddress::LocalHost, 0)) {
+            return false;
+        }
+        QObject::connect(&server, &QTcpServer::newConnection, &server, [this]() {
+            QTcpSocket *socket{server.nextPendingConnection()};
+            const auto buffer{std::make_shared<QByteArray>()};
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [this, socket, buffer]() {
+                buffer->append(socket->readAll());
+                const qsizetype end{buffer->indexOf("\r\n\r\n")};
+                if (end < 0) {
+                    return;
+                }
+                Request request;
+                const QList<QByteArray> lines{buffer->left(end).split('\n')};
+                const QList<QByteArray> start{lines.value(0).trimmed().split(' ')};
+                request.method = start.value(0);
+                request.path = start.value(1);
+                for (qsizetype index{1}; index < lines.size(); ++index) {
+                    const qsizetype colon{lines.at(index).indexOf(':')};
+                    if (colon > 0) {
+                        request.headers.insert(lines.at(index).left(colon).trimmed().toLower(),
+                                               lines.at(index).mid(colon + 1).trimmed());
+                    }
+                }
+                const qsizetype length{
+                    request.headers.value(QByteArrayLiteral("content-length")).toLongLong()};
+                if (buffer->size() - (end + 4) < length) {
+                    return;
+                }
+                request.body = buffer->mid(end + 4, length);
+                buffer->clear();
+                requests.append(request);
+                socket->write(answer(request));
+                socket->flush();
+            });
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        });
+        return true;
+    }
+
+    QString base() const
+    {
+        return QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+    }
+};
 
 // The pooled base postgres and mysql share, over the one Qt SQL driver every machine has.
 // Everything above the driver (leases, the pinned transaction connection, migrations, the
@@ -1067,6 +1137,71 @@ private slots:
         QVERIFY(connectError.contains(QStringLiteral("release")));
     }
 
+    // What the external document and cache providers refuse before any server is involved,
+    // so it is proven in every run and not only where a live engine answers. A connection
+    // string that does not parse is refused without echoing the password it carried; `tls`
+    // with a string that does not ask for TLS, or with one that switches verification off,
+    // is refused; an engine that is not there is a refusal with a reason; and every operation
+    // on a provider that never connected answers as a miss rather than touching a null client.
+    void anExternalProviderRefusesWhatItCannotUseWithoutAServer()
+    {
+        QString error;
+        ProviderConfig mongo;
+        mongo.name = QStringLiteral("mongodb");
+        mongo.tls = false;
+        mongo.release = false;
+        mongo.uri = QStringLiteral("mongodb://ada:hunter2@");
+        std::unique_ptr<IDocumentProvider> docs{makeDocumentProvider(mongo, &error)};
+        if (docs != nullptr) {
+            QVERIFY(!docs->connect(&error));
+            QVERIFY2(!error.isEmpty() && !error.contains(QStringLiteral("hunter2")),
+                     qPrintable(error));
+            QVERIFY(!docs->isHealthy());
+            QVERIFY(!docs->insert(QStringLiteral("c"), {{QStringLiteral("a"), 1}}).isValid());
+            QVERIFY(docs->find(QStringLiteral("c"), {}, {}).isEmpty());
+            QCOMPARE(docs->update(QStringLiteral("c"), {}, {{QStringLiteral("a"), 2}}), 0);
+            QCOMPARE(docs->remove(QStringLiteral("c"), {}), 0);
+
+            ProviderConfig plain{mongo};
+            plain.tls = true;
+            plain.uri = QStringLiteral("mongodb://db.internal:27017");
+            QVERIFY(!makeDocumentProvider(plain, &error)->connect(&error));
+            QVERIFY2(error.contains(QStringLiteral("does not enable TLS")), qPrintable(error));
+
+            for (const QString &off : {QStringLiteral("tlsInsecure"),
+                                       QStringLiteral("tlsAllowInvalidCertificates"),
+                                       QStringLiteral("tlsAllowInvalidHostnames")}) {
+                ProviderConfig unverified{plain};
+                unverified.uri += QStringLiteral("/?tls=true&%1=true").arg(off);
+                QVERIFY(!makeDocumentProvider(unverified, &error)->connect(&error));
+                QVERIFY2(error.contains(QStringLiteral("disables certificate verification")),
+                         qPrintable(off + QStringLiteral(": ") + error));
+            }
+        }
+
+        ProviderConfig redis;
+        redis.name = QStringLiteral("redis");
+        redis.host = QStringLiteral("127.0.0.1");
+        redis.port = 1;  // nothing listens there
+        redis.tls = false;
+        redis.release = false;
+        std::unique_ptr<ICacheProvider> cache{makeCacheProvider(redis, &error)};
+        if (cache != nullptr) {
+            QVERIFY(!cache->connect(&error));
+            QVERIFY2(!error.isEmpty(), "a refused connection says why");
+            QVERIFY(!cache->isHealthy());
+            QVERIFY(!cache->get(QStringLiteral("k")).isValid());
+            QCOMPARE(cache->incr(QStringLiteral("k"), 1), static_cast<qint64>(0));
+            cache->set(QStringLiteral("k"), 1, 0);
+            cache->expire(QStringLiteral("k"), 5);
+            cache->del(QStringLiteral("k"));
+            QVERIFY(!cache->get(QStringLiteral("k")).isValid());
+        }
+        if (docs == nullptr && cache == nullptr) {
+            QSKIP("neither the mongodb nor the redis provider is built here");
+        }
+    }
+
     void redisLiveRoundTrip()
     {
         // The masking claim for the cache family, in full. Against a LIVE redis the same
@@ -1758,6 +1893,164 @@ private slots:
         // Case-insensitively: Qt title-cases a raw header name on the way out, and which
         // spelling reaches the wire is its business, not this test's.
         QVERIFY2(seen.toLower().contains("x-api-key: s3cret"), seen.constData());
+    }
+
+    // Settles `promise` into `probe`: the response map on success, the message on failure.
+    static void settleInto(QJSEngine &engine, HttpPromise *promise)
+    {
+        promise->then(engine.evaluate(QStringLiteral("(function(r){ probe.record(r); })")),
+                      engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
+    }
+
+    // Each method reaches the far side as itself, with the body a call site wrote. An object
+    // goes as JSON, including one built inside a closure, which reaches C++ as a QJSValue
+    // rather than a map; a string goes as written; a Content-Type the call names is kept,
+    // and one it does not is JSON. An endpoint joins a path to its base whether or not
+    // either side carries the slash, and a call with no path is the base itself.
+    void everyMethodCarriesItsBodyToTheJoinedPath()
+    {
+        QJSEngine engine;
+        QNetworkAccessManager network;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
+        RecordingHttpServer far;
+        QVERIFY(far.listen());
+
+        HttpEndpointConfig endpoint;
+        endpoint.name = QStringLiteral("upstream");
+        endpoint.url = far.base() + QStringLiteral("/v1");
+        Http http{&network, &engine, /*release*/ false, {endpoint}};
+        HttpEndpoint *upstream{http.api(QStringLiteral("upstream"))};
+        QVERIFY(upstream != nullptr);
+        const auto sent{[&](HttpPromise *promise) {
+            probe.last = QVariant{};
+            const qsizetype before{far.requests.size()};
+            settleInto(engine, promise);
+            return QTest::qWaitFor([&]() { return probe.last.isValid(); }, 5000)
+                   && far.requests.size() == before + 1;
+        }};
+
+        QVERIFY(sent(upstream->post(QStringLiteral("items"),
+                                    QVariantMap{{QStringLiteral("text"), QStringLiteral("milk")}})));
+        QCOMPARE(far.requests.last().method, QByteArrayLiteral("POST"));
+        QCOMPARE(far.requests.last().path, QByteArrayLiteral("/v1/items"));
+        QCOMPARE(far.requests.last().headers.value("content-type"),
+                 QByteArrayLiteral("application/json"));
+        QCOMPARE(far.requests.last().body, QByteArrayLiteral("{\"text\":\"milk\"}"));
+
+        const QJSValue closureBody{engine.evaluate(QStringLiteral("({count: 2})"))};
+        QVERIFY(sent(upstream->put(QStringLiteral("/items/7"), QVariant::fromValue(closureBody))));
+        QCOMPARE(far.requests.last().method, QByteArrayLiteral("PUT"));
+        QCOMPARE(far.requests.last().path, QByteArrayLiteral("/v1/items/7"));
+        QCOMPARE(far.requests.last().body, QByteArrayLiteral("{\"count\":2}"));
+
+        QVERIFY(sent(upstream->put(QStringLiteral("items/8"), QStringLiteral("as written"),
+                                   {{QStringLiteral("Content-Type"),
+                                     QStringLiteral("text/plain")}})));
+        QCOMPARE(far.requests.last().body, QByteArrayLiteral("as written"));
+        QCOMPARE(far.requests.last().headers.value("content-type"),
+                 QByteArrayLiteral("text/plain"));
+
+        QVERIFY(sent(upstream->del(QStringLiteral("items/7"))));
+        QCOMPARE(far.requests.last().method, QByteArrayLiteral("DELETE"));
+        QCOMPARE(far.requests.last().path, QByteArrayLiteral("/v1/items/7"));
+
+        QVERIFY(sent(upstream->get()));
+        QCOMPARE(far.requests.last().path, QByteArrayLiteral("/v1"));
+
+        // The helper's own methods, by URL, reach the same place.
+        QVERIFY(sent(http.del(far.base() + QStringLiteral("/v1/items/9"))));
+        QCOMPARE(far.requests.last().method, QByteArrayLiteral("DELETE"));
+        QVERIFY(sent(http.put(far.base() + QStringLiteral("/v1/items/9"), QVariant{})));
+        QCOMPARE(far.requests.last().method, QByteArrayLiteral("PUT"));
+        QVERIFY(far.requests.last().body.isEmpty());
+
+        // A base that ends in a slash, joined to a path that starts with one, has one slash.
+        HttpEndpointConfig slashed{endpoint};
+        slashed.name = QStringLiteral("slashed");
+        slashed.url = far.base() + QStringLiteral("/v2/");
+        Http second{&network, &engine, /*release*/ false, {slashed}};
+        QVERIFY(sent(second.api(QStringLiteral("slashed"))->get(QStringLiteral("/items"))));
+        QCOMPARE(far.requests.last().path, QByteArrayLiteral("/v2/items"));
+    }
+
+    // A header the transport derives from the request is never one a call site sets: a Host
+    // that disagrees with the URL is how an allowlisted prefix reaches somewhere else, and a
+    // Content-Length that disagrees with the body is a request smuggling primitive. Each is
+    // refused with a warning naming it, and the rest of the request goes as written.
+    void aHeaderTheTransportOwnsIsNeverSet()
+    {
+        QJSEngine engine;
+        QNetworkAccessManager network;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
+        RecordingHttpServer far;
+        QVERIFY(far.listen());
+        Http http{&network, &engine, /*release*/ false,
+                  {HttpEndpointConfig{{}, far.base() + QStringLiteral("/"), {}}}};
+
+        QTest::ignoreMessage(QtWarningMsg, "SynQt::Http: refusing to set the 'Content-Length' "
+                                           "header; the transport owns it");
+        QTest::ignoreMessage(QtWarningMsg, "SynQt::Http: refusing to set the 'Host' header; "
+                                           "the transport owns it");
+        settleInto(engine, http.post(far.base() + QStringLiteral("/in"), QStringLiteral("four"),
+                                     {{QStringLiteral("Host"), QStringLiteral("evil.test")},
+                                      {QStringLiteral("Content-Length"), QStringLiteral("99")},
+                                      {QStringLiteral("X-Trace"), QStringLiteral("kept")}}));
+        QTRY_COMPARE(far.requests.size(), 1);
+        const RecordingHttpServer::Request &request{far.requests.first()};
+        QCOMPARE(request.headers.value("host"),
+                 QByteArrayLiteral("127.0.0.1:") + QByteArray::number(far.server.serverPort()));
+        QCOMPARE(request.headers.value("content-length"), QByteArrayLiteral("4"));
+        QCOMPARE(request.headers.value("x-trace"), QByteArrayLiteral("kept"));
+        QCOMPARE(request.body, QByteArrayLiteral("four"));
+    }
+
+    // An answer larger than the outbound ceiling is refused while it arrives, not after it
+    // has been held and not when the transfer times out: one that announces its length is
+    // refused on the announcement although the sender then stalls, and one that announces
+    // nothing (chunked, the shape a body sent to be too large takes) once what arrived passes
+    // the ceiling. Both are asserted to settle in well under the thirty second transfer
+    // timeout, because a ceiling that only speaks when the timeout does bounds nothing.
+    void anAnswerLargerThanTheCeilingIsRefusedAsItArrives()
+    {
+        QJSEngine engine;
+        QNetworkAccessManager network;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"), engine.newQObject(&probe));
+        RecordingHttpServer far;
+        QVERIFY(far.listen());
+        Http http{&network, &engine, /*release*/ false,
+                  {HttpEndpointConfig{{}, far.base() + QStringLiteral("/"), {}}}};
+        constexpr qint64 ceiling{16 * 1024 * 1024};
+        QElapsedTimer clock;
+
+        far.answer = [](const RecordingHttpServer::Request &) {
+            return QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Length: ")
+                   + QByteArray::number(ceiling + 1) + QByteArrayLiteral("\r\n\r\nstart");
+        };
+        clock.start();
+        settleInto(engine, http.get(far.base() + QStringLiteral("/announced")));
+        QTRY_VERIFY_WITH_TIMEOUT(probe.last.isValid(), 5000);
+        QVERIFY2(probe.last.toString().contains(QStringLiteral("larger than the")),
+                 qPrintable(probe.last.toString()));
+        QVERIFY2(clock.elapsed() < 2000, "refused by the timeout, not by the announcement");
+
+        probe.last = QVariant{};
+        far.answer = [](const RecordingHttpServer::Request &) {
+            QByteArray answer{"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"};
+            const QByteArray chunk(1024 * 1024, 'x');
+            for (int index{0}; index < 17; ++index) {
+                answer += QByteArray::number(chunk.size(), 16) + "\r\n" + chunk + "\r\n";
+            }
+            return answer;  // and never the last chunk: the sender stalls past the ceiling
+        };
+        clock.restart();
+        settleInto(engine, http.get(far.base() + QStringLiteral("/chunked")));
+        QTRY_VERIFY_WITH_TIMEOUT(probe.last.isValid(), 5000);
+        QVERIFY2(probe.last.toString().contains(QStringLiteral("larger than the")),
+                 qPrintable(probe.last.toString()));
+        QVERIFY2(clock.elapsed() < 2000, "refused by the timeout, not by what arrived");
     }
 
     void jobsQueueIsBounded()
