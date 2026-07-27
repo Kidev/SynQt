@@ -371,3 +371,42 @@ html {
 .highlight .nb-Accessor {
   color: #e6b450;
 }
+
+/* --- The tutorial picker --------------------------------------------------- */
+
+/* The three cards under "Pick a tutorial" (getting-started.md) carry blurbs of
+   different lengths, so their "Start this tutorial" links would each sit at a
+   different height. Lay the card out as a column and push its last paragraph to
+   the bottom, and the three links line up whatever is written above them.
+
+   The whole card is the target, not just that link: the link's ::after is
+   stretched over the card, so a click anywhere on it starts the tutorial. That
+   keeps one link in the accessibility tree and one tab stop, which a click
+   handler on the list item would not, and it needs no script. The cost is that
+   text under the overlay is no longer selectable, which is the right trade for a
+   card whose whole content is one invitation. Scoped to this grid: the home
+   page's "Why SynQt" row is also a card grid and is not a set of links. */
+/* Material's own minimum card width is 16rem, which fits two of these in the 800px
+   the content column leaves and pushes the third onto a row of its own. A lower
+   minimum puts all three side by side on a desktop and still folds them to two and
+   then one as the window narrows, which is Material's behavior and not a set of
+   breakpoints of our own to maintain. */
+.md-typeset .grid.cards.synqt-picks {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+}
+
+.md-typeset .grid.cards.synqt-picks > ul > li {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.md-typeset .grid.cards.synqt-picks > ul > li > p:last-child {
+  margin-top: auto;
+}
+
+.md-typeset .grid.cards.synqt-picks > ul > li > p:last-child > a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}

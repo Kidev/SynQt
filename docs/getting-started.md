@@ -76,7 +76,7 @@ reloading the browser whenever you save.
 Each tutorial grows this project from nothing into a working system, one idea at
 a time, and each idea is explained as you use it rather than up front.
 
-<div class="grid cards" markdown>
+<div class="grid cards synqt-picks" markdown>
 
 -   :material-gavel: __The auction__
 
@@ -94,7 +94,19 @@ a time, and each idea is explained as you use it rather than up front.
 
     [:octicons-arrow-right-24: Start this tutorial](tutorial-multiplayer.md)
 
+-   :material-storefront: __The light storefront__
+
+    A shop whose product grid ships in the bundle and whose campaign pages do not:
+    the edge delivers those on demand, so a merchandiser can rewrite one without
+    rebuilding a client. Two entities, a route table, and a trust boundary.
+
+    [:octicons-arrow-right-24: Start this tutorial](tutorial-remote-pages.md)
+
 </div>
+
+Writing a provider for an engine SynQt has no support for is its own track:
+[Advanced](tutorial-advanced.md) builds a database, a cache, and an identity service
+against the family interfaces.
 
 Prefer the reference documentation instead? [Framework](architecture.md) covers
 every part of SynQt, from the entity model down to the security design.
