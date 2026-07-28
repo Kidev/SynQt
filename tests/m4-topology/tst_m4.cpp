@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M4 acceptance. A two-service topology. Entity A owns a connect point. Entity B
-// consumes it. Both come up; B acquires the Replica over the configured mesh transport
-// (mutual TLS) and sees the owner's push property, and a third entity C, a valid mesh
-// entity that is not on the consumer list, is refused (deny by default).
+// A two-service topology. Entity A owns a connect point, entity B consumes it. Both come
+// up; B acquires the Replica over the configured mesh transport (mutual TLS) and sees the
+// owner's push property, and a third entity C, a valid mesh entity not on the consumer
+// list, is refused (deny by default).
 
 #include "connectpointhost.h"
 #include "entityruntime.h"
@@ -32,6 +32,8 @@
 #include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTest>
 
 #include <algorithm>
@@ -147,12 +149,11 @@ private slots:
         QCOMPARE(EntityRuntime::accessorName(QStringLiteral("web")), QStringLiteral("Web"));
     }
 
-    // Every list in a resolved topology.json must survive the parse. It is the one
-    // input a generated entity main() has, and a list that comes back empty costs the
-    // entity its connect points while it still reports itself up: `QJsonArray a{...}`
-    // takes the array as its single element instead of copying it, so the schema and
-    // the connect points parsed as one unreadable entry each. Guarded here because the
-    // rest of this suite builds its Topology in C++ and never reads the JSON.
+    // Every list in a resolved topology.json must survive the parse. It is the one input a
+    // generated entity main() has, and a list that comes back empty costs the entity its
+    // connect points while it still reports itself up: `QJsonArray a{...}` takes the array
+    // as its single element instead of copying it. Guarded here because the rest of this
+    // suite builds its Topology in C++ and never reads the JSON.
     void topologyFromJsonKeepsEveryList()
     {
         // Delimited R"json(...)json": the SQL below ends in `)"`, which would close a
@@ -357,7 +358,7 @@ private slots:
 
         // Both halves: B attached and C was refused, and the record says both. A record
         // that only ever holds refusals cannot tell a working gate from one that refuses
-        // everybody, which is the failure tests/m5-webedge went red over.
+        // everybody.
         QTRY_VERIFY(tracedMessages().contains(QStringLiteral("consumer refused")));
         QVERIFY(tracedMessages().contains(QStringLiteral("consumer attached")));
         QMutexLocker locker{&recordedMutex};
@@ -521,6 +522,56 @@ private slots:
         QVERIFY(!tracer->isEnabled(Category::Transport, Severity::Debug));
     }
 
+    // A declared outbound header may be written `env:NAME`, and the runtime reads it from
+    // this process's environment when the entity starts: the request carries the value, a
+    // literal header is sent as written, and neither the topology nor the entity's QML ever
+    // held the secret.
+    void anOutboundHeaderIsReadFromTheEnvironment()
+    {
+        qputenv("SYNQT_M4_UPSTREAM_KEY", "from-the-environment");
+        const QScopeGuard unset{[]() { qunsetenv("SYNQT_M4_UPSTREAM_KEY"); }};
+        QTcpServer upstream;
+        QVERIFY(upstream.listen(QHostAddress::LocalHost, 0));
+        QByteArray seen;
+        connect(&upstream, &QTcpServer::newConnection, this, [&upstream, &seen]() {
+            QTcpSocket *socket{upstream.nextPendingConnection()};
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, &seen]() {
+                seen += socket->readAll();
+                if (seen.contains("\r\n\r\n")) {
+                    socket->write("HTTP/1.1 204 No Content\r\n\r\n");
+                    socket->disconnectFromHost();
+                }
+            });
+        });
+
+        ConnectPointConfig point{thingConnectPoint(0)};
+        point.serverFile = QStringLiteral(M4_SRCDIR "/a/CallsOut.qml");
+        point.shared = true;
+        Topology topology;
+        topology.entity = QStringLiteral("a");
+        topology.credentials = credentialsFor(QStringLiteral("a"));
+        topology.connectPoints = {point};
+        topology.provider = {{QStringLiteral("release"), false}};
+        topology.outboundDeclared = true;
+        OutboundEndpoint endpoint;
+        endpoint.name = QStringLiteral("upstream");
+        endpoint.url = QStringLiteral("http://127.0.0.1:%1/").arg(upstream.serverPort());
+        endpoint.headers = {{QStringLiteral("x-api-key"),
+                             QStringLiteral("env:SYNQT_M4_UPSTREAM_KEY")},
+                            {QStringLiteral("x-literal"), QStringLiteral("as-written")}};
+        topology.outbound = {endpoint};
+
+        QQmlEngine engine;
+        EntityRuntime runtime{topology, &engine};
+        QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
+        QTRY_VERIFY(seen.contains("\r\n\r\n"));
+        const QByteArray request{seen.toLower()};
+        QVERIFY2(request.startsWith("get /ping "), seen.constData());
+        QVERIFY2(request.contains("x-api-key: from-the-environment"), seen.constData());
+        QVERIFY2(request.contains("x-literal: as-written"), seen.constData());
+        QVERIFY(!request.contains("env:"));
+    }
+
     // Restarting a service is an ordinary operation: a deploy, a crash, a machine
     // rebooting. Its consumers have to find it again on their own, or the only way to
     // update one entity is to restart the whole system in dependency order.
@@ -551,13 +602,11 @@ private slots:
                                                         QStringLiteral("thing"))) != nullptr);
         QTRY_COMPARE(replica->property("value").toInt(), 42);
 
-        // A receiver attached to the Replica by name, which is how C++ that adopts one
-        // has to do it (a dynamic Replica builds its metaobject at runtime, so
-        // SessionManager and IdentityProvider both connect through SIGNAL()). Kept alive
-        // across the reconnect, because retiring the link destroys that metaobject
-        // under a receiver still holding a connection to it, and that ordering is the
-        // thing to prove safe, not something to find out in an edge at three in the
-        // morning.
+        // A receiver attached to the Replica by name, as C++ that adopts one has to (a
+        // dynamic Replica builds its metaobject at runtime, so SessionManager and
+        // IdentityProvider both connect through SIGNAL()). Kept alive across the reconnect,
+        // because retiring the link destroys that metaobject under a receiver still
+        // connected to it, and that ordering has to be proved safe.
         auto watcher{std::make_unique<QSignalSpy>(replica, SIGNAL(valueChanged(int)))};
 
         // The owner goes away, taking the link with it.
