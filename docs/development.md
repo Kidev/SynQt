@@ -190,11 +190,16 @@ multi-threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits, and a 
 `synqt build` of the arena's client bundle); [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) freezes and publishes the CLI; and
 [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) publishes this site.
 
-[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) and [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) are `workflow_dispatch`-first and also run on
-changes to what they cover: each builds a Qt module from source for the WebAssembly kit (which
-ships no QtRemoteObjects, see [`tests/m0-transport/README.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/README.md)), so they are too slow for every
-push. Both depend on aqtinstall resolving the right module names for the runner image, which
-is the first thing to check when one of them fails on a fresh runner.
+Neither [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs on every push: each builds a Qt
+module from source for the WebAssembly kit (which ships no QtRemoteObjects, see
+[`tests/m0-transport/README.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/README.md)), which is too slow for that. They run on dispatch and on
+changes to what they cover, and [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) also runs weekly on a schedule.
+The schedule is there because what its result depends on is not in this repository: the
+browser engines it drives keep moving while the spike it drives does not, so a path trigger
+alone would leave the Chromium, Firefox, and WebKit claim resting on a run from months ago.
+Each run prints the engine versions it drove. Both workflows depend on aqtinstall resolving
+the right module names for the runner image, which is the first thing to check when one of
+them fails on a fresh runner.
 
 ## Coding standards and file headers
 

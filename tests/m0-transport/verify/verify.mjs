@@ -311,15 +311,26 @@ async function main() {
         [webkit, "webkit"]
     ];
     const browsers = [];
+    const engineVersions = {};
     for (const [browserType, browserName] of candidateBrowsers) {
         try {
             const probe = await browserType.launch(launchOptions(browserType));
+            engineVersions[browserName] = probe.version();
             await probe.close();
             browsers.push([browserType, browserName]);
         } catch (err) {
             console.log(`  skipping ${browserName}: ${String(err.message).split("\n")[0]}`);
         }
     }
+    // Which engine build ran, on every run and not only a failing one. This harness is the
+    // standing evidence behind "the client runs in current Chrome, Firefox, and Safari", and
+    // package.json floats Playwright on ^1.49, so each run resolves whatever engine build is
+    // current that day. A pass against an unnamed engine is the same defect as a benchmark
+    // baseline with no host recorded: it cannot be compared to the next one.
+    const engineList = browsers
+        .map(([, name]) => `${name} ${engineVersions[name]}`)
+        .join(", ");
+    console.log(`  engines: ${engineList}`);
     const ranWebkit = browsers.some(([, name]) => name === "webkit");
     const schemes = [
         ["ws", WS_PORT],
@@ -367,6 +378,9 @@ async function main() {
 
     const failed = results.filter((r) => !r.pass);
     console.log("\n==================== M0 SUMMARY ====================");
+    // Repeated here on purpose: the line above the probe loop survives a crash, this one is in
+    // the tail, which is the part of a CI log anyone actually reads.
+    console.log(`  engines: ${engineList}`);
     for (const r of results) {
         console.log(`  ${r.pass ? "PASS" : "FAIL"}  ${r.name}`);
     }

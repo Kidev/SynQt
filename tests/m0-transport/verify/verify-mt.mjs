@@ -263,8 +263,12 @@ async function selectBrowsers() {
         }
         try {
             const probe = await browserType.launch(launchOptions());
+            // Carried along so the run names the engine build it drove, for the same reason
+            // verify.mjs does: the threaded claim is about current engines granting
+            // SharedArrayBuffer, and Playwright floats, so the version is part of the result.
+            const version = probe.version();
             await probe.close();
-            selected.push([browserType, name]);
+            selected.push([browserType, name, version]);
         } catch (err) {
             console.log(`  skipping ${name}: ${String(err.message).split("\n")[0]}`);
         }
@@ -279,7 +283,8 @@ async function main() {
         console.log("MT GATE: NO-GO (no browser could be launched)");
         process.exit(1);
     }
-    console.log(`  driving: ${browsers.map(([, name]) => name).join(", ")}`);
+    const engineList = browsers.map(([, name, version]) => `${name} ${version}`).join(", ");
+    console.log(`  driving: ${engineList}`);
 
     renderShell();
     const isolatedServer = await startStaticServer(ISOLATED_PORT, true);

@@ -344,7 +344,9 @@ operating systems it supports. Each is scoped to what it can prove on a hosted r
 - [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) closes the WebKit and Safari column of the transport proof,
   building QtRemoteObjects into the WebAssembly kit from source and driving Chromium,
   Firefox, and WebKit through every QtRemoteObjects over WebSockets direction and a
-  reconnect.
+  reconnect, on Ubuntu and on macOS. It runs weekly, not only on demand, because the
+  engines it drives move on their own schedule while the spike it drives does not, and it
+  records the engine versions each run drove.
 - [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs what needs a WebAssembly kit the other workflows do not install:
   the multi threaded client actually receiving SharedArrayBuffer under cross origin
   isolation (and provably losing it without the headers), Qt Quick 3D Physics building and
@@ -356,9 +358,10 @@ operating systems it supports. Each is scoped to what it can prove on a hosted r
   [`check-get-installer.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/check-get-installer.yml) guards that the get.synqt.org installer and its index copy
   stay identical.
 
-The two WebAssembly workflows are manual first (`workflow_dispatch`) and otherwise run only
-when what they cover changes: each builds a Qt module from source, which is too slow for
-every push.
+Neither WebAssembly workflow runs on every push: each builds a Qt module from source, which
+is too slow for that. Both run on dispatch and when what they cover changes, and the browser
+matrix also runs weekly, because a browser engine can break it without anything here
+changing.
 
 The suites run locally exactly as CI runs them, through each test's `run-*.sh` with
 `QT_HOST` pointing at your host kit (see the [developer guide](development.md)); the

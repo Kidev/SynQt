@@ -12,17 +12,38 @@
 #   * macOS   -> Playwright WebKit on macOS, the closest automatable stand-in for Safari.app
 #     (real Safari.app would need safaridriver + `safaridriver --enable`; that is a follow-up).
 #
-# It is manual-first (workflow_dispatch) because the WASM toolchain build is heavy; it also runs
-# when the M0 spike or this file changes. NOTE: this workflow is authored to run on GitHub's
-# runners and cannot be validated on the Arch dev box; the aqtinstall arch/module names and the
-# per-OS Qt install directory are the most likely first-run adjustments.
+# It runs weekly, on dispatch, and when the M0 spike or this file changes. The schedule is the
+# load-bearing trigger: the WebKit and Safari column of "runs in current Chrome, Firefox, and
+# Safari" is claimed continuously, and the spike it drives is stable, so the push paths alone
+# would fire once a year while the claim aged. What actually moves under it is the browser: the
+# verifier floats Playwright on ^1.49, so each run resolves whatever engine build is current
+# that day, and a weekly run is what turns "it worked when we wrote it" into standing evidence
+# against engines nobody here controls. That is also why the run records the engine versions it
+# drove (see verify.mjs); a green run that cannot say what it ran proves less than it looks like.
+#
+# Not scheduled per-push, because a run provisions the WASM toolchain and builds a Qt module from
+# source. Note also that GitHub disables scheduled workflows in a repository with no activity for
+# 60 days, so a quiet stretch is a reason to check the runs, not proof they passed.
+#
+# NOTE: this workflow is authored to run on GitHub's runners and cannot be validated on the Arch
+# dev box; the aqtinstall arch/module names and the per-OS Qt install directory are the most
+# likely first-run adjustments.
 
 name: Run the browser matrix (Chromium, Firefox, WebKit)
 
 on:
   workflow_dispatch:
+  schedule:
+    # Sunday 06:00 UTC. Two hours after benchmarks.yml so a weekend of scheduled work does not
+    # start as one burst. Weekly is the resolution the claim needs: it bounds how long a broken
+    # engine column can sit unnoticed to a week, and every run is dated in its own log.
+    - cron: "0 6 * * 0"
   push:
     paths:
+      # Exactly what a run compiles. The M0 spike is self-contained (its own edge and client,
+      # its own QIODevice adapter), so it does not build src/transport or src/client and those
+      # paths deliberately do not appear here: a workflow that runs on a change it cannot
+      # exercise reads as coverage without being any.
       - "tests/m0-transport/**"
       - ".github/workflows/browser-matrix.yml"
 
