@@ -127,7 +127,12 @@ def serve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = None)
         if binary is None:
             missing.append(name)
             continue
-        subprocess.Popen([str(binary)], cwd=str(binary.parent), env=env)
+        # From the project root, like `synqt dev`, because every relative default a
+        # generated main carries is project-root relative: the bundle (build/client), the
+        # entity's topology (build/<entity>/topology.json), the public certificate and the
+        # env file, all spelled the way synqt.yaml spells them. Run from the deploy
+        # directory instead and the edge looks for the bundle under build/<entity>/.
+        subprocess.Popen([str(binary)], cwd=str(root), env=env)
         launched.append(name)
 
     if missing:

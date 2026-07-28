@@ -140,6 +140,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"error: scopes.hierarchical must be true or false, not "
                 f"{scopes['hierarchical']!r}")
 
+    messages += _browser_policy_messages(config, scope_order)
     messages += _loading_messages(config)
     for name in sorted(entities):
         messages += _provider_messages(name, entities[name])
@@ -323,6 +324,64 @@ def _identity_messages(config: Dict[str, Any]) -> List[str]:
                 "be an env: reference so the value stays out of synqt.yaml")
         if not str(provider.get("client_id") or "").strip():
             messages.append(f"error: identity provider '{name}' has no client_id")
+    return messages
+
+
+def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str]) -> List[str]:
+    """The `security:` block and the two enumerated choices next to it.
+
+    Every value here is carried into the generated edge, so a key this framework cannot
+    honor is reported as the error it is rather than dropped. That matters most for the
+    two enumerations: a project that asks for a session transport or an authorization
+    flow this version does not implement would otherwise get an edge that quietly runs
+    the one it does, and believe it configured something else.
+    """
+    messages: List[str] = []
+    security = appmodel.security_settings(config)
+
+    try:
+        appmodel.session_transport(config)
+    except appmodel.AppGenError as error:
+        messages.append(f"error: {error}")
+    try:
+        appmodel.identity_flow(config)
+    except appmodel.AppGenError as error:
+        messages.append(f"error: {error}")
+
+    origins = security.get("allowed_origins")
+    if origins is not None and not isinstance(origins, list):
+        messages.append(
+            f"error: security.allowed_origins must be a list of origins, not {origins!r}")
+
+    # The upgrade-path limits are all whole numbers of milliseconds, connections or bytes.
+    # A quoted or fractional one reaches the generated edge as C++ that does not compile,
+    # which reports the typo as a compiler error in generated code.
+    for key in ("handshake_timeout_ms", "max_connections_per_ip", "max_connections_global",
+                "max_message_bytes"):
+        value = security.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int):
+            messages.append(f"error: security.{key} must be a whole number, not {value!r}")
+        elif value <= 0:
+            messages.append(
+                f"error: security.{key} is {value}; a limit of zero or less would refuse "
+                "every connection rather than disable the limit")
+
+    session = appmodel.identity_session(config)
+    ttl = session.get("ttl_minutes")
+    if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int)):
+        messages.append(
+            f"error: identity.session.ttl_minutes must be a whole number, not {ttl!r}")
+
+    # The starting scope has to be one of the declared scopes, or every new session begins
+    # holding a scope that satisfies nothing and the app is unusable before login.
+    default = appmodel.default_scope(config)
+    if default and scope_order and default not in scope_order:
+        messages.append(
+            f"error: scopes.default is '{default}', which is not in scopes.order "
+            f"({', '.join(scope_order)}); every new session would start with a scope that "
+            "matches nothing")
     return messages
 
 

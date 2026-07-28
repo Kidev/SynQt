@@ -332,5 +332,59 @@ class MeshCertificateTest(unittest.TestCase):
         self.assertEqual(errors(base_config(), starting=True, project_dir=None), [])
 
 
+class BrowserPolicyTest(unittest.TestCase):
+    """The `security:` block and the two enumerated choices beside it.
+
+    Everything here is carried into the generated edge, so a value this framework cannot
+    honor has to be reported rather than dropped: an edge that quietly runs a different
+    session transport, or a different OAuth flow, than the one its project asked for is
+    the failure mode that made wiring this block worth doing.
+    """
+
+    def test_a_declared_policy_is_clean(self):
+        self.assertEqual(errors(base_config(security={
+            "session_transport": "cookie", "allowed_origins": ["self"],
+            "handshake_timeout_ms": 5000, "max_message_bytes": 4096})), [])
+
+    def test_an_unimplemented_session_transport_is_refused(self):
+        failures = errors(base_config(security={"session_transport": "subprotocol"}))
+        self.assertTrue(any("session_transport" in m for m in failures), failures)
+
+    def test_an_unimplemented_flow_is_refused(self):
+        failures = errors(base_config(identity={"flow": "implicit"}))
+        self.assertTrue(any("identity.flow" in m for m in failures), failures)
+
+    def test_a_scalar_origin_list_is_refused(self):
+        failures = errors(base_config(security={"allowed_origins": "self"}))
+        self.assertTrue(any("allowed_origins" in m for m in failures), failures)
+
+    def test_a_quoted_limit_is_refused(self):
+        # YAML makes this easy to write and the generator would emit C++ that does not
+        # compile, reporting the typo as an error inside generated code.
+        failures = errors(base_config(security={"handshake_timeout_ms": "3000"}))
+        self.assertTrue(any("handshake_timeout_ms" in m for m in failures), failures)
+
+    def test_a_limit_of_zero_is_refused(self):
+        # Zero reads like "no limit" and means "refuse everything": the caps are compared
+        # with >=, so a cap of 0 rejects the first connection.
+        failures = errors(base_config(security={"max_connections_global": 0}))
+        self.assertTrue(any("max_connections_global" in m for m in failures), failures)
+
+    def test_a_quoted_session_ttl_is_refused(self):
+        failures = errors(base_config(identity={"session": {"ttl_minutes": "60"}}))
+        self.assertTrue(any("ttl_minutes" in m for m in failures), failures)
+
+    def test_a_starting_scope_outside_the_vocabulary_is_refused(self):
+        # Every new session would begin holding a scope that satisfies no check at all,
+        # so the app is unusable before login and nothing says why.
+        failures = errors(base_config(scopes={"order": ["anonymous", "user"],
+                                              "default": "guest"}))
+        self.assertTrue(any("scopes.default" in m for m in failures), failures)
+
+    def test_a_starting_scope_inside_the_vocabulary_is_clean(self):
+        self.assertEqual(errors(base_config(scopes={"order": ["anonymous", "user"],
+                                                    "default": "anonymous"})), [])
+
+
 if __name__ == "__main__":
     unittest.main()

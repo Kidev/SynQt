@@ -29,6 +29,14 @@ def _secret_env(provider: str) -> str:
     return provider.upper().replace("-", "_") + "_CLIENT_SECRET"
 
 
+# The providers this module knows by name, as opposed to the generic OpenID Connect entry
+# it writes for anything else (whose endpoints are placeholders pointing at
+# `https://<name>.example`). Only these are safe for :func:`synqt.appmodel.identity_providers`
+# to fill in underneath a hand-written short form: filling in a placeholder would replace
+# "no endpoint, and you will hear about it" with "an endpoint that does not exist".
+TEMPLATED_PROVIDERS = ("github", "google")
+
+
 def provider_template(provider: str) -> Dict[str, Any]:
     """The provider entry, mapping raw provider fields to the normalized identity.
 

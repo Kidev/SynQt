@@ -20,9 +20,9 @@ synqt add auth github
 
 This writes an `identity` section into `synqt.yaml` with secure defaults already
 on (the login flow runs on the edge, the browser never holds a secret, the session
-is a hardened cookie), adds `web/.env.example`, and scaffolds an identity mapping
-hook. Two things only you can do: register the app with GitHub, and place the
-secret. Here they are, concretely.
+is a hardened cookie), records the secret it needs in `.env.example`, and scaffolds
+an identity mapping hook. Two things only you can do: register the app with GitHub,
+and place the secret. Here they are, concretely.
 
 First, register a GitHub OAuth app. In a browser, go to GitHub, then Settings, then
 Developer settings, then OAuth Apps, then New OAuth App. Fill in:

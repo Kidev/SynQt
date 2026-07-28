@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Read ``synqt.yaml`` the one way the generator does: entities, connect points,
-scopes, routes, views, and the QML files a client entity holds.
+scopes, the edge's browser-facing policy, routes, views, and the QML files a client
+entity holds.
 
 Nothing here emits anything. It is the shared reading of the topology that
 :mod:`synqt.cmakegen` (the root ``CMakeLists.txt``), :mod:`synqt.maingen` (one
@@ -21,6 +22,12 @@ import os
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
+
+# The OAuth provider templates are one table: `synqt add auth` writes it into synqt.yaml,
+# and this module reads it back to fill in what a hand-written short form left out. Read
+# from the scaffolder rather than copied, so the two can never describe the same provider
+# differently.
+from . import addauth
 
 
 class AppGenError(Exception):
@@ -122,6 +129,218 @@ def scopes_hierarchical(config: Dict[str, Any]) -> bool:
     the one way to get set-based scopes wrong and never hear about it.
     """
     return bool(config.get("scopes", {}).get("hierarchical", True))
+
+
+# the edge's browser-facing policy
+#
+# Everything under here answers one question: what did the project DECLARE? Never "what
+# does the framework do when the project declares nothing" -- the defaults live once, in
+# `WebEdgeConfig` (src/service/webedgeconfig.h) and `IdentityConfig`
+# (src/service/identityconfig.h), and a second copy here would be a second thing to keep
+# in step and a silent way for the generated edge to disagree with the struct it fills.
+# So a key the project does not set is simply absent from what these return, and the
+# generated main then says nothing about it and lets the struct's own default stand.
+# `env_file` is the one that does supply a default, because no struct holds it: where an
+# entity's secrets live is a project-layout convention, not a runtime setting.
+
+
+def security_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``security:`` block: browser hardening and the upgrade-path limits."""
+    settings = config.get("security")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
+def public_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``public:`` block of a web edge: where it binds and what it answers on."""
+    settings = entity.get("public")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
+def tls_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``tls:`` block of a web edge: the public certificate for the browser."""
+    settings = entity.get("tls")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
+def env_file(entity: Dict[str, Any]) -> str:
+    """The entity's own env file: what it declares, or ``<its directory>/.env``.
+
+    This is where an ``env:`` reference is answered from: the file holds the real secret,
+    synqt.yaml holds only its name. Project-root relative, like every other path in the
+    topology.
+
+    Defaulted rather than left empty because ``<entity>/.env`` is the convention the
+    tutorials and the scaffolded projects already use ("the client secret lives only in
+    ``web/.env``"), and a convention that every document states but nothing loads is the
+    same kind of gap as a setting nothing reads.
+    """
+    env = entity.get("env")
+    if isinstance(env, dict):
+        path = env.get("file")
+        if isinstance(path, str) and path.strip():
+            return path.strip()
+    directory = entity.get("path") or entity.get("name")
+    return f"{directory}/.env" if directory else ""
+
+
+def origin_model(config: Dict[str, Any]) -> str:
+    """``project.origin_model``, or "" when the project does not declare one.
+
+    The edge turns this into the session cookie's SameSite attribute: `same_origin` keeps
+    it Lax, `split_origin` needs `None; Secure` for the cookie to survive the cross-origin
+    upgrade at all. Nothing else derives from it, which is why the documented
+    `identity.session.same_site` is not a separate knob: two spellings of one decision
+    could disagree, and the one that lost would fail silently.
+    """
+    project = config.get("project")
+    model = project.get("origin_model") if isinstance(project, dict) else None
+    return model.strip() if isinstance(model, str) else ""
+
+
+def default_scope(config: Dict[str, Any]) -> str:
+    """``scopes.default``: the scope a brand new, unauthenticated session runs at."""
+    scopes = config.get("scopes")
+    scope = scopes.get("default") if isinstance(scopes, dict) else None
+    return scope.strip() if isinstance(scope, str) else ""
+
+
+# The session credential the browser presents at the wss upgrade. Only the cookie is
+# implemented: the edge's verifier reads the Cookie header and nothing else, and neither
+# `SynClient` nor `WebEdge` speaks `Sec-WebSocket-Protocol`. Accepting the word here would
+# generate an edge that ignores it and keeps authenticating by cookie, which is the exact
+# failure mode this module exists to prevent, so it is refused instead of dropped.
+SESSION_TRANSPORTS = ("cookie",)
+
+
+def session_transport(config: Dict[str, Any]) -> str:
+    """``security.session_transport``, or "" when undeclared.
+
+    Raises :class:`AppGenError` for a transport this version cannot generate, rather than
+    emitting an edge whose behavior contradicts its own configuration.
+    """
+    declared = security_settings(config).get("session_transport")
+    if declared is None:
+        return ""
+    transport = str(declared).strip()
+    if transport not in SESSION_TRANSPORTS:
+        raise AppGenError(
+            f"security.session_transport: {transport!r} is not supported; this version "
+            "carries the session in the httpOnly cookie ('cookie'). A subprotocol token "
+            "is not implemented on either side of the link, so generating it would "
+            "produce an edge that authenticates by cookie anyway.")
+    return transport
+
+
+def identity_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``identity:`` block, empty when the project configures no login."""
+    settings = config.get("identity")
+    return dict(settings) if isinstance(settings, dict) else {}
+
+
+def identity_enabled(config: Dict[str, Any], entity: Dict[str, Any]) -> bool:
+    """Whether this web edge serves the login, callback and logout routes.
+
+    A project that declares no provider has no login to serve. When it does, every web
+    edge serves it unless that entity opts out with ``identity: false`` -- the key the
+    examples spell as ``identity: true`` on the edge that signs users in.
+    """
+    if not identity_providers(config):
+        return False
+    declared = entity.get("identity")
+    return declared is not False
+
+
+def identity_providers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The configured providers, in order. A non-mapping entry is not a provider.
+
+    A provider named after one `synqt add auth` knows gets that template's endpoints
+    filled in underneath whatever the project spelled out, so the short form the tutorials
+    write (a name, a client id, a secret) means the same thing as the long form the
+    scaffolder writes. One table, read here and written there: an edge generated from the
+    short form would otherwise carry a github provider with no authorize URL, and fail at
+    the first login rather than at generation.
+    """
+    providers = identity_settings(config).get("providers")
+    if not isinstance(providers, list):
+        return []
+    resolved: List[Dict[str, Any]] = []
+    for provider in providers:
+        if not isinstance(provider, dict):
+            continue
+        entry = dict(provider)
+        name = entry.get("name")
+        if isinstance(name, str) and name in addauth.TEMPLATED_PROVIDERS:
+            template = dict(addauth.provider_template(name))
+            template.update(entry)
+            entry = template
+        resolved.append(entry)
+    return resolved
+
+
+# The one authorization flow this framework implements: server-side Authorization Code
+# with PKCE, which is what `QOAuth2AuthorizationCodeFlow` runs and the only flow a browser
+# client with no secret can use safely. Named here so a project that writes something else
+# is told so, rather than generating an edge that quietly runs this one anyway.
+IDENTITY_FLOWS = ("authorization_code",)
+
+
+def identity_flow(config: Dict[str, Any]) -> str:
+    """``identity.flow``, or "" when undeclared. Refuses a flow this version cannot run."""
+    declared = identity_settings(config).get("flow")
+    if declared is None:
+        return ""
+    flow = str(declared).strip()
+    if flow not in IDENTITY_FLOWS:
+        raise AppGenError(
+            f"identity.flow: {flow!r} is not supported; the edge runs the server-side "
+            "Authorization Code flow with PKCE ('authorization_code')")
+    return flow
+
+
+def identity_mapping_hook(config: Dict[str, Any]) -> str:
+    """The identity mapping hook's path, or "" when the project declares none.
+
+    Two spellings are in the docs and the examples: ``mapping: web/identity/map.qml`` and
+    ``mapping: {hook: web/identity/map.qml}``. Both mean the same file, so both are read
+    here rather than one of them quietly producing an app with no scope mapping.
+    """
+    mapping = identity_settings(config).get("mapping")
+    if isinstance(mapping, str):
+        return mapping.strip()
+    if isinstance(mapping, dict):
+        hook = mapping.get("hook")
+        return hook.strip() if isinstance(hook, str) else ""
+    return ""
+
+
+def identity_session(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``identity.session`` block: the cookie's name and the session TTL."""
+    session = identity_settings(config).get("session")
+    return dict(session) if isinstance(session, dict) else {}
+
+
+def client_secret_variable(provider: Dict[str, Any]) -> str:
+    """The environment variable holding this provider's client secret.
+
+    A secret is only ever a name here. It is read from the edge environment when the
+    process starts, so it never becomes a literal in the generated source or in the
+    binary that source compiles to -- which is also why a literal is refused outright
+    rather than passed through: emitting it would bake a credential into an artifact
+    that gets copied, cached and shipped.
+    """
+    secret = provider.get("client_secret")
+    if not isinstance(secret, str) or not secret.strip():
+        raise AppGenError(
+            f"identity provider '{provider.get('name', '?')}' has no client_secret; the "
+            "edge cannot exchange the authorization code without it")
+    secret = secret.strip()
+    if not secret.startswith("env:"):
+        raise AppGenError(
+            f"identity provider '{provider.get('name', '?')}' has a literal "
+            "client_secret; it must be an env: reference (e.g. env:GITHUB_CLIENT_SECRET) "
+            "so the secret lives in the edge environment and never in synqt.yaml or the "
+            "generated binary")
+    return secret[len("env:"):]
 
 
 # routes and views
