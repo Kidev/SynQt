@@ -689,13 +689,23 @@ bool WebEdge::start()
 
     // 2. The HTTP server: serve the bundle, stamp headers, and verify upgrades.
     m_httpServer = new QHttpServer{this};
-    m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
-        const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
-        if (auto notModified{notModifiedFor(request, etagFor(index))}) {
-            return std::move(*notModified);
-        }
-        return QHttpServerResponse::fromFile(index);
-    });
+    if (m_config.serveClient) {
+        m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
+            const QString index{QDir{m_config.bundleDir}.filePath(QStringLiteral("index.html"))};
+            if (auto notModified{notModifiedFor(request, etagFor(index))}) {
+                return std::move(*notModified);
+            }
+            return QHttpServerResponse::fromFile(index);
+        });
+    } else {
+        // A CDN delivers the bundle, so this route delivers the one thing only this origin
+        // can: the session. Without it a browser that loaded the app elsewhere reaches the
+        // upgrade with no credential and is refused, which looks like a broken app rather
+        // than a missing request.
+        m_httpServer->route(m_config.clientRoute, [this](const QHttpServerRequest &request) {
+            return credentialResponse(request);
+        });
+    }
 
     // Login/callback/logout: the whole OAuth flow runs here, on the edge. The browser
     // ends with only a session cookie; the client secret and tokens never leave.
@@ -719,10 +729,103 @@ bool WebEdge::start()
             return m_identity->handleLogout(request);
         });
     }
+    // Delivery of the bundle itself, only when this edge is the app's origin.
+    if (m_config.serveClient) {
+        registerBundleRoutes();
+    }
+
+    m_httpServer->addAfterRequestHandler(
+        this, [this](const QHttpServerRequest &request, QHttpServerResponse &response) {
+            stampResponse(request, response);
+        });
+    m_httpServer->addWebSocketUpgradeVerifier(this, &WebEdge::verifyUpgrade);
+    connect(m_httpServer, &QHttpServer::newWebSocketConnection,
+            this, &WebEdge::onNewWebSocketConnection);
+
+    // 3. The public transport: TLS by default (a QSslServer bound to QHttpServer), with
+    //    connection tracking for the handshake timeout.
+    if (m_config.usesTls()) {
+        QSslServer *sslServer{new QSslServer{this}};
+        QSslConfiguration configuration{QSslConfiguration::defaultConfiguration()};
+        configuration.setLocalCertificate(loadCertificate(m_config.certFile));
+        configuration.setPrivateKey(loadPrivateKey(m_config.keyFile));
+        // The browser presents no client certificate; only the server is authenticated.
+        configuration.setPeerVerifyMode(QSslSocket::VerifyNone);
+        sslServer->setSslConfiguration(configuration);
+        connect(sslServer, &QSslServer::startedEncryptionHandshake, this,
+                [this](QSslSocket *socket) { trackPendingUpgrade(socket); });
+        m_transportServer = sslServer;
+    } else {
+        EdgeTcpServer *tcpServer{new EdgeTcpServer{this}};
+        tcpServer->onAccepted = [this](QTcpSocket *socket) { trackPendingUpgrade(socket); };
+        m_transportServer = tcpServer;
+    }
+
+    if (!m_transportServer->listen(QHostAddress{m_config.host}, m_config.port)) {
+        m_errorString = m_transportServer->errorString();
+        return false;
+    }
+    m_port = m_transportServer->serverPort();
+    if (m_identity) {
+        // The port is known now, so the callback redirect_uri is well-formed.
+        m_identity->setEdgeOrigin(httpOrigin());
+    }
+    if (!m_httpServer->bind(m_transportServer)) {
+        m_errorString = QStringLiteral("failed to bind the HTTP server to the transport");
+        return false;
+    }
+    return true;
+}
+
+void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
+{
+    const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
+    QTimer *timer{new QTimer{socket}};
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, this, [this, socket, key]() {
+        m_pendingTimers.remove(key);
+        emit upgradeRejected(QStringLiteral("handshake timeout"));
+        socket->abort();
+    });
+    connect(socket, &QObject::destroyed, this, [this, key]() { m_pendingTimers.remove(key); });
+    m_pendingTimers.insert(key, timer);
+    timer->start(m_config.handshakeTimeoutMs);
+}
+
+QHttpServerResponse WebEdge::credentialResponse(const QHttpServerRequest &request)
+{
+    // A CDN delivered the app, so this is the browser's first and only HTTP request to
+    // this origin, and the one thing it needs from here is a session. The cookie itself is
+    // stamped by stampResponse() on the client route, exactly as it is when this edge
+    // serves the page; the body is empty because there is nothing else to say.
+    QHttpServerResponse response{QHttpServerResponse::StatusCode::NoContent};
+
+    // The fetch that asks for this carries credentials, so it is only honored for an origin
+    // the project listed. `Allow-Origin` echoes the one asking rather than answering `*`,
+    // which a credentialed request refuses anyway, and `Vary` keeps a cache from handing
+    // one client origin's answer to another.
+    const QString origin{QString::fromUtf8(request.value("Origin"))};
+    QHttpHeaders headers{response.headers()};
+    if (!origin.isEmpty() && expandedAllowedOrigins().contains(origin)) {
+        headers.append(QByteArrayLiteral("Access-Control-Allow-Origin"), origin.toUtf8());
+        headers.append(QByteArrayLiteral("Access-Control-Allow-Credentials"),
+                       QByteArrayLiteral("true"));
+    }
+    headers.append(QHttpHeaders::WellKnownHeader::Vary, QByteArrayLiteral("Origin"));
+    response.setHeaders(std::move(headers));
+    return response;
+}
+
+void WebEdge::registerBundleRoutes()
+{
     // Serve the rest of the bundle (the loader, the .wasm module, assets). Only files
     // that resolve to a real path INSIDE the bundle directory are reachable: reject
     // absolute paths and NUL/backslash, then verify the canonical (symlink- and
     // ..-resolved) path stays under the canonical bundle root.
+    //
+    // Skipped entirely when a CDN delivers the bundle: an edge that is not the origin of
+    // the app has no business serving files, and every path that is not one of its own
+    // routes should be a 404 rather than a second copy of what the CDN is authoritative for.
     const QString bundleRoot{QDir{m_config.bundleDir}.canonicalPath()};
     m_httpServer->route(QStringLiteral("/<arg>"),
                         [this, bundleRoot](const QString &asset,
@@ -806,62 +909,6 @@ bool WebEdge::start()
                         [this](const QUrl &rest, const QHttpServerRequest &request) {
         return shellOrNotFound(rest.path(), request);
     });
-    m_httpServer->addAfterRequestHandler(
-        this, [this](const QHttpServerRequest &request, QHttpServerResponse &response) {
-            stampResponse(request, response);
-        });
-    m_httpServer->addWebSocketUpgradeVerifier(this, &WebEdge::verifyUpgrade);
-    connect(m_httpServer, &QHttpServer::newWebSocketConnection,
-            this, &WebEdge::onNewWebSocketConnection);
-
-    // 3. The public transport: TLS by default (a QSslServer bound to QHttpServer), with
-    //    connection tracking for the handshake timeout.
-    if (m_config.usesTls()) {
-        QSslServer *sslServer{new QSslServer{this}};
-        QSslConfiguration configuration{QSslConfiguration::defaultConfiguration()};
-        configuration.setLocalCertificate(loadCertificate(m_config.certFile));
-        configuration.setPrivateKey(loadPrivateKey(m_config.keyFile));
-        // The browser presents no client certificate; only the server is authenticated.
-        configuration.setPeerVerifyMode(QSslSocket::VerifyNone);
-        sslServer->setSslConfiguration(configuration);
-        connect(sslServer, &QSslServer::startedEncryptionHandshake, this,
-                [this](QSslSocket *socket) { trackPendingUpgrade(socket); });
-        m_transportServer = sslServer;
-    } else {
-        EdgeTcpServer *tcpServer{new EdgeTcpServer{this}};
-        tcpServer->onAccepted = [this](QTcpSocket *socket) { trackPendingUpgrade(socket); };
-        m_transportServer = tcpServer;
-    }
-
-    if (!m_transportServer->listen(QHostAddress{m_config.host}, m_config.port)) {
-        m_errorString = m_transportServer->errorString();
-        return false;
-    }
-    m_port = m_transportServer->serverPort();
-    if (m_identity) {
-        // The port is known now, so the callback redirect_uri is well-formed.
-        m_identity->setEdgeOrigin(httpOrigin());
-    }
-    if (!m_httpServer->bind(m_transportServer)) {
-        m_errorString = QStringLiteral("failed to bind the HTTP server to the transport");
-        return false;
-    }
-    return true;
-}
-
-void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
-{
-    const QString key{peerKey(socket->peerAddress().toString(), socket->peerPort())};
-    QTimer *timer{new QTimer{socket}};
-    timer->setSingleShot(true);
-    connect(timer, &QTimer::timeout, this, [this, socket, key]() {
-        m_pendingTimers.remove(key);
-        emit upgradeRejected(QStringLiteral("handshake timeout"));
-        socket->abort();
-    });
-    connect(socket, &QObject::destroyed, this, [this, key]() { m_pendingTimers.remove(key); });
-    m_pendingTimers.insert(key, timer);
-    timer->start(m_config.handshakeTimeoutMs);
 }
 
 QHttpServerWebSocketUpgradeResponse WebEdge::verifyUpgrade(const QHttpServerRequest &request)

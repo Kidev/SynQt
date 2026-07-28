@@ -147,6 +147,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                 f"{scopes['hierarchical']!r}")
 
     messages += _browser_policy_messages(config, scope_order)
+    messages += _cdn_delivery_messages(config)
     messages += _loading_messages(config)
     for name in sorted(entities):
         messages += _provider_messages(name, entities[name])
@@ -375,6 +376,43 @@ def _provider_entity_messages(config: Dict[str, Any],
                 f"identity.provider_entity implies; rename it, because the auth entity "
                 f"'{owner}' owns '{appmodel.AUTH_IDENTITY_POINT}' and "
                 f"'{appmodel.AUTH_SESSION_POINT}'")
+    return messages
+
+
+def _cdn_delivery_messages(config: Dict[str, Any]) -> List[str]:
+    """`public.serve_client: false` hands delivery to a CDN, which needs three things said.
+
+    Each of the three fails as a running app that never connects rather than as anything
+    resembling a configuration problem, which is why they are errors here. The bundle then
+    loads from an origin the edge knows nothing about, so: the origin model has to say so
+    (it decides the cookie's SameSite, and a Lax cookie is not sent on a cross-site
+    upgrade), the client origin has to be an allowed origin (the upgrade's origin check
+    refuses everything else), and the edge has to name its own public origin (the page
+    cannot read it from `window.location` any more, because that names the CDN).
+    """
+    edges = [entity for entity in appmodel.web_edges(config)
+             if appmodel.public_settings(entity).get("serve_client") is False]
+    if not edges:
+        return []
+    messages: List[str] = []
+    name = edges[0].get("name", "<unnamed>")
+    if appmodel.origin_model(config) != "split_origin":
+        messages.append(
+            f"error: edge '{name}' sets public.serve_client: false, so the client is "
+            "delivered from another origin; project.origin_model must be 'split_origin' "
+            "or the session cookie is issued SameSite=Lax and never reaches the upgrade")
+    if not appmodel.public_origin(config):
+        messages.append(
+            f"error: edge '{name}' sets public.serve_client: false but declares no "
+            "public.origin; the bundle is served from elsewhere, so the app cannot read "
+            "the edge from its own page and has nothing to connect to")
+    origins = appmodel.security_settings(config).get("allowed_origins")
+    origins = origins if isinstance(origins, list) else []
+    if not [origin for origin in origins if str(origin).strip() != "self"]:
+        messages.append(
+            f"error: edge '{name}' sets public.serve_client: false but "
+            "security.allowed_origins names no origin other than 'self'; the upgrade's "
+            "origin check would refuse the very client this edge is for")
     return messages
 
 

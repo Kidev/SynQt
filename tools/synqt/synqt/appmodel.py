@@ -150,6 +150,63 @@ def security_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     return dict(settings) if isinstance(settings, dict) else {}
 
 
+def web_edges(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every web edge entity, in declaration order."""
+    return [entity for entity in entities(config) if is_edge(entity)]
+
+
+def sync_route(config: Dict[str, Any]) -> str:
+    """The path the browser upgrades on, from the first edge that names one.
+
+    The client has to agree with the edge about this, and only the edge's `public:` block
+    says it, so the client reads it from there rather than repeating the default. One
+    project, one browser-facing endpoint: a second edge that moved it would need its own
+    client anyway.
+    """
+    for entity in web_edges(config):
+        declared = public_settings(entity).get("sync_route")
+        if isinstance(declared, str) and declared.strip():
+            return declared.strip()
+    return "/sync"
+
+
+def client_route(config: Dict[str, Any]) -> str:
+    """The edge path that delivers the app, and mints the session when a CDN delivers it
+    instead. Read from the first edge that names one, like :func:`sync_route`."""
+    for entity in web_edges(config):
+        declared = public_settings(entity).get("client_route")
+        if isinstance(declared, str) and declared.strip():
+            return declared.strip()
+    return "/"
+
+
+def public_origin(config: Dict[str, Any]) -> str:
+    """``public.origin``: the origin browsers reach the edge at, or "".
+
+    The bind address is not this. An edge behind a proxy or a load balancer listens on
+    something private and is reached at something public, and only a deployment knows the
+    second. It matters when the client is delivered from another origin, because then the
+    app cannot read the edge off its own page.
+    """
+    for entity in web_edges(config):
+        declared = public_settings(entity).get("origin")
+        if isinstance(declared, str) and declared.strip():
+            return declared.strip().rstrip("/")
+    return ""
+
+
+def serves_client(config: Dict[str, Any]) -> bool:
+    """Does the project's web edge deliver the client bundle, or does a CDN?
+
+    False only when an edge says so explicitly (`public.serve_client: false`), because the
+    consequence of getting this wrong is an app that loads from nowhere.
+    """
+    for entity in web_edges(config):
+        if public_settings(entity).get("serve_client") is False:
+            return False
+    return True
+
+
 def public_settings(entity: Dict[str, Any]) -> Dict[str, Any]:
     """The declared ``public:`` block of a web edge: where it binds and what it answers on."""
     settings = entity.get("public")

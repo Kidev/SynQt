@@ -59,6 +59,23 @@ Builds `SynQtService` (now with Qt HttpServer) and the test, generating a throwa
 localhost TLS server cert at configure time into `build/m5-webedge/certs/`; a
 public-link server cert (not a mesh CA), git-ignored and never committed.
 
+## What `aCdnEdgeServesNoFilesButStillMintsTheSession` is for
+
+`public.serve_client: false` says a CDN delivers the bundle. Wiring that as "register
+fewer routes" would have produced an app that loads perfectly and never connects, because
+a browser arriving from a CDN has never made a request to the edge and therefore holds no
+session, and the upgrade refuses a request that carries none.
+
+So the test asserts all three parts together, and the third is the one that matters: the
+edge serves no bundle file and no shell for a deep link (both would be a staler copy of
+what the CDN owns), its client route answers a credentialed cross origin request with
+`204`, a session cookie, and an `Access-Control-Allow-Origin` echoing that exact origin
+only when it is already allowed, and **the session it issued then passes the wss upgrade
+and acquires a connect point**.
+
+Mutation-checked both ways: registering the bundle routes unconditionally fails the 404
+half, and echoing any origin instead of an allowed one fails the refusal half.
+
 ## What `theUpgradePathCannotNegotiateASubprotocol` is for
 
 It is the only test here that pins a limitation rather than a behavior, so it is worth

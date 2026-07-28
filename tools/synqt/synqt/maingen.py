@@ -160,6 +160,9 @@ def _edge_policy_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str
         string_line("syncRoute", public["sync_route"])
     if "host" in public:
         string_line("host", public["host"])
+    if "serve_client" in public:
+        lines.append("    config.serveClient = %s;"
+                     % _bool_literal("public.serve_client", public["serve_client"]))
 
     # Origin and session. `origin_model` is what decides whether the session cookie can
     # survive a cross-origin upgrade at all (SameSite=Lax against None; Secure), so a
@@ -432,6 +435,11 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     # null and an app that does not use the router behaves exactly as before.
     routes = [r for r in (config.get("routes") or []) if isinstance(r, dict)]
 
+    # The path the edge accepts the upgrade on. It was hard-coded as "/sync" here while
+    # `public.sync_route` reached the edge, so an edge that moved it stopped being
+    # reachable by its own client.
+    sync_route_literal = cxx_string_literal(appmodel.sync_route(config))
+
     # Every accessor bound with setContextProperty needs its complete type here:
     # synclient.h only forward-declares them, and an incomplete type misses the QObject*
     # overload and falls through to the deleted QVariant(T*) one.
@@ -511,15 +519,29 @@ namespace {{
 QUrl resolveEdgeUrl()
 {{
 #ifdef Q_OS_WASM
-    // The edge served this page; connect back to the same origin's sync endpoint. Read
-    // the location through Embind (not emscripten_run_script, which uses eval() and would
-    // violate the edge's strict Content-Security-Policy).
-    const emscripten::val location{{emscripten::val::global("window")["location"]}};
+    // Read through Embind, never emscripten_run_script, which uses eval() and would
+    // violate the edge's strict Content-Security-Policy.
+    const emscripten::val window{{emscripten::val::global("window")}};
+
+    // The page may not have come from the edge. Under `origin_model: split_origin` a CDN
+    // delivers the bundle, so the served shell states the edge origin and the app has to
+    // read it from there; window.location would name the CDN, which hosts no sync
+    // endpoint. Same-origin delivery sets nothing and falls through below.
+    const emscripten::val declared{{window["__synqtEdgeOrigin"]}};
+    if (!declared.isUndefined() && !declared.isNull()) {{
+        const QString origin{{QString::fromStdString(declared.as<std::string>())}};
+        if (!origin.isEmpty()) {{
+            return QUrl{{origin + QStringLiteral("{sync_route_literal}")}};
+        }}
+    }}
+
+    // The edge served this page; connect back to the same origin's sync endpoint.
+    const emscripten::val location{{window["location"]}};
     const QString protocol{{QString::fromStdString(location["protocol"].as<std::string>())}};
     const QString host{{QString::fromStdString(location["host"].as<std::string>())}};
     const QString scheme{{protocol == QLatin1String("https:") ? QStringLiteral("wss")
                                                              : QStringLiteral("ws")}};
-    return QUrl{{QStringLiteral("%1://%2/sync").arg(scheme, host)}};
+    return QUrl{{QStringLiteral("%1://%2{sync_route_literal}").arg(scheme, host)}};
 #else
     // A native desktop client is told its edge (build.desktop.edge_url).
     return QUrl{{QStringLiteral(SYNQT_EDGE_URL)}};

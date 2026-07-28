@@ -197,6 +197,11 @@ side, the mesh (service to service) side, the public TLS, and its env file:
       host: 0.0.0.0           # default: all interfaces; the only public bind in the system
       port: 8443              # default
       serve_client: true      # serve the client bundle from this entity
+      # origin: https://app.example.com
+      #   The origin browsers reach this edge at, which is not the bind address above
+      #   when a proxy or a load balancer sits in front. Required with
+      #   serve_client: false, because the app is then delivered from somewhere else
+      #   and cannot read its edge off its own page.
       client_route: /
       sync_route: /sync       # the WebSocket upgrade path
       # tls_terminated_upstream: true
@@ -216,6 +221,21 @@ side, the mesh (service to service) side, the public TLS, and its env file:
     env:
       file: web/.env
 ```
+
+`serve_client: false` hands delivery to a CDN, and it changes more than which routes
+exist. A browser that loaded the app from a CDN has never touched the edge, so it holds
+no session, and the upgrade refuses a request that carries none. So the edge keeps
+`client_route` registered as a credential endpoint: it answers a credentialed
+cross origin fetch with `204` and the session cookie, echoing the requesting origin (only
+one already in `allowed_origins`) rather than a wildcard. The generated boot script makes
+that request before the app connects, and it also publishes `public.origin` to the page,
+which is what the client dials instead of its own location.
+
+Three things must be true for that deployment, and `synqt check` insists on all three,
+because each one fails as an app that loads perfectly and never connects: the origin model
+is `split_origin` (it is what issues the cookie `SameSite=None; Secure`, and a `Lax` cookie
+is never sent on a cross site upgrade), `public.origin` is declared, and
+`security.allowed_origins` names the client origin.
 
 A service entity (here a database from the official blueprint). Note how the
 embedded default needs no `provider` section at all; the blueprint's own settings go

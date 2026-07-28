@@ -250,6 +250,79 @@ private slots:
         QCOMPARE(replica->property("value").toInt(), 7);
     }
 
+    // `public.serve_client: false`: a CDN delivers the bundle, so this edge delivers the
+    // one thing only it can. Three claims, and the third is what makes the other two more
+    // than a routing change: a browser that loaded the app elsewhere has no session, and
+    // the upgrade refuses a request that carries none.
+    void aCdnEdgeServesNoFilesButStillMintsTheSession()
+    {
+        WebEdgeConfig config{makeConfig(false)};
+        config.serveClient = false;
+        config.originModel = QStringLiteral("split_origin");
+        config.allowedOrigins = {QStringLiteral("self"),
+                                 QStringLiteral("https://cdn.example")};
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // 1. It serves no bundle file, and no application shell for a deep link either.
+        //    Both would be a second, staler copy of what the CDN is authoritative for.
+        QNetworkReply *asset{httpGet(edge.httpOrigin() + QStringLiteral("/index.html"))};
+        QVERIFY(asset != nullptr);
+        QCOMPARE(asset->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 404);
+        asset->deleteLater();
+        QNetworkReply *deepLink{httpGet(edge.httpOrigin() + QStringLiteral("/some/route"))};
+        QVERIFY(deepLink != nullptr);
+        QCOMPARE(deepLink->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 404);
+        deepLink->deleteLater();
+
+        // 2. The client route answers the credential request, and only for an origin the
+        //    project listed. The echo is that exact origin, never a wildcard, which a
+        //    credentialed fetch would refuse anyway.
+        QNetworkReply *allowed{httpGet(edge.httpOrigin() + QStringLiteral("/"),
+                                       "Origin", "https://cdn.example")};
+        QVERIFY(allowed != nullptr);
+        QCOMPARE(allowed->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 204);
+        QCOMPARE(allowed->rawHeader("Access-Control-Allow-Origin"),
+                 QByteArrayLiteral("https://cdn.example"));
+        QCOMPARE(allowed->rawHeader("Access-Control-Allow-Credentials"),
+                 QByteArrayLiteral("true"));
+        QVERIFY2(allowed->rawHeader("Vary").contains("Origin"),
+                 "a cached answer must not be handed to a different client origin");
+        const QByteArray cookie{sessionCookie(allowed)};
+        QVERIFY2(!cookie.isEmpty(), "the credential endpoint must mint a session");
+        allowed->deleteLater();
+
+        QNetworkReply *refused{httpGet(edge.httpOrigin() + QStringLiteral("/"),
+                                       "Origin", "https://evil.example")};
+        QVERIFY(refused != nullptr);
+        QVERIFY2(refused->rawHeader("Access-Control-Allow-Origin").isEmpty(),
+                 "an unlisted origin must not be told it may read the answer");
+        refused->deleteLater();
+
+        // 3. The session it minted is the one the upgrade accepts, which is the whole
+        //    point: without this the app loads from the CDN and never connects.
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        WebSocketTransport transport{&socket};
+        QVERIFY(transport.open(QIODevice::ReadWrite));
+        QRemoteObjectNode node;
+        node.addClientSideConnection(&transport);
+        node.setHeartbeatInterval(300);
+
+        QNetworkRequest upgrade{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+        upgrade.setRawHeader("Origin", "https://cdn.example");
+        upgrade.setRawHeader("Cookie", cookie);
+        upgrade.setSslConfiguration(insecureClientConfig());
+        socket.open(upgrade);
+
+        QScopedPointer<QRemoteObjectDynamicReplica> replica{
+            node.acquireDynamic(QStringLiteral("greeting"))};
+        QVERIFY2(replica->waitForSource(5000),
+                 "the session the credential endpoint issued must pass the upgrade");
+        QCOMPARE(replica->property("value").toInt(), 7);
+    }
+
     // Why `security.session_transport: subprotocol` is refused rather than built.
     //
     // Carrying the session in `Sec-WebSocket-Protocol` needs the server to select one of
