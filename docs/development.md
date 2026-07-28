@@ -19,7 +19,7 @@ is, not why. For the generated class and member reference, see the
 | [`src/`](https://github.com/Kidev/SynQt/tree/main/src) | The framework runtime, one library per trust boundary (see below). |
 | [`tools/`](https://github.com/Kidev/SynQt/tree/main/tools) | The command line tooling: the CLI, the contract generator, the docs lexer. |
 | [`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake) | [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake): the `.syn` to rep to repc and QML registration glue. |
-| [`tests/`](https://github.com/Kidev/SynQt/tree/main/tests) | One self contained CMake project per milestone and per acceptance fixture. |
+| [`tests/`](https://github.com/Kidev/SynQt/tree/main/tests) | One self contained CMake project per milestone and per acceptance fixture, plus the tree that builds them all at once. |
 | [`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks) | The performance harnesses and their committed baselines. |
 | [`examples/`](https://github.com/Kidev/SynQt/tree/main/examples) | The materialized tutorial systems ([gavel](https://github.com/Kidev/SynQt/tree/main/examples/gavel), the auction; [arena](https://github.com/Kidev/SynQt/tree/main/examples/arena), the game). |
 | [`docs/`](https://github.com/Kidev/SynQt/tree/main/docs) | This documentation site (MkDocs and Material). |
@@ -27,10 +27,16 @@ is, not why. For the generated class and member reference, see the
 | [`overrides/`](https://github.com/Kidev/SynQt/tree/main/overrides) | MkDocs Material theme overrides. |
 | [`.github/`](https://github.com/Kidev/SynQt/tree/main/.github) | Continuous integration and release workflows. |
 
-There is no top level CMake project. Each entity and each test is its own CMake project
-that finds Qt through `CMAKE_PREFIX_PATH` and pulls the framework libraries in from
-[`src/`](https://github.com/Kidev/SynQt/tree/main/src). This mirrors how a real SynQt project is laid out: entities are separate targets
-that share only the generated contract layer, never a monolithic build.
+A SynQt application has no top level CMake project, and that is deliberate: each entity is
+its own project that finds Qt through `CMAKE_PREFIX_PATH` and shares only the generated
+contract layer, because entities are separate targets and a client must not be able to link
+what a service links. Each test suite is laid out the same way for the same reason, and each
+still builds and runs on its own through its `run-*.sh`.
+
+The framework's own repository does have a root [`CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/CMakeLists.txt),
+which is a different thing: it builds every runtime library and every host kit test suite in
+one tree, so that working on SynQt does not mean recompiling `SynQtService` once per suite.
+It builds nothing an application deploys, and `synqt build` never reads it.
 
 ## The runtime libraries ([`src/`](https://github.com/Kidev/SynQt/tree/main/src))
 
@@ -84,7 +90,10 @@ edited by hand and never committed.
 
 Each subdirectory is a standalone CMake project with its own `run-*.sh`. The `m0` through
 `m9` directories are the milestone acceptance tests; the rest are focused fixtures that a
-milestone number would not capture.
+milestone number would not capture. [`tests/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/tests/CMakeLists.txt)
+is the registry of all of them: a suite that is neither built by the tree nor explicitly
+accounted for fails the configure step, because a list nobody checks is how a suite goes
+five commits without ever running.
 
 | Directory                | What it proves |
 |--------------------------|----------------|
@@ -106,9 +115,26 @@ milestone number would not capture.
 | [`fix2-arena`](https://github.com/Kidev/SynQt/tree/main/tests/fix2-arena)             | The multiplayer arena tutorial as an acceptance fixture. |
 | [`appgen-native`](https://github.com/Kidev/SynQt/tree/main/tests/appgen-native)          | The generated CMake and mains actually compile for every entity. |
 | [`desktop-client`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client)         | The native desktop client target compiles, installs, and boots. |
+| [`fix3-stall`](https://github.com/Kidev/SynQt/tree/main/tests/fix3-stall)             | Edge delivered pages end to end, seeded by the production per connection `Caller`. |
+| [`url-routing`](https://github.com/Kidev/SynQt/tree/main/tests/url-routing)            | The route table and the single page application fallback. |
+| [`remote-pages`](https://github.com/Kidev/SynQt/tree/main/tests/remote-pages)           | The framework's own `Pages` connect point and its page store. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
 
-To run one suite locally, point `QT_HOST` at your Qt 6.11.1 host kit and run its script:
+To run everything, point `QT_HOST` at your Qt 6.11.1 host kit and run the tree:
+
+```sh
+QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-all.sh
+```
+
+That builds the framework and every host kit suite once, runs them under a single `ctest`,
+and then runs the three suites that have to run a generator before there is anything to
+compile (`custom-provider`, `appgen-native`, `desktop-client`). It is the same command
+[`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) runs. A
+CMake warning fails it, because the two this gate was built for (an incomplete linking
+report, and a Qt module missing from the kit) had been scrolling past in green builds for
+as long as the workflow existed.
+
+To run one suite, which is usually what you want while working on it, run its script:
 
 ```sh
 QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/m7-caller/run-m7.sh

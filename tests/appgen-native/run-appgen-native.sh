@@ -40,6 +40,12 @@ echo "== [1/4] Materialize the gavel topology and run appgen over it =="
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
+# The example is a working directory for whoever has run `synqt build` in it, and those
+# leftovers are gitignored, so a fresh clone never has them and a developer's checkout
+# does. Copying them in points a fresh configure at a cache built for another source tree,
+# and the link step writes an executable over the `database/` directory it copied along.
+# Take the tracked sources, not the state.
+rm -rf "$SRC/build" "$SRC/CMakeUserPresets.json"
 PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$SRC" "$REPO_ROOT" <<'PY'
 import sys, yaml
 from pathlib import Path

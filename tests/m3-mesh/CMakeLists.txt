@@ -15,7 +15,11 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network RemoteObjects Test)
 qt_standard_project_setup()
 
 # The framework service runtime library that owns the mesh transport.
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+# Guarded: configured on its own, this suite is what pulls the runtime library in;
+# configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
+if(NOT TARGET SynQtService)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
+endif()
 
 # Generate the test certificates now (project CA + entity certs + a foreign CA).
 set(M3_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")

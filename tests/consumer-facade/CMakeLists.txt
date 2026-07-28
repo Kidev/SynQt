@@ -17,7 +17,11 @@ qt_standard_project_setup()
 
 # The client runtime (ServerAccessor + the shared consumer surface); it pulls in
 # SynQtConsumer and SynQtTransport.
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+# Guarded: configured on its own, this suite is what pulls the runtime library in;
+# configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
+if(NOT TARGET SynQtClient)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 enable_testing()

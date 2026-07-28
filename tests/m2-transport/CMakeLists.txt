@@ -14,7 +14,11 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS Core Network WebSockets RemoteObjects 
 qt_standard_project_setup()
 
 # The framework client runtime library that owns WebSocketTransport.
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+# Guarded: configured on its own, this suite is what pulls the runtime library in;
+# configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
+if(NOT TARGET SynQtClient)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+endif()
 
 enable_testing()
 

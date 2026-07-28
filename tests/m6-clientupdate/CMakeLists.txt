@@ -15,7 +15,11 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS Core Qml Test)
 
 enable_testing()
 
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+# Guarded: configured on its own, this suite is what pulls the runtime library in;
+# configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
+if(NOT TARGET SynQtClient)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+endif()
 
 add_executable(tst_clientupdate tst_clientupdate.cpp)
 target_link_libraries(tst_clientupdate PRIVATE SynQtClient Qt6::Test)

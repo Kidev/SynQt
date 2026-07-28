@@ -335,9 +335,12 @@ operating systems it supports. Each is scoped to what it can prove on a hosted r
   host kit and its add on modules through aqtinstall, caches the kit between runs, and
   falls back to a source build for any add on the prebuilt kit omits (the same mechanism
   the WebAssembly job uses for QtRemoteObjects). It runs the runtime suites and the
-  acceptance fixtures on Linux and macOS. Native Windows ctest is out of scope: the run
-  scripts are POSIX shell and an MSVC Qt kit is a separate lift, and the Python suites
-  already give Windows coverage.
+  acceptance fixtures through [`tests/run-all.sh`](https://github.com/Kidev/SynQt/blob/main/tests/run-all.sh),
+  the same command a developer runs locally: one tree, one `ctest`, then the few suites
+  that have to run a generator before there is anything to compile. Linux is the reference
+  column. macOS and Windows run the same POSIX shell scripts (Windows under the runner's
+  Git Bash against an MSVC kit) and do not block the others, and the Python suites give
+  Windows coverage that does not depend on a Qt kit.
 - [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) closes the WebKit and Safari column of the transport proof,
   building QtRemoteObjects into the WebAssembly kit from source and driving Chromium,
   Firefox, and WebKit through every QtRemoteObjects over WebSockets direction and a
