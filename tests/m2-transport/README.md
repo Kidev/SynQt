@@ -74,6 +74,25 @@ real loopback pair, with no QtRO node on either end:
   capacity is preserved, so the property is real but unpromised. It measures 1 to 2 ms
   against a 2000 ms budget; a genuinely quadratic drain would move about 128 GiB and take
   tens of seconds, and the loop gives up at the budget so the failure is fast.
+- **The read-buffer ceiling**: the buffer is the one place in the transport where a remote
+  party decides how much memory is allocated, and nothing drains it but a consumer that
+  calls `read()`. `setReadBufferLimit()` caps it (64 MiB by default, on without being asked
+  for; the edge tightens it to four times `max_message_bytes` per connection, since a
+  browser's frames are already capped one at a time and this is what caps their sum). Past
+  the ceiling the device discards the buffer and closes, rather than dropping a message:
+  QtRO is framed, so a stream missing a message in the middle is desynchronized, not
+  degraded, and a dropped connection is something the client's reconnect path already
+  handles. Tested at the boundary in both directions, because a cap that fires one frame
+  early looks like it works while killing connections that did nothing wrong.
+- **Giving the memory back**: `remove()` preserves capacity, so a connection that once
+  carried one large frame would hold that allocation until it closed. The device releases
+  it when the buffer empties, and never otherwise, so the release cannot copy anything.
+  Capacity is not visible from outside the class and widening the API to see it would be
+  testing through a hole cut for the test, so the case measures the process instead: 48 MiB
+  is well past the allocator's mmap threshold, so both keeping it and returning it show up
+  in `/proc/self/statm`. It checks that the buffer is visible arriving before concluding
+  anything about it leaving. Linux only, since that is where the measurement lives; the
+  behaviour is not platform specific.
 - **Close handling**: `close()` closes the socket under it and both ends learn of it;
   bytes already buffered survive the peer disconnecting; and a socket destroyed before
   the device leaves the device answering safely rather than reaching through a dangling

@@ -30,10 +30,24 @@ class WebSocketTransport : public QIODevice
     Q_OBJECT
 
 public:
+    /// The default ceiling on unread bytes held for one connection. A safety net, not
+    /// a tuning knob: legitimate traffic never approaches it, because QtRO drains the
+    /// buffer synchronously on readyRead. What reaches it is a peer that keeps sending
+    /// while its consumer has stopped reading. The default is generous because the
+    /// client's peer is its own edge and one model replication can be megabytes; the
+    /// edge tightens it per connection, where the peer is a browser (see WebEdge).
+    static constexpr qint64 DefaultReadBufferLimit{64 * 1024 * 1024};
+
     explicit WebSocketTransport(QWebSocket *socket, QObject *parent = nullptr);
 
     void setUrl(const QUrl &url);
     QUrl url() const;
+
+    /// The ceiling on unread bytes. Reaching it discards the buffer and closes the
+    /// connection rather than truncating the stream, because a QtRO stream with a hole
+    /// in it is worse than no stream. Zero or less disables the ceiling.
+    void setReadBufferLimit(qint64 bytes);
+    qint64 readBufferLimit() const;
 
     bool isSequential() const override;
     qint64 bytesAvailable() const override;
@@ -42,15 +56,22 @@ public:
 
 signals:
     void disconnected();
+    /// The read buffer reached its ceiling. The buffered bytes are gone and the device
+    /// is closed by the time this arrives.
+    void readBufferOverflowed();
 
 protected:
     qint64 readData(char *data, qint64 maxSize) override;
     qint64 writeData(const char *data, qint64 maxSize) override;
 
 private:
+    void discardOnOverflow(qint64 incomingBytes);
+
     QPointer<QWebSocket> m_socket;
     QByteArray m_readBuffer;
     QUrl m_url;
+    qint64 m_readBufferLimit{DefaultReadBufferLimit};
+    bool m_readBufferOverflowed{false};
 };
 
 } // namespace SynQt

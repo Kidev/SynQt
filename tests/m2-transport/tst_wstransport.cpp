@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The WebSocketTransport unit cases the test plan names: framing, partial reads, large
-// messages, and close handling, plus what draining a large read buffer costs.
+// messages, and close handling, plus what a large read buffer costs in time and holds
+// in memory.
 //
 // tst_m2 proves the adapter carries QtRemoteObjects, which is the acceptance question.
 // It cannot prove the device contract underneath, because QtRO reads whole frames as
@@ -17,6 +18,7 @@
 #include <QAbstractSocket>
 #include <QByteArray>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QHostAddress>
 #include <QPointer>
 #include <QScopedPointer>
@@ -27,6 +29,10 @@
 #include <QWebSocketServer>
 
 #include <cstring>
+
+#if defined(Q_OS_LINUX)
+#include <unistd.h>
+#endif
 
 using SynQt::WebSocketTransport;
 
@@ -49,6 +55,11 @@ public:
         m_server.close();
     }
 
+    /// The ceiling the accepted end is given, applied before it can receive anything.
+    /// Call before connectPair(); the default matches the class default, so a test that
+    /// does not care is unaffected by one that does.
+    void setPeerReadBufferLimit(qint64 bytes) { m_peerReadBufferLimit = bytes; }
+
     /// Listen, connect, and wrap both ends. Returns false rather than asserting, because
     /// QVERIFY belongs to the test function that calls this.
     bool connectPair(QIODevice::OpenMode clientMode = QIODevice::ReadWrite,
@@ -64,6 +75,7 @@ public:
                                  // socket, unlike QTcpServer.
                                  m_acceptedSocket.reset(incoming);
                                  m_peer.reset(new WebSocketTransport{incoming});
+                                 m_peer->setReadBufferLimit(m_peerReadBufferLimit);
                                  m_peer->open(peerMode);
                              }
                          });
@@ -91,6 +103,7 @@ private:
     QScopedPointer<QWebSocket> m_acceptedSocket;
     QScopedPointer<WebSocketTransport> m_client;
     QScopedPointer<WebSocketTransport> m_peer;
+    qint64 m_peerReadBufferLimit{WebSocketTransport::DefaultReadBufferLimit};
 };
 
 /// Reaches the protected QIODevice overrides directly, for the cases a live socket cannot
@@ -124,6 +137,29 @@ QByteArray patterned(qsizetype size)
     return payload;
 }
 
+#if defined(Q_OS_LINUX)
+/// The process's resident set, from the second field of /proc/self/statm (resident
+/// pages). Negative if it cannot be read, which the caller treats as a failure rather
+/// than as zero: a measurement that silently reads nothing would pass every check.
+qint64 residentBytes()
+{
+    QFile statm{QStringLiteral("/proc/self/statm")};
+    if (!statm.open(QIODevice::ReadOnly)) {
+        return -1;
+    }
+    const QList<QByteArray> fields = statm.readAll().simplified().split(' ');
+    if (fields.size() < 2) {
+        return -1;
+    }
+    bool ok{false};
+    const qint64 pages{fields.at(1).toLongLong(&ok)};
+    if (!ok) {
+        return -1;
+    }
+    return pages * static_cast<qint64>(sysconf(_SC_PAGESIZE));
+}
+#endif
+
 } // namespace
 
 class TestWebSocketTransport : public QObject
@@ -145,6 +181,10 @@ private slots:
         QVERIFY(link.peer()->url().isEmpty());
         QVERIFY(link.peer()->isOpen());
         QCOMPARE(link.acceptedSocket()->state(), QAbstractSocket::ConnectedState);
+        // The read-buffer ceiling is on by default, on a device nobody configured. A
+        // limit that has to be switched on is a limit most callers will not have.
+        QCOMPARE(link.client()->readBufferLimit(),
+                 WebSocketTransport::DefaultReadBufferLimit);
     }
 
     // Framing: one binary message per write, one readyRead per message, and a byte stream
@@ -338,6 +378,9 @@ private slots:
         constexpr qint64 budgetMs{2000};
 
         Link link;
+        // Stated rather than inherited: what is buffered here is well under the class
+        // default, and this case is about the clock, not about the ceiling.
+        link.setPeerReadBufferLimit(messageSize * messageCount * 2);
         QVERIFY(link.connectPair(QIODevice::ReadWrite,
                                  QIODevice::ReadWrite | QIODevice::Unbuffered));
 
@@ -375,6 +418,117 @@ private slots:
         QVERIFY2(elapsed <= budgetMs, "the drain is no longer linear in the buffered size");
         QCOMPARE(drained, total);
         QCOMPARE(link.peer()->bytesAvailable(), 0);
+    }
+
+    // A peer that sends faster than anything reads loses its connection instead of the
+    // device growing without bound.
+    //
+    // The read buffer is the one place in the transport where a remote party decides how
+    // much memory is allocated. Nothing drains it except a consumer that calls read(), so
+    // a consumer that has stopped (or a socket attached to no node yet) turns every
+    // arriving frame into permanent growth. Capping one frame does not cap their sum,
+    // which is why max_message_bytes on the edge is not enough on its own.
+    //
+    // Closing is the right answer rather than dropping the frame: QtRO carries a framed
+    // protocol over this device, so a stream missing a message in the middle is not
+    // degraded, it is desynchronized, and the client's reconnect path already handles a
+    // dropped connection correctly.
+    void aFloodingPeerHitsTheReadBufferLimit()
+    {
+        constexpr qint64 limit{64 * 1024};
+        constexpr qsizetype frameSize{16 * 1024};
+
+        Link link;
+        link.setPeerReadBufferLimit(limit);
+        QVERIFY(link.connectPair(QIODevice::ReadWrite,
+                                 QIODevice::ReadWrite | QIODevice::Unbuffered));
+        QCOMPARE(link.peer()->readBufferLimit(), limit);
+        QSignalSpy overflows{link.peer(), &WebSocketTransport::readBufferOverflowed};
+
+        const QByteArray payload{patterned(frameSize)};
+        for (int index{0}; index < 4; ++index) {
+            QCOMPARE(link.client()->write(payload), payload.size());
+        }
+        QVERIFY(waitForBytes(link.peer(), limit));
+
+        // Exactly at the limit is not past it. A cap that fires one frame early would
+        // still look like it works, and would kill connections that did nothing wrong.
+        QCOMPARE(link.peer()->bytesAvailable(), limit);
+        QCOMPARE(overflows.count(), 0);
+        QVERIFY(link.peer()->isOpen());
+
+        // One byte past it.
+        QCOMPARE(link.client()->write(QByteArrayLiteral("x")), 1);
+
+        QTRY_COMPARE(overflows.count(), 1);
+        QVERIFY(!link.peer()->isOpen());
+        QVERIFY(link.peer()->errorString().contains(QStringLiteral("read buffer limit")));
+        // The buffer is gone, not merely capped: holding 64 KiB while closing for want of
+        // memory would be the wrong half of the job.
+        QCOMPARE(link.peer()->bytesAvailable(), 0);
+        QTRY_COMPARE(link.acceptedSocket()->state(), QAbstractSocket::UnconnectedState);
+    }
+
+    // A drained buffer hands its allocation back to the process.
+    //
+    // QByteArray::remove() preserves capacity by design, which is the right default for a
+    // buffer that keeps being refilled and the wrong one here: a connection that carries a
+    // single large frame would otherwise hold that allocation until it closed. One idle
+    // browser tab that once received a large model would keep megabytes on the edge, times
+    // the connection cap.
+    //
+    // Capacity is not observable from outside the class and widening the API to see it
+    // would be testing through a hole cut for the test, so this measures the process
+    // instead: 48 MiB is well past the allocator's mmap threshold, so releasing it is
+    // visible in the resident set and keeping it is too. Linux only, because that is where
+    // /proc/self/statm is; the behaviour is not platform specific, only the measurement.
+    void aDrainedBufferGivesItsMemoryBack()
+    {
+#if !defined(Q_OS_LINUX)
+        QSKIP("the resident set is read from /proc, so this measures on Linux only");
+#else
+        constexpr qint64 messageSize{256 * 1024};
+        constexpr int messageCount{192};            // 48 MiB in flight
+        constexpr qint64 margin{24 * 1024 * 1024};  // half of it, to leave room for noise
+
+        Link link;
+        // Well clear of what this buffers: the ceiling is the previous case's subject.
+        link.setPeerReadBufferLimit(messageSize * messageCount * 4);
+        QVERIFY(link.connectPair(QIODevice::ReadWrite,
+                                 QIODevice::ReadWrite | QIODevice::Unbuffered));
+
+        const qint64 baseline{residentBytes()};
+        QVERIFY(baseline > 0);
+
+        const QByteArray payload{patterned(messageSize)};
+        for (int index{0}; index < messageCount; ++index) {
+            QCOMPARE(link.client()->write(payload), payload.size());
+        }
+        const qint64 total{messageSize * messageCount};
+        QVERIFY(waitForBytes(link.peer(), total, 60000));
+        const qint64 buffered{residentBytes()};
+
+        QByteArray chunk;
+        chunk.resize(64 * 1024);
+        qint64 drained{0};
+        while (drained < total) {
+            const qint64 read{link.peer()->read(chunk.data(), chunk.size())};
+            QVERIFY(read > 0);
+            drained += read;
+        }
+        QCOMPARE(link.peer()->bytesAvailable(), 0);
+        const qint64 afterwards{residentBytes()};
+
+        qInfo("resident set: %lld KiB idle, %lld KiB with %lld MiB buffered, "
+              "%lld KiB drained",
+              baseline / 1024, buffered / 1024, total / (1024 * 1024), afterwards / 1024);
+        // Vacuity guard first: a measurement that cannot see the buffer arrive cannot see
+        // it leave either, and the real check below would then pass for the wrong reason.
+        QVERIFY2(buffered - baseline >= margin,
+                 "the buffered bytes are not visible in the resident set");
+        QVERIFY2(buffered - afterwards >= margin,
+                 "a drained read buffer is still holding its allocation");
+#endif
     }
 
     // A socket destroyed before the device it feeds. The transport holds a QPointer, so

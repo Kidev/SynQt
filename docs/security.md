@@ -258,7 +258,15 @@ with the registry rejected there is no discovery path either.
 - Connection caps. Per IP and global caps on the browser link; per consumer caps on
   mesh links.
 - Message size cap. `max_message_bytes` rejects oversized frames before they are
-  buffered, on both browser and mesh links, preventing unbounded allocation.
+  buffered, on both browser and mesh links.
+- Read buffer ceiling. Capping one frame does not cap their sum, so the transport
+  also caps what one connection may hold unread: past the ceiling it discards the
+  buffer and closes the connection, rather than letting a peer that sends faster
+  than anything reads decide how much memory the process allocates. On the browser
+  link the edge sets it to four times `max_message_bytes` per connection, so
+  tightening that one knob tightens both, and with the global connection cap the
+  two bound the edge's total read memory. A drained buffer also returns its
+  allocation instead of keeping it for the life of the connection.
 - Heartbeat and reconnection. The QtRO heartbeat detects dead connections so their
   resources are reclaimed, and capped exponential backoff avoids hammering a
   recovering entity.
@@ -269,9 +277,12 @@ with the registry rejected there is no discovery path either.
   under concurrent writers); see [entities](entities.md).
 
 Of the limits in this section, only the QtRO heartbeat and the per socket message
-size cap come from Qt APIs; the handshake timeout, the connection caps, and the
-input bounds are framework enforced on the edge, which is why each is part of the
-milestone that introduces its link rather than a later hardening pass.
+size cap come from Qt APIs; the handshake timeout, the connection caps, the read
+buffer ceiling, and the input bounds are framework enforced, which is why each is
+part of the milestone that introduces its link rather than a later hardening pass.
+The ceiling lives in the transport rather than on the edge, so the client is held
+to it too: its peer is one edge rather than the open internet, but a client that
+buffers without bound is a browser tab that dies.
 
 Network and volumetric DoS belong to infrastructure in front of the edge and are
 out of scope for the framework.
