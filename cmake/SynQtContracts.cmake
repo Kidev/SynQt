@@ -27,6 +27,21 @@ set(SYNQTC_ROOT "${_SYNQT_REPO_ROOT}/tools/synqtc" CACHE INTERNAL "synqtc packag
 file(GLOB _SYNQTC_SOURCES CONFIGURE_DEPENDS "${SYNQTC_ROOT}/synqtc/*.py")
 set(SYNQTC_SOURCES "${_SYNQTC_SOURCES}" CACHE INTERNAL "synqtc generator sources")
 
+# Write a generated file only when its content changes. `file(WRITE)` always moves the
+# timestamp, and these stubs are written at configure time on every `synqt build`, so an
+# unconditional write invalidated every translation unit that includes one and turned a
+# no-op build into a full recompile. synqtc's own writer does the same check for the same
+# reason; see benchmarks/buildtime/ for the measurement.
+function(_synqt_write_if_changed path content)
+    if(EXISTS "${path}")
+        file(READ "${path}" _existing)
+        if(_existing STREQUAL "${content}")
+            return()
+        endif()
+    endif()
+    file(WRITE "${path}" "${content}")
+endfunction()
+
 function(synqt_add_contract target)
     cmake_parse_arguments(ARG "" "ROLE" "SYN" ${ARGN})
     if(NOT ARG_ROLE)
@@ -74,17 +89,20 @@ function(synqt_add_contract target)
         # at the repc header matching this target's role.
         if(ARG_ROLE STREQUAL "source")
             qt_add_repc_sources(${target} "${rep}")
-            file(WRITE "${gendir}/${lstem}_rep.h" "#include \"rep_${lstem}_source.h\"\n")
+            _synqt_write_if_changed("${gendir}/${lstem}_rep.h"
+                "#include \"rep_${lstem}_source.h\"\n")
             target_sources(${target} PRIVATE "${gendir}/${lstem}_sourcehelper.cpp")
         elseif(ARG_ROLE STREQUAL "replica")
             qt_add_repc_replicas(${target} "${rep}")
-            file(WRITE "${gendir}/${lstem}_rep.h" "#include \"rep_${lstem}_replica.h\"\n")
+            _synqt_write_if_changed("${gendir}/${lstem}_rep.h"
+                "#include \"rep_${lstem}_replica.h\"\n")
             target_sources(${target} PRIVATE
                 "${gendir}/${lstem}_replica.cpp"
                 "${gendir}/${lstem}_consumer.cpp")
         else() # both
             qt_add_repc_merged(${target} "${rep}")
-            file(WRITE "${gendir}/${lstem}_rep.h" "#include \"rep_${lstem}_merged.h\"\n")
+            _synqt_write_if_changed("${gendir}/${lstem}_rep.h"
+                "#include \"rep_${lstem}_merged.h\"\n")
             target_sources(${target} PRIVATE
                 "${gendir}/${lstem}_sourcehelper.cpp"
                 "${gendir}/${lstem}_replica.cpp"

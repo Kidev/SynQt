@@ -12,13 +12,29 @@
 //   node frame-time.mjs --dir <bundle-dir> --label <name> --out <file.json> [--bucket 25]
 
 import { chromium } from "playwright";
+import fs from "node:fs";
 import http from "node:http";
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+// Same attribution every other harness records: which operating system, which architecture,
+// which Qt, and when. A baseline nobody can attribute cannot be compared against anything.
+function hostLabel() {
+    try {
+        const osRelease = fs.readFileSync("/etc/os-release", "utf8");
+        const match = osRelease.match(/^PRETTY_NAME="?([^"\n]+)"?/m);
+        return match ? match[1] : os.type();
+    } catch {
+        return os.type();
+    }
+}
+
 function parseArgs(argv) {
-    const args = { dir: "", label: "scene", out: "", bucket: 25, headless: true };
+    const args = {
+        dir: "", label: "scene", out: "", bucket: 25, headless: true, qtVersion: "6.11.1"
+    };
     for (let i = 0; i < argv.length; i += 1) {
         const key = argv[i];
         if (key === "--dir") { args.dir = argv[++i]; }
@@ -26,6 +42,7 @@ function parseArgs(argv) {
         else if (key === "--out") { args.out = argv[++i]; }
         else if (key === "--bucket") { args.bucket = Number(argv[++i]); }
         else if (key === "--headed") { args.headless = false; }
+        else if (key === "--qt-version") { args.qtVersion = argv[++i]; }
     }
     if (!args.dir) {
         console.error("frame-time: --dir <bundle-dir> is required");
@@ -190,6 +207,10 @@ async function main() {
         const result = {
             benchmark: "client-frame-time",
             label: args.label,
+            host: hostLabel(),
+            arch: os.arch(),
+            qt_version: args.qtVersion,
+            recorded: new Date().toISOString(),
             entry: entryHtml,
             cross_origin_isolated: isolated,
             cold_start_ms: coldStartMs,

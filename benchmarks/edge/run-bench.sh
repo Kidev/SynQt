@@ -7,10 +7,13 @@
 # stack), then a dependency-free Node loader spawns it and sweeps the connection count over
 # plaintext / json / single-query / multiple-queries / updates / fortunes, writing a committed
 # baseline under benchmarks/results/. Pins Qt 6.11.1; records host, arch, and Qt.
+#
+# QT_HOST overrides the kit path and BENCH_OUT overrides where the baseline is written,
+# so CI can run this against its own kit without writing into benchmarks/results/.
 
 set -euo pipefail
 
-QT_HOST="/opt/Qt/6.11.1/gcc_64"
+QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PORT="${BENCH_PORT:-8480}"
 cd "$REPO_ROOT"

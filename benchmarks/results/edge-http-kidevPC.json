@@ -16,7 +16,7 @@
     "warmup_seconds": 2,
     "measure_seconds": 6,
     "query_count": 20,
-    "generated": "2026-07-13T11:42:48.160Z",
+    "recorded": "2026-07-13T11:42:48.160Z",
     "results": [
         {
             "test": "plaintext",

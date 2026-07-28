@@ -22,6 +22,21 @@ from .parser import parse_file
 
 
 def _write(path: str, content: str) -> None:
+    """Write only when the content actually differs.
+
+    The generator runs at CMake configure time, and `synqt build` reconfigures on every
+    invocation. Rewriting an identical header still moves its timestamp, which invalidates
+    every translation unit that includes it: with an unconditional write, a build with
+    nothing changed recompiled the whole entity, and the edit-rebuild cycle (and every
+    `synqt dev` hot reload) paid for it. Measured on the gavel example, a no-op build cost
+    72% of a clean one before this and 3% after. See benchmarks/buildtime/.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            if handle.read() == content:
+                return
+    except (OSError, UnicodeDecodeError):
+        pass
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(content)
 

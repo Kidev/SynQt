@@ -1,6 +1,10 @@
 {
   "benchmark": "client-frame-time",
   "label": "scene-multi",
+  "host": "Arch Linux",
+  "arch": "x64",
+  "qt_version": "6.11.1",
+  "recorded": "unknown",
   "entry": "clientbench.html",
   "cross_origin_isolated": true,
   "cold_start_ms": 1241,

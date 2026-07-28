@@ -10,6 +10,51 @@ version in its output, warms up before measuring, and reports the full distribut
 (p50/p95/p99, not just the mean). Results are committed as baselines under `results/` so a
 later change that regresses one is visible in review; re-run on a fixed runner to compare.
 
+## The gate: what CI enforces, and what it deliberately does not
+
+A committed number is not a guard until something reads it. [`baselines.py`](baselines.py)
+is what reads them, and it draws one line down the middle of the problem.
+
+**Absolute numbers are facts about one machine.** A 23-microsecond p50 describes the
+author's workstation. Held against a shared CI runner, which is a different CPU,
+virtualised, and sharing a host with strangers, it would fail constantly for reasons that
+have nothing to do with the commit under review. A gate that flaps gets switched off, and
+a gate that is off guards nothing. So absolute comparison is opt-in, and belongs on one
+runner comparing itself:
+
+```sh
+benchmarks/transport/run-bench.sh                        # before
+benchmarks/transport/run-bench.sh                        # after
+python benchmarks/baselines.py compare old.json new.json --tolerance 0.25
+```
+
+**The claims those numbers support are machine-independent, and those are enforced
+everywhere.** "Interest management holds the per-session payload flat." "Minting a session
+is amortized O(1)." "The contended SQLite writer stays far under the busy timeout." "Calls
+pipeline rather than serialising on the round trip." Each is a ratio, an ordering, or an
+invariant, each is a claim this file makes in prose below, and none of them cares how fast
+the CPU is. `check` enforces them, on a committed baseline or on a run that just finished:
+
+```sh
+python benchmarks/baselines.py check                     # every committed baseline
+python benchmarks/baselines.py check fresh.json --verbose
+python benchmarks/baselines.py show results/mesh-kidevPC_.json
+```
+
+One rule decides what is asserted rather than merely printed: **a claim is enforced only
+where the committed baseline clears it by at least 2x.** Local-socket throughput beats
+mutual TLS by 1.2x, which is real and is well inside a shared runner's noise, so it prints
+every run and fails none. Tail percentiles and the mean are diffed but never gated; `mean`
+is in that set because one outlier moves it and cannot move a median (the transport
+harness carries a single ~40 ms first-sample outlier, and halving the sample count
+"regressed" its mean by 89% while every percentile improved by 12%).
+
+Two workflows split the work. [`tests.yml`](../.github/workflows/tests.yml) checks the
+committed baselines on every push; it measures nothing, so it costs nothing.
+[`benchmarks.yml`](../.github/workflows/benchmarks.yml) builds and runs the harnesses
+weekly and holds the fresh output to the same claims, and will compare against a committed
+baseline automatically if one exists for the runner it is on.
+
 ## transport: the client-to-edge path (BENCH-1, the first and most important baseline)
 
 `transport/` measures the M0 path: QtRemoteObjects over QtWebSockets, the top project risk.
@@ -329,13 +374,63 @@ general: the saving is a function of how much of an application is rarely visite
 every seldom-reached page an app keeps on the edge. `remote-pages/README.md` says the same at
 length, and says why the harness needs the WebAssembly kit and so belongs on a workstation.
 
+## buildtime: the build itself (reported separately from runtime)
+
+`buildtime/` is the one part of the plan that is not a measurement harness. Nothing needed
+instrumenting; the build steps already exist and [`measure.py`](buildtime/measure.py) times
+around them. Per entity it reports a **clean** build (empty directory to linked artifact), a
+**no-op** build (`synqt build` again, nothing changed), and a **touched** build (one QML
+file's timestamp moved), plus contract generation timed on its own as a subprocess, because
+that is how the build invokes it.
+
+```sh
+./benchmarks/buildtime/run-bench.sh
+./benchmarks/buildtime/run-bench.sh --project examples/arena --repeats 20
+./benchmarks/buildtime/run-bench.sh --include-client   # also the WASM client; several minutes
+```
+
+The no-op is the number worth having, and it justified the harness on its first run. A build
+system that quietly recompiles everything when nothing changed passes every correctness test
+in this repository; the only thing that can see it is a clock.
+
+### Baseline captured on this checkout
+
+`results/buildtime-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64, 32 CPUs, release,
+`examples/gavel`):
+
+| target   | clean  | no-op | touched | contract generation |
+|----------|--------|-------|---------|---------------------|
+| web      | 14.2 s | 4.3 s | 4.2 s   | 93 ms for 3 contracts (p50) |
+| database | 12.7 s | 3.4 s | 3.4 s   | |
+
+**The first run of this harness found a real defect.** Codegen runs at CMake configure time
+(`cmake/SynQtContracts.cmake`) and `synqt build` reconfigures on every invocation, so a
+generated header rewritten unconditionally moved its own timestamp and invalidated every
+translation unit that included it. A no-op build cost **72% of a clean one** (10.2 s against
+14.1 s) while a bare `ninja` with the same tree was 17 ms. Both writers now write only when
+the content differs (`synqtc`'s `_write`, and `_synqt_write_if_changed` in the CMake
+module), which took the no-op to 26-30% and left a change to a contract propagating exactly
+as before. The cost that remains is `synqt build`'s own: a CMake reconfigure it performs
+every time (~1.6 s) plus its Python work (~1.7 s: topology, licences, deploy). Skipping the
+reconfigure when nothing changed is the next thing to look at, and is a CLI change rather
+than a build-graph one.
+
+Contract generation is a rounding error at this size, 0.7% of a clean build, which is the
+useful thing to know about it: `.syn` lowering is not where build time goes.
+
 ## Still to build (the rest of the benchmarking plan)
 
-Every runtime path in the plan now has a harness: transport (BENCH-1), the edge HTTP path, the edge
+Every path in the plan now has a harness: transport (BENCH-1), the edge HTTP path, the edge
 fan-out `publish()` growth, the mesh transports, the sessions hot path, the persistence/cache
-providers, the client (bundle weight and frame time), and the capstone load test. What remains is
-the build-time report (contract-generation time, and clean and incremental build time per entity,
-including the WASM/Emscripten client and qmlcachegen), which is timing around the existing build
-steps rather than a new measurement harness. The client and capstone numeric baselines are the only
-runtime figures still uncommitted, and only because they need a real display or a non-sandboxed host
-(see `docs/browser-proofs.md`); their harnesses are done.
+providers, the client (bundle weight and frame time), the capstone load test, and the
+build-time report above. The runtime numbers are all committed.
+
+Two gaps remain, both about coverage rather than missing harnesses. The build-time report has
+not been run with `--include-client`, so the WASM/Emscripten client and qmlcachegen build
+times are not yet in the baseline (the flag exists and the path is the same; it needs the
+Emscripten kit and several minutes). And the two client frame-time baselines and the three
+bundle weights predate the metadata stamp every harness now writes, so they carry
+`"recorded": "unknown"` rather than a date; `check` reports that on every run until they are
+re-measured. Inventing a plausible timestamp for them would have turned a guess into a
+record, so they say what is true instead. See `docs/browser-proofs.md` for where the
+display-dependent runs happen.

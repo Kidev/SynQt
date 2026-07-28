@@ -1,0 +1,250 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Build and run the benchmark harnesses, then hold their output to the claims
+# benchmarks/README.md makes about them.
+#
+# What this gate does NOT do is compare against the committed baselines. Those numbers
+# (results/*-kidevPC_.json) are facts about one Arch Linux workstation. A shared GitHub
+# runner is a different CPU, virtualised, and sharing a host with whatever else Azure put
+# there; a 23-microsecond p50 measured here would fail against it constantly and for
+# reasons that have nothing to do with the commit. A gate that flaps gets ignored, and an
+# ignored gate guards nothing.
+#
+# So what runs here is the machine-independent half: ratios, orderings, and invariants
+# that hold on any hardware because they are statements about the code's shape rather
+# than the machine's speed. "Interest management holds the per-session payload flat."
+# "Minting a session is amortized O(1)." "The contended SQLite writer stays far under the
+# busy timeout." "Calls pipeline rather than serialising on the round trip." Each one is
+# a claim the README makes and a regression that would matter, and none of them cares how
+# fast the CPU is. benchmarks/baselines.py holds the full list, and the rule that decides
+# what is asserted rather than merely reported: a claim is enforced only where the
+# committed baseline clears it by at least 2x.
+#
+# The absolute comparison still exists, it just belongs on a fixed runner:
+#
+#     benchmarks/transport/run-bench.sh
+#     python benchmarks/baselines.py compare \
+#         results/transport-<host>.json results/transport-<host>.json
+#
+# Run the harness twice on the same machine, once before a change and once after. Point
+# this workflow at a self-hosted runner and the same comparison becomes automatic; the
+# compare step below already does it whenever a baseline for the current host exists.
+#
+# The cheap half of the gate is elsewhere: tests.yml checks the committed baselines
+# themselves on every push (pure Python, measures nothing). This workflow is the half
+# that needs a Qt kit and several minutes, so it runs weekly and on demand.
+#
+# Four harnesses stay out. capstone and edge sustain load for tens of seconds and would
+# measure the runner's neighbours as much as SynQt; client needs a display and both WASM
+# kits; remote-pages needs the WASM kit and a full `synqt build`. Their baselines are
+# still validated by tests.yml, and docs/browser-proofs.md records where they are run.
+
+name: Run the benchmark harnesses
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday 04:00 UTC. Weekly, not per-push: this builds five harnesses against the full
+    # framework, and what it guards changes on the scale of a refactor, not a commit.
+    - cron: "0 4 * * 0"
+  push:
+    paths:
+      - "benchmarks/**"
+      - ".github/workflows/benchmarks.yml"
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep this SHA in step with ctest.yml and browser-matrix.yml; see the note there for
+  # why aqtinstall comes from the repository at a pinned commit and never from a branch.
+  AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
+
+jobs:
+  benchmarks:
+    name: benchmarks (linux)
+    runs-on: ubuntu-latest
+    # The harnesses below take a couple of minutes each once built. This bound is for a
+    # harness that stops making progress, not for the expected cost.
+    timeout-minutes: 45
+    env:
+      QT_VERSION: "6.11.1"
+      QT_ROOT: ${{ github.workspace }}/Qt
+      QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree"
+      # The floor is v0.7.1 (create_public_key_from_rsa_components); v0.7.2 is what the
+      # vcpkg baseline resolves to. Same pin as ctest.yml.
+      JWT_CPP_VERSION: "v0.7.2"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools (CMake + Ninja)
+        uses: lukka/get-cmake@latest
+
+      - name: Install the native dependencies Qt needs to configure
+        # OpenSSL for the mesh harness's mutual TLS (and the throwaway certs it mints);
+        # libgl1-mesa-dev because Qt6GuiConfig hard-requires WrapOpenGL, and without it
+        # every component that depends on Qt6Gui disappears from find_package with an
+        # error that names the dependant rather than the missing library.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libgl1-mesa-dev
+
+      - name: Provide jwt-cpp headers
+        # SynQtService verifies OIDC ID-token signatures with it, and four of the five
+        # harnesses link SynQtService. Exported as a path rather than installed into a
+        # system prefix, for the reason ctest.yml gives.
+        run: |
+          set -eu
+          git clone --depth 1 --branch "$JWT_CPP_VERSION" \
+            https://github.com/Thalhammer/jwt-cpp "$RUNNER_TEMP/jwt-cpp"
+          echo "JWT_CPP_INCLUDE_DIR=$RUNNER_TEMP/jwt-cpp/include" >> "$GITHUB_ENV"
+
+      - name: Cache the Qt kit
+        id: qt-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-benchmarks-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/benchmarks.yml') }}
+
+      - name: Install aqtinstall
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install \
+            "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ env.AQT_COMMIT }}"
+
+      - name: Install the Qt host kit and its add-on modules
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          kit="$QT_ROOT/$QT_VERSION/gcc_64"
+          python -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 --outputdir "$QT_ROOT"
+          for m in $QT_MODULES; do
+            python -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+              -m "$m" --outputdir "$QT_ROOT" \
+              || echo "prebuilt $m unavailable; will try a source build"
+          done
+
+          pkg_for() {
+            case "$1" in
+              qtwebsockets)    echo Qt6WebSockets ;;
+              qtremoteobjects) echo Qt6RemoteObjects ;;
+              qthttpserver)    echo Qt6HttpServer ;;
+              qtnetworkauth)   echo Qt6NetworkAuth ;;
+              qttasktree)      echo Qt6TaskTree ;;
+            esac
+          }
+          for m in $QT_MODULES; do
+            pkg="$(pkg_for "$m")"
+            if [ -z "$pkg" ]; then
+              echo "::error::QT_MODULES lists '$m' but pkg_for() has no package name for it"
+              exit 1
+            fi
+            if [ -f "$kit/lib/cmake/$pkg/${pkg}Config.cmake" ]; then
+              echo "$m present ($pkg)"
+              continue
+            fi
+            echo "$m missing; building it from source into the kit"
+            python -m aqt install-src linux "$QT_VERSION" --archives "$m" --outputdir "$QT_ROOT"
+            "$kit/bin/qt-cmake" -S "$QT_ROOT/$QT_VERSION/Src/$m" -B "$RUNNER_TEMP/$m-build" \
+              -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$kit"
+            cmake --build "$RUNNER_TEMP/$m-build"
+            cmake --install "$RUNNER_TEMP/$m-build"
+          done
+
+      - name: Run the harnesses
+        env:
+          QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/gcc_64
+          FRESH: ${{ github.workspace }}/benchmark-run
+        run: |
+          # pipefail: each harness is piped into tee, and without it the `if` would test
+          # tee's status (always 0) and every failing harness would report PASS.
+          set -u -o pipefail
+          mkdir -p "$FRESH"
+
+          # Sample counts and sweeps are cut down from the committed baselines. That costs
+          # nothing this gate needs: the invariants are ratios and orderings, and a shorter
+          # run establishes those just as well as a long one. The sessions sweep keeps three
+          # sizes two orders of magnitude apart, because "constant time" is a claim about
+          # growth and needs the span to be visible.
+          run_one() {
+            name="$1"
+            shift
+            echo "::group::$name"
+            log="$RUNNER_TEMP/$name.log"
+            if BENCH_OUT="$FRESH/$name.json" bash "benchmarks/$name/run-bench.sh" "$@" 2>&1 \
+                | tee "$log"; then
+              echo "PASS $name"
+            else
+              echo "FAIL $name"
+              echo "$name" >> "$RUNNER_TEMP/failed"
+            fi
+            if grep -q "CMake Warning" "$log"; then
+              echo "::error::$name produced CMake warnings"
+              echo "$name (CMake warning)" >> "$RUNNER_TEMP/failed"
+            fi
+            echo "::endgroup::"
+          }
+
+          run_one transport   --samples 1000 --throughput-calls 20000
+          run_one mesh        --samples 1000 --setup-samples 100 --throughput-calls 20000
+          run_one sessions    --iterations 200000 --sizes 1000,10000,100000
+          run_one persistence --autocommit-rows 2000 --reads 5000 --contended-rows 1000
+          run_one fanout      --sizes 10,25,50 --ticks 100 --interest 16
+
+          if [ -f "$RUNNER_TEMP/failed" ]; then
+            echo "::error::harnesses that did not complete: $(tr '\n' ' ' < "$RUNNER_TEMP/failed")"
+            exit 1
+          fi
+
+      - name: Hold the fresh results to the claims the README makes
+        env:
+          FRESH: ${{ github.workspace }}/benchmark-run
+        run: python benchmarks/baselines.py check "$FRESH"/*.json --verbose
+
+      - name: Compare against a baseline from this same machine, if there is one
+        # There will not be one on a hosted runner, and that is the honest outcome rather
+        # than a gap: comparing absolute numbers across machines is exactly the thing this
+        # workflow refuses to do. Point the workflow at a self-hosted runner with its own
+        # committed baselines and this step starts gating real regressions with no change.
+        env:
+          FRESH: ${{ github.workspace }}/benchmark-run
+        run: |
+          set -u
+          tag="$(hostname | tr -c 'A-Za-z0-9_.-' '_')"
+          compared=0
+          status=0
+          for fresh in "$FRESH"/*.json; do
+            name="$(basename "$fresh" .json)"
+            baseline="benchmarks/results/$name-$tag.json"
+            if [ ! -f "$baseline" ]; then
+              continue
+            fi
+            echo "::group::$name against $baseline"
+            python benchmarks/baselines.py compare "$baseline" "$fresh" || status=1
+            compared=$((compared + 1))
+            echo "::endgroup::"
+          done
+          if [ "$compared" -eq 0 ]; then
+            echo "no committed baseline for host tag '$tag'."
+            echo "Absolute numbers only compare on one machine, so nothing is compared here;"
+            echo "the invariant check in the previous step is this runner's gate."
+          fi
+          exit "$status"
+
+      - name: Keep the run
+        # Not a baseline (wrong machine, cut-down parameters). It is what makes a failure
+        # in the step above readable after the fact, and what a self-hosted runner would
+        # promote by hand.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-run
+          path: benchmark-run/
+          if-no-files-found: warn

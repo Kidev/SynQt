@@ -5,17 +5,20 @@
 # Build and run the sessions baseline (M7), writing a JSON baseline under benchmarks/results/
 # keyed by hostname. Pinned Qt 6.11.1. Pass extra flags through to the harness, e.g.
 #   ./run-bench.sh --iterations 1000000 --sizes 1000,10000,100000,1000000
+#
+# QT_HOST overrides the kit path and BENCH_OUT overrides where the baseline is written,
+# so CI can run this against its own kit without writing into benchmarks/results/.
 
 set -euo pipefail
 
-QT_HOST="/opt/Qt/6.11.1/gcc_64"
+QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 BUILD_DIR="build/bench-sessions"
 RESULTS_DIR="benchmarks/results"
 HOST_TAG="$(hostname | tr -c 'A-Za-z0-9_.-' '_')"
-OUT="${RESULTS_DIR}/sessions-${HOST_TAG}.json"
+OUT="${BENCH_OUT:-${RESULTS_DIR}/sessions-${HOST_TAG}.json}"
 
 echo "== configure + build =="
 cmake -S benchmarks/sessions -B "$BUILD_DIR" -G Ninja \
