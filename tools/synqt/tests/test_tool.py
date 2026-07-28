@@ -12,7 +12,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from synqt import appgen
+from synqt import appmodel, clientshell, cmakegen, maingen
 from synqt import loadingpage
 from synqt import build as buildmod
 from synqt import newproject, toolchain
@@ -266,16 +266,16 @@ class AppGenTest(unittest.TestCase):
                 {"name": "counter", "contract": "Counter", "owner": "web",
                  "consumers": ["client"], "instance": "shared"}],
         }
-        cmake = appgen.render_root_cmakelists(config, "/opt/synqt")
+        cmake = cmakegen.render_root_cmakelists(config, "/opt/synqt")
         # The consumer (client) generates the typed Replica; the owner (edge) the Source.
         self.assertIn("synqt_add_contract(client ROLE replica", cmake)
         self.assertIn("synqt_add_contract(web ROLE source", cmake)
-        client_main = appgen.render_client_main(config, appgen.qml_uri(config["project"]["name"]))
+        client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
         self.assertIn("synqtRegisterCounterReplicas();", client_main)
         # The client also registers the consumer surface, so Server.counter is the facade
         # (returning-slot promises) and `Counter.on<Signal>` handlers resolve.
         self.assertIn("synqtRegisterCounterConsumers();", client_main)
-        edge_main = appgen.render_edge_main(config, config["entities"][1])
+        edge_main = maingen.render_edge_main(config, config["entities"][1])
         self.assertIn("synqtRegisterCounterSources();", edge_main)
         self.assertIn("WebEdgeConnectPoint counter;", edge_main)
         self.assertIn('counter.contract = QStringLiteral("Counter");', edge_main)
@@ -287,7 +287,7 @@ class AppGenTest(unittest.TestCase):
             "project": {"name": "shop", "qt_version": "6.11.1"},
             "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
         }
-        client_main = appgen.render_client_main(config, appgen.qml_uri(config["project"]["name"]))
+        client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
         self.assertIn('#include "clientlogging.h"', client_main)
         self.assertIn("#ifdef QT_NO_DEBUG", client_main)
         self.assertIn("ClientLogging::install(ClientLogging::Mode::Silent);", client_main)
@@ -299,7 +299,7 @@ class AppGenTest(unittest.TestCase):
             "build": {"client_logging": "none"},
             "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
         }
-        client_main = appgen.render_client_main(config, appgen.qml_uri(config["project"]["name"]))
+        client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
         self.assertIn(
             'ClientLogging::install(ClientLogging::modeFromName(QStringLiteral("none")));',
             client_main)
@@ -316,7 +316,7 @@ class AppGenTest(unittest.TestCase):
             "router": {"fallback": "/c//"},
             "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]}],
         }
-        client_main = appgen.render_client_main(config, appgen.qml_uri(config["project"]["name"]))
+        client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
         self.assertIn('config.routerFallback = QStringLiteral("/c");', client_main)
         self.assertNotIn('QStringLiteral("/c//")', client_main)
 
@@ -332,15 +332,15 @@ class AppGenTest(unittest.TestCase):
                 {"name": "web", "kind": "service", "capability": "web_edge"},
             ],
         }
-        uri = appgen.qml_uri(base["project"]["name"])
-        client_default = appgen.render_client_main(base, uri)
-        edge_default = appgen.render_edge_main(base, base["entities"][1])
+        uri = appmodel.qml_uri(base["project"]["name"])
+        client_default = maingen.render_client_main(base, uri)
+        edge_default = maingen.render_edge_main(base, base["entities"][1])
         self.assertIn("config.scopesHierarchical = true;", client_default)
         self.assertIn("config.scopesHierarchical = true;", edge_default)
 
         setbased = {**base, "scopes": {"order": base["scopes"]["order"], "hierarchical": False}}
-        client_set = appgen.render_client_main(setbased, uri)
-        edge_set = appgen.render_edge_main(setbased, setbased["entities"][1])
+        client_set = maingen.render_client_main(setbased, uri)
+        edge_set = maingen.render_edge_main(setbased, setbased["entities"][1])
         self.assertIn("config.scopesHierarchical = false;", client_set)
         self.assertIn("config.scopesHierarchical = false;", edge_set)
 
@@ -362,7 +362,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "ledger", "contract": "Ledger", "owner": "database",
                  "consumers": ["web"]}],
         }
-        edge_main = appgen.render_edge_main(config, config["entities"][1])
+        edge_main = maingen.render_edge_main(config, config["entities"][1])
         self.assertIn('#include "entityruntime.h"', edge_main)
         self.assertIn('#include "ledger_consumer.h"', edge_main)
         self.assertIn("synqtRegisterLedgerConsumers();", edge_main)
@@ -392,7 +392,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "ledger", "contract": "Ledger", "owner": "database",
                  "consumers": ["web"]}],
         }
-        service_main = appgen.render_service_main(config, config["entities"][0])
+        service_main = maingen.render_service_main(config, config["entities"][0])
         self.assertIn("const QJsonObject topologyJson{", service_main)
         self.assertIn("#include <QJsonObject>", service_main)
 
@@ -410,7 +410,7 @@ class AppGenTest(unittest.TestCase):
             ],
             "connect_points": [],
         }
-        cmake = appgen.render_root_cmakelists(config, "/opt/synqt")
+        cmake = cmakegen.render_root_cmakelists(config, "/opt/synqt")
         self.assertIn("if(NOT TARGET SynQtProviders)", cmake)
         # Exactly one add_subdirectory of the providers tree (the guarded one).
         self.assertEqual(cmake.count('src/providers" "${CMAKE_BINARY_DIR}/SynQtProviders"'), 1)
@@ -427,16 +427,16 @@ class AppGenTest(unittest.TestCase):
                 {"name": "counter", "contract": "Counter", "owner": "web",
                  "consumers": ["client"], "instance": "shared"}],
         }
-        edge_main = appgen.render_edge_main(config, config["entities"][1])
+        edge_main = maingen.render_edge_main(config, config["entities"][1])
         self.assertNotIn("EntityRuntime", edge_main)
         self.assertNotIn("entityruntime.h", edge_main)
         self.assertNotIn("setContextObject", edge_main)
         self.assertNotIn("topologyOption", edge_main)
 
     def test_qml_uri_is_derived_from_project_name(self):
-        self.assertEqual(appgen.qml_uri("my-todo"), "MyTodo")
-        self.assertEqual(appgen.qml_uri("app"), "App")
-        self.assertEqual(appgen.qml_uri(""), "App")
+        self.assertEqual(appmodel.qml_uri("my-todo"), "MyTodo")
+        self.assertEqual(appmodel.qml_uri("app"), "App")
+        self.assertEqual(appmodel.qml_uri(""), "App")
 
     def test_entity_singletons_are_auto_registered(self):
         # A pragma-Singleton QML alongside an entity's Sources (the arena's World) is not a
@@ -447,9 +447,9 @@ class AppGenTest(unittest.TestCase):
         (root / "web" / "World.qml").write_text(
             "pragma Singleton\nimport QtQuick\nItem {}\n")
         (root / "web" / "Arena.qml").write_text("import QtQuick\nItem {}\n")
-        self.assertEqual(appgen.discover_singletons(root / "web"), ["World"])
+        self.assertEqual(appmodel.discover_singletons(root / "web"), ["World"])
         # A plain (non-singleton) Source is not registered as a singleton.
-        self.assertEqual(appgen.discover_singletons(root / "missing"), [])
+        self.assertEqual(appmodel.discover_singletons(root / "missing"), [])
 
         config = {
             "project": {"name": "arena", "qt_version": "6.11.1"},
@@ -462,7 +462,7 @@ class AppGenTest(unittest.TestCase):
                 {"name": "arena", "contract": "Arena", "owner": "web",
                  "consumers": ["client"], "instance": "per_session"}],
         }
-        edge_main = appgen.render_edge_main(config, config["entities"][1], ["World"])
+        edge_main = maingen.render_edge_main(config, config["entities"][1], ["World"])
         self.assertIn("qmlRegisterSingletonType", edge_main)
         self.assertIn('QStringLiteral("/web/World.qml")', edge_main)
         self.assertIn('"SynQt", 1, 0, "World"', edge_main)
@@ -470,17 +470,17 @@ class AppGenTest(unittest.TestCase):
         # A service that declares a singleton gains a --qml-dir and registers it too; a
         # service without one stays minimal (no qml-dir option, no registration).
         svc = {"name": "sim", "kind": "service"}
-        with_singleton = appgen.render_service_main(config, svc, ["World"])
+        with_singleton = maingen.render_service_main(config, svc, ["World"])
         self.assertIn("qmlRegisterSingletonType", with_singleton)
         self.assertIn("qml-dir", with_singleton)
-        without = appgen.render_service_main(config, svc, [])
+        without = maingen.render_service_main(config, svc, [])
         self.assertNotIn("qmlRegisterSingletonType", without)
         self.assertNotIn("qml-dir", without)
 
 
 class DevReloadHarnessTest(unittest.TestCase):
     def test_reload_script_is_csp_clean_and_polls_the_token(self):
-        script = appgen.render_dev_reload_js()
+        script = clientshell.render_dev_reload_js()
         # CSP-clean: external, no eval/inline; reloads on a token change it fetches.
         self.assertNotIn("eval(", script)
         self.assertIn('fetch("synqt-reload.txt"', script)
@@ -489,7 +489,7 @@ class DevReloadHarnessTest(unittest.TestCase):
     def test_harness_injects_once_and_bumps_the_token(self):
         client = Path(tempfile.mkdtemp())
         (client / "index.html").write_text(
-            appgen.render_client_shell("client.js", {}, client))
+            clientshell.render_client_shell("client.js", {}, client))
         runmod._write_dev_reload_harness(client)
         index = (client / "index.html").read_text()
         self.assertTrue((client / "synqt-dev.js").exists())
@@ -587,7 +587,7 @@ class HotReloadTest(unittest.TestCase):
         state = {"config": {"entities": []}, "processes": [("web", object())]}
         with unittest.mock.patch.object(
                 buildmod, "compile_incremental",
-                side_effect=appgen.AppGenError(
+                side_effect=appmodel.AppGenError(
                     "route '/admin' declares no view; there is nothing for the router "
                     "to show there")) as compile_mock:
             runmod._hot_reload(Path(tempfile.mkdtemp()), state, 8080, "wasm",

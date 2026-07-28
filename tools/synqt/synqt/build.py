@@ -21,8 +21,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import (appgen, clientbuild, clientcache, config as configmod, licenses,
-               manifest, presets, run, toolchain, topologywriter)
+from . import (appgen, clientbuild, clientcache, clientshell, config as configmod,
+               licenses, manifest, presets, run, toolchain, topologywriter)
 
 
 class BuildError(Exception):
@@ -72,13 +72,13 @@ def assemble_bundle(wasm_dir: Path, client_dir: Path, config: Dict[str, Any],
         shutil.copy2(source, client_dir / source.name)
         count += 1
     (client_dir / "index.html").write_text(
-        appgen.render_client_shell(f"{target}.js", config, project_dir))
-    (client_dir / "synqt-boot.js").write_text(appgen.render_boot_js(target, config))
+        clientshell.render_client_shell(f"{target}.js", config, project_dir))
+    (client_dir / "synqt-boot.js").write_text(clientshell.render_boot_js(target, config))
     extra = 2
     # Written before the manifest so the worker appears in the manifest's file list and
     # therefore precaches itself along with the rest of the shell.
     if clientcache.uses_service_worker(config):
-        (client_dir / "synqt-sw.js").write_text(appgen.render_service_worker_js())
+        (client_dir / "synqt-sw.js").write_text(clientshell.render_service_worker_js())
         extra += 1
 
     # Written last: the manifest lists the assembled bundle, and precompression has not

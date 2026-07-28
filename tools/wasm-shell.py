@@ -7,7 +7,7 @@
 `qt-cmake` generates a `<target>.html` from Qt's stock template: the Qt logo on the
 browser's default white. That page is fine for a Qt example and wrong for every page
 this project actually shows, so the raw WebAssembly spikes under `tests/` serve this
-instead. The markup and the CSS come from `synqt.appgen.render_client_shell`, the same
+instead. The markup and the CSS come from `synqt.clientshell.render_client_shell`, the same
 renderer `synqt build` uses for a real app, so there is one loading page in the project
 and a change to its look cannot pass the browser tests while missing the product (or the
 other way round).
@@ -29,9 +29,9 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(_ROOT / "synqt"))
 
-from synqt import appgen  # noqa: E402  (after the path is set up)
+from synqt import clientshell  # noqa: E402  (after the path is set up)
 
-# Kept deliberately close to appgen's _BOOT_JS: same element ids, same qtLoad options,
+# Kept deliberately close to clientshell's _BOOT_JS: same element ids, same qtLoad options,
 # same overlay handling. What is gone is the manifest fetch (the total comes from the
 # response's Content-Length here, since a spike is served uncompressed) and the service
 # worker registration.
@@ -144,7 +144,7 @@ def render(target: str, out_dir: Path) -> None:
     # is the point: this is what an app that has configured nothing looks like.
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.html").write_text(
-        appgen.render_client_shell("%s.js" % target, {}, out_dir), encoding="utf-8")
+        clientshell.render_client_shell("%s.js" % target, {}, out_dir), encoding="utf-8")
     # Emscripten turns every dash in the target name into an underscore for the entry
     # symbol (Qt's own generated page does the same).
     entry = "%s_entry" % target.replace("-", "_")

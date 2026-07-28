@@ -12,7 +12,7 @@ to be what pulls the file in.
 import tempfile
 from pathlib import Path
 
-from synqt import addprovider, appgen
+from synqt import addprovider, cmakegen
 
 
 def _config(provider_name):
@@ -28,7 +28,7 @@ def _config(provider_name):
 
 
 def test_a_custom_provider_selection_compiles_the_directory_in():
-    cmake = appgen.render_root_cmakelists(_config("custom:SqlServer"), synqt_root="/synqt")
+    cmake = cmakegen.render_root_cmakelists(_config("custom:SqlServer"), synqt_root="/synqt")
     assert "providers/custom/*.cpp" in cmake
     assert "target_sources(database PRIVATE ${SYNQT_CUSTOM_PROVIDERS_DATABASE})" in cmake
     # Re-globbed by the build, so a provider added after the first configure is picked up.
@@ -37,7 +37,7 @@ def test_a_custom_provider_selection_compiles_the_directory_in():
 
 def test_a_bundled_provider_pulls_in_nothing():
     for name in (None, "sqlite", "postgres", "mysql"):
-        cmake = appgen.render_root_cmakelists(_config(name), synqt_root="/synqt")
+        cmake = cmakegen.render_root_cmakelists(_config(name), synqt_root="/synqt")
         assert "providers/custom" not in cmake, name
 
 

@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import (addauth, addcontract, addentity, addprovider, appgen,
+from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
                config as configmod, doctor, mesh, newproject, run as runmod,
                version as versionmod)
@@ -276,7 +276,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             parser.error("unknown command")
     except (newproject.NewProjectError, addauth.AddAuthError, addentity.AddEntityError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
-            appgen.AppGenError, buildmod.BuildError, configmod.ConfigError,
+            appmodel.AppGenError, buildmod.BuildError, configmod.ConfigError,
             FileNotFoundError) as error:
         print(f"synqt {args.command}: {error}", file=sys.stderr)
         return 1

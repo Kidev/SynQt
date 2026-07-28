@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from synqt import appgen
+from synqt import appmodel, cmakegen, maingen
 
 
 def test_route_carries_a_component_url():
@@ -17,14 +17,14 @@ def test_route_carries_a_component_url():
         "routes": [{"path": "/", "view": "Home.qml"},
                    {"path": "/cart", "view": "Cart.qml"}],
     }
-    source = appgen.render_client_main(config, uri="Shop")
+    source = maingen.render_client_main(config, uri="Shop")
     assert 'qrc:/qt/qml/Shop/Home.qml' in source
     assert 'qrc:/qt/qml/Shop/Cart.qml' in source
 
 
 def test_view_name_without_extension_still_resolves():
     config = {"name": "shop", "routes": [{"path": "/", "view": "Main"}]}
-    source = appgen.render_client_main(config, uri="Shop")
+    source = maingen.render_client_main(config, uri="Shop")
     assert 'qrc:/qt/qml/Shop/Main.qml' in source
 
 
@@ -34,7 +34,7 @@ def _client_cmake(routes):
         "entities": [{"name": "client", "kind": "client"}],
         "routes": routes,
     }
-    return appgen.render_root_cmakelists(config, synqt_root="/synqt")
+    return cmakegen.render_root_cmakelists(config, synqt_root="/synqt")
 
 
 def _client_project(files, routes=()):
@@ -49,7 +49,7 @@ def _client_project(files, routes=()):
         "entities": [{"name": "client", "kind": "client"}],
         "routes": list(routes),
     }
-    return appgen.render_root_cmakelists(config, synqt_root="/synqt", project_dir=root)
+    return cmakegen.render_root_cmakelists(config, synqt_root="/synqt", project_dir=root)
 
 
 _ITEM = "import QtQuick\n\nItem {}\n"
@@ -60,7 +60,7 @@ def test_a_view_written_with_a_leading_dot_slash_is_one_view_not_two():
     # './About.qml' and 'About.qml' are the same file, and the generator must spell it
     # one way: a literal './' would otherwise land in both the resource alias and the
     # compiled-in qrc:/qt/qml/Shop/./About.qml, which is a second entry for one file.
-    source = appgen.render_client_main(
+    source = maingen.render_client_main(
         {"name": "shop", "routes": [{"path": "/about", "view": "./About.qml"}]}, uri="Shop")
     assert "qrc:/qt/qml/Shop/About.qml" in source
     assert "/./" not in source
@@ -73,7 +73,7 @@ def test_a_view_written_with_a_leading_dot_slash_is_one_view_not_two():
 def test_a_view_in_a_subdirectory_keeps_its_subdirectory():
     # A view is named relative to the client entity's directory, so 'views/Home.qml' is
     # aliased into the module at that same relative path and the route's URL matches it.
-    source = appgen.render_client_main(
+    source = maingen.render_client_main(
         {"name": "shop", "routes": [{"path": "/", "view": "views/Home.qml"}]}, uri="Shop")
     assert "qrc:/qt/qml/Shop/views/Home.qml" in source
 
@@ -86,13 +86,13 @@ def test_a_route_with_no_view_is_refused_at_generation():
     # A route with no view used to default to Main.qml, which is the window: a Loader on
     # Router.pageComponent inside Main.qml would then load the window inside itself.
     # `synqt check` reports it earlier, but nothing makes `synqt build` run the check.
-    with pytest.raises(appgen.AppGenError) as raised:
-        appgen.render_client_main({"name": "shop", "routes": [{"path": "/admin"}]},
+    with pytest.raises(appmodel.AppGenError) as raised:
+        maingen.render_client_main({"name": "shop", "routes": [{"path": "/admin"}]},
                                   uri="Shop")
     assert "/admin" in str(raised.value)
     assert "declares no view" in str(raised.value)
 
-    with pytest.raises(appgen.AppGenError):
+    with pytest.raises(appmodel.AppGenError):
         _client_cmake([{"path": "/admin", "view": ""}])
 
 
@@ -102,12 +102,12 @@ def test_a_view_reaching_outside_the_client_directory_is_refused_at_generation()
     # resource alias and in qrc:/qt/qml/Shop/../web/A.qml, neither of which names a file.
     for view in ("../web/A.qml", "..\\web\\A.qml", "/etc/A.qml", "C:/x/B.qml",
                  "C:\\x\\B.qml"):
-        with pytest.raises(appgen.AppGenError) as raised:
-            appgen.render_client_main({"name": "shop",
+        with pytest.raises(appmodel.AppGenError) as raised:
+            maingen.render_client_main({"name": "shop",
                                        "routes": [{"path": "/a", "view": view}]}, uri="Shop")
         assert "absolute or parent path" in str(raised.value), view
         assert "/a" in str(raised.value), view
-        with pytest.raises(appgen.AppGenError):
+        with pytest.raises(appmodel.AppGenError):
             _client_cmake([{"path": "/a", "view": view}])
 
 
@@ -116,17 +116,17 @@ def test_the_escape_predicate_takes_the_views_that_are_really_paths():
     # not a Windows drive path; the separator after the colon is what tells them apart.
     for accepted in ("Home.qml", "./Home.qml", "views/Home.qml", "Home", "a:b.qml",
                      "views/a:b.qml"):
-        assert not appgen.view_escapes_client_directory(accepted), accepted
+        assert not appmodel.view_escapes_client_directory(accepted), accepted
     for rejected in ("../a.qml", "..\\a.qml", "/a.qml", "C:/a.qml", "C:\\a.qml",
                      "views/../../a.qml"):
-        assert appgen.view_escapes_client_directory(rejected), rejected
+        assert appmodel.view_escapes_client_directory(rejected), rejected
 
 
 def test_two_qml_files_with_one_base_name_are_refused():
     # Qt names a QML type after the file whatever directory it sits in, and every file
     # goes into the one module-root qmldir, so both of these register as `Header` and one
     # silently shadows the other. A silent shadow is the worst outcome, so refuse.
-    with pytest.raises(appgen.AppGenError) as raised:
+    with pytest.raises(appmodel.AppGenError) as raised:
         _client_project({"Main.qml": _ITEM, "pages/Header.qml": _ITEM,
                          "widgets/Header.qml": _ITEM})
     message = str(raised.value)
@@ -229,26 +229,26 @@ def test_a_project_with_no_routes_compiles_an_empty_table():
     # No manufactured "/" -> Main.qml route: that view is the window, so a Loader bound
     # to Router.pageComponent inside it would load the window again. With no table
     # pageComponent stays null and an app that does not route is untouched.
-    source = appgen.render_client_main({"name": "shop"}, uri="Shop")
+    source = maingen.render_client_main({"name": "shop"}, uri="Shop")
     assert "config.routes = {};" in source
     cmake = _client_cmake([])
     assert cmake.count("QT_RESOURCE_ALIAS") == 1
 
 
 def test_router_base_defaults_to_root_and_is_configurable():
-    plain = appgen.render_client_main({"name": "shop", "routes": []}, uri="Shop")
+    plain = maingen.render_client_main({"name": "shop", "routes": []}, uri="Shop")
     assert 'config.routerBase = QStringLiteral("/")' in plain
 
-    based = appgen.render_client_main(
+    based = maingen.render_client_main(
         {"name": "shop", "routes": [], "router": {"base": "/shop"}}, uri="Shop")
     assert 'config.routerBase = QStringLiteral("/shop")' in based
 
 
 def test_router_fallback_defaults_to_root_and_is_configurable():
-    plain = appgen.render_client_main({"name": "shop", "routes": []}, uri="Shop")
+    plain = maingen.render_client_main({"name": "shop", "routes": []}, uri="Shop")
     assert 'config.routerFallback = QStringLiteral("/")' in plain
 
-    redirected = appgen.render_client_main(
+    redirected = maingen.render_client_main(
         {"name": "shop", "routes": [], "router": {"fallback": "/home"}}, uri="Shop")
     assert 'config.routerFallback = QStringLiteral("/home")' in redirected
 
@@ -259,12 +259,12 @@ def test_framework_root_honors_a_valid_synqt_root(tmp_path, monkeypatch):
     (tmp_path / "src").mkdir()
     (tmp_path / "cmake").mkdir()
     monkeypatch.setenv("SYNQT_ROOT", str(tmp_path))
-    assert appgen.framework_root() == tmp_path.resolve()
+    assert appmodel.framework_root() == tmp_path.resolve()
 
 
 def test_framework_root_rejects_a_root_without_sources(tmp_path, monkeypatch):
     # A misresolved root fails here with an actionable message, not as a later CMake
     # "${SYNQT_ROOT}/cmake/... not found".
     monkeypatch.setenv("SYNQT_ROOT", str(tmp_path))
-    with pytest.raises(appgen.AppGenError):
-        appgen.framework_root()
+    with pytest.raises(appmodel.AppGenError):
+        appmodel.framework_root()

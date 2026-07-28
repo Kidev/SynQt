@@ -5,7 +5,7 @@
 
 import unittest
 
-from synqt import check, clientcache
+from synqt import check, clientcache, clientshell, maingen
 
 
 def _config(**build):
@@ -43,8 +43,7 @@ class ValidateTest(unittest.TestCase):
 
 class WorkerTest(unittest.TestCase):
     def _worker(self):
-        from synqt import appgen
-        return appgen.render_service_worker_js()
+        return clientshell.render_service_worker_js()
 
     def test_precaches_and_serves_cache_first(self):
         worker = self._worker()
@@ -103,8 +102,7 @@ class WorkerTest(unittest.TestCase):
 
 class BootRegistrationTest(unittest.TestCase):
     def _boot(self, **build):
-        from synqt import appgen
-        return appgen.render_boot_js("client", {"build": dict(build)})
+        return clientshell.render_boot_js("client", {"build": dict(build)})
 
     def test_service_worker_mode_registers_the_worker(self):
         boot = self._boot()
@@ -131,13 +129,12 @@ class EdgeConfigTest(unittest.TestCase):
     the CSP would advertise a worker the build never emitted (or block one it did)."""
 
     def _edge_main(self, **build):
-        from synqt import appgen
         edge = {"name": "web", "kind": "service", "capability": "web_edge"}
         config = {"project": {"name": "app"},
                   "entities": [{"name": "client", "kind": "client", "targets": ["wasm"]},
                                edge],
                   "build": dict(build)}
-        return appgen.render_edge_main(config, edge)
+        return maingen.render_edge_main(config, edge)
 
     def test_default_edge_expects_the_worker(self):
         self.assertIn("config.serviceWorker = true;", self._edge_main())

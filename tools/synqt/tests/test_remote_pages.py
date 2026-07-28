@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from synqt import appgen, check
+from synqt import check, maingen
 
 
 def _project(tmp_path, routes, palette=None, page_bodies=None, edge="web"):
@@ -140,7 +140,7 @@ def test_appgen_does_not_emit_the_palette_without_a_remote_route():
     # A project may set router.palette for reasons unrelated to remote pages (or in
     # preparation for adding one); with no remote route to enforce it on, the client
     # main must stay exactly what it is without a palette at all.
-    source = appgen.render_client_main(
+    source = maingen.render_client_main(
         {"entities": [{"name": "client", "kind": "client"}],
          "routes": [{"path": "/", "view": "Home.qml"}],
          "router": {"palette": ["QtQuick"]}},
@@ -149,7 +149,7 @@ def test_appgen_does_not_emit_the_palette_without_a_remote_route():
 
 
 def test_appgen_emits_the_palette():
-    source = appgen.render_client_main(
+    source = maingen.render_client_main(
         {"entities": [{"name": "client", "kind": "client"}],
          "routes": [{"path": "/c", "remote": "C.qml"}],
          "router": {"palette": ["QtQuick", "QtQuick.Controls"]}},
@@ -161,7 +161,7 @@ def test_appgen_emits_the_palette():
 def test_appgen_client_does_not_crash_on_a_remote_only_route():
     # A remote-only route has no compiled-in view; the generator must not raise, and the
     # route must still be in the table with an empty componentUrl (the resolveRemote seam).
-    source = appgen.render_client_main(
+    source = maingen.render_client_main(
         {"entities": [{"name": "client", "kind": "client"}],
          "routes": [{"path": "/c/:id", "remote": "C.qml"}],
          "router": {"palette": ["QtQuick"]}},
@@ -170,7 +170,7 @@ def test_appgen_client_does_not_crash_on_a_remote_only_route():
 
 
 def test_appgen_edge_emits_pages():
-    source = appgen.render_edge_main(
+    source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
                       {"name": "client", "kind": "client"}],
          "routes": [{"path": "/c/:campaign", "remote": "Campaign.qml", "scope": "member"}]},
@@ -182,17 +182,17 @@ def test_appgen_edge_emits_pages():
 
 
 def test_cxx_string_literal_escapes_quotes_and_backslashes():
-    assert appgen._cxx_string_literal('a"b') == 'a\\"b'
-    assert appgen._cxx_string_literal('a\\b') == 'a\\\\b'
-    assert appgen._cxx_string_literal("a\tb\nc") == "a\\tb\\nc"
+    assert maingen.cxx_string_literal('a"b') == 'a\\"b'
+    assert maingen.cxx_string_literal('a\\b') == 'a\\\\b'
+    assert maingen.cxx_string_literal("a\tb\nc") == "a\\tb\\nc"
     # A no-op for every value validation already accepts, so valid projects are unchanged.
-    assert appgen._cxx_string_literal("/c/:campaign") == "/c/:campaign"
+    assert maingen.cxx_string_literal("/c/:campaign") == "/c/:campaign"
 
 
 def test_appgen_client_escapes_a_quote_from_config():
     # A double quote in a synqt.yaml value must be escaped into the C++ literal, never
     # spliced through it verbatim (which would end the string early).
-    source = appgen.render_client_main(
+    source = maingen.render_client_main(
         {"entities": [{"name": "client", "kind": "client"}],
          "routes": [{"path": "/x", "view": "Home.qml", "scope": 'a"b'}]},
         uri="Shop")
@@ -201,7 +201,7 @@ def test_appgen_client_escapes_a_quote_from_config():
 
 
 def test_appgen_edge_escapes_a_backslash_in_a_page_path():
-    source = appgen.render_edge_main(
+    source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
                       {"name": "client", "kind": "client"}],
          "routes": [{"path": "/c\\x", "remote": "Campaign.qml"}]},
@@ -282,7 +282,7 @@ def test_a_non_string_seed_is_rejected_without_a_project_dir(tmp_path):
 
 
 def test_appgen_edge_emits_the_seed():
-    source = appgen.render_edge_main(
+    source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
                       {"name": "client", "kind": "client"}],
          "routes": [{"path": "/c/:campaign", "remote": "Campaign.qml",
@@ -294,7 +294,7 @@ def test_appgen_edge_emits_the_seed():
 
 def test_appgen_edge_emits_nothing_for_a_non_string_seed():
     # `synqt check` reports the typo, but nothing makes `synqt build` run the check.
-    source = appgen.render_edge_main(
+    source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
                       {"name": "client", "kind": "client"}],
          "routes": [{"path": "/c", "remote": "C.qml", "seed": True}]},
@@ -305,7 +305,7 @@ def test_appgen_edge_emits_nothing_for_a_non_string_seed():
 def test_appgen_edge_without_a_seed_emits_no_seed():
     # A project not using seeds must generate byte-for-byte what it did before the
     # feature existed.
-    source = appgen.render_edge_main(
+    source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
                       {"name": "client", "kind": "client"}],
          "routes": [{"path": "/c/:campaign", "remote": "Campaign.qml"}]},
@@ -314,7 +314,7 @@ def test_appgen_edge_without_a_seed_emits_no_seed():
 
 
 def test_appgen_edge_without_remote_routes_emits_no_pages():
-    source = appgen.render_edge_main(
+    source = maingen.render_edge_main(
         {"entities": [{"name": "web", "kind": "web_edge"},
                       {"name": "client", "kind": "client"}],
          "routes": [{"path": "/", "view": "Home.qml"}]},

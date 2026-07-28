@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from synqt import loadingpage
+from synqt import clientshell, loadingpage
 
 
 def _config(**loading):
@@ -111,8 +111,7 @@ class ResolveTest(unittest.TestCase):
 
 class ShellTest(unittest.TestCase):
     def _shell(self, config=None, project_dir=None):
-        from synqt import appgen
-        return appgen.render_client_shell("client.js", config or {},
+        return clientshell.render_client_shell("client.js", config or {},
                                           project_dir or Path("."))
 
     def test_default_shell_inlines_the_mark_and_the_gradient(self):
@@ -162,8 +161,7 @@ class ShellTest(unittest.TestCase):
 
 class BootTest(unittest.TestCase):
     def _boot(self):
-        from synqt import appgen
-        return appgen.render_boot_js("client", {})
+        return clientshell.render_boot_js("client", {})
 
     def test_hands_qt_a_streaming_compiled_module(self):
         boot = self._boot()

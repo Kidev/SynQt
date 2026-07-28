@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import (addentity, appgen, clientcache, config as configmod, toolchain,
+from . import (addentity, appmodel, clientcache, config as configmod, toolchain,
                topologywriter)
 
 
@@ -509,7 +509,7 @@ def _normalized_route_path(path: str) -> str:
     and so are "/a//b" and "/a/b". The generator writes a router.fallback through the same
     rule, so a fallback this check accepts is one the client can actually match; two copies
     of the spelling would drift and disagree."""
-    return appgen.normalize_route_path(path)
+    return appmodel.normalize_route_path(path)
 
 
 # The OAuth routes' yaml keys and their defaults (docs/project-layout-and-config.md,
@@ -566,7 +566,7 @@ def _client_entity_name(config: Dict[str, Any]) -> Optional[str]:
     """The name of the client entity, which is also the directory its QML lives in.
 
     A client entity with no name falls back to "client", because that is the directory
-    the generator will look in (appgen._client_cmake defaults the same way); reading it
+    the generator will look in (cmakegen defaults the same way); reading it
     as "no client" here would skip the view rule on a project the build still generates.
     None means there is no client entity at all, and then no view is compiled anywhere.
     """
@@ -589,13 +589,13 @@ def _route_view_findings(path: Any, view: Any, client: str, client_dir: Path) ->
     # The escape rule and the spelling both come from the generator, which is what
     # actually writes the resource alias and the qrc URL: a second copy here would drift
     # and start disagreeing with the build about which file a route means.
-    if appgen.view_escapes_client_directory(view):
+    if appmodel.view_escapes_client_directory(view):
         return [f"error: route {path!r} names view '{view}': a view is named relative "
                 f"to the client entity's directory ('{client}/'), so it cannot be an "
                 "absolute or parent path"]
     # The spelling the generator compiles in, so './About.qml' and 'About.qml' are read
     # as the one file they are, here and there alike.
-    name = appgen.view_file_name(view)
+    name = appmodel.view_file_name(view)
     if (client_dir / name).is_file():
         return []
     prefix = f"{client}/"
@@ -613,7 +613,7 @@ def lint_routes(config: Dict[str, Any],
     check.router_base_valid). Returns findings, empty when the table is clean.
 
     Both are top level in synqt.yaml (docs/project-layout-and-config.md), and that is
-    where appgen.render_client_main reads them to compile the table into the client, so
+    where maingen.render_client_main reads them to compile the table into the client, so
     it is where they are read here: a rule looking anywhere else would pass everything.
 
     Left to the router this is a production only bug: two routes racing for the same
@@ -647,7 +647,7 @@ def lint_routes(config: Dict[str, Any],
             findings.append(f"error: route path {path!r} must be a string starting "
                             "with '/'")
             continue
-        if client_dir is not None and not appgen._is_remote_route(route):
+        if client_dir is not None and not appmodel.is_remote_route(route):
             # A remote route (`remote:`, no `view:`) has no compiled-in view to check
             # against the client directory at all: it is delivered by the edge, not
             # carried by the client bundle, and its file is validated by
@@ -765,7 +765,7 @@ def lint_remote_pages(config: Dict[str, Any],
     empty when clean.
 
     `routes` and `router` are top level (docs/project-layout-and-config.md), the same
-    place `appgen.render_client_main` reads them to compile the palette and the route
+    place `maingen.render_client_main` reads them to compile the palette and the route
     table into the client, so it is where they are read here.
 
     Left unchecked this is the worst kind of defect: a bad remote route builds and
@@ -803,8 +803,9 @@ def lint_remote_pages(config: Dict[str, Any],
             continue
         if not isinstance(seed, str):
             # A bare "seed:" reads as null and is no declaration at all (caught above);
-            # every other non-string is a typo that would otherwise reach appgen and be
-            # emitted as a path that can never exist, with nothing said here.
+            # every other non-string is a typo that would otherwise reach the
+            # generator and be emitted as a path that can never exist, with
+            # nothing said here.
             findings.append(
                 f"error: route {route.get('path', '')!r} 'seed:' must be a string path "
                 f"to the hook QML, not {seed!r}")
