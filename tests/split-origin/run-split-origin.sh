@@ -43,6 +43,13 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
 SPLIT_ORIGIN_CERTS="$WORK" node "$HERE/measure.mjs" > "$WORK/report.json"
 cat "$WORK/report.json"
 
+# Also leave the report where a CI run can archive it. The gate's pass/fail says whether the
+# three documented findings still hold; it deliberately asserts nothing about WebKit, whose
+# numbers have no local baseline yet. So the numbers themselves have to be readable
+# afterwards, or the one engine this workflow exists to reach stays unread.
+mkdir -p "$(dirname "${BASH_SOURCE[0]}")/../../build"
+cp "$WORK/report.json" "$(dirname "${BASH_SOURCE[0]}")/../../build/split-origin-report.json"
+
 python3 - "$WORK/report.json" <<'PY'
 import json
 import sys

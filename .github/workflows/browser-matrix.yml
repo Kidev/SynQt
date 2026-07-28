@@ -45,6 +45,10 @@ on:
       # paths deliberately do not appear here: a workflow that runs on a change it cannot
       # exercise reads as coverage without being any.
       - "tests/m0-transport/**"
+      # The split-origin rig runs here for one reason: this is the only workflow with a
+      # WebKit runtime, and WebKit is the engine its documented table cannot fill in
+      # locally. It compiles nothing, so it is cheap to carry alongside the M0 build.
+      - "tests/split-origin/**"
       - ".github/workflows/browser-matrix.yml"
 
 concurrency:
@@ -239,4 +243,16 @@ jobs:
         with:
           name: m0-${{ matrix.label }}-log
           path: build/m0-verify.log
+          if-no-files-found: ignore
+
+      # The gate asserts the three findings that have a local baseline; it asserts nothing
+      # about WebKit, because there is no baseline to assert yet. Passing is therefore not
+      # the WebKit result, this file is, and the split-origin table in
+      # docs/project-layout-and-config.md stays marked inference until someone reads it.
+      - name: Archive the split-origin measurement
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: split-origin-${{ matrix.label }}-report
+          path: build/split-origin-report.json
           if-no-files-found: ignore
