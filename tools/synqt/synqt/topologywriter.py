@@ -29,7 +29,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import appmodel
+from . import appmodel, writer
 
 # Mesh links start here and count up by sorted connect-point position. Well clear of the
 # edge's public/dev ports (8080/8443) and the usual engine ports (5432/3306/6379).
@@ -246,7 +246,8 @@ def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List[s
         out_dir = root / "build" / name
         out_dir.mkdir(parents=True, exist_ok=True)
         topology = entity_topology(config, entity, root, endpoints)
-        (out_dir / "topology.json").write_text(json.dumps(topology, indent=2) + "\n")
+        writer.write_if_changed(out_dir / "topology.json",
+                                json.dumps(topology, indent=2) + "\n")
         written.append(f"build/{name}/topology.json")
     # The edge is not a service (WebEdge, not EntityRuntime, hosts its browser-facing side),
     # but when it consumes over the mesh its EntityRuntime needs a topology of just that side.
@@ -257,6 +258,7 @@ def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List[s
         out_dir = root / "build" / name
         out_dir.mkdir(parents=True, exist_ok=True)
         topology = entity_topology(config, entity, root, endpoints, consumed_only=True)
-        (out_dir / "topology.json").write_text(json.dumps(topology, indent=2) + "\n")
+        writer.write_if_changed(out_dir / "topology.json",
+                                json.dumps(topology, indent=2) + "\n")
         written.append(f"build/{name}/topology.json")
     return written

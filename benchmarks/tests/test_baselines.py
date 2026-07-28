@@ -208,6 +208,24 @@ def test_a_build_that_rebuilds_everything_on_a_no_op_is_caught():
     assert any(name.startswith("buildtime.the_build_is_incremental") for name in names)
 
 
+def test_a_no_op_build_that_recompiles_is_caught_before_the_wider_band_notices():
+    """The band above is 50%, which a full recompile can pass. This is the measured
+    regression the generator actually had: `synqt build` rewrote every `main.cpp` on every
+    invocation, identical content and all, and a rewritten file has a new modification
+    time whatever its bytes say. That put a no-op at ~30% of a clean build, under the 50%
+    band and doing the entire compile. Content-addressed generation (synqt.writer) took it
+    to well under 1%, so 30% has to be a failure and not a pass."""
+    document = load_kind("buildtime")
+    for row in document["sweep"]:
+        row["noop_s"] = row["clean_s"] * 0.30
+    names = failures_of(document)
+    assert any(name.startswith("buildtime.a_no_op_build_compiles_nothing") for name in names)
+    # And the wider band still says nothing, which is the point of adding a second one.
+    assert not any(
+        name.startswith("buildtime.the_build_is_incremental") for name in names
+    )
+
+
 def test_one_edit_rebuilding_everything_is_caught():
     document = load_kind("buildtime")
     for row in document["sweep"]:

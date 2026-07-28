@@ -871,6 +871,20 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
                 f"({row['noop_s']:.2f}s of {row['clean_s']:.2f}s; band: < 50%)",
             )
         )
+        # The sharper form of the same claim, and the one that actually guards the defect.
+        # A no-op that costs a third of a clean build passes the band above while doing a
+        # full recompile, which is exactly what an unconditionally rewritten `main.cpp`
+        # produces: regeneration moves every modification time, and the compiler reads
+        # modification times. Content-addressed generation (synqt.writer) puts a no-op at
+        # well under 1%, so the band that notices a regression is this one.
+        checks.append(
+            Check(
+                f"buildtime.a_no_op_build_compiles_nothing[{row['target']}]",
+                share < 0.05,
+                f"a no-op build costs {share * 100:.1f}% of a clean one "
+                f"({row['noop_s']:.2f}s of {row['clean_s']:.2f}s; band: < 5%)",
+            )
+        )
         if "touched_s" in row:
             edit = _ratio(row["touched_s"], row["clean_s"])
             checks.append(

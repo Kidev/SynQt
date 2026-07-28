@@ -398,22 +398,36 @@ in this repository; the only thing that can see it is a clock.
 `results/buildtime-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64, 32 CPUs, release,
 `examples/gavel`):
 
-| target   | clean  | no-op | touched | contract generation |
-|----------|--------|-------|---------|---------------------|
-| web      | 14.2 s | 4.3 s | 4.2 s   | 93 ms for 3 contracts (p50) |
-| database | 12.7 s | 3.4 s | 3.4 s   | |
+| target   | clean  | no-op  | touched | contract generation |
+|----------|--------|--------|---------|---------------------|
+| web      | 14.6 s | 0.08 s | 0.08 s  | 93 ms for 3 contracts (p50) |
+| database | 13.3 s | 0.08 s | 0.08 s  | |
 
-**The first run of this harness found a real defect.** Codegen runs at CMake configure time
-(`cmake/SynQtContracts.cmake`) and `synqt build` reconfigures on every invocation, so a
-generated header rewritten unconditionally moved its own timestamp and invalidated every
-translation unit that included it. A no-op build cost **72% of a clean one** (10.2 s against
-14.1 s) while a bare `ninja` with the same tree was 17 ms. Both writers now write only when
-the content differs (`synqtc`'s `_write`, and `_synqt_write_if_changed` in the CMake
-module), which took the no-op to 26-30% and left a change to a contract propagating exactly
-as before. The cost that remains is `synqt build`'s own: a CMake reconfigure it performs
-every time (~1.6 s) plus its Python work (~1.7 s: topology, licences, deploy). Skipping the
-reconfigure when nothing changed is the next thing to look at, and is a CLI change rather
-than a build-graph one.
+**The first run of this harness found a real defect, and the fix took two rounds.** Codegen
+runs at CMake configure time (`cmake/SynQtContracts.cmake`) and `synqt build` reconfigures
+on every invocation, so a generated header rewritten unconditionally moved its own timestamp
+and invalidated every translation unit that included it. A no-op build cost **72% of a clean
+one** (10.2 s against 14.1 s) while a bare `ninja` with the same tree was 17 ms. Both writers
+began writing only when the content differs (`synqtc`'s `_write`, and
+`_synqt_write_if_changed` in the CMake module), which took the no-op to 26-30%.
+
+That left the same defect one level up, in the app generator: every `synqt build` rewrote
+the root `CMakeLists.txt`, the presets, and every entity's `main.cpp`, identical content and
+all, so every one of them arrived at the compiler looking new. Routing those writes through
+`synqt.writer.write_if_changed` and skipping the explicit CMake configure when neither the
+command nor the preset changed took a no-op from **4.3 s to 0.08 s**, a 55x difference on
+the same tree. A real change still rebuilds, which is the half worth checking: adding a
+`prop` to a contract relinks in 4.9 s and adding a scope to `synqt.yaml` in 3.2 s, both with
+a new binary timestamp, while a no-op leaves the binary alone.
+
+The 50% band alone would have called all of that a pass, so the gate now also carries
+`a_no_op_build_compiles_nothing` at 5%; the pre-fix numbers fail it and the current ones
+clear it by 6x.
+
+`touched` matches `no-op` here because both entities are services: their Source QML is
+loaded from disk at runtime rather than compiled in, so moving its timestamp correctly
+rebuilds nothing. The number to watch on that row is the client's, which does compile its
+QML (`--include-client`).
 
 Contract generation is a rounding error at this size, 0.7% of a clean build, which is the
 useful thing to know about it: `.syn` lowering is not where build time goes.

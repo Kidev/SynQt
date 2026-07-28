@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import clientbuild, toolchain
+from . import clientbuild, toolchain, writer
 
 
 def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -88,7 +88,8 @@ def _presets(config: Dict[str, Any]) -> Dict[str, Any]:
 def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> None:
     """Write CMakePresets.json (checked in) and a CMakeUserPresets.json stub (local)."""
     root = Path(project_dir)
-    (root / "CMakePresets.json").write_text(json.dumps(_presets(config), indent=2) + "\n")
+    writer.write_if_changed(root / "CMakePresets.json",
+                            json.dumps(_presets(config), indent=2) + "\n")
     # The user preset is where a contributor overrides local toolchain locations; it is
     # generated once and git-ignored.
     user = {
@@ -101,7 +102,7 @@ def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> None:
     }
     user_path = root / "CMakeUserPresets.json"
     if not user_path.exists():
-        user_path.write_text(json.dumps(user, indent=2) + "\n")
+        writer.write_if_changed(user_path, json.dumps(user, indent=2) + "\n")
     gitignore = root / ".gitignore"
     if gitignore.exists() and "CMakeUserPresets.json" not in gitignore.read_text():
         with gitignore.open("a") as handle:

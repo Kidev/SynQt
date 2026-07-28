@@ -22,7 +22,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import (appgen, clientbuild, clientcache, clientshell, config as configmod,
-               licenses, manifest, presets, run, toolchain, topologywriter)
+               licenses, manifest, presets, run, toolchain, topologywriter,
+               writer)
 
 
 class BuildError(Exception):
@@ -73,12 +74,14 @@ def assemble_bundle(wasm_dir: Path, client_dir: Path, config: Dict[str, Any],
         count += 1
     (client_dir / "index.html").write_text(
         clientshell.render_client_shell(f"{target}.js", config, project_dir))
-    (client_dir / "synqt-boot.js").write_text(clientshell.render_boot_js(target, config))
+    writer.write_if_changed(client_dir / "synqt-boot.js",
+                            clientshell.render_boot_js(target, config))
     extra = 2
     # Written before the manifest so the worker appears in the manifest's file list and
     # therefore precaches itself along with the rest of the shell.
     if clientcache.uses_service_worker(config):
-        (client_dir / "synqt-sw.js").write_text(clientshell.render_service_worker_js())
+        writer.write_if_changed(client_dir / "synqt-sw.js",
+                                clientshell.render_service_worker_js())
         extra += 1
 
     # Written last: the manifest lists the assembled bundle, and precompression has not
@@ -121,6 +124,43 @@ def built_note(host_targets: List[str], client_targets: List[str]) -> str:
     return f"compiled {', '.join(built)} through the pinned toolchain."
 
 
+def _configure_if_needed(configure: List[str], build_dir: Path, project_dir: Path,
+                         verbose: bool) -> bool:
+    """Configure the build directory, unless it is already configured with this exact
+    command. Returns whether cmake was run.
+
+    Skipping is safe because it is not a shortcut around a stale configure. The generator
+    now writes only files whose content changed (synqt.writer), so an unchanged
+    `CMakeLists.txt` keeps its modification time, and the generator itself is what the
+    build system watches: ninja re-runs cmake on its own the moment one of those files
+    does change. What is left to skip is the case where nothing changed at all, where
+    cmake re-derives an identical build graph.
+
+    The stamp records the command, not just the fact of configuring, so a build with a
+    different Qt kit or a different `-DSYNQT_EDGE_URL` configures again rather than
+    silently inheriting the cache from the last one. It records `CMakePresets.json` with
+    it, because that file is read when cmake is invoked and is not one of the inputs the
+    generated build graph watches: ninja re-runs cmake for a changed `CMakeLists.txt` and
+    would not notice a preset that moved the build type or added a cache variable.
+    """
+    stamp = build_dir / ".synqt-configure"
+    presets_file = project_dir / "CMakePresets.json"
+    presets_text = presets_file.read_text(encoding="utf-8") if presets_file.is_file() else ""
+    command_line = "\n".join(str(part) for part in configure) + "\n--presets--\n" + presets_text
+    if (build_dir / "CMakeCache.txt").is_file():
+        try:
+            if stamp.read_text(encoding="utf-8") == command_line:
+                return False
+        except OSError:
+            pass  # never configured through this path, or the stamp is gone: configure.
+    _run(configure, project_dir, verbose)
+    # Written only after a configure that succeeded, so a failed one is retried rather
+    # than remembered as done.
+    build_dir.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(command_line, encoding="utf-8")
+    return True
+
+
 def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
                  host_targets: List[str], client_targets: List[str],
                  config: Dict[str, Any], edge_url: Optional[str] = None,
@@ -147,7 +187,8 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
         host_configure.append(f"-DSYNQT_EDGE_URL={edge_url}")
     try:
         if host_targets:
-            _run(host_configure, project_dir, verbose)
+            _configure_if_needed(host_configure, project_dir / "build" / "host",
+                                 project_dir, verbose)
             build_command = [cmake, "--build", str(project_dir / "build" / "host")]
             for target in host_targets:
                 build_command += ["--target", target]
@@ -169,9 +210,10 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Optional[str]],
             # published host-independently (all_os/wasm), so nothing rewrites it and the
             # configure dies on "please set the QT_HOST_PATH cache variable". We already
             # resolved the host kit, so say so rather than depend on an installer's patching.
-            _run([str(qt_cmake), "-S", str(project_dir), "-B", str(wasm_dir),
-                  "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
-                  f"-DQT_HOST_PATH={resolved['host_qt']}"], project_dir, verbose)
+            _configure_if_needed([str(qt_cmake), "-S", str(project_dir), "-B", str(wasm_dir),
+                                  "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
+                                  f"-DQT_HOST_PATH={resolved['host_qt']}"],
+                                 wasm_dir, project_dir, verbose)
             wasm_build = [cmake, "--build", str(wasm_dir)]
             if verbose:
                 wasm_build.append("--verbose")
