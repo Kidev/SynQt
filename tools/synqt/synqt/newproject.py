@@ -120,10 +120,13 @@ class NewProjectError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
 
-def _config(name: str, origin_model: str, entities: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _config(name: str, entities: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
-        "project": {"name": name, "version": "0.1.0", "qt_version": QT_VERSION,
-                    "origin_model": origin_model},
+        # No `origin_model`. Absent means same-origin, which is what a scaffold should be: the
+        # session cookie is first-party, so nothing here depends on a browser policy that is
+        # being withdrawn. `split_origin` is written by hand, by someone who has read what it
+        # costs; see docs/project-layout-and-config.md.
+        "project": {"name": name, "version": "0.1.0", "qt_version": QT_VERSION},
         "scopes": {"order": ["anonymous", "user", "moderator", "admin"],
                    "hierarchical": True, "default": "anonymous"},
         "security": {"allowed_origins": ["self"], "cross_origin_isolation": False},
@@ -146,7 +149,7 @@ def _write_qmlformat_settings(root: Path) -> None:
 
 
 def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
-             origin_model: str = "same_origin", auth: Optional[str] = None,
+             auth: Optional[str] = None,
              blueprints: Optional[List[str]] = None) -> str:
     root = Path(parent_dir) / name
     if root.exists() and any(root.iterdir()):
@@ -167,7 +170,7 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     for blueprint in blueprints or []:
         entities.append({"name": blueprint, "kind": "service", "blueprint": blueprint})
 
-    config = _config(name, origin_model, entities)
+    config = _config(name, entities)
     if auth:
         # Mark the edge so the license generator knows it links Network Authorization.
         config["entities"][1]["identity"] = True
@@ -189,7 +192,7 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     appgen.generate(root, config)
 
     lines = [
-        f"Scaffolded '{name}' ({origin_model}). Next:",
+        f"Scaffolded '{name}'. Next:",
         f"  cd {name} && synqt dev",
         "",
         licenses.CLIENT_GPL_WARNING,

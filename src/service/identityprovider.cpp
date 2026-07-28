@@ -415,6 +415,12 @@ QByteArray IdentityProvider::buildCookie(const QByteArray &token) const
 {
     QByteArray cookie{m_cookie.name.toUtf8() + "=" + token + "; HttpOnly; Path=/"};
     if (m_cookie.sameSiteNone) {
+        // This is the cookie the measurement in tests/split-origin singles out: it is set on
+        // the callback, a top-level navigation onto the edge, so marking it `Partitioned`
+        // files it under the edge's partition where the client site can never read it. The
+        // attribute is therefore absent here for a sharper reason than in WebEdge, and it
+        // cannot be added until the callback hands the session back through the client
+        // context instead of setting it here.
         cookie += "; SameSite=None; Secure";
     } else {
         cookie += "; SameSite=Lax";

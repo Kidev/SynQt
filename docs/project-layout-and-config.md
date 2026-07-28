@@ -111,7 +111,6 @@ project:
   version: 0.1.0
   qt_version: 6.11.1           # pinned Qt; drives the Emscripten version too
   description: A SynQt application
-  origin_model: same_origin    # same_origin (default) or split_origin
 ```
 
 `name` is the only required key; the rest have defaults. `qt_version` pins the
@@ -119,13 +118,13 @@ toolchain: it fixes the Qt version every entity builds against and, through it, 
 Emscripten version used for the client (see
 [build system and CLI](build-system-and-cli.md)).
 
-`origin_model` is the answer to the scaffold question "will the client and the web
-edge be served from the same origin". `same_origin` is the recommended default and
-keeps the session cookie, the content security policy, and the upgrade origin check
-in their simplest, safest form. `split_origin` is for hosting the client on a
-separate origin (a CDN) and turns on the extra handling described under
-[`security`](#security-browser-hardening-and-connection-gating) below and in
-[security](security.md). Changing this value is a deliberate, reviewed act.
+There is no `origin_model` here, and that is deliberate. A project with no
+`origin_model` is same origin: the client and the web edge answer on one origin, the
+session cookie is first party, and the content security policy and the upgrade origin
+check stay in their simplest form. Everything in this document assumes that shape. The
+other value, `split_origin`, exists and is still validated, but you write it by hand
+after reading [serving the client from another
+origin](#serving-the-client-from-another-origin), which is where its cost is measured.
 
 ### `paths`
 
@@ -222,20 +221,9 @@ side, the mesh (service to service) side, the public TLS, and its env file:
       file: web/.env
 ```
 
-`serve_client: false` hands delivery to a CDN, and it changes more than which routes
-exist. A browser that loaded the app from a CDN has never touched the edge, so it holds
-no session, and the upgrade refuses a request that carries none. So the edge keeps
-`client_route` registered as a credential endpoint: it answers a credentialed
-cross origin fetch with `204` and the session cookie, echoing the requesting origin (only
-one already in `allowed_origins`) rather than a wildcard. The generated boot script makes
-that request before the app connects, and it also publishes `public.origin` to the page,
-which is what the client dials instead of its own location.
-
-Three things must be true for that deployment, and `synqt check` insists on all three,
-because each one fails as an app that loads perfectly and never connects: the origin model
-is `split_origin` (it is what issues the cookie `SameSite=None; Secure`, and a `Lax` cookie
-is never sent on a cross site upgrade), `public.origin` is declared, and
-`security.allowed_origins` names the client origin.
+`serve_client: false` hands delivery to a CDN. It is the other half of
+`split_origin`, so it is described in [serving the client from another
+origin](#serving-the-client-from-another-origin) rather than here.
 
 A service entity (here a database from the official blueprint). Note how the
 embedded default needs no `provider` section at all; the blueprint's own settings go
@@ -405,10 +393,11 @@ safe one. The limits are whole numbers, and a limit of zero is refused rather th
 read as "no limit" (the caps are compared with `>=`, so zero would refuse the first
 connection).
 
-When `origin_model: split_origin`, the scaffold pre fills `allowed_origins` with
-the client origin. The session cookie is then issued `SameSite=None; Secure`, which
-the edge derives from `origin_model` itself rather than from a second key that could
-disagree with it. The origin check remains the anti hijacking control in both models.
+Under `origin_model: split_origin` you list the client origin here yourself, and the
+session cookie is issued `SameSite=None; Secure`, which the edge derives from
+`origin_model` rather than from a second key that could disagree with it. The origin
+check remains the anti hijacking control in both models. See [serving the client from
+another origin](#serving-the-client-from-another-origin).
 
 `session_transport: subprotocol` is refused, and it is worth saying why, because it is a
 limit of the toolkit rather than a feature nobody got to. Carrying the session in
@@ -426,6 +415,81 @@ word is refused at `synqt check`. The Qt half of that measurement is kept as a t
 
 Nothing needs it today. A browser holds the httpOnly cookie, and a native desktop client,
 which terminates its own TLS, presents its stored session on the handshake directly.
+
+### Serving the client from another origin
+
+This section is the exception to the rest of this document. Everything above assumes
+the client and the web edge share an origin, which is what you get by writing nothing.
+What follows is for putting the client on a separate origin, usually a CDN, and it is
+not a recommendation. It is written down because the capability is real and someone
+will need it; read the cost before you take it.
+
+Two keys turn it on, both by hand:
+
+```yaml
+project:
+  origin_model: split_origin        # the session cookie becomes a third party cookie
+
+entities:
+  - name: web
+    capability: web_edge
+    public:
+      serve_client: false           # a CDN delivers the bundle; the edge serves no files
+      origin: https://app.example.com
+
+security:
+  allowed_origins: ["https://cdn.example.com"]
+```
+
+The edge then serves no bundle at all, and keeps `client_route` registered as a
+credential endpoint instead: it answers a credentialed cross origin fetch with `204`
+and the session cookie, echoing the requesting origin (only one already in
+`allowed_origins`) rather than a wildcard. The generated boot script makes that
+request before the app connects, and publishes `public.origin` to the page, which is
+what the client dials instead of its own location. `synqt check` insists on all three
+keys above, because each one missing produces an app that loads perfectly and never
+connects.
+
+#### What it costs
+
+The session cookie is a third party cookie, so it lives or dies by browser policy.
+Measured on 2026-07-28 in Chromium 149 and Firefox 151, across two real sites over
+TLS (the rig and the full table are in
+[`tests/split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)):
+
+| regime | what happens |
+|---|---|
+| Chromium and Firefox today | works: bundle loads, session mints, `wss` upgrade carries it, login works |
+| third party cookies restricted | **nothing works**: the session request is ignored, the upgrade arrives with no credential, the edge refuses it |
+
+The second row is not a slow degradation. The app appears on screen and is
+permanently disconnected. Browsers are moving toward that row, not away from it.
+Safari already blocks third party cookies by default, which very likely puts it in
+that row today, though the numbers above do not yet say so: WebKit is measured only
+where a WebKit runtime exists, which is CI rather than the development machine.
+
+The obvious repair does not work either. Marking the cookie `Partitioned` (CHIPS) is
+the standard way to keep a third party cookie alive, and it rescues the session
+bootstrap and the upgrade under restriction. It also breaks login everywhere, including
+browsers where the plain cookie still works, because the OAuth callback is a top level
+navigation onto the edge: the cookie is filed under the edge's own partition, and the
+client origin can never read it. That is measured, with the stored partition key
+visible, so the edge deliberately does not emit the attribute. Making CHIPS usable
+means changing the callback to hand the session back through the client context, which
+is a redesign rather than a flag, and it is not built.
+
+#### What to do instead
+
+Keep the client and the edge on one origin, and put a node near the user that serves
+both. A node that delivers the bundle and terminates the browser link on the same
+hostname is a CDN from the browser's point of view, with no third party cookie
+anywhere: the session is first party again and none of the above applies. Whether
+that node owns its connect points or forwards them to an edge behind it is an
+operational choice the client never sees, since it reaches everything through
+`Server` either way.
+
+That is the direction SynQt intends to grow, and it is why `split_origin` is not in
+the scaffold. If you need it today, you own the browser policy risk.
 
 ### `mesh` (service to service security)
 

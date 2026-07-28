@@ -218,6 +218,21 @@ jobs:
           source "$HOME/emsdk/emsdk_env.sh"
           tests/m0-transport/verify/run-m0.sh
 
+      # The two test sites must be real, separate registrable domains or no third-party
+      # cookie rule applies and the measurement is void. Chromium and Firefox can be told to
+      # map them; WebKit cannot, and WebKit is Safari's engine, which is the one browser
+      # whose cookie policy split-origin cannot afford to guess at. So map them for real
+      # here, which is the only place this project has a WebKit runtime.
+      - name: Map the split-origin test sites
+        shell: bash
+        run: |
+          set -eu
+          echo "127.0.0.1 synqtcdn.test synqtedge.test" | sudo tee -a /etc/hosts
+
+      - name: Measure what a split-origin session cookie survives
+        shell: bash
+        run: tests/split-origin/run-split-origin.sh
+
       - name: Archive the headless run log
         if: always()
         uses: actions/upload-artifact@v7

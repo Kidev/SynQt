@@ -406,7 +406,6 @@ project:
   name: todo
   version: 0.1.0
   qt_version: 6.11.1
-  origin_model: same_origin
 
 scopes:
   order: [anonymous, user, moderator, admin]

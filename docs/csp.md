@@ -100,15 +100,18 @@ pairing. In this mode every subresource must be same-origin or carry
 
 `origin_model` changes the anti-hijacking surface, and the CSP and cookie follow it:
 
-- **`same_origin`** (the default): the client is served from, and connects back to, the edge
-  origin. `allowed_origins` is `[self]` (the edge origin), `connect-src 'self'` plus the
-  appended wss origin is enough, and the session cookie is `SameSite=Lax` (`Secure` under
-  TLS).
-- **`split_origin`**: the client is served from a different origin than the sync endpoint
-  (a CDN, say). `allowed_origins` must then list the client origin explicitly, and the
-  session cookie is `SameSite=None; Secure`. The origin check at the wss upgrade (not the
-  CSP) is the anti-CSWSH control in both models; the CSP `connect-src` still names the sync
-  origin.
+- **same origin** (what you get by declaring no `origin_model`): the client is served from,
+  and connects back to, the edge origin. `allowed_origins` is `[self]` (the edge origin),
+  `connect-src 'self'` plus the appended wss origin is enough, and the session cookie is
+  `SameSite=Lax` (`Secure` under TLS).
+- **`split_origin`** (written by hand, never scaffolded): the client is served from a
+  different origin than the sync endpoint (a CDN, say). `allowed_origins` must then list the
+  client origin explicitly, and the session cookie is `SameSite=None; Secure`, which makes it
+  a third-party cookie and therefore subject to a browser policy that is being withdrawn.
+  Read [serving the client from another
+  origin](project-layout-and-config.md#serving-the-client-from-another-origin) before
+  choosing it. The origin check at the wss upgrade (not the CSP) is the anti-CSWSH control in
+  both models; the CSP `connect-src` still names the sync origin.
 
 ## Widening the policy safely
 

@@ -217,20 +217,22 @@ reading a build manual.
 `synqt new` asks a short, security relevant set of questions and writes the answers
 into `synqt.yaml`:
 
-1. Will the client and the web edge be served from the same origin (recommended
-   yes)? This sets `project.origin_model`. `same_origin` keeps the session cookie,
-   the content security policy, and the upgrade origin check in their simplest, safe
-   form. `split_origin` (a separate CDN origin for the client) pre fills
-   `allowed_origins` with the client origin and switches the session defaults to the
-   cross origin variant, with the trade offs spelled out in [security](security.md).
-2. Do you want authentication now (you can add it later with `synqt add auth`)? If
+1. Do you want authentication now (you can add it later with `synqt add auth`)? If
    yes, it runs the auth scaffold for a chosen provider.
-3. Which starting entities beyond the client and edge (none, a database, a cache)?
+2. Which starting entities beyond the client and edge (none, a database, a cache)?
    Selected entities are scaffolded from their blueprints.
 
 The questions exist because the secure choice should be made consciously at the
-start, not discovered later. Same origin and no insecure auth state are the
-defaults, and the questions make the alternatives explicit and reviewed.
+start, not discovered later. No insecure auth state is the default, and the questions
+make the alternatives explicit and reviewed.
+
+There is no question about the origin model, and no `--origin-model` flag. A
+scaffolded project serves the client and the web edge from one origin, which is the
+only shape whose session cookie is first party and therefore the only one that does
+not depend on a browser policy being withdrawn. Splitting them is possible and still
+validated, but it is a hand edit made after reading [serving the client from another
+origin](project-layout-and-config.md#serving-the-client-from-another-origin), not a
+menu item offered to someone who has not.
 
 ## The development environment (`synqt dev`)
 

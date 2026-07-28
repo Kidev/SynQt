@@ -48,6 +48,7 @@ set(SYNQT_SCRIPT_SUITES
 set(SYNQT_SUITES_ELSEWHERE
     m0-transport         # WASM client and a native edge, in a browser; browser-matrix.yml
     wasm-quick3dphysics  # WASM only; wasm-proofs.yml
+    split-origin         # two sites in a real browser, no Qt at all; browser-matrix.yml
 )
 
 # A hand-maintained list cannot report what is missing from it, which is how remote-pages

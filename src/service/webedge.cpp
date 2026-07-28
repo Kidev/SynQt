@@ -463,6 +463,13 @@ QByteArray WebEdge::issueSessionCookie()
 
     QByteArray cookie{m_config.cookieName.toUtf8() + "=" + token + "; HttpOnly; Path=/"};
     if (m_config.originModel == QLatin1String("split_origin")) {
+        // No `Partitioned` (CHIPS), deliberately, and this is measured rather than assumed:
+        // tests/split-origin proves that a partitioned cookie survives third-party cookie
+        // restriction but loses the login, because the OAuth callback is a top-level
+        // navigation onto the edge and the cookie lands under the edge's own partition, which
+        // the client site cannot read. Adding the attribute would trade a path that works
+        // today for one that fails today. See tests/split-origin/README.md for the table and
+        // for the callback redesign that would make CHIPS adoptable.
         cookie += "; SameSite=None; Secure";
     } else {
         cookie += "; SameSite=Lax";

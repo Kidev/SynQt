@@ -15,9 +15,13 @@ tells the app where the edge is, and `synqt check` refuses the three configurati
 would produce an app that loads and never connects.
 """
 
+import tempfile
 import unittest
+from pathlib import Path
 
-from synqt import appmodel, check, clientshell, maingen
+import yaml
+
+from synqt import appmodel, check, cli, clientshell, maingen, newproject
 
 
 def cdn_config(**overrides):
@@ -151,6 +155,40 @@ class CdnValidation(unittest.TestCase):
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
         self.assertEqual([m for m in messages if "serve_client" in m], [])
+
+
+class SplitOriginIsNotOffered(unittest.TestCase):
+    """Reaching split-origin takes a hand edit, and that is the feature, not an oversight.
+
+    The session cookie it needs is a third-party cookie, which stops working entirely under
+    third-party cookie restriction (measured in tests/split-origin). So the scaffold cannot
+    produce that shape and the CLI cannot be talked into it; someone who wants it writes the
+    key themselves, having read what it costs. These tests pin that posture, because it is
+    one flag away from quietly coming back.
+    """
+
+    def scaffolded(self):
+        with tempfile.TemporaryDirectory() as parent:
+            newproject.scaffold(parent, "app")
+            return yaml.safe_load((Path(parent) / "app" / "synqt.yaml").read_text())
+
+    def test_a_scaffolded_project_declares_no_origin_model(self):
+        self.assertNotIn("origin_model", self.scaffolded()["project"])
+
+    def test_a_scaffolded_project_is_same_origin_by_absence(self):
+        # The absent key has to mean the safe thing, or removing it from the scaffold would
+        # have quietly changed what every new project does.
+        self.assertEqual(appmodel.origin_model(self.scaffolded()), "")
+
+    def test_synqt_new_has_no_origin_model_flag(self):
+        with self.assertRaises(SystemExit):
+            cli.build_parser().parse_args(["new", "app", "--origin-model", "split_origin"])
+
+    def test_split_origin_still_validates_when_written_by_hand(self):
+        # Not offered is not the same as not supported: a hand-written split-origin project
+        # must still pass check, or the docs would describe something that cannot be run.
+        ok, messages = check.validate(cdn_config())
+        self.assertTrue(ok, messages)
 
 
 if __name__ == "__main__":
