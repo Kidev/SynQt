@@ -60,9 +60,20 @@ real loopback pair, with no QtRO node on either end:
 - **Partial reads**: a consumer that takes less than has arrived keeps the remainder in
   order, and `bytesAvailable()` keeps telling it the truth. Run both buffered (how QtRO
   opens the device) and unbuffered, which is what puts a short read on the adapter's own
-  `readData` instead of on the QIODevice buffer above it.
+  `readData` instead of on the QIODevice buffer above it. A second case reads part of the
+  buffer, receives more, and reads the rest, so a front erase and a back append meet over
+  the same unread bytes.
 - **Large messages**: 4 MiB, whole and byte-exact; and 200 messages back to back in both
   directions at once, still in order.
+- **Drain cost**: 16 MiB buffered and read out 1 KiB at a time, on a clock. This is the
+  one case that measures rather than compares, and it guards something the code relies on
+  without being promised it. `readData` erases from the front of the read buffer on every
+  call, which looks quadratic and is not: Qt 6's `QArrayDataPointer::erase` advances the
+  begin pointer for a range starting at `begin()` instead of moving the remainder, and the
+  next append that needs room reclaims the gap. `QByteArray::remove()` documents only that
+  capacity is preserved, so the property is real but unpromised. It measures 1 to 2 ms
+  against a 2000 ms budget; a genuinely quadratic drain would move about 128 GiB and take
+  tens of seconds, and the loop gives up at the budget so the failure is fast.
 - **Close handling**: `close()` closes the socket under it and both ends learn of it;
   bytes already buffered survive the peer disconnecting; and a socket destroyed before
   the device leaves the device answering safely rather than reaching through a dangling

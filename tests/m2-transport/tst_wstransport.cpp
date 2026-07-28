@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The WebSocketTransport unit cases the test plan names: framing, partial reads, large
-// messages, and close handling.
+// messages, and close handling, plus what draining a large read buffer costs.
 //
 // tst_m2 proves the adapter carries QtRemoteObjects, which is the acceptance question.
 // It cannot prove the device contract underneath, because QtRO reads whole frames as
@@ -16,6 +16,7 @@
 
 #include <QAbstractSocket>
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QHostAddress>
 #include <QPointer>
 #include <QScopedPointer>
@@ -24,6 +25,8 @@
 #include <QUrl>
 #include <QWebSocket>
 #include <QWebSocketServer>
+
+#include <cstring>
 
 using SynQt::WebSocketTransport;
 
@@ -268,6 +271,110 @@ private slots:
         QTRY_COMPARE(link.clientSocket()->state(), QAbstractSocket::UnconnectedState);
         QTRY_COMPARE(localDisconnects.count(), 1);
         QTRY_COMPARE(peerDisconnects.count(), 1);
+    }
+
+    // Reading part of the buffer, then receiving more, then reading the rest. Every read
+    // erases from the front of the buffer and every message appends to the back, so this
+    // is the case where both happen to the same buffer with unread bytes in between: the
+    // remainder gets moved or re-pointed underneath while a later message is on its way.
+    // Order and content have to survive that. The other partial-read case above drains to
+    // empty and never appends afterwards, so it cannot see this.
+    void aPartialReadSurvivesMoreMessagesArriving()
+    {
+        Link link;
+        QVERIFY(link.connectPair(QIODevice::ReadWrite,
+                                 QIODevice::ReadWrite | QIODevice::Unbuffered));
+
+        const QByteArray first{patterned(10 * 1024)};
+        const QByteArray second{patterned(10 * 1024).toBase64().left(10 * 1024)};
+        const QByteArray third{patterned(10 * 1024).toHex().left(10 * 1024)};
+        QCOMPARE(link.client()->write(first), first.size());
+        QCOMPARE(link.client()->write(second), second.size());
+        QVERIFY(waitForBytes(link.peer(), first.size() + second.size()));
+
+        // An uneven split, 12 KiB read out of 20 KiB buffered: the read ends inside the
+        // second message, so the remainder starts at neither a message nor a chunk edge.
+        const QByteArray head{link.peer()->read(12 * 1024)};
+        QCOMPARE(head.size(), 12 * 1024);
+        QCOMPARE(link.peer()->bytesAvailable(), 8 * 1024);
+
+        QCOMPARE(link.client()->write(third), third.size());
+        QVERIFY(waitForBytes(link.peer(), (8 * 1024) + third.size()));
+
+        QByteArray whole{head};
+        whole.append(link.peer()->readAll());
+        QCOMPARE(whole.size(), first.size() + second.size() + third.size());
+        QVERIFY(whole == first + second + third);
+        QCOMPARE(link.peer()->bytesAvailable(), 0);
+    }
+
+    // Draining a large buffer in small reads costs time linear in its size, not quadratic.
+    //
+    // readData() erases from the front of the read buffer on every call, which reads like
+    // the classic quadratic drain: move every unread byte down, once per read. It is not,
+    // and the reason is worth pinning. QArrayDataPointer::erase (qarraydataops.h) special
+    // cases a range at the front and advances the begin pointer instead of moving anything
+    // (`if (b == this->begin() && e != this->end()) this->ptr = e;`), and the free space it
+    // leaves is reclaimed by the next append that needs to grow. So the front erase is
+    // amortized constant, and reimplementing that bookkeeping in the adapter would buy
+    // nothing.
+    //
+    // That is an implementation property of Qt 6's container, not a documented guarantee:
+    // QByteArray::remove() promises only that capacity is preserved. Relying on it is the
+    // right call, and this is what makes relying on it safe. If it ever stops holding, or
+    // the buffer is reimplemented by someone who reads the erase as a memmove, the result
+    // does not change and only the clock notices, so nothing else in this suite would.
+    //
+    // 16 MiB drained 1 KiB at a time is 16384 reads. Amortized constant measures 1 to 2 ms
+    // here. Quadratic would move about 128 GiB and run for tens of seconds. The budget
+    // below sits three orders of magnitude above the first and an order of magnitude below
+    // the second, and the loop gives up the moment it is exceeded, so a regression fails
+    // in two seconds rather than hanging the suite.
+    void drainingALargeBufferIsLinear()
+    {
+        constexpr qint64 chunkSize{1024};
+        constexpr qint64 messageSize{256 * 1024};
+        constexpr int messageCount{64};
+        constexpr qint64 budgetMs{2000};
+
+        Link link;
+        QVERIFY(link.connectPair(QIODevice::ReadWrite,
+                                 QIODevice::ReadWrite | QIODevice::Unbuffered));
+
+        const QByteArray payload{patterned(messageSize)};
+        for (int index{0}; index < messageCount; ++index) {
+            QCOMPARE(link.client()->write(payload), payload.size());
+        }
+        const qint64 total{messageSize * messageCount};
+        QVERIFY(waitForBytes(link.peer(), total, 60000));
+
+        QByteArray chunk;
+        chunk.resize(chunkSize);
+        qint64 drained{0};
+        QElapsedTimer timer;
+        timer.start();
+        while (drained < total) {
+            const qint64 read{link.peer()->read(chunk.data(), chunkSize)};
+            QCOMPARE(read, chunkSize);
+            // Every chunk is a slice of the same repeated payload, so a buffer that moved
+            // or re-pointed the wrong bytes shows up here and not only in the total.
+            QVERIFY(std::memcmp(chunk.constData(),
+                                payload.constData() + (drained % messageSize),
+                                static_cast<size_t>(chunkSize)) == 0);
+            drained += read;
+            if (timer.elapsed() > budgetMs) {
+                break;
+            }
+        }
+
+        // The measurement, before the completeness check: if the loop gave up early then
+        // both fail, and the elapsed time is the one that says why.
+        const qint64 elapsed{timer.elapsed()};
+        qInfo("drained %lld MiB in %lld-byte reads in %lld ms (budget %lld ms)",
+              total / (1024 * 1024), chunkSize, elapsed, budgetMs);
+        QVERIFY2(elapsed <= budgetMs, "the drain is no longer linear in the buffered size");
+        QCOMPARE(drained, total);
+        QCOMPARE(link.peer()->bytesAvailable(), 0);
     }
 
     // A socket destroyed before the device it feeds. The transport holds a QPointer, so
