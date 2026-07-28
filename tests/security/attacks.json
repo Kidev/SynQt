@@ -686,6 +686,27 @@
       "test": "anIdTokenMissingARequiredClaimIsRefused"
     },
     {
+      "id": "an-expired-id-token",
+      "what": "A copy of a correctly signed ID token is presented after its expiry, or one is minted for a different client and presented among a list of audiences, or signed with a key the provider publishes as something other than RSA.",
+      "defended_by": "An ID token is refused a minute past its exp, its audience must include this client whether it is written as a string or a list, and an RS256 signature is only ever checked against an RSA key.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "anIdTokenIsHeldToItsExpiryItsAudienceAndAnRsaKey"
+    },
+    {
+      "id": "a-key-set-too-large-to-hold",
+      "what": "Whoever controls, or sits on the path to, a provider's JWKS or OAuth endpoints answers with a body far larger than any key set or profile, announced and then stalled, or streamed fast. The ceiling was read off downloadProgress, which Qt throttles, so a stalled one was refused only by the fetch deadline and a fast one was held past the ceiling first.",
+      "defended_by": "Every identity provider request refuses an answer on its announced length when the headers arrive and on what has arrived at every read; a key set over plaintext from off this machine is not fetched, and an empty one is refused rather than cached.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aKeySetIsFetchedOnlyWhenItCanBeOne"
+    },
+    {
+      "id": "an-unverified-address-taken-as-the-users",
+      "what": "On a provider whose profile leaves the address private, the fallback reads the address list, where anyone can add an address they do not own and mark it primary. An application that matches accounts by email would then hand the signer-in somebody else's account.",
+      "defended_by": "Only an address that is both primary and verified becomes the identity's email; otherwise the email is null.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aProfileIsNormalizedOrTheLoginIsRefused"
+    },
+    {
       "id": "logout-csrf",
       "what": "Another site navigates a visitor to the logout route, which is a GET, and ends their session and the device credential that would have kept them signed in. SameSite=Lax is sent on a top-level navigation, and split_origin's cookie is sent on everything.",
       "defended_by": "The logout route refuses a request whose Sec-Fetch-Site says it came from another site. A non-browser caller sends none and is unaffected.",

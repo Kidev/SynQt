@@ -3,6 +3,7 @@
 
 #include "oauthbackend.h"
 
+#include "boundedreply.h"
 #include "constanttime.h"
 #include "edgereplyhandler.h"
 #include "jwksverifier.h"
@@ -37,8 +38,8 @@ namespace SynQt {
 
 namespace {
 
-// The name of the first endpoint of this provider that may not be spoken to over the
-// network as configured, or empty when every one of them is safe.
+// The name of the first provider endpoint that may not be reached as configured, or empty
+// when all are safe.
 QString insecureEndpoint(const IdentityProviderConfig &provider)
 {
     const std::pair<const char *, QUrl> endpoints[]{
@@ -55,43 +56,31 @@ QString insecureEndpoint(const IdentityProviderConfig &provider)
     return QString{};
 }
 
-// How many logins may be in flight at once, waiting for a browser to come back from the
-// provider. Each one holds a QOAuth2AuthorizationCodeFlow for the five minutes a login is
-// given, and the route that creates them is open to anybody who can reach the edge, so
-// without a ceiling a stream of GETs to /auth/login is a way to make the edge allocate
-// until it stops. Far above any real concurrency. A thousand people signing in within the
-// same five minutes is a busy day, not an attack.
+// How many logins may wait for the browser to return from the provider at once. Each holds
+// a QOAuth2AuthorizationCodeFlow for up to five minutes, and anyone can open one with a GET
+// to /auth/login, so the count is bounded. Far above real concurrency.
 constexpr int kMaxPendingLogins{1024};
 
-// How large an answer from a provider endpoint may be. A token response and a profile are
-// both a few hundred bytes. The ceiling exists because QNetworkReply buffers a whole body
-// before anybody reads it, so without one the size of a login's memory cost is decided by
-// whatever answered. Generous enough that no provider approaches it.
+// The maximum size of a provider response. Token responses and profiles are a few hundred
+// bytes; QNetworkReply buffers the whole body, so without a ceiling the responder decides
+// the memory cost.
 constexpr qint64 kMaxProviderResponseBytes{1024 * 1024};
 
 // How long one request to a provider may take, whichever endpoint it is.
 constexpr int kProviderTimeoutMs{15000};
 
-// How often to look for tokens nobody claimed, given how long they may go unclaimed:
-// twice a window, and never more than once a minute nor less often than that.
+// How often to look for unclaimed tokens: twice per window, at most once a minute.
 int unclaimedSweepMs(int windowSeconds)
 {
     return qBound(1000, (windowSeconds * 1000) / 2, 60000);
 }
 
-// Refuse an answer past kMaxProviderResponseBytes while it is still arriving, and walk out
-// on one that takes longer than kProviderTimeoutMs. Both mark the reply before aborting
-// it, because an aborted reply reports only that it was cancelled and the handler has to
-// tell a deadline from a refusal. Connected to the reply, so they go when it does.
+// Refuse a response past kMaxProviderResponseBytes while it arrives, and abandon one that
+// takes longer than kProviderTimeoutMs. Both mark the reply before aborting it, since an
+// aborted reply only reports cancellation. Connected to the reply, so they end with it.
 void boundReply(QNetworkReply *reply)
 {
-    QObject::connect(reply, &QNetworkReply::downloadProgress, reply,
-                     [reply](qint64 received, qint64 total) {
-        if (received > kMaxProviderResponseBytes || total > kMaxProviderResponseBytes) {
-            reply->setProperty("synqtTooLarge", true);
-            reply->abort();
-        }
-    });
+    refuseAnswersLargerThan(reply, kMaxProviderResponseBytes);
     QTimer *deadline{new QTimer{reply}};
     deadline->setSingleShot(true);
     QObject::connect(deadline, &QTimer::timeout, reply, [reply]() {
@@ -101,8 +90,8 @@ void boundReply(QNetworkReply *reply)
     deadline->start(kProviderTimeoutMs);
 }
 
-// A reply that was walked out on, or refused for its size, read the one way it can be:
-// off the marks boundReply left. Empty when the reply finished on its own terms.
+// Why a reply was abandoned or refused, read from the marks boundReply left. Empty when it
+// finished normally.
 QString boundReplyFailure(const QNetworkReply *reply, const QUrl &url)
 {
     if (reply->property("synqtTimedOut").toBool()) {
@@ -122,8 +111,7 @@ OAuthBackend::OAuthBackend(IdentityConfig config, QObject *parent)
     : QObject{parent}
     , m_config{std::move(config)}
 {
-    // Unconditional, unlike the refresh sweep. Whether tokens are refreshed is a project's
-    // choice, and whether a secret nobody claimed is let go of is not.
+    // Always on, unlike the refresh sweep: releasing unclaimed secrets is not optional.
     m_unclaimedTimer = new QTimer{this};
     connect(m_unclaimedTimer, &QTimer::timeout, this, [this]() { releaseUnclaimed(); });
     m_unclaimedTimer->start(unclaimedSweepMs(m_unclaimedWindowSeconds));
@@ -132,8 +120,7 @@ OAuthBackend::OAuthBackend(IdentityConfig config, QObject *parent)
 void OAuthBackend::setUnclaimedWindow(int seconds)
 {
     m_unclaimedWindowSeconds = qMax(0, seconds);
-    // At least twice per window, so an entry is never kept for much longer than the
-    // window says, and never more often than once a minute on the default.
+    // At least twice per window, and at most once a minute by default.
     m_unclaimedTimer->start(unclaimedSweepMs(m_unclaimedWindowSeconds));
 }
 
@@ -143,9 +130,8 @@ void OAuthBackend::releaseUnclaimed()
     const qint64 window{static_cast<qint64>(m_unclaimedWindowSeconds) * 1000};
     for (auto it{m_tokens.begin()}; it != m_tokens.end();) {
         if (!it->bound && (now - it->storedMs) >= window) {
-            // Said out loud. A login that got as far as the provider and then had nobody
-            // to hand the session to needs reporting, and the alternative to
-            // saying so is a count that quietly goes down.
+            // Logged: a login that reached the provider and then had no session to receive
+            // it.
             qWarning("SynQt: letting go of the tokens of a login no session was bound to "
                      "within %d seconds; the caller that started it did not come back",
                      m_unclaimedWindowSeconds);
@@ -160,17 +146,15 @@ OAuthBackend::~OAuthBackend() = default;
 
 QNetworkAccessManager *OAuthBackend::network()
 {
-    // One manager for every call this backend makes, created on the first of them and
-    // given the egress route a server takes. What its own environment names, never the
-    // machine's browser settings (see SynQt::applyEnvironmentProxy).
+    // One manager for every call this backend makes, created on first use, with the server
+    // egress route its own environment names, never the machine's browser settings (see
+    // SynQt::applyEnvironmentProxy).
     if (!m_network) {
         m_network = new QNetworkAccessManager{this};
         applyEnvironmentProxy(m_network);
-        // The token exchange itself is a request Qt's flow makes on this manager, so it is
-        // not one boundReply() can reach: the ExchangeJob's deadline answers the login and
-        // lets go of the flow, and the reply the flow left in flight stayed open on this
-        // manager until the provider closed it. The same deadline, applied by the manager
-        // to every request it carries, is what ends that one too.
+        // The token exchange is a request Qt's flow makes on this manager, out of
+        // boundReply()'s reach. The manager applies the same deadline to every request, so
+        // that one is ended too.
         m_network->setTransferTimeout(std::chrono::milliseconds{kProviderTimeoutMs});
     }
     return m_network;
@@ -196,8 +180,8 @@ QOAuth2AuthorizationCodeFlow *OAuthBackend::makeFlow(const IdentityProviderConfi
     flow->setClientIdentifierSharedKey(provider.clientSecret);
     flow->setPkceMethod(QOAuth2AuthorizationCodeFlow::PkceMethod::S256);
     if (!provider.scopes.isEmpty()) {
-        // requestedScopeTokens, not the space-joined scope string: setScope is deprecated
-        // since 6.11 and Qt joins the tokens itself for the request.
+        // requestedScopeTokens, not the joined scope string: setScope is deprecated since
+        // 6.11.
         QSet<QByteArray> tokens;
         tokens.reserve(provider.scopes.size());
         for (const QString &scope : provider.scopes) {
@@ -226,8 +210,8 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
         result.error = QStringLiteral("dev stub provider is disabled");
         return result;
     }
-    // Refused here, at the last moment before a browser is sent anywhere, because this is
-    // the one place every login must pass through however the config was assembled.
+    // Refused here, the last point before a browser is sent anywhere, which every login
+    // passes.
     if (const QString endpoint{insecureEndpoint(*provider)}; !endpoint.isEmpty()) {
         qWarning("SynQt: identity provider '%s' has a plaintext %s endpoint; refusing the "
                  "login rather than sending the secret, the code or the signing keys over "
@@ -235,11 +219,9 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
         result.error = QStringLiteral("insecure provider endpoint");
         return result;
     }
-    // An ID token is checked against the issuer the provider was configured with, and a
-    // provider that names none skips that check entirely. Refused here rather than left to
-    // pass silently, because "the iss claim is not compared" is not a thing anybody chooses
-    // on purpose, and the same place already refuses the other configuration that would
-    // send a login somewhere it should not go.
+    // An ID token is checked against the configured issuer, and a provider without one
+    // skips that check, so such a provider is refused here along with the other unsafe
+    // configurations.
     if (provider->useIdToken && provider->issuer.isEmpty()) {
         qWarning("SynQt: identity provider '%s' verifies ID tokens but names no issuer, so "
                  "the iss claim would not be checked at all; set identity.providers.%s."
@@ -247,9 +229,9 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
         result.error = QStringLiteral("provider names no issuer");
         return result;
     }
-    // Bounded before the flow is built, so a refused login costs one comparison rather than
-    // an object held for five minutes. Sweeping first (expirePending, above) means this is
-    // reached only when that many logins are in flight.
+    // Bounded before the flow is built, so a refused login costs one comparison.
+    // expirePending runs first, so this is reached only when that many logins are really in
+    // flight.
     if (m_pending.size() >= kMaxPendingLogins) {
         qWarning("SynQt: %d logins are already in flight and none has completed; refusing "
                  "this one rather than growing further", kMaxPendingLogins);
@@ -261,19 +243,13 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
     const QString state{randomToken()};
     flow->setState(state);
 
-    // OpenID Connect: bind the ID token to this request with a nonce carried in the
-    // authorization request and checked on the returned ID token.
+    // OpenID Connect: bind the ID token to this request with a nonce in the authorization
+    // request, checked on the returned ID token.
     //
-    // Through Qt's own nonce rather than by adding a parameter, and the difference is not
-    // cosmetic. `NonceMode::Automatic` is the default, and it puts a nonce of Qt's own in
-    // the request whenever the scope contains `openid`. A second one inserted here went
-    // into the same QMultiMap, so the authorization request carried the parameter twice,
-    // with two different values. RFC 6749 section 3.1 says a request parameter MUST NOT
-    // be included more than once, and a provider that enforces it answers invalid_request
-    // rather than signing anybody in. One that does not enforce it picks whichever value
-    // it reads first, which is a coin toss on whether the ID token's nonce then matches
-    // the one recorded here. Setting the mode explicitly and handing Qt the value keeps
-    // this framework's own random token and leaves exactly one nonce in the request.
+    // Through Qt's own nonce setting, not an extra parameter. `NonceMode::Automatic` (the
+    // default) already adds a nonce when the scope contains `openid`, and a second
+    // parameter would send two values, which RFC 6749 section 3.1 forbids. Setting the mode
+    // explicitly and passing Qt this framework's random value keeps exactly one nonce.
     QString nonce;
     if (provider->useIdToken) {
         nonce = randomToken();
@@ -308,9 +284,9 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
 
 /// The steps of one exchange, taken as each reply arrives.
 ///
-/// Owned by the backend and gone once it has answered. The flow it drives is the pending
-/// login's, and the tokens it ends with are the backend's. Every step reports through the
-/// one `done` the caller handed in, exactly once.
+/// Owned by the backend and deleted once it has answered. It drives the pending login's
+/// flow and leaves the tokens with the backend. It reports exactly once, through the
+/// caller's `done`.
 class OAuthBackend::ExchangeJob : public QObject
 {
 public:
@@ -351,8 +327,8 @@ private:
     {
         QOAuth2AuthorizationCodeFlow *flow{m_pending.flow};
         if (m_provider.useIdToken) {
-            // OpenID Connect: identity from the ID token, whose signature is verified
-            // against the provider JWKS before any claim is trusted.
+            // OpenID Connect: identity comes from the ID token, verified against the
+            // provider JWKS before any claim is trusted.
             if (!m_backend->m_jwks) {
                 m_backend->m_jwks = new JwksVerifier{m_backend->network(), m_backend};
             }
@@ -401,12 +377,10 @@ private:
         }
         const QVariantMap profile{document.object().toVariantMap()};
 
-        // The subject, first and required. Everything downstream keys on it: the scope
-        // mapping reads it, a device credential is enrolled against it, and an application
-        // tells one user from another by it. A profile that carries none (a misspelled
-        // `sub_field`, a provider that answered something else) would otherwise sign every
-        // such visitor in as the same empty subject, which is one shared account rather
-        // than a failed login.
+        // The subject comes first and is required: the scope mapping, device enrolment and
+        // the application all key on it. A profile without one (a misspelled `sub_field`,
+        // an unexpected answer) would otherwise sign every such visitor in as the same
+        // empty subject.
         const QString subject{profile.value(m_provider.subField).toString()};
         if (subject.isEmpty()) {
             fail(QStringLiteral("userinfo response carried no '%1'").arg(m_provider.subField));
@@ -433,8 +407,8 @@ private:
         QString email;
         const QJsonDocument emailsDoc{QJsonDocument::fromJson(body)};
         if (emailsDoc.isArray()) {
-            // Copy initialized, not braced: QJsonArray's initializer_list constructor
-            // would take this array as a single element (see Topology::topologyFromJson).
+            // Copy-initialized, not braced: QJsonArray's initializer_list constructor would
+            // take the array as one element (see Topology::topologyFromJson).
             const QJsonArray emails = emailsDoc.array();
             for (const QJsonValue &value : emails) {
                 const QJsonObject entry{value.toObject()};
@@ -464,7 +438,7 @@ private:
         m_answered = true;
         QOAuth2AuthorizationCodeFlow *flow{m_pending.flow};
         // Store the tokens under the state key (rekeyed to the session id once it exists).
-        // The tokens never leave this engine and are never logged.
+        // They never leave this engine and are never logged.
         TokenEntry entry;
         entry.providerName = m_pending.providerName;
         entry.accessToken = flow->token();
@@ -472,8 +446,8 @@ private:
         entry.idToken = flow->idToken();
         const QDateTime expiry{flow->expirationAt()};
         entry.expiresAtMs = expiry.isValid() ? expiry.toMSecsSinceEpoch() : 0;
-        // Under the state key and unclaimed. The caller binds a session to it next, and
-        // OAuthBackend::releaseUnclaimed is what happens when it never does.
+        // Under the state key and unclaimed. The caller binds a session next;
+        // OAuthBackend::releaseUnclaimed handles the case where it never does.
         entry.storedMs = QDateTime::currentMSecsSinceEpoch();
         entry.bound = false;
         m_backend->m_tokens.insert(m_state, entry);
@@ -502,10 +476,8 @@ private:
 
     void answer(const ExchangeResult &result)
     {
-        // Retired before the caller is told, so a caller that starts another exchange
-        // from inside `done` finds this one gone. The callback is moved out first: the
-        // deferred delete cannot run under this stack, but a callback that owns something
-        // should not have to know that.
+        // Retired before the caller is told, so a new exchange started inside `done` finds
+        // this one gone. The callback is moved out first.
         const ExchangeCallback done{std::move(m_done)};
         deleteLater();
         done(result);
@@ -524,9 +496,8 @@ OAuthBackend::ExchangeResult OAuthBackend::exchange(const QString &state, const 
                                                     const QString &redirectUri,
                                                     const QString &presentedBinding)
 {
-    // The asynchronous form, waited on. A route handler may wait (it answers when it
-    // returns, and the identity routes bound how many of them may be waiting at once). A
-    // slot may not, and takes exchangeAsync directly.
+    // The asynchronous form, waited on. A route handler may wait (the identity routes bound
+    // how many wait at once); a slot may not, and uses exchangeAsync.
     ExchangeResult result;
     bool answered{false};
     QEventLoop loop;
@@ -537,8 +508,7 @@ OAuthBackend::ExchangeResult OAuthBackend::exchange(const QString &state, const 
         loop.quit();
     });
     if (!answered) {
-        // The loop serves other callers while it spins, and they are not this caller's
-        // story. See SynQt::TraceScope on detaching.
+        // The loop serves other callers while it spins. See SynQt::TraceScope on detaching.
         const SynQt::TraceScope untraced{SynQt::TraceContext{}};
         loop.exec();
     }
@@ -551,8 +521,8 @@ void OAuthBackend::exchangeAsync(const QString &state, const QString &code,
 {
     Q_UNUSED(redirectUri);  // the pending flow already carries the matching redirect_uri
 
-    // Only a state this engine issued (and still holds) is accepted. An unknown or replayed
-    // state is rejected before any token exchange.
+    // Only a state this engine issued and still holds is accepted; unknown or replayed
+    // states are rejected before any exchange.
     if (state.isEmpty() || !m_pending.contains(state)) {
         ExchangeResult result;
         result.error = QStringLiteral("invalid or expired state");
@@ -562,15 +532,11 @@ void OAuthBackend::exchangeAsync(const QString &state, const QString &code,
     Pending pending{m_pending.take(state)};
     QOAuth2AuthorizationCodeFlow *flow{pending.flow};
 
-    // Login-CSRF defense, checked here rather than by the caller and checked before the
-    // code is spent. Here, because the record it is checked against lives here, and a
-    // check that travels away from its data is a check each caller can forget. Before,
-    // because exchanging first would hand a real authorization code to whoever sent this
-    // callback and only then notice it was not the browser that started the login.
+    // Login-CSRF check, here and before the code is spent: here, because the record lives
+    // here; before, because exchanging first would hand a real authorization code to
+    // whoever sent the callback.
     //
-    // The pending record is already taken, so this is single-use whichever way it goes: a
-    // callback replayed after a success finds no state, and one replayed after a mismatch
-    // finds none either.
+    // The pending record is already taken, so the state is single-use whatever the outcome.
     if (!pending.binding.isEmpty() && !constantTimeEquals(presentedBinding, pending.binding)) {
         flow->deleteLater();
         ExchangeResult result;
@@ -589,8 +555,8 @@ void OAuthBackend::exchangeAsync(const QString &state, const QString &code,
         return;
     }
 
-    // From here on nothing is waited for. The job answers through `done` as the provider
-    // does, and takes itself down when it has.
+    // Nothing is waited on from here. The job answers through `done` when the provider
+    // does, then deletes itself.
     auto *job{new ExchangeJob{this, std::move(pending), state, *provider, std::move(done)}};
     job->start(code);
 }
@@ -605,8 +571,7 @@ void OAuthBackend::rekeyTokens(const QString &fromKey, const QString &toKey)
         return;
     }
     TokenEntry moved{it.value()};
-    // Claimed: a session names it now, so it lives and dies with that session rather than
-    // with the window an unbound login gets.
+    // Claimed: it now lives and ends with its session, not with the unbound-login window.
     moved.bound = true;
     m_tokens.insert(toKey, moved);
     m_tokens.erase(m_tokens.find(fromKey));
@@ -657,10 +622,9 @@ void OAuthBackend::setAutoRefresh(int intervalSeconds, int marginSeconds)
 
 int OAuthBackend::refreshExpiring(int marginSeconds)
 {
-    // One sweep at a time. Each refresh waits on the provider in a nested event loop, and
-    // the refresh timer keeps firing while it does, so without this a slow provider starts
-    // a second sweep over the same due list inside the first. The same refresh token spent
-    // twice, which a provider that rotates them answers by invalidating both.
+    // One sweep at a time. Each refresh waits in a nested event loop while the timer keeps
+    // firing, so a slow provider would start a second sweep over the same list and spend a
+    // refresh token twice, which a rotating provider answers by invalidating both.
     if (m_sweeping) {
         return 0;
     }
@@ -691,13 +655,10 @@ int OAuthBackend::refreshExpiring(int marginSeconds)
 
 bool OAuthBackend::refreshOne(const QString &key)
 {
-    // Read out by value, never held as an iterator. Everything below waits on the network
-    // in a nested event loop, and that loop runs every other handler this backend has: a
-    // callback completing inserts into m_tokens and can rehash it, a session expiring or
-    // being revoked erases from it. Either one leaves an iterator taken before the wait
-    // pointing at memory the hash no longer owns, and the writes at the end of this
-    // function land there. So the entry is copied out, the wait happens, and the row is
-    // looked up again afterwards under the same key.
+    // Read by value, never through a held iterator. Everything below waits in a nested
+    // event loop that runs other handlers: a completing callback may insert into m_tokens
+    // and rehash it, and a session ending may erase from it. So the entry is copied, the
+    // wait happens, and the row is looked up again afterwards.
     const auto before{m_tokens.constFind(key)};
     if (before == m_tokens.constEnd() || before->refreshToken.isEmpty()) {
         return false;
@@ -708,8 +669,8 @@ bool OAuthBackend::refreshOne(const QString &key)
         return false;
     }
 
-    // RFC 6749 section 6: exchange the refresh token for a fresh access token, server-side. The
-    // client secret stays here. The browser is never involved.
+    // RFC 6749 section 6: exchange the refresh token for a new access token, server-side.
+    // The client secret stays here.
     QUrlQuery body;
     body.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("refresh_token"));
     body.addQueryItem(QStringLiteral("refresh_token"), entry.refreshToken);
@@ -728,17 +689,14 @@ bool OAuthBackend::refreshOne(const QString &key)
     QNetworkReply *reply{
         network()->post(request, body.toString(QUrl::FullyEncoded).toUtf8())};
 
-    // A sweep runs from a timer and not from a slot or a route, so it may wait. What it
-    // waits with is the same bound every other request to a provider has. A reply the
-    // deadline walked out on is finished with an abort, which reads below as an error and
-    // keeps the old entry, which is the right outcome either way. It may still have time
-    // left on it.
+    // A sweep runs from a timer, so it may wait, with the same bound as every provider
+    // request. A reply abandoned at the deadline reads as an error below and keeps the old
+    // entry, which may still be valid.
     boundReply(reply);
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     {
-        // The loop serves other callers while it spins, and they are not this caller's
-        // story. See SynQt::TraceScope on detaching.
+        // The loop serves other callers while it spins. See SynQt::TraceScope on detaching.
         const SynQt::TraceScope untraced{SynQt::TraceContext{}};
         loop.exec();
     }
@@ -757,11 +715,9 @@ bool OAuthBackend::refreshOne(const QString &key)
         return false;  // a provider error (e.g. invalid_grant): keep the old entry
     }
 
-    // Looked up again rather than written through the iterator taken at the top: the wait
-    // above ran every other handler, and the row may have been rekeyed to a new session
-    // id, replaced by a second sign-in, or erased by a revocation while it did. A row that
-    // is no longer there is a session that ended mid-refresh, and the fresh tokens are
-    // dropped. Writing them back would resurrect a credential somebody revoked.
+    // Looked up again: during the wait the row may have been rekeyed, replaced by a second
+    // sign-in, or erased by a revocation. If it is gone the session ended, and the new
+    // tokens are dropped rather than restoring a revoked credential.
     const auto after{m_tokens.find(key)};
     if (after == m_tokens.end()) {
         return false;
@@ -776,15 +732,12 @@ bool OAuthBackend::refreshOne(const QString &key)
     if (!freshId.isEmpty()) {
         after->idToken = freshId;
     }
-    // A lifetime the provider named, or none at all, and never the one that expired.
+    // The lifetime the provider gave, or none; never the expired one.
     //
-    // `expires_in` is RECOMMENDED and not REQUIRED (RFC 6749 section 5.1), so a provider may
-    // conform and leave it out. Keeping the old value then leaves the entry permanently past
-    // its threshold. The sweep picks it up again on its next pass, refreshes it again, gets
-    // no lifetime again, and spends a refresh token against the provider once per interval
-    // for the life of the session. Zero is what the exchange already writes for a token
-    // whose expiry the provider did not give (see exchange()), and refreshExpiring() skips
-    // an entry at zero, because a deadline nothing knows is not one a timer can act on.
+    // `expires_in` is recommended, not required (RFC 6749 section 5.1). Keeping the old
+    // value would leave the entry past its threshold, and the sweep would refresh it every
+    // interval for the life of the session. Zero is what the exchange writes for an unknown
+    // expiry (see exchange()), and refreshExpiring() skips it.
     const QJsonValue expiresIn{object.value(QStringLiteral("expires_in"))};
     after->expiresAtMs = expiresIn.isDouble()
         ? QDateTime::currentMSecsSinceEpoch()
@@ -801,8 +754,8 @@ void OAuthBackend::httpGet(const QUrl &url, const QString &bearer, QObject *cont
     request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("application/json"));
     QNetworkReply *reply{network()->get(request)};
     boundReply(reply);
-    // Answered on `context`, so a job that is gone by the time the provider answers is
-    // not told anything. The reply is still finished and freed, on its own.
+    // Answered on `context`, so a job that is gone is not told. The reply is still finished
+    // and freed.
     connect(reply, &QNetworkReply::finished, context, [reply, url, done]() {
         reply->deleteLater();
         const QString bound{boundReplyFailure(reply, url)};

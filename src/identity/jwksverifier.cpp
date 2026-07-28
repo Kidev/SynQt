@@ -3,6 +3,8 @@
 
 #include "jwksverifier.h"
 
+#include "boundedreply.h"
+
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -20,19 +22,16 @@ namespace SynQt {
 
 namespace {
 
-/// The floor on refetching one provider's key set. A rotation is a rare event and a
-/// stream of tokens naming keys that do not exist is not, so the refetch a rotation needs
-/// must not be a request an unverified token can ask for at will.
+/// The minimum interval between refetches of one provider's key set. Key rotation is rare;
+/// tokens naming unknown keys are not, so they must not trigger requests at will.
 constexpr qint64 kMinRefetchMs{5 * 60 * 1000};
 
-/// How large a key set may be before this refuses to hold it. A JWKS is a handful of public
-/// keys. A megabyte is orders of magnitude above the largest real one and well below what
-/// the process can spend on a document it is about to parse as JSON.
+/// The largest key set this holds. A JWKS is a few public keys; a megabyte is far above any
+/// real one and well below what parsing may cost.
 constexpr qint64 kMaxJwksBytes{1024 * 1024};
 
-/// How many fetches of a key set may be in flight at once. A fetch is one request to the
-/// provider per login that needs one, and a provider that goes slow must not turn a queue
-/// of callbacks into an unbounded set of open replies.
+/// How many key set fetches may be in flight at once, so a slow provider cannot turn a
+/// queue of callbacks into unbounded open replies.
 constexpr int kMaxConcurrentFetches{16};
 
 /// How long one fetch may take.
@@ -48,18 +47,14 @@ QJsonObject jsonSegment(const QString &segment)
     return QJsonDocument::fromJson(decodeBase64Url(segment)).object();
 }
 
-// The JWK whose kid matches, or the sole key when the token carries no kid.
+// The JWK whose kid matches, or the only key when the token has no kid.
 //
-// "Sole" is the whole no-kid case. Returning the first key of however many there are
-// is not the same thing. A provider publishes two keys
-// for the length of a rotation, and a token with no kid would then verify or not depending
-// on which of them the provider happened to list first. Failing is the correct answer, and
-// failing with a reason that names the ambiguity beats failing with "signature invalid",
-// which sends whoever is reading the log looking for the wrong thing.
+// With several keys and no kid there is no answer: during a rotation a provider publishes
+// two keys, and taking the first would make verification depend on the list order. The
+// failure names the ambiguity instead of reporting an invalid signature.
 QJsonObject selectKey(const QByteArray &jwks, const QString &kid)
 {
-    // Copy-init, not brace-init: QJsonArray{anArray} would wrap the array as a single
-    // element (its initializer_list is of QJsonValue), not copy it.
+    // Copy-init, not brace-init: QJsonArray{anArray} would wrap the array as one element.
     const QJsonArray keys =
         QJsonDocument::fromJson(jwks).object().value(QStringLiteral("keys")).toArray();
     if (kid.isEmpty()) {
@@ -104,15 +99,14 @@ void JwksVerifier::fetchJwks(const QUrl &jwksUrl, bool force, FetchCallback done
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
     if (cached != m_jwksCache.constEnd()
         && (!force || now - cached->fetchedMs < kMinRefetchMs)) {
-        // Held, and either good enough or refetched too recently to try again. The rate
-        // limit is what stops a stream of tokens naming keys that do not exist from
-        // turning into a stream of requests to the provider.
+        // Cached, and either fresh or refetched too recently. The rate limit stops tokens
+        // naming unknown keys from triggering provider requests.
         done(!force, QString{});
         return;
     }
     if (!isSecureIdentityEndpoint(jwksUrl)) {
-        // The keys every ID token is trusted against. Over http, whoever is on the path
-        // chooses who your users are.
+        // These keys authenticate every ID token; over http, anyone on the path could
+        // choose your users.
         done(false, QStringLiteral("refusing to fetch JWKS over a plaintext connection"));
         return;
     }
@@ -123,23 +117,13 @@ void JwksVerifier::fetchJwks(const QUrl &jwksUrl, bool force, FetchCallback done
     ++m_fetching;
 
     QNetworkReply *reply{m_network->get(QNetworkRequest{jwksUrl})};
-    // The size ceiling, checked as the body arrives. These are the keys every ID token is
-    // trusted against, so the endpoint is one an attacker would like to control. A document
-    // this size is not a key set whatever it is, and reading it to the end to find that out
-    // is the part worth refusing.
-    connect(reply, &QNetworkReply::downloadProgress, reply,
-            [reply](qint64 received, qint64 total) {
-        if (received > kMaxJwksBytes || total > kMaxJwksBytes) {
-            reply->setProperty("synqtTooLarge", true);
-            reply->abort();
-        }
-    });
-    // The deadline. A reply walked out on carries no error of its own, so the timer marks
-    // the reply before aborting it and the handler below reads the mark rather than
-    // taking a half-arrived body for a whole one: this is the one place that would then
-    // be cached as the key set, with `fetchedMs` set to now, which the refetch floor holds
-    // for five minutes. A provider that went slow once would refuse every login for the
-    // rest of that window.
+    // The size ceiling, checked as the body arrives. This endpoint is worth attacking, and
+    // a document this large is not a key set, so it is not read to the end.
+    refuseAnswersLargerThan(reply, kMaxJwksBytes);
+    // The deadline. An abandoned reply carries no error, so the timer marks it before
+    // aborting and the handler reads the mark. Otherwise a partial body could be cached as
+    // the key set with `fetchedMs` set to now, and the refetch floor would refuse every
+    // login for five minutes.
     QTimer *deadline{new QTimer{reply}};
     deadline->setSingleShot(true);
     connect(deadline, &QTimer::timeout, reply, [reply]() {
@@ -148,9 +132,8 @@ void JwksVerifier::fetchJwks(const QUrl &jwksUrl, bool force, FetchCallback done
     });
     deadline->start(kFetchTimeoutMs);
 
-    // Freed whatever happens to this verifier. The handler below is bound to `this` and
-    // goes with it, and a reply nothing ever deletes would then sit on the network manager
-    // until the manager itself went.
+    // Freed whatever happens to this verifier: the handler is bound to `this` and goes with
+    // it, and an undeleted reply would stay on the network manager.
     connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
     connect(reply, &QNetworkReply::finished, this, [this, reply, jwksUrl, done]() {
         --m_fetching;
@@ -167,8 +150,8 @@ void JwksVerifier::fetchJwks(const QUrl &jwksUrl, bool force, FetchCallback done
             return;
         }
         const QByteArray body{reply->readAll()};
-        // A key set with no keys in it is not a key set. Caching one would put the refetch
-        // floor in front of the real answer for five minutes, exactly as a timeout would.
+        // A key set without keys is refused; caching it would block the refetch for five
+        // minutes, as a timeout would.
         if (QJsonDocument::fromJson(body).object().value(QStringLiteral("keys")).toArray()
                 .isEmpty()) {
             done(false, QStringLiteral("JWKS response carried no keys"));
@@ -224,10 +207,9 @@ void JwksVerifier::verifyAsync(const QString &idToken, const IdentityProviderCon
             answer(jwk);
             return;
         }
-        // The key set on hand does not contain this token's key. The ordinary reason is a
-        // rotation. The provider signed with a key it published after this set was
-        // fetched. Fetch once more (rate limited inside fetchJwks) and look again, or the
-        // first rotation would end every login until the edge restarts.
+        // The cached set lacks this token's key, usually because of a rotation. Fetch once
+        // more (rate-limited in fetchJwks) and look again, or the first rotation would
+        // break every login until a restart.
         fetchJwks(provider.jwksUrl, true,
                   [this, cacheKey, kid, missingKey, answer, done](bool refreshed,
                                                                   const QString &) {
@@ -257,7 +239,7 @@ QVariantMap JwksVerifier::checkToken(const QStringList &parts, const QJsonObject
         return fail(QStringLiteral("the ID token's signing key is not RSA"));
     }
 
-    // Build the RSA public key from the JWK modulus/exponent and verify the RS256
+    // Build the RSA public key from the JWK modulus and exponent, and verify the RS256
     // signature over the exact signing input (base64url header "." base64url payload).
     std::error_code ec;
     const std::string pem{jwt::helper::create_public_key_from_rsa_components(
@@ -289,11 +271,9 @@ QVariantMap JwksVerifier::checkToken(const QStringList &parts, const QJsonObject
     if (!audienceMatches(payload.value(QStringLiteral("aud")), audience)) {
         return fail(QStringLiteral("ID-token audience mismatch"));
     }
-    // `exp` is required by OpenID Connect and required here, rather than checked only
-    // when present. A token that carries none is not a token that never expires. It is a
-    // token whose lifetime nothing bounds, and accepting it means a copy taken today is
-    // still a valid sign-in years from now. The 60 seconds is clock skew between this
-    // edge and the provider, and nothing more.
+    // `exp` is required by OpenID Connect and required here. A token without one has no
+    // bounded lifetime, so a copy would sign in forever. The 60 seconds cover clock
+    // skew with the provider.
     const qint64 now{QDateTime::currentSecsSinceEpoch()};
     const QJsonValue expiry{payload.value(QStringLiteral("exp"))};
     if (!expiry.isDouble()) {
@@ -302,9 +282,8 @@ QVariantMap JwksVerifier::checkToken(const QStringList &parts, const QJsonObject
     if (static_cast<qint64>(expiry.toDouble()) + 60 < now) {
         return fail(QStringLiteral("ID token expired"));
     }
-    // A subject is what the whole session is keyed on downstream (the scope mapping reads
-    // it, and a device credential is enrolled against it). A token with none would sign
-    // somebody in as nobody, and every such visitor would be the same nobody.
+    // Every session is keyed on the subject (the scope mapping, device enrolment). A token
+    // without one would sign everyone in as the same nobody.
     if (payload.value(QStringLiteral("sub")).toString().isEmpty()) {
         return fail(QStringLiteral("ID token carries no subject"));
     }

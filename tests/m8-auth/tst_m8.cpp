@@ -27,6 +27,7 @@
 
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QHostAddress>
 #include <QHttpServer>
 #include <QHttpServerResponse>
@@ -56,7 +57,14 @@
 #include <QTimer>
 #include <QUrlQuery>
 
+#include <jwt-cpp/jwt.h>
+
+#include <openssl/core_names.h>
+#include <openssl/evp.h>
+
+#include <chrono>
 #include <memory>
+#include <string>
 
 using namespace SynQt;
 
@@ -178,6 +186,136 @@ private:
     QHttpServer m_server;
     QTcpServer *m_socket{nullptr};
 };
+
+/// ID tokens this test signs itself, and the key set that verifies them.
+///
+/// The stub provider decides every claim it issues, and the claims worth refusing are the
+/// ones it never gets wrong: an expiry in the past, an audience listed among others, a key
+/// that is not RSA. So the test signs with a key of its own, the RSA key the configure step
+/// issued for the `auth` entity, and publishes that key's modulus and exponent itself.
+class TokenSigner
+{
+public:
+    TokenSigner()
+    {
+        QFile file{QStringLiteral(M8_CERT_DIR "/auth.key")};
+        if (file.open(QIODevice::ReadOnly)) {
+            m_privatePem = file.readAll().toStdString();
+        }
+    }
+
+    bool isReady() const { return !m_privatePem.empty() && !modulus().isEmpty(); }
+
+    /// The key as a JWKS entry named \a kid, of key type \a kty.
+    QJsonObject jwk(const QString &kid, const QString &kty = QStringLiteral("RSA")) const
+    {
+        QJsonObject key;
+        key.insert(QStringLiteral("kty"), kty);
+        key.insert(QStringLiteral("kid"), kid);
+        key.insert(QStringLiteral("alg"), QStringLiteral("RS256"));
+        key.insert(QStringLiteral("use"), QStringLiteral("sig"));
+        key.insert(QStringLiteral("n"), QString::fromLatin1(modulus()));
+        key.insert(QStringLiteral("e"), QString::fromLatin1(parameter(OSSL_PKEY_PARAM_RSA_E)));
+        return key;
+    }
+
+    /// An RS256 token under \a kid carrying \a audience, expiring \a expiresIn from now.
+    /// One audience is written as a string, more than one as an array, as providers do.
+    QString sign(const QString &kid, const QStringList &audience,
+                 std::chrono::seconds expiresIn, const QString &nonce) const
+    {
+        using Json = jwt::traits::kazuho_picojson;
+        Json::array_type audiences;
+        for (const QString &entry : audience) {
+            audiences.push_back(Json::value_type{entry.toStdString()});
+        }
+        const auto now{std::chrono::system_clock::now()};
+        auto builder{jwt::create()};
+        if (audience.size() == 1) {
+            builder.set_audience(audience.first().toStdString());
+        } else {
+            builder.set_audience(audiences);
+        }
+        return QString::fromStdString(
+            builder
+                .set_key_id(kid.toStdString())
+                .set_type("JWT")
+                .set_issuer("https://own.example")
+                .set_subject("ada")
+                .set_issued_at(now)
+                .set_expires_at(now + expiresIn)
+                .set_payload_claim("nonce", jwt::claim(nonce.toStdString()))
+                .sign(jwt::algorithm::rs256{"", m_privatePem, "", ""}));
+    }
+
+private:
+    QByteArray modulus() const { return parameter(OSSL_PKEY_PARAM_RSA_N); }
+
+    QByteArray parameter(const char *name) const
+    {
+        std::error_code ec;
+        const auto key{jwt::helper::load_private_key_from_string(m_privatePem, "", ec)};
+        if (ec) {
+            return QByteArray{};
+        }
+        BIGNUM *number{nullptr};
+        if (EVP_PKEY_get_bn_param(key.get(), name, &number) != 1) {
+            return QByteArray{};
+        }
+        QByteArray bytes(BN_num_bytes(number), Qt::Uninitialized);
+        BN_bn2bin(number, reinterpret_cast<unsigned char *>(bytes.data()));
+        BN_free(number);
+        return bytes.toBase64(QByteArray::Base64UrlEncoding
+                              | QByteArray::OmitTrailingEquals);
+    }
+
+    std::string m_privatePem;
+};
+
+/// A loopback endpoint that answers every request with the same raw bytes and then says
+/// nothing more, so a test can serve an answer no well-behaved server would: a length far
+/// past a ceiling, followed by a stall.
+class RawAnswerHost : public QTcpServer
+{
+public:
+    explicit RawAnswerHost(QByteArray answer)
+        : m_answer{std::move(answer)}
+    {
+        listen(QHostAddress::LocalHost, 0);
+    }
+
+    QUrl url(const QString &path) const
+    {
+        return QUrl{QStringLiteral("http://127.0.0.1:%1%2").arg(serverPort()).arg(path)};
+    }
+
+protected:
+    void incomingConnection(qintptr descriptor) override
+    {
+        QTcpSocket *socket{new QTcpSocket{this}};
+        if (!socket->setSocketDescriptor(descriptor)) {
+            delete socket;
+            return;
+        }
+        const QByteArray answer{m_answer};
+        connect(socket, &QTcpSocket::readyRead, socket, [socket, answer]() {
+            socket->readAll();
+            socket->write(answer);
+            socket->flush();
+        });
+    }
+
+private:
+    QByteArray m_answer;
+};
+
+/// A whole HTTP answer carrying \a body as JSON, for a RawAnswerHost.
+QByteArray jsonAnswer(const QByteArray &body)
+{
+    return QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                             "Content-Length: ")
+           + QByteArray::number(body.size()) + QByteArrayLiteral("\r\n\r\n") + body;
+}
 
 /// One web edge, on a thread with a quarter of a megabyte of stack.
 ///
@@ -612,6 +750,28 @@ private:
         return result.error.isEmpty() && !result.tokenKey.isEmpty();
     }
 
+    /// One whole login on `backend` through the provider named \a provider, answering with
+    /// what the exchange produced: the identity, or the reason there is none.
+    OAuthBackend::ExchangeResult loginThrough(OAuthBackend *backend, const QString &provider)
+    {
+        const OAuthBackend::BeginResult begun{
+            backend->begin(provider, edgeUrl(QStringLiteral("/auth/callback")))};
+        OAuthBackend::ExchangeResult failed;
+        if (begun.state.isEmpty()) {
+            failed.error = QStringLiteral("the login did not begin: %1").arg(begun.error);
+            return failed;
+        }
+        const Response redirected{get(begun.authorizeUrl)};
+        const QString code{QUrlQuery{QUrl{redirected.location}.query()}
+                               .queryItemValue(QStringLiteral("code"))};
+        if (code.isEmpty()) {
+            failed.error = QStringLiteral("the provider issued no code");
+            return failed;
+        }
+        return backend->exchange(begun.state, code, edgeUrl(QStringLiteral("/auth/callback")),
+                                 QString{});
+    }
+
     /// One pending login on `service`, taken as far as a browser takes it. Begin, then the
     /// provider's /authorize, which redirects carrying the code.
     ///
@@ -1024,6 +1184,183 @@ private slots:
         // And nothing above quietly broke the verifier. The good token still verifies.
         error.clear();
         QVERIFY2(!verified(&verifier, idToken, good, nonce, &error).isEmpty(), qPrintable(error));
+    }
+
+    /// What an ID token is held to beyond its signature, on tokens this test signs itself
+    /// so each claim can be wrong on its own. A token past its expiry is refused, one inside
+    /// the minute of clock skew is not; an audience listed among others is this client's
+    /// when it is in the list and nobody's when it is not; and a key the provider publishes
+    /// as anything but RSA is not used to verify an RS256 signature.
+    void anIdTokenIsHeldToItsExpiryItsAudienceAndAnRsaKey()
+    {
+        const TokenSigner signer;
+        QVERIFY2(signer.isReady(), "the configure step issued no RSA key to sign with");
+        JwksHost rsa{QJsonArray{signer.jwk(QStringLiteral("own"))}};
+        JwksHost ec{QJsonArray{signer.jwk(QStringLiteral("own"), QStringLiteral("EC"))}};
+
+        IdentityProviderConfig provider;
+        provider.name = QStringLiteral("own");
+        provider.clientId = QStringLiteral("own-client");
+        provider.useIdToken = true;
+        provider.jwksUrl = rsa.url();
+        provider.issuer = QStringLiteral("https://own.example");
+        const QString nonce{QStringLiteral("own-nonce")};
+        const QStringList ours{QStringLiteral("own-client")};
+        const std::chrono::seconds minute{60};
+
+        QNetworkAccessManager network;
+        JwksVerifier verifier{&network};
+        QString error;
+        const auto verifies{[&](const QString &token, const IdentityProviderConfig &config) {
+            error.clear();
+            return !verified(&verifier, token, config, nonce, &error).isEmpty();
+        }};
+
+        QVERIFY2(verifies(signer.sign(QStringLiteral("own"), ours, 5 * minute, nonce), provider),
+                 qPrintable(error));
+        QVERIFY2(verifies(signer.sign(QStringLiteral("own"), {QStringLiteral("another-client"), QStringLiteral("own-client")},
+                                      5 * minute, nonce), provider),
+                 qPrintable(error));
+        QVERIFY(!verifies(signer.sign(QStringLiteral("own"), {QStringLiteral("another-client"), QStringLiteral("a-third")},
+                                      5 * minute, nonce), provider));
+        QCOMPARE(error, QStringLiteral("ID-token audience mismatch"));
+
+        QVERIFY(!verifies(signer.sign(QStringLiteral("own"), ours, -60 * minute, nonce),
+                          provider));
+        QCOMPARE(error, QStringLiteral("ID token expired"));
+        QVERIFY2(verifies(signer.sign(QStringLiteral("own"), ours, std::chrono::seconds{-30},
+                                      nonce), provider),
+                 qPrintable(error));
+
+        IdentityProviderConfig ellipticKeys{provider};
+        ellipticKeys.name = QStringLiteral("own-ec");
+        ellipticKeys.jwksUrl = ec.url();
+        QVERIFY(!verifies(signer.sign(QStringLiteral("own"), ours, 5 * minute, nonce),
+                          ellipticKeys));
+        QCOMPARE(error, QStringLiteral("the ID token's signing key is not RSA"));
+    }
+
+    /// The key set every ID token is trusted against is fetched only when it can be one. Over
+    /// plaintext from anywhere but this machine it is not fetched at all; an answer too large
+    /// to be a key set is refused as it arrives, well inside the fetch deadline, although the
+    /// sender then stalls; and a key set with no keys is refused rather than cached, which
+    /// would hold the refetch floor in front of the real one.
+    void aKeySetIsFetchedOnlyWhenItCanBeOne()
+    {
+        const TokenSigner signer;
+        QVERIFY2(signer.isReady(), "the configure step issued no RSA key to sign with");
+        const QString nonce{QStringLiteral("fetch-nonce")};
+        const QString token{signer.sign(QStringLiteral("own"), {QStringLiteral("own-client")},
+                                        std::chrono::minutes{5}, nonce)};
+        IdentityProviderConfig provider;
+        provider.name = QStringLiteral("fetch");
+        provider.clientId = QStringLiteral("own-client");
+        provider.useIdToken = true;
+        provider.issuer = QStringLiteral("https://own.example");
+
+        QNetworkAccessManager network;
+        JwksVerifier verifier{&network};
+        QString error;
+
+        provider.jwksUrl = QUrl{QStringLiteral("http://idp.example/jwks")};
+        QVERIFY(verified(&verifier, token, provider, nonce, &error).isEmpty());
+        QVERIFY2(error.contains(QStringLiteral("plaintext")), qPrintable(error));
+
+        RawAnswerHost oversized{QByteArrayLiteral("HTTP/1.1 200 OK\r\n"
+                                                  "Content-Type: application/json\r\n"
+                                                  "Content-Length: 2097152\r\n\r\n{\"keys\":[")};
+        provider.jwksUrl = oversized.url(QStringLiteral("/jwks"));
+        QElapsedTimer clock;
+        clock.start();
+        QVERIFY(verified(&verifier, token, provider, nonce, &error).isEmpty());
+        QVERIFY2(error.contains(QStringLiteral("larger than a key set can be")),
+                 qPrintable(error));
+        QVERIFY2(clock.elapsed() < 3000, "refused by the deadline, not by its size");
+
+        JwksHost empty{QJsonArray{}};
+        provider.jwksUrl = empty.url();
+        QVERIFY(verified(&verifier, token, provider, nonce, &error).isEmpty());
+        QVERIFY2(error.contains(QStringLiteral("carried no keys")), qPrintable(error));
+    }
+
+    /// How an OAuth2 profile becomes the identity object, on the provider shape GitHub
+    /// has: a numeric `id` for the subject, and a null `email` when the address is private,
+    /// with the addresses on an endpoint of their own. The primary address is taken only
+    /// when it is verified, because an unverified primary is one anybody could have typed;
+    /// a profile with no subject, one that is not an object, and one too large to be a
+    /// profile are refused, the last as it arrives rather than when the request times out;
+    /// and a provider with no way to say who signed in cannot sign anyone in.
+    void aProfileIsNormalizedOrTheLoginIsRefused()
+    {
+        const QByteArray privateEmail{
+            R"({"id": 1729, "login": "ada", "name": "Ada Lovelace", "email": null})"};
+        RawAnswerHost profile{jsonAnswer(privateEmail)};
+        RawAnswerHost emails{jsonAnswer(
+            R"([{"email": "old@example.org", "primary": false, "verified": true},)"
+            R"( {"email": "ada@example.org", "primary": true, "verified": true}])")};
+        RawAnswerHost unverifiedEmails{jsonAnswer(
+            R"([{"email": "typed@example.org", "primary": true, "verified": false}])")};
+        RawAnswerHost noSubject{jsonAnswer(R"({"login": "ada"})")};
+        RawAnswerHost notAnObject{jsonAnswer(R"(["ada"])")};
+        RawAnswerHost oversized{QByteArrayLiteral("HTTP/1.1 200 OK\r\n"
+                                                  "Content-Type: application/json\r\n"
+                                                  "Content-Length: 4194304\r\n\r\n{")};
+
+        const auto through{[this](const QString &name, const QUrl &userinfo,
+                                  const QUrl &emailsUrl) {
+            IdentityProviderConfig provider{stubProvider(m_stub->baseUrl())};
+            provider.name = name;
+            provider.userinfoUrl = userinfo;
+            provider.emailsUrl = emailsUrl;
+            return provider;
+        }};
+        IdentityConfig config;
+        config.enabled = true;
+        config.allowDevStub = true;
+        config.providers = {
+            through(QStringLiteral("github"), profile.url(QStringLiteral("/user")),
+                    emails.url(QStringLiteral("/user/emails"))),
+            through(QStringLiteral("unverified"), profile.url(QStringLiteral("/user")),
+                    unverifiedEmails.url(QStringLiteral("/user/emails"))),
+            through(QStringLiteral("no-subject"), noSubject.url(QStringLiteral("/user")), {}),
+            through(QStringLiteral("not-an-object"), notAnObject.url(QStringLiteral("/user")),
+                    {}),
+            through(QStringLiteral("oversized"), oversized.url(QStringLiteral("/user")), {}),
+            through(QStringLiteral("no-userinfo"), {}, {}),
+        };
+        OAuthBackend backend{config};
+
+        const OAuthBackend::ExchangeResult github{
+            loginThrough(&backend, QStringLiteral("github"))};
+        QVERIFY2(github.error.isEmpty(), qPrintable(github.error));
+        QCOMPARE(github.identity.value(QStringLiteral("sub")).toString(), QStringLiteral("1729"));
+        QCOMPARE(github.identity.value(QStringLiteral("login")).toString(), QStringLiteral("ada"));
+        QCOMPARE(github.identity.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Ada Lovelace"));
+        QCOMPARE(github.identity.value(QStringLiteral("email")).toString(),
+                 QStringLiteral("ada@example.org"));
+
+        const OAuthBackend::ExchangeResult unverified{
+            loginThrough(&backend, QStringLiteral("unverified"))};
+        QVERIFY2(unverified.error.isEmpty(), qPrintable(unverified.error));
+        QVERIFY2(unverified.identity.contains(QStringLiteral("email"))
+                     && unverified.identity.value(QStringLiteral("email")).isNull(),
+                 "an unverified primary address is not the user's address");
+
+        const auto refused{[&](const QString &name, const QString &reason) {
+            const OAuthBackend::ExchangeResult result{loginThrough(&backend, name)};
+            QVERIFY2(result.identity.isEmpty(), qPrintable(name + QStringLiteral(" signed in")));
+            QVERIFY2(result.error.contains(reason),
+                     qPrintable(QStringLiteral("%1: '%2', expected '%3'")
+                                    .arg(name, result.error, reason)));
+        }};
+        refused(QStringLiteral("no-subject"), QStringLiteral("carried no 'id'"));
+        refused(QStringLiteral("not-an-object"), QStringLiteral("was not an object"));
+        QElapsedTimer clock;
+        clock.start();
+        refused(QStringLiteral("oversized"), QStringLiteral("larger than a provider's can be"));
+        QVERIFY2(clock.elapsed() < 5000, "refused by the deadline, not by its size");
+        refused(QStringLiteral("no-userinfo"), QStringLiteral("no userinfo endpoint"));
     }
 
     /// Which key verifies an ID token, when the provider publishes more than one.
