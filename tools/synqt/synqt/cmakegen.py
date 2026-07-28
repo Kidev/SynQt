@@ -133,8 +133,12 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
 
 def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
     name = entity.get("name")
-    owned = appmodel.owned_by(config, name)
-    consumed = appmodel.mesh_consumed(config, name)
+    # Framework connect points are filtered out on both sides: their contracts live in
+    # src/service/contracts/ and are compiled into SynQtService, so an app has no
+    # `shared/Identity.syn` to point a synqt_add_contract at. That is what makes promoting
+    # identity to its own entity a one-line change to synqt.yaml and nothing else.
+    owned = appmodel.app_points(appmodel.owned_by(config, name))
+    consumed = appmodel.app_points(appmodel.mesh_consumed(config, name))
     libs = ["SynQtService"]
     if entity.get("blueprint") or entity.get("provider"):
         libs.append("SynQtProviders")

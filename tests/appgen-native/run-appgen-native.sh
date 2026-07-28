@@ -17,6 +17,10 @@
 # native desktop app here, which exercises the client main too. A green run means the generator
 # produces buildable code for the full service/edge/provider path.
 #
+# Two fixtures then go past compiling and RUN what was generated, because their claims are not
+# about the compiler: `routed/` says every declared route resolves to its view, and `promoted/`
+# says `identity.provider_entity` moves the client secret and the token exchange off the edge.
+#
 # Needs the pinned host kit (/opt/Qt/6.11.1/gcc_64). Usage:
 #   tests/appgen-native/run-appgen-native.sh
 
@@ -36,7 +40,7 @@ fi
 
 WORK="$REPO_ROOT/build/appgen-native"
 SRC="$WORK/gavel"
-echo "== [1/4] Materialize the gavel topology and run appgen over it =="
+echo "== [1/5] Materialize the gavel topology and run appgen over it =="
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
@@ -57,14 +61,14 @@ written = appgen.generate(app, config, synqt_root=repo)
 print("  appgen wrote:", ", ".join(written))
 PY
 
-echo "== [2/4] Configure + build every entity with the native host kit =="
+echo "== [2/5] Configure + build every entity with the native host kit =="
 cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=Release
 cmake --build "$SRC/build"
 
-echo "== [3/4] Assert each generated entity produced a native executable =="
+echo "== [3/5] Assert each generated entity produced a native executable =="
 rc=0
 for entity in client web database; do
     assert_native_exe "$SRC/build/$entity" "$entity" || rc=1
@@ -74,7 +78,7 @@ if [ "$rc" -ne 0 ]; then
     exit 1
 fi
 
-echo "== [4/4] A generated client with routes: build it, and watch the router resolve them =="
+echo "== [4/5] A generated client with routes: build it, and watch the router resolve them =="
 # Compiling is not enough for URL routing. Every route's view has to be IN the client's QML
 # module, and so does everything a view reaches (a helper component, a singleton), or the
 # qrc URL resolves to nothing and the router reports Error on a bundle that built perfectly.
@@ -129,5 +133,150 @@ for expected in "SYNQT-ROUTE path=/ status=Ready view=Home(panel,dark)" \
 done
 echo "  routed client : OK (every route resolved Ready, each to the view it names)"
 
-echo "APPGEN-NATIVE GATE: GO (appgen output compiles and links for every entity, and a"
-echo "                       generated client resolves every declared route to its view)"
+echo "== [5/5] Promoted identity: one line moves the OAuth engine off the edge =="
+# `identity.provider_entity: auth` is documented as a one-line change, so everything else it
+# needs is generated: two mesh connect points nobody declared, a Source QML bridge for each,
+# an auth main holding the OAuth engine and the authoritative session store, and an edge main
+# that adopts both Replicas in C++. Compiling that is necessary and not sufficient, because
+# the claim is about WHERE a secret lives, so this phase runs the pair and asks the edge for a
+# login it cannot answer by itself.
+PROMOTED="$WORK/promoted"
+cp -r "$REPO_ROOT/tests/appgen-native/promoted" "$PROMOTED"
+PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$PROMOTED" "$REPO_ROOT" <<'PY'
+import sys, yaml
+from pathlib import Path
+from synqt import appgen, check, mesh, topologywriter
+
+app, repo = Path(sys.argv[1]), sys.argv[2]
+ok, messages = check.check_project(app)
+for message in messages:
+    print("  synqt check:", message)
+if not ok:
+    raise SystemExit("the promoted fixture does not pass synqt check")
+config = yaml.safe_load((app / "synqt.yaml").read_text())
+print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)))
+# A real project mesh, because both links are mutual TLS like any other: the auth entity is
+# reached over a verified link or not at all.
+mesh.init(app)
+print("  " + mesh.cert_all(app, ["web", "auth"]).replace("\n", "\n  "))
+print("  topology:", ", ".join(topologywriter.write(app, config)))
+PY
+
+# Out of tree, because topologywriter owns build/<entity>/ for the resolved topology and the
+# generated CMake puts each executable at the top of its own binary directory.
+cmake -S "$PROMOTED" -B "$PROMOTED/out" -G Ninja \
+    -DCMAKE_PREFIX_PATH="$QT_HOST" \
+    -DSYNQT_ROOT="$REPO_ROOT" \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build "$PROMOTED/out"
+
+rc=0
+for entity in client web auth; do
+    assert_native_exe "$PROMOTED/out/$entity" "$entity" || rc=1
+done
+if [ "$rc" -ne 0 ]; then
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+
+mkdir -p "$PROMOTED/build/client"
+printf '<!doctype html>\n' > "$PROMOTED/build/client/index.html"
+# Every `kill` swallows its own failure: the script runs under `set -e`, and a cleanup that
+# fails because the thing was already gone would turn a green run into a red one.
+cleanup_promoted() {
+    kill "${auth_pid:-}" "${edge_pid:-}" 2>/dev/null || true
+}
+trap cleanup_promoted EXIT
+# The secret is never a literal in either binary; it arrives from the environment of the one
+# entity that runs the token exchange, which is the whole point of the promotion.
+export GITHUB_CLIENT_SECRET="appgen-native-not-a-real-secret"
+export QT_QPA_PLATFORM=offscreen
+# `exec` so the subshell is replaced by the entity: $! is then the process itself, and the
+# cleanup above actually stops it instead of stopping a shell that was wrapping it.
+(cd "$PROMOTED" && exec ./out/auth >"$WORK/promoted-auth.log" 2>&1) &
+auth_pid=$!
+sleep 2
+# --dev only for the plaintext loopback listener: the fixture's TLS certificate names a
+# deployed host, exactly as a real project's does.
+(cd "$PROMOTED" && exec ./out/web --bundle build/client --qml-dir . \
+    --port 18443 --dev >"$WORK/promoted-web.log" 2>&1) &
+edge_pid=$!
+
+# Wait for the login to become answerable rather than for a fixed time: it can only be
+# answered once both mesh links are up and both Replicas are adopted.
+promoted_login=""
+for _ in $(seq 1 30); do
+    promoted_login="$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - <<'PY'
+import urllib.request
+request = urllib.request.Request("http://127.0.0.1:18443/auth/login?provider=github")
+class Keep(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args):
+        return None
+try:
+    with urllib.request.build_opener(Keep).open(request, timeout=2) as reply:
+        print("%d %s" % (reply.status, reply.headers.get("Location", "")))
+except urllib.error.HTTPError as error:
+    print("%d %s" % (error.code, error.headers.get("Location", "")))
+except Exception:
+    print("")
+PY
+)"
+    case "$promoted_login" in
+        302*github.com*) break ;;
+    esac
+    sleep 1
+done
+echo "  login  -> ${promoted_login:-<no answer>}"
+case "$promoted_login" in
+    302*"https://github.com/login/oauth/authorize"*"code_challenge"*"state="*) ;;
+    *)
+        echo "  the edge must answer the login with a PKCE authorization redirect built"
+        echo "  from what the auth entity holds; see $WORK/promoted-{auth,web}.log"
+        echo "APPGEN-NATIVE GATE: NO-GO"
+        exit 1 ;;
+esac
+
+# The redirect above carries a client id and an authorize URL the edge binary does not
+# contain. Both encodings are searched (`-el` is the UTF-16 a QStringLiteral compiles to; the
+# narrow literal it was written as can survive too), because a check that looked at one of
+# them would report absence it never established.
+# Counted rather than `grep -q`, because this script runs under `set -o pipefail`: grep -q
+# exits at the first match and closes the pipe, `strings` dies of SIGPIPE, and the pipeline
+# reports failure for a search that succeeded. That failure mode is silent in both directions
+# here (an absent secret and a present one look alike), so the count is the whole point.
+promoted_in_binary() {
+    local found
+    found="$({ strings -a -el "$1"; strings -a "$1"; } | grep -cF -- "$2" || true)"
+    [ "${found:-0}" -gt 0 ]
+}
+promoted_leak=0
+for needle in "Iv1.0123456789abcdef" "github.com/login/oauth" "$GITHUB_CLIENT_SECRET"; do
+    if promoted_in_binary "$PROMOTED/out/web" "$needle"; then
+        echo "  the edge binary must not contain '$needle'"
+        promoted_leak=1
+    fi
+done
+# The same two values in the auth binary: without this the check above would also pass on a
+# generator that simply dropped the provider, which is a broken login, not a secure one.
+for needle in "Iv1.0123456789abcdef" "github.com/login/oauth"; do
+    if ! promoted_in_binary "$PROMOTED/out/auth" "$needle"; then
+        echo "  the auth binary is missing '$needle', so the redirect came from somewhere else"
+        promoted_leak=1
+    fi
+done
+if promoted_in_binary "$PROMOTED/out/auth" "$GITHUB_CLIENT_SECRET"; then
+    echo "  the auth binary must read the secret from its environment, never carry it"
+    promoted_leak=1
+fi
+if [ "$promoted_leak" -ne 0 ]; then
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+cleanup_promoted
+echo "  promoted pair : OK (both mesh links up, the edge holds no client id, no provider"
+echo "                  endpoint and no secret; the auth entity holds the first two and"
+echo "                  reads the secret from its own environment)"
+
+echo "APPGEN-NATIVE GATE: GO (appgen output compiles and links for every entity, a"
+echo "                       generated client resolves every declared route to its view,"
+echo "                       and a promoted identity signs in from the auth entity)"

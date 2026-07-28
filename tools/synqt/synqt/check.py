@@ -38,6 +38,12 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     if not entities:
         return False, ["error: no entities declared"]
 
+    # Validate the topology the build will actually wire, which includes the two links
+    # `identity.provider_entity` implies. Checked before the expansion, because a collision
+    # with a declared connect point is exactly what the expansion silently steps around.
+    messages += _provider_entity_messages(config, entities)
+    config = appmodel.with_auth_connect_points(config)
+
     web_edges = {name for name, e in entities.items() if _is_web_edge(e)}
     clients = {name for name, e in entities.items() if e.get("kind") == "client"}
 
@@ -324,6 +330,51 @@ def _identity_messages(config: Dict[str, Any]) -> List[str]:
                 "be an env: reference so the value stays out of synqt.yaml")
         if not str(provider.get("client_id") or "").strip():
             messages.append(f"error: identity provider '{name}' has no client_id")
+    return messages
+
+
+def _provider_entity_messages(config: Dict[str, Any],
+                              entities: Dict[str, Any]) -> List[str]:
+    """`identity.provider_entity` names a real service entity, and only implies links.
+
+    Promoting identity is one line, so the two connect points it implies are synthesized
+    rather than declared (see appmodel.with_auth_connect_points). Everything that could go
+    wrong with a synthesized link is therefore something the project cannot see, which is
+    why it is said here: an entity name that does not exist, a name that is the edge or the
+    client rather than an entity of its own, and a declared connect point already holding
+    one of the two names, which would leave the promotion half-wired around it.
+    """
+    owner = appmodel.provider_entity(config)
+    if not owner:
+        return []
+    messages: List[str] = []
+    entity = entities.get(owner)
+    if entity is None:
+        messages.append(
+            f"error: identity.provider_entity names '{owner}', which is not a declared "
+            "entity; add it (kind: service) or leave provider_entity empty to run identity "
+            "in process on the edge")
+        return messages
+    if entity.get("kind") == "client":
+        messages.append(
+            f"error: identity.provider_entity names the client entity '{owner}'; the client "
+            "holds no secret and no mesh certificate, so it can never run identity")
+    elif _is_web_edge(entity):
+        messages.append(
+            f"error: identity.provider_entity names the web edge '{owner}'; that is what "
+            "leaving it empty already means (identity in process on the edge)")
+    if not appmodel.identity_providers(config):
+        messages.append(
+            f"warn: identity.provider_entity names '{owner}' but no identity provider is "
+            "configured, so no auth entity is wired and nothing signs users in")
+    declared = {cp.get("name") for cp in appmodel.connect_points(config)}
+    for name in (appmodel.AUTH_IDENTITY_POINT, appmodel.AUTH_SESSION_POINT):
+        if name in declared:
+            messages.append(
+                f"error: connect point '{name}' collides with the one "
+                f"identity.provider_entity implies; rename it, because the auth entity "
+                f"'{owner}' owns '{appmodel.AUTH_IDENTITY_POINT}' and "
+                f"'{appmodel.AUTH_SESSION_POINT}'")
     return messages
 
 

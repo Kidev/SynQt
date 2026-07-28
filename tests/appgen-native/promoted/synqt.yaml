@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The smallest project that promotes identity out of the web edge: one client, one edge, and
+# an auth entity named by `identity.provider_entity`. That one line is the whole feature, so
+# this fixture declares exactly it and nothing else, and everything else the promotion needs
+# has to be generated: the two mesh connect points (identity and sessions), the auth entity's
+# Source QML for each, an auth main that builds the OAuth engine and the authoritative session
+# store, and an edge main that adopts both Replicas in C++.
+#
+# What a green build proves that a string test cannot: the auth main compiles against the
+# framework contracts in the runtime library (no app-side shared/Identity.syn exists), and the
+# edge main's adoption block resolves IdentityProvider and SessionManager, which webedge.h
+# only forward-declares.
+project:
+  name: promoted
+  version: 0.1.0
+  qt_version: 6.11.1
+  origin_model: same_origin
+
+scopes:
+  order: [anonymous, user, moderator]
+  hierarchical: true
+  default: anonymous
+
+entities:
+  - name: client
+    kind: client
+    targets: [wasm]
+
+  - name: web
+    kind: service
+    capability: web_edge
+    identity: true
+    public:
+      port: 8443
+    tls:
+      cert_file: deploy/web.crt
+      key_file: deploy/web.key
+
+  # The auth entity. It declares no connect points: it owns the two `provider_entity` implies.
+  - name: auth
+    kind: service
+
+connect_points:
+  # One ordinary browser-facing point, so the edge is a real edge rather than a login-only
+  # process, and so the generated CMake still resolves an app contract from shared/.
+  - name: greeting
+    contract: Greeting
+    owner: web
+    consumers: [client]
+
+identity:
+  provider_entity: auth
+  required: false
+  mapping: web/identity/map.qml
+  # Both refresh keys, on the entity that holds the tokens: the auth entity, not the edge.
+  refresh:
+    interval_seconds: 30
+    margin_seconds: 300
+  session:
+    ttl_minutes: 120
+  providers:
+    - name: github
+      client_id: "Iv1.0123456789abcdef"
+      client_secret: env:GITHUB_CLIENT_SECRET

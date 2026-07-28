@@ -446,6 +446,10 @@ identity:
     cookie_name: synqt_session
     ttl_minutes: 720
 
+  refresh:
+    interval_seconds: 60          # how often to look for access tokens near expiry
+    margin_seconds: 120           # how far ahead of expiry to renew one
+
   mapping:
     hook: web/identity/map.qml    # optional QML returning a scope for an identity
 ```
@@ -457,6 +461,30 @@ other name needs its endpoints written, because there is nothing to fill in.
 
 `mapping` accepts either the nested `hook:` above or the file directly
 (`mapping: web/identity/map.qml`); both name the same QML.
+
+`refresh` times the server side access token renewal described in
+[authentication](authentication.md#session-lifecycle). The values above are the
+defaults, and they suit a provider issuing hour long tokens; one issuing short lived
+tokens needs a wider `margin_seconds`, and a non-positive `interval_seconds` turns the
+sweep off. The keys are read by whichever entity holds the tokens, which is the edge
+normally and the auth entity when `provider_entity` is set.
+
+`provider_entity` moves identity to an entity of its own, and moving it is the whole
+change: that entity comes to own an `identity` and a `sessions` connect point, every web
+edge that serves login consumes both over the mesh, and `synqt build` writes the two
+links, the Source QML on each, and the entity's `main.cpp`. Nothing is declared for them
+and nothing is hand written, so a project holds one line where a rewrite would otherwise
+be. Declaring a connect point named `identity` or `sessions` yourself is refused rather
+than worked around, since a promotion wired half way around a name collision would look
+like it worked. The named entity has to exist and has to be a service of its own: naming
+the web edge is refused because that is what leaving it empty already means, and naming
+the client is refused because the client holds no secret and no mesh certificate.
+
+What changes about the edge is what it stops holding. A promoted edge is given provider
+*names* and nothing else: no client id, no provider endpoint, no secret, and no token.
+It drives the browser facing half (the login and callback routes, the session cookie) and
+asks the auth entity for every step that needs a secret. See
+[Where identity runs](authentication.md#where-identity-runs-at-the-edge-or-as-its-own-entity).
 
 Two things once listed here are not settings, because they are not optional and a
 key that could contradict them would be a way to get them wrong. The session cookie's

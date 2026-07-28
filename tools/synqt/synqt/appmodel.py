@@ -319,6 +319,108 @@ def identity_session(config: Dict[str, Any]) -> Dict[str, Any]:
     return dict(session) if isinstance(session, dict) else {}
 
 
+def identity_refresh(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The declared ``identity.refresh`` block: how the access-token sweep is timed.
+
+    ``interval_seconds`` is how often the entity holding the tokens looks for expiring
+    ones, and ``margin_seconds`` is how far ahead of expiry it renews them. Both were
+    reachable only as C++ defaults before, which made the documented "the edge refreshes
+    the access token server side" untunable: a provider issuing short-lived tokens needs a
+    margin wider than 120 seconds, and there was no way to say so.
+    """
+    refresh = identity_settings(config).get("refresh")
+    return dict(refresh) if isinstance(refresh, dict) else {}
+
+
+# The auth entity: what `identity.provider_entity` implies
+#
+# Setting it names an entity that owns identity and sessions, and every web edge consumes
+# both over the mesh (docs/authentication.md "Where identity runs"). The docs promise that
+# is one line of configuration and not a rewrite, so the two links it implies are
+# synthesized here rather than hand-written into every project that wants them.
+#
+# They are FRAMEWORK connect points, and that is the one way they differ from a declared
+# one: their contracts ship in the runtime library (src/service/contracts/) rather than in
+# the app's `shared/`, so nothing generates or compiles an app-side copy for them. That is
+# what `is_framework_point` marks, and the two emitters that would otherwise reach for
+# `shared/<Contract>.syn` filter on it.
+AUTH_IDENTITY_POINT = "identity"
+AUTH_SESSION_POINT = "sessions"
+
+_AUTH_POINTS = ((AUTH_IDENTITY_POINT, "Identity"), (AUTH_SESSION_POINT, "Session"))
+
+
+def provider_entity(config: Dict[str, Any]) -> str:
+    """``identity.provider_entity``, or "" when identity runs in process on the edge."""
+    declared = identity_settings(config).get("provider_entity")
+    return declared.strip() if isinstance(declared, str) else ""
+
+
+def is_framework_point(connect_point: Dict[str, Any]) -> bool:
+    """Is this a connect point the framework owns the contract for?"""
+    return bool(connect_point.get("framework"))
+
+
+def app_points(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Only the connect points whose contract lives in the app's ``shared/``.
+
+    Everything that reaches for `shared/<Contract>.syn` (the CMake contract calls, the
+    edge's generated consumer surface) goes through this, because a framework point has no
+    such file and never will.
+    """
+    return [cp for cp in points if not is_framework_point(cp)]
+
+
+def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The identity and session links `identity.provider_entity` implies, or [].
+
+    Owned by the named auth entity, consumed by every web edge that serves login, and
+    `per_peer` on both: each edge gets its own Source instance, so one edge's answer (a
+    user's normalized identity, an authorization URL) never crosses to another. The
+    transport is left to the usual resolution, which means mutual TLS on loopback unless
+    the auth entity's `mesh:` block says otherwise, like any other mesh link.
+
+    Empty when no provider is configured: there is no login to promote, so promoting it
+    would mean bringing up an auth entity to serve nothing.
+    """
+    owner = provider_entity(config)
+    if not owner or not identity_providers(config):
+        return []
+    consumers = [name for name in (entity.get("name") for entity in entities(config)
+                                   if is_edge(entity) and identity_enabled(config, entity))
+                 if name]
+    declared = {cp.get("name") for cp in connect_points(config)}
+    return [{"name": name,
+             "contract": contract,
+             "owner": owner,
+             "consumers": consumers,
+             "instance": "per_peer",
+             "server": f"{owner}/{contract}.qml",
+             "framework": True}
+            for name, contract in _AUTH_POINTS if name not in declared]
+
+
+def with_auth_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
+    """`config` with the auth entity's implied links appended to ``connect_points``.
+
+    The whole topology has to see them or half the system would be wired: the auth entity
+    must host what it owns, each edge must open the consumer links, and `synqt check` must
+    hold those links to the same mesh rules as any other. So this runs once at each entry
+    point that reads the entire topology (generation, the topology writer, validation)
+    rather than being pushed into every reader.
+
+    Idempotent, and a project that declares a connect point of the same name keeps its own
+    (`synqt check` reports that collision, which is the only way it is ever intentional).
+    The input is never mutated: callers share one loaded config.
+    """
+    extra = auth_connect_points(config)
+    if not extra:
+        return config
+    expanded = dict(config)
+    expanded["connect_points"] = list(connect_points(config)) + extra
+    return expanded
+
+
 def client_secret_variable(provider: Dict[str, Any]) -> str:
     """The environment variable holding this provider's client secret.
 

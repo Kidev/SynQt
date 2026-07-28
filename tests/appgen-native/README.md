@@ -66,6 +66,40 @@ those two lines is the expected shutdown message: the accessors are torn down be
 window that binds to them, so the last binding re-evaluates against a `Router` that is
 already gone.
 
+## The promoted identity
+
+`identity.provider_entity: auth` is documented as one line that moves the whole login engine
+off the web edge and into an entity of its own. Everything that line implies is generated,
+and none of it appears in any `synqt.yaml`: two mesh connect points (`identity` and
+`sessions`), a Source QML bridge for each, an `auth/main.cpp` that builds the OAuth engine
+and the authoritative session store and hands both to those Sources, and a `web/main.cpp`
+that adopts the two Replicas in C++ once they initialize.
+
+Compiling that says nothing about the claim, because the claim is about **where a secret
+lives**. So `promoted/` is generated, given a real project mesh CA and per-entity
+certificates, built, and then run: the auth entity and the edge come up as separate
+processes over mutual TLS, and the phase asks the edge for a login it has no way to answer
+by itself.
+
+```
+login  -> 302 https://github.com/login/oauth/authorize?client_id=Iv1.0123456789abcdef&code_challenge=...&state=...
+```
+
+Every value in that redirect (the client id, the endpoint, the PKCE challenge) came from the
+auth entity over the mesh. The phase then reads both binaries and requires the edge to
+contain none of the client id, the provider endpoint, or the secret, and the auth entity to
+contain the first two and not the third; it reads the secret from its own environment. The
+second half of that pairing is what keeps the check honest: without it, a generator that
+simply dropped the provider would pass the first half, and that is a broken login rather
+than a secure one.
+
+Two things about the phase itself are worth knowing, because both silently produce a green
+run that proves nothing. The binary search counts matches instead of using `grep -q`: the
+script runs under `set -o pipefail`, and `strings | grep -q` reports failure when grep exits
+early and `strings` dies of SIGPIPE, which reads exactly like "the secret is absent". And
+each entity is launched with `exec` inside its subshell, so `$!` is the process rather than a
+shell wrapping it and the cleanup actually stops it.
+
 ## Run it
 
 ```sh
@@ -75,7 +109,8 @@ tests/appgen-native/run-appgen-native.sh
 Needs the pinned host kit (`/opt/Qt/6.11.1/gcc_64`). It writes everything under
 `build/appgen-native/` (git-ignored) and prints `APPGEN-NATIVE GATE: GO` when every generated
 entity; the `web` edge, the `database` service, and the `client` (built here as a native desktop
-app); compiles and links, and the routed client above resolves both of its routes.
+app); compiles and links, the routed client above resolves every one of its routes, and the
+promoted pair signs in from the auth entity with an edge that holds no secret.
 
 The client's WebAssembly build and the browser bring-up of a generated app are covered separately
 by `synqt dev` (proven in headless Chromium; see the M10/TOOL-1 work); this fixture is the native

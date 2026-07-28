@@ -228,12 +228,28 @@ _PROVIDER_URLS = (("authorize_url", "authorizeUrl"),
                   ("jwks_url", "jwksUrl"))
 
 
-def _identity_provider_block(provider: Dict[str, Any], index: int) -> str:
-    """One configured OAuth2/OIDC provider, as C++."""
+def _identity_provider_block(provider: Dict[str, Any], index: int, *,
+                             target: str = "config.identity",
+                             with_secret: bool = True) -> str:
+    """One configured OAuth2/OIDC provider, as C++.
+
+    `target` is the `IdentityConfig` being filled, because two entities can hold one: the
+    edge's (`config.identity`) and, when identity is promoted, the auth entity's own.
+
+    `with_secret` is the difference between them, and it is the whole point of promoting
+    identity. Only the entity that runs the token exchange is given the secret and the
+    endpoints; an edge in `provider_entity` mode gets provider NAMES and nothing else,
+    because names are all it needs to decide which provider to ask the auth entity for.
+    """
     var = f"provider{index}"
     name = str(provider.get("name", ""))
     lines = [f"        IdentityProviderConfig {var};",
              f'        {var}.name = QStringLiteral("{cxx_string_literal(name)}");']
+    if not with_secret:
+        # Deliberately nothing else: no client id, no endpoints, no secret. What this edge
+        # holds about a provider is a name it can pass over the mesh.
+        lines.append(f"        {target}.providers.append({var});")
+        return "    {\n" + "\n".join(lines) + "\n    }"
     for key, field in _PROVIDER_URLS:
         value = provider.get(key)
         if isinstance(value, str) and value.strip():
@@ -256,7 +272,7 @@ def _identity_provider_block(provider: Dict[str, Any], index: int) -> str:
     variable = appmodel.client_secret_variable(provider)
     lines.append(f'        {var}.clientSecret = '
                  f'qEnvironmentVariable("{cxx_string_literal(variable)}");')
-    lines.append(f"        config.identity.providers.append({var});")
+    lines.append(f"        {target}.providers.append({var});")
     return "    {\n" + "\n".join(lines) + "\n    }"
 
 
@@ -274,10 +290,12 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
     # `identity.required` is not repeated here: it is emitted once, as
     # WebEdgeConfig::identityRequired, which is the field the upgrade check reads.
     lines = ["    config.identity.enabled = true;"]
-    provider_entity = identity.get("provider_entity")
-    if isinstance(provider_entity, str) and provider_entity.strip():
+    # Promoted identity: this edge delegates the secret-bearing half over the mesh, so it
+    # is given the auth entity's name and its provider list shrinks to names.
+    provider_entity = appmodel.provider_entity(config)
+    if provider_entity:
         lines.append('    config.identity.providerEntity = QStringLiteral("%s");'
-                     % cxx_string_literal(provider_entity.strip()))
+                     % cxx_string_literal(provider_entity))
     for key, field in (("login", "loginRoute"), ("callback", "callbackRoute"),
                        ("logout", "logoutRoute")):
         route = identity.get(key)
@@ -293,9 +311,88 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
     # The dev-stub gate. `synqt dev` is the only launcher that passes --dev, so a stub
     # provider cannot run in anything that ships, which is the whole point of the gate.
     lines.append("    config.identity.allowDevStub = parser.isSet(devOption);")
-    lines += [_identity_provider_block(provider, index)
+    # Refresh timing goes to whichever entity holds the tokens, and only there. A promoted
+    # edge holds none, so setting it here would be a knob on the one entity that cannot act
+    # on it.
+    if not provider_entity:
+        lines += _identity_refresh_lines(config, "config.identity")
+    lines += [_identity_provider_block(provider, index, with_secret=not provider_entity)
               for index, provider in enumerate(appmodel.identity_providers(config))]
     return lines
+
+
+def _identity_refresh_lines(config: Dict[str, Any], target: str) -> List[str]:
+    """The server-side access-token refresh sweep, when the project times it itself.
+
+    Emitted for whichever entity holds the tokens (the edge, or the auth entity when
+    identity is promoted), because that is the one that can renew them.
+    """
+    refresh = appmodel.identity_refresh(config)
+    return [f"    {target}.{field} = "
+            f"{_int_literal('identity.refresh.' + key, refresh[key])};"
+            for key, field in (("interval_seconds", "refreshIntervalSeconds"),
+                               ("margin_seconds", "refreshMarginSeconds"))
+            if key in refresh]
+
+
+def _auth_entity_lines(config: Dict[str, Any]) -> List[str]:
+    """The auth entity's own identity configuration, as C++.
+
+    The mirror image of the edge's: this is the entity that holds the client secret, the
+    provider endpoints, the token exchange and the stored tokens, and it holds nothing
+    browser-facing at all. No routes, because it serves no HTTP; no mapping hook, because
+    the scope mapping is each edge's own policy and runs there against the identity this
+    entity returns.
+    """
+    lines = ["    IdentityConfig identity;",
+             "    identity.enabled = true;",
+             "    identity.allowDevStub = parser.isSet(devOption);"]
+    lines += _identity_refresh_lines(config, "identity")
+    lines += [_identity_provider_block(provider, index, target="identity")
+              for index, provider in enumerate(appmodel.identity_providers(config))]
+    return lines
+
+
+def _auth_adoption_lines(mesh_consumed: List[Dict[str, Any]]) -> List[str]:
+    """The edge's half of promoted identity: adopt the auth entity's two Replicas.
+
+    Everything else an entity consumes is reached from QML through the `<Owner>.<point>`
+    accessor. These two are reached from C++ instead, because the things that read them are
+    the login routes and the upgrade verifier: the IdentityProvider delegates the
+    secret-bearing OAuth steps over `identity`, and the SessionManager becomes a read cache
+    over the authoritative store behind `sessions`.
+    """
+    adopted = {"identity": "edge.identityProvider()->attachRemote(replica);",
+               "sessions": "edge.sessionManager()->attachRemote(replica);"}
+    points = [cp for cp in mesh_consumed
+              if appmodel.is_framework_point(cp) and cp.get("name") in adopted]
+    if not points:
+        return []
+    owner = cxx_string_literal(str(points[0].get("owner", "")))
+    branches: List[str] = []
+    for index, cp in enumerate(points):
+        keyword = "if" if index == 0 else "} else if"
+        branches.append(
+            f'            {keyword} (point == QStringLiteral('
+            f'"{cxx_string_literal(str(cp.get("name")))}")) {{\n'
+            f"                {adopted[cp.get('name')]}")
+    return [
+        "",
+        "    // Promoted identity (identity.provider_entity): adopt each Replica once it is",
+        "    // initialized, because a dynamic Replica has no signals before that and an",
+        "    // earlier connect would match nothing. Connecting after runtime.start() misses",
+        "    // nothing either: a mesh link cannot come up before app.exec() runs.",
+        "    //",
+        "    // `runtime` is declared before `edge`, so `edge` is destroyed first. That order is",
+        "    // required, not incidental: a dynamic Replica frees its runtime-built metaobject",
+        "    // when it dies, and these two adopters connect to it by name.",
+        "    QObject::connect(&runtime, &EntityRuntime::consumedReplicaReady, &edge,",
+        "        [&edge](const QString &owner, const QString &point, QObject *replica) {",
+        f'            if (owner != QStringLiteral("{owner}")) {{',
+        "                return;",
+        "            }",
+        "\n".join(branches) + "\n            }",
+        "        });"]
 
 
 def _component_url(view: str, uri: str) -> str:
@@ -496,7 +593,10 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     # into its owner Sources' QML context, so a Source can delegate over the mesh
     # (Database.ledger.record(...)). No mesh-consumed connect point means no runtime.
     mesh_consumed = appmodel.mesh_consumed(config, name)
-    mesh_contracts = appmodel.contracts_of(mesh_consumed)
+    # The generated consumer surface exists only for an app contract; a framework connect
+    # point (the auth entity's identity and sessions) has no `shared/<Contract>.syn` and is
+    # adopted by C++ below instead of by QML, so it registers nothing here.
+    mesh_contracts = appmodel.contracts_of(appmodel.app_points(mesh_consumed))
     mesh_owners: List[str] = []
     for cp in mesh_consumed:
         owner = cp.get("owner")
@@ -529,6 +629,10 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
         includes.append('#include "identityconfig.h"')
     if mesh_consumed:
         includes += ['#include "entityruntime.h"', '#include "topology.h"']
+    # WebEdge only forward-declares these two, and the auth adoption below calls through
+    # both pointers, so a promoted edge needs their definitions.
+    if _auth_adoption_lines(mesh_consumed):
+        includes += ['#include "identityprovider.h"', '#include "sessionmanager.h"']
     for contract in contracts:
         includes.append(f'\n#include "{contract.lower()}_sourcehelper.h"  '
                         f'// synqtRegister{contract}Sources()')
@@ -577,6 +681,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
                 f'QStringLiteral("{owner_literal}")),\n'
                 f'                          runtime.accessor(EntityRuntime::accessorName('
                 f'QStringLiteral("{owner_literal}"))));')
+        inject_lines += _auth_adoption_lines(mesh_consumed)
         mesh_inject_block = "\n".join(inject_lines) + "\n"
     else:
         mesh_includes_extra = ""
@@ -765,8 +870,17 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
     # EntityRuntime reads the topology.
     env_section = _env_file_section(entity)
 
+    # The auth entity (`identity.provider_entity`) is a service like any other, plus the two
+    # engines its Sources bridge to: the OAuth engine that holds the client secret and the
+    # tokens, and the authoritative session store. Both are C++ objects the topology cannot
+    # describe, so they are constructed here and handed to the Sources as context.
+    is_auth = bool(name) and appmodel.provider_entity(config) == name
+
     includes = ['#include "entityruntime.h"', '#include "envfile.h"',
                 '#include "topology.h"']
+    if is_auth:
+        includes += ['#include "identityconfig.h"', '#include "identityservice.h"',
+                     '#include "sessionmanager.h"']
     for contract in contracts:
         includes.append(f'\n#include "{contract.lower()}_sourcehelper.h"  '
                         f'// synqtRegister{contract}Sources()')
@@ -799,6 +913,39 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
         qml_dir_resolve = ""
         qml_dir_includes = ""
 
+    # The auth entity's two engines, and the accessors its Sources reach them by. Built
+    # before `runtime.start()` because a shared Source is created inside it and a Source
+    # cannot be given context afterwards; the session store's vocabulary comes from the same
+    # `scopes:` and `identity.session:` blocks the edge reads, so both agree on what an
+    # unauthenticated caller is and how long a session lives.
+    if is_auth:
+        session = appmodel.identity_session(config)
+        ttl = (_int_literal("identity.session.ttl_minutes", session["ttl_minutes"])
+               if "ttl_minutes" in session else "720")
+        default = appmodel.default_scope(config) or (appmodel.scope_vocab(config) or [""])[0]
+        auth_option = (
+            '\n    const QCommandLineOption devOption{QStringLiteral("dev"),\n'
+            '        QStringLiteral("Development mode: allow the dev stub identity '
+            'provider.")};\n'
+            "    parser.addOption(devOption);")
+        auth_block = (
+            "\n    // Login (`identity:` with provider_entity pointing here). This entity is\n"
+            "    // the only one holding a client secret; every secret is read from its own\n"
+            "    // environment at startup and none is a literal here or in the binary.\n"
+            + "\n".join(_auth_entity_lines(config))
+            + "\n    IdentityService identityEngine{identity};\n"
+            f'    SessionManager sessions{{QStringLiteral("{cxx_string_literal(default)}"), '
+            f"{ttl}}};\n")
+        auth_inject = (
+            "\n    // The Sources bridge to these by name (auth/Identity.qml, "
+            "auth/Session.qml).\n"
+            '    runtime.setContextObject(QStringLiteral("IdentityEngine"), &identityEngine);\n'
+            '    runtime.setContextObject(QStringLiteral("Sessions"), &sessions);\n')
+    else:
+        auth_option = ""
+        auth_block = ""
+        auth_inject = ""
+
     body = f"""{_HEADER_CPP}
 // The {name} service entity: it resolves its slice of the topology (a JSON produced by
 // `synqt build` from synqt.yaml), brings up the connect points it owns, and opens only
@@ -826,7 +973,7 @@ int main(int argc, char *argv[])
     const QCommandLineOption topologyOption{{QStringLiteral("topology"),
         QStringLiteral("Resolved topology JSON for this entity."),
         QStringLiteral("file"), QStringLiteral("build/{name}/topology.json")}};
-    parser.addOption(topologyOption);{qml_dir_option}
+    parser.addOption(topologyOption);{qml_dir_option}{auth_option}
     parser.process(app);
 {env_section}
 {registrations if registrations else "    // This entity owns no connect points yet."}
@@ -840,8 +987,8 @@ int main(int argc, char *argv[])
         QJsonDocument::fromJson(topologyFile.readAll()).object()}};
 
     QQmlEngine engine;
-    EntityRuntime runtime{{topologyFromJson(topologyJson), &engine}};
-    if (!runtime.start()) {{
+{auth_block}    EntityRuntime runtime{{topologyFromJson(topologyJson), &engine}};
+{auth_inject}    if (!runtime.start()) {{
         qCritical().noquote() << "{name} failed to start:" << runtime.errorString();
         return 1;
     }}

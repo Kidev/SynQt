@@ -85,6 +85,9 @@ def _edge_entity(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def startup_order(config: Dict[str, Any]) -> List[str]:
     """Service entities ordered so every owner starts before its consumers."""
+    # Including the links `identity.provider_entity` implies, so an auth entity comes up
+    # before the edges that reach it for a login.
+    config = appmodel.with_auth_connect_points(config)
     services = {e.get("name") for e in config.get("entities", [])
                 if isinstance(e, dict) and e.get("kind") != "client"}
     after: Dict[str, set] = {name: set() for name in services}
@@ -161,6 +164,11 @@ def dev_command(root: Path, entity: Dict[str, Any], config: Dict[str, Any],
     # A service that declares pragma-Singleton QML resolves it against the project root.
     if appmodel.discover_singletons(root / name):
         command += ["--qml-dir", str(root)]
+    # The auth entity holds the identity engine, so it carries the dev-stub gate the edge
+    # carries in-process. `synqt serve` passes no arguments at all, which is what keeps the
+    # stub out of anything that ships.
+    if appmodel.provider_entity(config) == name:
+        command.append("--dev")
     return command
 
 

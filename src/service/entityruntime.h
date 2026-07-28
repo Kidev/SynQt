@@ -47,6 +47,16 @@ public:
     bool start();
     QString errorString() const;
 
+    /// Expose an accessor to every owned Source's QML context, alongside the ones this
+    /// runtime builds for the entity's blueprint. Call it before start(): a shared connect
+    /// point's Source is created there, and a Source cannot be given context afterwards.
+    ///
+    /// This is how an entity contributes an engine of its own that the topology cannot
+    /// describe. The auth entity is the case that needs it: its generated main hands the
+    /// Sources `IdentityEngine` (the OAuth engine holding the client secret and the tokens)
+    /// and `Sessions` (the authoritative session store), neither of which is a provider.
+    void setContextObject(const QString &name, QObject *object);
+
     QList<ConnectPointHost *> ownedHosts() const;
 
     /// The accessor for a given owner's consumed connect points, keyed by capitalized
@@ -60,6 +70,18 @@ public:
 
 signals:
     void connectionRefused(const QString &connectPoint, const QString &entity);
+
+    /// A consumed connect point's Replica has finished initializing, so its signals and
+    /// slots exist and it can be handed to code that connects to them by name. A dynamic
+    /// Replica builds its metaobject on initialization, so a connect made before this
+    /// arrives silently matches nothing.
+    ///
+    /// The QML accessor (`<Owner>.<point>`) needs none of this, which is why it took a
+    /// signal to add: C++ that adopts a Replica does. A generated edge uses it to attach
+    /// the auth entity's Identity and Session Replicas to its IdentityProvider and
+    /// SessionManager. Emitted again after a reconnect, since that is a new Replica.
+    void consumedReplicaReady(const QString &owner, const QString &connectPoint,
+                              QObject *replica);
 
 private:
     void openConsumerLink(const ConnectPointConfig &connectPoint);
@@ -78,6 +100,11 @@ private:
     QHash<QString, QQmlPropertyMap *> m_accessors;
     QHash<QString, QObject *> m_consumedReplicas;
     QHash<QString, ConsumerBase *> m_consumerFacades;
+
+    /// Accessors the entity itself contributed through setContextObject(), kept separate
+    /// from the blueprint's so an entity cannot silently shadow the Db helper its own
+    /// blueprint installed.
+    QHash<QString, QObject *> m_entityContext;
 
     /// The blueprint backend the runtime owns and the context objects it injects by name.
     std::unique_ptr<IPersistenceProvider> m_persistence;

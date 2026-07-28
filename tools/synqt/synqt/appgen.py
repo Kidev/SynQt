@@ -15,6 +15,8 @@ four kinds of output share almost nothing but the topology they read:
 - :mod:`synqt.maingen` renders the client, edge and service ``main.cpp``.
 - :mod:`synqt.clientshell` renders what the browser loads before the client does:
   ``index.html``, ``synqt-boot.js``, the shell cache worker, and the dev reload hook.
+- :mod:`synqt.authentity` renders the Source QML the auth entity needs when
+  ``identity.provider_entity`` promotes identity out of the edge.
 
 Nothing is re-exported here: a caller that wants one renderer names the module that
 owns it, so the split stays load bearing rather than a layer behind one facade. A
@@ -30,7 +32,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import appmodel, cmakegen, maingen
+from . import appmodel, authentity, cmakegen, maingen
 
 
 def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
@@ -38,6 +40,10 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     """Write the root CMakeLists and one main.cpp per entity. Returns the paths written."""
     root = Path(project_dir)
     synqt_root = Path(synqt_root) if synqt_root else appmodel.framework_root()
+    # `identity.provider_entity` implies two mesh links (the auth entity owns identity and
+    # sessions; every edge consumes them). Expanded once here so the CMake, every main.cpp
+    # and the Source QML below all see the same topology.
+    config = appmodel.with_auth_connect_points(config)
     written: List[str] = []
 
     cmake_path = root / "CMakeLists.txt"
@@ -63,5 +69,16 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             source = maingen.render_service_main(config, entity, singletons)
         (entity_dir / "main.cpp").write_text(source)
         written.append(f"{name}/main.cpp")
+
+        # The auth entity's Sources: one bridge per framework connect point it owns, from
+        # the connect point's own `server:` path, so the file and the topology cannot
+        # disagree about where it is.
+        for connect_point in appmodel.owned_by(config, name):
+            if not appmodel.is_framework_point(connect_point):
+                continue
+            relative = connect_point.get("server")
+            source_qml = authentity.render_source_qml(connect_point.get("contract", ""))
+            (root / relative).write_text(source_qml)
+            written.append(relative)
 
     return written
