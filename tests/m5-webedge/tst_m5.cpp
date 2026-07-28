@@ -26,6 +26,7 @@
 #include <QTest>
 #include <QUrl>
 #include <QWebSocket>
+#include <QWebSocketHandshakeOptions>
 
 using SynQt::WebEdge;
 using SynQt::WebEdgeConfig;
@@ -247,6 +248,54 @@ private slots:
         QScopedPointer<QRemoteObjectDynamicReplica> replica{node.acquireDynamic(QStringLiteral("greeting"))};
         QVERIFY2(replica->waitForSource(5000), "authorized upgrade did not expose the connect point");
         QCOMPARE(replica->property("value").toInt(), 7);
+    }
+
+    // Why `security.session_transport: subprotocol` is refused rather than built.
+    //
+    // Carrying the session in `Sec-WebSocket-Protocol` needs the server to select one of
+    // the offered subprotocols and echo it in the 101, and Qt 6.11 offers no way to do that
+    // on this path: QHttpServerWebSocketUpgradeResponse::accept() takes no arguments, and
+    // the QWebSocketServer that writes the response lives in QAbstractHttpServerPrivate,
+    // where setSupportedSubprotocols() cannot be reached. The upgrade still succeeds, with
+    // nothing negotiated, which is what this pins.
+    //
+    // Qt's own QWebSocket accepts that silence, and so does Firefox 151. Chromium 149 does
+    // not: it closes with 1006 and "Sent non-empty 'Sec-WebSocket-Protocol' header but no
+    // response was received". Two engines disagreeing is the reason this is a refusal in
+    // `synqt check` rather than a feature with a caveat.
+    //
+    // This is a tripwire, not a wish. If a later Qt lets the verifier select a subprotocol,
+    // this test starts failing, and that failure is the signal the transport can be built.
+    // See docs/project-layout-and-config.md (`session_transport`).
+    void theUpgradePathCannotNegotiateASubprotocol()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        const QByteArray cookie{sessionCookie(reply)};
+        reply->deleteLater();
+
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        QSignalSpy connectedSpy{&socket, &QWebSocket::connected};
+
+        QWebSocketHandshakeOptions options;
+        options.setSubprotocols({QStringLiteral("synqt"),
+                                 QStringLiteral("synqt.session.abc123")});
+
+        QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+        request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+        request.setRawHeader("Cookie", cookie);
+        request.setSslConfiguration(insecureClientConfig());
+        socket.open(request, options);
+
+        QTRY_VERIFY(connectedSpy.count() >= 1);
+        QVERIFY2(socket.subprotocol().isEmpty(),
+                 "Qt now selects a subprotocol on the QHttpServer upgrade path: "
+                 "security.session_transport: subprotocol has become buildable");
     }
 
     void disallowedOriginRejectedBeforeSocket()

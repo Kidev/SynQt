@@ -13,7 +13,13 @@
 namespace SynQt {
 
 /// How the browser presents its session credential at the wss upgrade.
-enum class SessionTransport { Cookie, Subprotocol };
+///
+/// One value, and not a placeholder for more. The alternative would be a token in
+/// `Sec-WebSocket-Protocol`, which needs the server to echo the subprotocol it selected;
+/// Qt 6.11 gives this upgrade path no way to select one, and Chromium refuses a handshake
+/// whose response echoes nothing. `tests/m5-webedge` pins that and fails when it changes;
+/// `security.session_transport` is refused at `synqt check` until then.
+enum class SessionTransport { Cookie };
 
 /// Whether one Source instance is shared by every browser (unauthenticated shared state,
 /// e.g. a counter) or a fresh instance is created per session (the auth case, so each
@@ -65,7 +71,6 @@ struct WebEdgeConfig
     QStringList allowedOrigins{QStringLiteral("self")};
     SessionTransport sessionTransport{SessionTransport::Cookie};
     QString cookieName{QStringLiteral("synqt_session")};
-    QString subprotocol{QStringLiteral("synqt")};
     bool identityRequired{false};
 
     /// Scope vocabulary (for per-connect-point gating and Caller.hasScope).

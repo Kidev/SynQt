@@ -102,12 +102,16 @@ class TestSecurityBlock(unittest.TestCase):
         self.assertIn("security.allowed_origins", str(caught.exception))
 
     def test_an_unimplemented_session_transport_is_refused(self):
-        # Neither SynClient nor WebEdge speaks Sec-WebSocket-Protocol, so generating this
-        # would produce an edge that authenticates by cookie under a configuration saying
-        # it does not. Refusing names the gap; dropping it hides one.
+        # A subprotocol token needs the edge to echo the subprotocol it selected, and Qt
+        # 6.11 gives this upgrade path no way to select one, so Chromium refuses the
+        # handshake (measured; see tests/m5-webedge). Generating it anyway would produce an
+        # edge that authenticates by cookie under a configuration saying it does not.
+        # Refusing names the gap; dropping it hides one.
         with self.assertRaises(appmodel.AppGenError) as caught:
             render(base_config(security={"session_transport": "subprotocol"}))
         self.assertIn("session_transport", str(caught.exception))
+        # The message has to say why, or the next reader tries to "just implement it".
+        self.assertIn("Qt 6.11", str(caught.exception))
 
 
 class TestConnectPointScope(unittest.TestCase):

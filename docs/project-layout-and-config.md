@@ -364,10 +364,10 @@ security:
   allowed_origins: [self]
 
   # How the browser presents its session credential at the wss upgrade.
-  # "cookie" is the httpOnly session cookie, and the only transport version 1
-  # implements; a subprotocol token is not built on either side of the link, and
+  # "cookie" is the httpOnly session cookie, and the only value this framework
+  # accepts. A subprotocol token cannot be built on Qt 6.11 (see below), so
   # `synqt check` refuses the word rather than letting an edge accept it and keep
-  # reading the cookie.
+  # reading the cookie anyway.
   session_transport: cookie
 
   handshake_timeout_ms: 10000
@@ -389,6 +389,23 @@ When `origin_model: split_origin`, the scaffold pre fills `allowed_origins` with
 the client origin. The session cookie is then issued `SameSite=None; Secure`, which
 the edge derives from `origin_model` itself rather than from a second key that could
 disagree with it. The origin check remains the anti hijacking control in both models.
+
+`session_transport: subprotocol` is refused, and it is worth saying why, because it is a
+limit of the toolkit rather than a feature nobody got to. Carrying the session in
+`Sec-WebSocket-Protocol` requires the server to select one of the offered subprotocols and
+echo it in the `101` response. Qt 6.11 gives the edge nowhere to say which:
+`QHttpServerWebSocketUpgradeResponse::accept()` takes no arguments, and the
+`QWebSocketServer` that writes the response is private to `QAbstractHttpServer`, so
+`setSupportedSubprotocols()` is out of reach. The upgrade then completes with nothing
+negotiated, and browsers do not agree on what that means: measured on 2026-07-28 against a
+real edge, Chromium 149 closes the connection (code 1006, `Sent non-empty
+'Sec-WebSocket-Protocol' header but no response was received`) while Firefox 151 opens it.
+An edge that worked in one engine and not the other is worse than one that says no, so the
+word is refused at `synqt check`. The Qt half of that measurement is kept as a test
+(`tests/m5-webedge`), and it fails the day a Qt release makes the transport buildable.
+
+Nothing needs it today. A browser holds the httpOnly cookie, and a native desktop client,
+which terminates its own TLS, presents its stored session on the handshake directly.
 
 ### `mesh` (service to service security)
 

@@ -18,7 +18,7 @@
 namespace SynQt {
 
 /// One browser user's session on the edge: the opaque credential the browser presents
-/// (cookie or subprotocol token), the scope it was granted, and the normalized identity
+/// (the httpOnly cookie), the scope it was granted, and the normalized identity
 /// (empty while anonymous). The identity and scope are set by the login flow (M8); until
 /// then a session is created anonymous and may be elevated by the dev/test path.
 struct SessionRecord

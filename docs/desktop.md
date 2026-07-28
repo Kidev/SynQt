@@ -76,10 +76,14 @@ gets back to the app:
    back a one-time session token.
 4. The app stores that token in the **OS secure store** (Keychain on macOS,
    Credential Manager on Windows, the Secret Service / libsecret on Linux) and
-   presents it on the `wss` handshake via the subprotocol token
-   (`security.session_transport: subprotocol`; see
-   [security](security.md)). No secret and no long-lived token is ever written to
-   plain disk.
+   presents it on the `wss` handshake, exactly as the browser presents its cookie.
+   A native client terminates its own TLS, so it sets the header itself and needs no
+   cookie jar. No secret and no long-lived token is ever written to plain disk.
+
+   The session travels in the same header the browser uses, not in a WebSocket
+   subprotocol. `security.session_transport: subprotocol` is refused, because Qt 6.11
+   gives the edge no way to select the subprotocol it would have to echo; see
+   [`session_transport`](project-layout-and-config.md#security) for the measurement.
 
 `Session.logout()` clears the stored token and calls the edge logout route, exactly
 as in the browser.

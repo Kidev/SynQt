@@ -59,10 +59,38 @@ Builds `SynQtService` (now with Qt HttpServer) and the test, generating a throwa
 localhost TLS server cert at configure time into `build/m5-webedge/certs/`; a
 public-link server cert (not a mesh CA), git-ignored and never committed.
 
+## What `theUpgradePathCannotNegotiateASubprotocol` is for
+
+It is the only test here that pins a limitation rather than a behavior, so it is worth
+saying what it buys. `security.session_transport: subprotocol` is documented as a config
+key and refused by `synqt check`, and this is the evidence behind that refusal.
+
+Carrying the session in `Sec-WebSocket-Protocol` needs the server to select one of the
+offered subprotocols and echo it in the `101`. Qt 6.11 gives this path no way to say which:
+`QHttpServerWebSocketUpgradeResponse::accept()` takes no arguments, and the
+`QWebSocketServer` that writes the response lives in `QAbstractHttpServerPrivate`, out of
+reach of `setSupportedSubprotocols()`. The upgrade still completes, negotiating nothing,
+which is what the test asserts.
+
+Whether that matters turns out to depend on the engine, measured on 2026-07-28 against a
+real generated edge:
+
+| client | offered a subprotocol | result |
+|--------|-----------------------|--------|
+| Qt 6.11 `QWebSocket` | `synqt`, `synqt.session.<token>` | connects, `subprotocol()` empty |
+| Chromium 149 | same | **closed, code 1006** (`Sent non-empty 'Sec-WebSocket-Protocol' header but no response was received`) |
+| Firefox 151 | same | connects, `socket.protocol` empty |
+| all three | nothing offered | connects |
+
+An edge that works in one browser and not another is worse than one that refuses the
+setting, which is why the word is rejected at `synqt check`. The test is a tripwire: if a
+later Qt lets the verifier select a subprotocol, it starts failing, and that failure says
+the transport has become buildable.
+
 ## Notes / scope
 
 - Decisions: M5 uses a **minimal proto-session** (a cookie token in an in-memory store);
-  the full `SessionManager` (expiry, revocation, rotation, subprotocol token) and
+  the full `SessionManager` (expiry, revocation, rotation) and
   per-connect-point **scope gating** land in **M7**, and OAuth login in **M8**. The
   acceptance test runs over **real TLS**; plaintext (`synqt dev`) is implemented too.
 - The `WebSocketTransport` adapter is shared with the client runtime; the same source
