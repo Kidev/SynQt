@@ -403,7 +403,7 @@
       "what": "A process on the same machine connects to the app's loopback port and hands it a claim code for an account the attacker controls, signing the visitor in as somebody else.",
       "defended_by": "The client refuses any arrival that does not carry the nonce it generated for the sign-in it started, compared in constant time, and claims nothing.",
       "file": "tests/m8-auth/tst_desktop.cpp",
-      "test": "loopbackReceiverServesOneAnswer"
+      "test": "aSignInAnswerIsTakenOnlyWhenItIsThisClients"
     },
     {
       "id": "desktop-login-on-a-project-without-one",

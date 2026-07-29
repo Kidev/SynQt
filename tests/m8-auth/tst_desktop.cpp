@@ -42,11 +42,14 @@
 #include <QQmlEngine>
 #include <QScopeGuard>
 #include <QSignalSpy>
+#include <QTcpServer>
 #include <QTcpSocket>
 #include <QTest>
 #include <QUrlQuery>
 
 #include <memory>
+#include <tuple>
+#include <utility>
 
 using namespace SynQt;
 
@@ -85,6 +88,53 @@ QString challengeFor(const QByteArray &verifier)
 }
 
 } // namespace
+
+/// Every warning logged while it lives, kept rather than printed.
+///
+/// For assertions on a warning that arrives from a network reply at some point later:
+/// QTest::ignoreMessage has to be told in advance and cannot be waited on, and whether the
+/// warning has arrived yet is exactly the thing a test of an asynchronous refusal waits for.
+class WarningLog
+{
+public:
+    WarningLog()
+    {
+        s_current = this;
+        m_previous = qInstallMessageHandler(&WarningLog::handle);
+    }
+    ~WarningLog()
+    {
+        qInstallMessageHandler(m_previous);
+        s_current = nullptr;
+    }
+
+    bool contains(const QString &text) const
+    {
+        for (const QString &line : m_lines) {
+            if (line.contains(text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+private:
+    static void handle(QtMsgType type, const QMessageLogContext &context,
+                       const QString &message)
+    {
+        if (type == QtWarningMsg && s_current != nullptr) {
+            s_current->m_lines.append(message);
+            return;
+        }
+        if (s_current != nullptr && s_current->m_previous != nullptr) {
+            s_current->m_previous(type, context, message);
+        }
+    }
+
+    static inline WarningLog *s_current{nullptr};
+    QtMessageHandler m_previous{nullptr};
+    QStringList m_lines;
+};
 
 class TestDesktop : public QObject
 {
@@ -139,7 +189,7 @@ private:
         return response;
     }
 
-    /// The whole system-browser round trip of a desktop login. The login route, the
+    /// The whole system-browser round trip of a desktop login: the login route, the
     /// provider's authorize endpoint, the edge's callback. Returns the callback response,
     /// which is the redirect back to the loopback listener.
     Response completeDesktopLogin(const QString &returnUrl, const QString &state,
@@ -580,14 +630,107 @@ private slots:
         QCOMPARE(post(QUrl{base + QStringLiteral("/auth/login/claim")}, form).status, 404);
     }
 
+    /// What the loopback listener does with what is not the answer. A request that is not a
+    /// GET is refused and the sign-in keeps waiting; a request line too long to be one is
+    /// cut off; and a sign-in nobody finishes ends on its own, with the port given up.
+    void loopbackReceiverRefusesWhatIsNotTheAnswerAndGivesUp()
+    {
+        LoopbackReceiver receiver;
+        QVERIFY(receiver.listen());
+        QSignalSpy received{&receiver, &LoopbackReceiver::received};
+        QSignalSpy timedOut{&receiver, &LoopbackReceiver::timedOut};
+
+        QTcpSocket post;
+        post.connectToHost(QHostAddress::LocalHost, receiver.port());
+        QVERIFY(QTest::qWaitFor([&post]() {
+            return post.state() == QAbstractSocket::ConnectedState; }, 3000));
+        post.write("POST /?code=c&state=s HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        QTRY_VERIFY(post.state() == QAbstractSocket::UnconnectedState
+                    || post.bytesAvailable() > 0);
+        QVERIFY(post.readAll().startsWith("HTTP/1.1 405"));
+        QCOMPARE(received.count(), 0);
+
+        const QByteArray flood{hitLoopback(receiver.port(), QByteArray(64 * 1024, 'a'))};
+        QVERIFY(!flood.startsWith("HTTP/1.1 200"));
+        QCOMPARE(received.count(), 0);
+
+        receiver.setTimeout(100);
+        QTRY_COMPARE(timedOut.count(), 1);
+        QCOMPARE(received.count(), 0);
+        QTcpSocket late;
+        late.connectToHost(QHostAddress::LocalHost, receiver.port());
+        QVERIFY(!late.waitForConnected(500));
+    }
+
+    /// Only this client's own answer signs it in. The loopback port is reachable by any
+    /// process on the machine, so an answer carrying a state this client did not generate
+    /// is refused and ends the sign-in; that is what stops a local process from handing the
+    /// app a code for an account it controls. A second sign-in while one is waiting starts
+    /// nothing; a provider's refusal is reported as one; a code the edge never issued is a
+    /// refused claim; and an edge that is not there is said differently, because that one
+    /// is worth trying again. In none of them is the client signed in.
+    void aSignInAnswerIsTakenOnlyWhenItIsThisClients()
+    {
+        QDesktopServices::setUrlHandler(QStringLiteral("http"), this, "recordBrowser");
+        const auto releaseHandler{qScopeGuard([]() {
+            QDesktopServices::unsetUrlHandler(QStringLiteral("http"));
+        })};
+        const auto begin{[this](SynClient &client) {
+            m_opened = QUrl{};
+            client.session()->login(QStringLiteral("stub"));
+            const bool opened{QTest::qWaitFor([this]() { return m_opened.isValid(); }, 3000)};
+            const QUrlQuery query{m_opened.query()};
+            return std::pair<quint16, QByteArray>{
+                opened ? static_cast<quint16>(
+                             QUrl{query.queryItemValue(QStringLiteral("return"))}.port())
+                       : quint16{0},
+                query.queryItemValue(QStringLiteral("return_state")).toLatin1()};
+        }};
+        SynClientConfig config;
+        config.edgeUrl = QUrl{QStringLiteral("ws://127.0.0.1:%1/sync").arg(m_edgePort)};
+        config.loginRoute = QStringLiteral("/auth/login");
+        config.logoutRoute = QStringLiteral("/auth/logout");
+        QQmlEngine engine;
+        SynClient client{config, &engine};
+
+        WarningLog warnings;
+        auto [port, state]{begin(client)};
+        QVERIFY(port != 0 && !state.isEmpty());
+        client.session()->login(QStringLiteral("stub"));
+        QVERIFY(warnings.contains(QStringLiteral("a sign-in is already in progress")));
+
+        hitLoopback(port, "/?code=a-code-for-somebody-else&state=not-this-clients");
+        QTRY_VERIFY(warnings.contains(QStringLiteral("this client did not ask for")));
+        QTcpSocket late;
+        late.connectToHost(QHostAddress::LocalHost, port);
+        QVERIFY2(!late.waitForConnected(500), "a refused answer ends the sign-in");
+
+        std::tie(port, state) = begin(client);
+        hitLoopback(port, "/?error=access_denied&state=" + state);
+        QTRY_VERIFY(warnings.contains(QStringLiteral("did not complete (access_denied)")));
+
+        std::tie(port, state) = begin(client);
+        hitLoopback(port, "/?code=never-issued&state=" + state);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            warnings.contains(QStringLiteral("the edge refused the sign-in claim")), 10000);
+
+        SynClientConfig nowhere{config};
+        QTcpServer closed;
+        QVERIFY(closed.listen(QHostAddress::LocalHost, 0));
+        nowhere.edgeUrl = QUrl{QStringLiteral("ws://127.0.0.1:%1/sync").arg(closed.serverPort())};
+        closed.close();
+        SynClient unreachable{nowhere, &engine};
+        std::tie(port, state) = begin(unreachable);
+        hitLoopback(port, "/?code=any&state=" + state);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            warnings.contains(QStringLiteral("the edge did not answer the sign-in claim")),
+            10000);
+        QVERIFY(client.state() != QStringLiteral("connected"));
+    }
+
     // End to end, through the client runtime itself: Session.login() takes a port, opens
     // the system browser, receives the answer, exchanges it over its own connection, and
     // reconnects holding an authenticated session.
-    //
-    // The system browser is stood in for through QDesktopServices::setUrlHandler, which is
-    // Qt's own seam for exactly this. Nothing in the client is widened to be testable: it
-    // calls openUrl() the way it does in a shipped app, and what is substituted is the
-    // browser, which is the one part of the flow that is not SynQt's.
     void nativeClientSignsInEndToEnd()
     {
         SynClientConfig config;
@@ -607,8 +750,8 @@ private slots:
         //
         // Substituted through QDesktopServices::setUrlHandler, which is Qt's own seam for
         // it. Nothing in the client is widened to be testable: it calls openUrl() the way a
-        // shipped app does, and what is replaced is the browser, which is the one part of
-        // this flow that was never SynQt's.
+        // shipped app does, and what is replaced is the browser, the one part of this flow
+        // that is not SynQt's.
         QDesktopServices::setUrlHandler(QStringLiteral("http"), this, "driveBrowser");
         const auto releaseHandler{qScopeGuard([]() {
             QDesktopServices::unsetUrlHandler(QStringLiteral("http"));
@@ -660,8 +803,13 @@ public slots:
         QFAIL("the stand-in browser never reached a loopback redirect");
     }
 
+    /// The stand-in browser that goes nowhere: it keeps the URL the client asked it to
+    /// open, so a test can answer the sign-in however it likes.
+    void recordBrowser(const QUrl &url) { m_opened = url; }
+
 private:
     QUrl m_browserLanding;
+    QUrl m_opened;
 };
 
 QTEST_MAIN(TestDesktop)
