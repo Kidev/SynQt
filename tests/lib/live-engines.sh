@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The throwaway engines the live provider proofs run against: PostgreSQL, MariaDB, Redis and
-# MongoDB, in containers, each answering in plaintext and over TLS from a test CA.
+# Throwaway PostgreSQL, MariaDB, Redis and MongoDB containers for the live provider
+# proofs, each answering in plaintext and over TLS from a test CA.
 #
 #   tests/lib/live-engines.sh up          # issue the certificates, start the engines, wait
 #   tests/lib/live-engines.sh env         # `export SYNQT_TEST_...=...` for each engine up
@@ -13,26 +13,13 @@
 #   eval "$(tests/lib/live-engines.sh up && tests/lib/live-engines.sh env)"
 #   tests/m9-providers/run-m9.sh
 #
-# CI and a workstation run this same script, so a live proof that passes in one passes
-# against the same engines, versions and certificates in the other. An engine that does not
-# come up is reported and left out of `env`, and the proofs that need it skip.
+# An engine that does not come up is left out of `env`, and its proofs skip. The certificate
+# names `localhost` only; a second CA that signed nothing is there to be refused. Files go
+# to SYNQT_LIVE_ENGINES_DIR (default ~/.cache/synqt-live-engines), the CA key outside tls/.
 #
-# TLS is on beside plaintext, not instead of it. The plaintext port is what the swap proofs
-# use, and it is also the server a `tls: true` provider must refuse to settle for. The
-# certificate names `localhost` and nothing else, so a proof can connect by name and
-# verify, and connect by address to show that verify-full checks the name. A second CA that
-# signed nothing is issued beside the real one, so a proof can hand a provider the wrong
-# anchor and watch it refuse.
-#
-# The certificates are test material, written to SYNQT_LIVE_ENGINES_DIR (default
-# ~/.cache/synqt-live-engines) and never into the checkout. They have nothing to do with a
-# mesh CA. The engines read their files as their own unprivileged users, so what they need
-# sits in a readable tls/ inside a directory private to the user running this, and the CA's
-# key stays outside tls/.
-#
-# Ports can be moved when a machine already uses one: SYNQT_ENGINE_PG_PORT (5432),
-# SYNQT_ENGINE_MYSQL_PORT (3306), SYNQT_ENGINE_REDIS_PORT (6379), SYNQT_ENGINE_REDIS_TLS_PORT
-# (6380) and SYNQT_ENGINE_MONGO_PORT (27017).
+# Ports: SYNQT_ENGINE_PG_PORT (5432), SYNQT_ENGINE_MYSQL_PORT (3306),
+# SYNQT_ENGINE_REDIS_PORT (6379), SYNQT_ENGINE_REDIS_TLS_PORT (6380),
+# SYNQT_ENGINE_MONGO_PORT (27017).
 
 set -u
 
@@ -64,9 +51,10 @@ issue_certificates() {
         rm -f ./*.crt ./*.key ./*.srl tls/*
         SYNQT_CERT_DAYS=30 synqt_gen_ca engine-ca || exit 1
         SYNQT_CERT_DAYS=30 synqt_gen_ca wrong-ca || exit 1
-        issue_server_certificate || exit 1
-        # What the engines read goes into tls/, and only that. The CA's key stays in the
-        # private directory above it, and the wrong CA's key is not needed at all.
+        # localhost and 127.0.0.1 (MariaDB's client reads `localhost` as its socket). 127.0.0.2
+        # is left out, to show that verify-full checks the name.
+        SYNQT_CERT_DAYS=30 synqt_gen_edge_cert localhost engine-ca || exit 1
+        # Only what the engines read goes into tls/.
         mv engine-ca.crt wrong-ca.crt localhost.crt localhost.key tls/
         # MongoDB takes the certificate and its key as one file.
         cat tls/localhost.crt tls/localhost.key > tls/localhost.pem
@@ -77,29 +65,7 @@ issue_certificates() {
     synqt_mark_certs "$DIR/profile"
 }
 
-# The engines' certificate, in the shared leaf profile, naming localhost and 127.0.0.1. The
-# address is there because MariaDB's client reads `localhost` as its Unix socket, so a
-# verified MySQL connection has to be made by address; 127.0.0.2 is left out on purpose, as
-# the loopback address a proof connects through to show that verify-full checks the name.
-issue_server_certificate() {
-    _synqt_openssl genrsa -out localhost.key 2048 || return 1
-    _synqt_openssl req -new -key localhost.key -subj "/CN=localhost" -out localhost.csr \
-        || return 1
-    printf '%s\n' \
-        "basicConstraints=critical,CA:FALSE" \
-        "keyUsage=critical,digitalSignature,keyEncipherment" \
-        "extendedKeyUsage=serverAuth" \
-        "subjectAltName=DNS:localhost,IP:127.0.0.1" \
-        "subjectKeyIdentifier=hash" \
-        "authorityKeyIdentifier=keyid,issuer" > localhost.ext
-    _synqt_openssl x509 -req -in localhost.csr -CA engine-ca.crt -CAkey engine-ca.key \
-        -CAcreateserial -days 30 -sha256 -extfile localhost.ext -out localhost.crt || return 1
-    rm -f localhost.csr localhost.ext
-    synqt_assert_cert_ext localhost.crt "TLS Web Server Authentication"
-}
-
-# Name and probe. The probe runs inside the container, so it asks the engine itself and not
-# whatever else might be listening on the published port.
+# The probe runs inside the container.
 ready() {
     local name="$1"
     shift
@@ -123,8 +89,7 @@ up() {
     issue_certificates || { say "the test certificates could not be issued"; return 1; }
     docker rm -f $ENGINES >/dev/null 2>&1
 
-    # The key is copied in and handed to the postgres user, because the server refuses a key
-    # anyone else can read and the mount is read-only.
+    # Copied and chowned: postgres refuses a key others can read, and the mount is read-only.
     docker run -d --name synqt-pg -e POSTGRES_PASSWORD=synqt -e POSTGRES_USER=synqt \
         -e POSTGRES_DB=synqt -p "$PG_PORT:5432" -v "$TLS:/certs:ro" postgres:16 \
         bash -c 'install -o postgres -m 600 /certs/localhost.key /var/lib/postgresql/tls.key &&
@@ -146,8 +111,7 @@ up() {
         --tlsMode allowTLS --tlsCertificateKeyFile /certs/localhost.pem \
         --tlsCAFile /certs/engine-ca.crt --tlsAllowConnectionsWithoutCertificates >/dev/null
 
-    # Over TCP, not the socket: during its first start the postgres image runs a private
-    # server on the socket alone, which answers pg_isready and then goes away.
+    # Over TCP: the image's first-start server listens on the socket only.
     ready synqt-pg psql -h 127.0.0.1 -U synqt -d synqt -c 'SELECT 1'
     ready synqt-mysql healthcheck.sh --connect
     ready synqt-redis redis-cli ping
@@ -159,8 +123,7 @@ running() {
     [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ]
 }
 
-# KEY=VALUE lines for the engines that are up now. Asked again rather than remembered from
-# `up`, so `env` in a later shell reports what is actually there.
+# Asked again, so a later shell reports what is actually up.
 variables() {
     local any=0
     if running synqt-pg && docker exec synqt-pg psql -h 127.0.0.1 -U synqt -d synqt \
