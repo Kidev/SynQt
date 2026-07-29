@@ -3,8 +3,9 @@
 
 # The inbound HTTP surface an entity gets from `network.inbound`: routes declared in QML on
 # the `Api` helper, and the checks ApiServer runs before any of them is reached (API key,
-# origin, body size, rate limit). Native host kit; no certificates, because what is under
-# test is the request pipeline and TLS is QSslServer's job, proven in m5-webedge.
+# origin, body size, rate limit), and the surface's own TLS: loading what it was named,
+# serving over it, and refusing to start on what it cannot use. Native host kit. Throwaway
+# certificates are generated at configure time into the build tree (never committed).
 
 cmake_minimum_required(VERSION 3.21)
 project(synqt_api_inbound LANGUAGES CXX)
@@ -19,12 +20,23 @@ if(NOT TARGET SynQtGateway)
         "${CMAKE_BINARY_DIR}/SynQtGateway")
 endif()
 
+set(APIINBOUND_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
+execute_process(
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${APIINBOUND_CERTS}"
+    RESULT_VARIABLE _certs_rc
+    ERROR_VARIABLE _certs_err
+)
+if(NOT _certs_rc EQUAL 0)
+    message(FATAL_ERROR "api-inbound certificate generation failed:\n${_certs_err}")
+endif()
+
 enable_testing()
 
 qt_add_executable(tst_apiinbound tst_apiinbound.cpp)
 
 target_compile_definitions(tst_apiinbound PRIVATE
-    APIINBOUND_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    APIINBOUND_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    APIINBOUND_CERT_DIR="${APIINBOUND_CERTS}")
 
 target_link_libraries(tst_apiinbound PRIVATE
     SynQtGateway

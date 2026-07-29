@@ -4,13 +4,13 @@
 // The inbound HTTP surface (`network.inbound`), an entity serving a public API through
 // routes its own QML declared on `Api`, behind the checks `ApiServer` runs first.
 //
-// Two halves are under test. That the surface works at all. A route matches, captures a
-// placeholder, reads a JSON body, and answers with JSON. And that nothing reaches a
+// Two halves are under test: that the surface works at all (a route matches, captures a
+// placeholder, reads a JSON body, and answers with JSON), and that nothing reaches a
 // handler that should not: no API key, an origin nobody allowed, a body over the limit,
 // and a flood past the rate limit are each answered by the server.
 //
 // The rate limit brings a third question with it, since a limit per address is only as
-// good as its notion of address. Whether `X-Forwarded-For` is believed, which turns on
+// good as its notion of address: whether `X-Forwarded-For` is believed, which turns on
 // whether the peer that sent it is a proxy this surface was told about.
 
 #include "api.h"
@@ -28,6 +28,8 @@
 #include <QQmlEngine>
 #include <QRegularExpression>
 #include <QSignalSpy>
+#include <QSslCertificate>
+#include <QSslConfiguration>
 #include <QStringList>
 #include <QTcpSocket>
 #include <QTest>
@@ -167,6 +169,104 @@ private slots:
         QVERIFY2(m_server->start(), qPrintable(m_server->errorString()));
         m_port = m_server->serverPort();
         QVERIFY(m_port != 0);
+    }
+
+    // The surface's own half of TLS. Named a certificate and a key, it serves over them, and
+    // a caller that trusts the CA gets its answer; a caller speaking plaintext to the same
+    // port gets none. Named a pair it cannot read, it refuses to start, rather than listen
+    // on a port whose every handshake would fail with nothing in the log saying why.
+    void inboundTlsServesOverWhatItWasNamedOrRefusesToStart()
+    {
+        QQmlEngine engine;
+        ApiConfig config;
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.anonymous = true;
+        config.certFile = QStringLiteral(APIINBOUND_CERT_DIR "/server.crt");
+        config.keyFile = QStringLiteral(APIINBOUND_CERT_DIR "/server.key");
+        ApiServer server{config, &engine};
+        server.api()->get(QStringLiteral("/ping"),
+                          engine.evaluate(QStringLiteral("(function(r){ return {tls: true}; })")));
+        QVERIFY2(server.start(), qPrintable(server.errorString()));
+
+        QNetworkRequest request{
+            QUrl{QStringLiteral("https://localhost:%1/ping").arg(server.serverPort())}};
+        QSslConfiguration trust{QSslConfiguration::defaultConfiguration()};
+        trust.setCaCertificates(
+            QSslCertificate::fromPath(QStringLiteral(APIINBOUND_CERT_DIR "/ca.crt")));
+        request.setSslConfiguration(trust);
+        QNetworkReply *reply{m_network.get(request)};
+        QSignalSpy finished{reply, &QNetworkReply::finished};
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(reply->error(), QNetworkReply::NoError);
+        QCOMPARE(QJsonDocument::fromJson(reply->readAll()).object()
+                     .value(QStringLiteral("tls")).toBool(), true);
+        reply->deleteLater();
+
+        QNetworkReply *plain{m_network.get(QNetworkRequest{
+            QUrl{QStringLiteral("http://127.0.0.1:%1/ping").arg(server.serverPort())}})};
+        QSignalSpy plainFinished{plain, &QNetworkReply::finished};
+        QVERIFY(plainFinished.wait(5000));
+        QVERIFY(plain->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200);
+        plain->deleteLater();
+
+        ApiConfig unreadable{config};
+        unreadable.keyFile = QStringLiteral(APIINBOUND_CERT_DIR "/missing.key");
+        ApiServer refused{unreadable, &engine};
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression{QStringLiteral("cannot read")});
+        QVERIFY(!refused.start());
+        QVERIFY2(refused.errorString().contains(QStringLiteral("cannot terminate TLS")),
+                 qPrintable(refused.errorString()));
+    }
+
+    // A surface with nowhere to listen is refused at start with the config key it is
+    // missing, and one that does listen answers every method a route may name, PATCH
+    // included, and refuses a body past its limit before a handler sees it.
+    void theSurfaceNamesWhatIsMissingAndAnswersEveryMethod()
+    {
+        QQmlEngine engine;
+        ApiConfig nowhere;
+        nowhere.host.clear();
+        nowhere.port = 0;
+        ApiServer unplaced{nowhere, &engine};
+        QVERIFY(!unplaced.start());
+        QVERIFY2(unplaced.errorString().contains(QStringLiteral("network.inbound")),
+                 qPrintable(unplaced.errorString()));
+
+        ApiConfig config;
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.anonymous = true;
+        config.maxBodyBytes = 64;
+        ApiServer server{config, &engine};
+        server.api()->route(QStringLiteral("patch"), QStringLiteral("/lots/:id"),
+                            engine.evaluate(QStringLiteral(
+                                "(function(r){ return {patched: r.params.id, "
+                                "method: r.method}; })")));
+        QVERIFY2(server.start(), qPrintable(server.errorString()));
+
+        const auto patch{[&](const QByteArray &body) {
+            QNetworkRequest request{
+                QUrl{QStringLiteral("http://127.0.0.1:%1/lots/3").arg(server.serverPort())}};
+            request.setHeader(QNetworkRequest::ContentTypeHeader,
+                              QByteArrayLiteral("application/json"));
+            QNetworkReply *reply{m_network.sendCustomRequest(request, "PATCH", body)};
+            QSignalSpy finished{reply, &QNetworkReply::finished};
+            finished.wait(5000);
+            Answer answer;
+            answer.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            answer.body = reply->readAll();
+            reply->deleteLater();
+            return answer;
+        }};
+        const Answer patched{patch(QByteArrayLiteral("{\"open\":false}"))};
+        QCOMPARE(patched.status, 200);
+        QCOMPARE(patched.json().value(QStringLiteral("patched")).toString(), QStringLiteral("3"));
+        QCOMPARE(patched.json().value(QStringLiteral("method")).toString(),
+                 QStringLiteral("PATCH"));
+
+        const Answer tooLarge{patch(QByteArray(200, 'x'))};
+        QCOMPARE(tooLarge.status, 413);
     }
 
     // What a route table accepts. Every method has its declaration and `route()` takes any,
@@ -365,12 +465,11 @@ private slots:
                       QByteArrayLiteral("https://partner.example")).status, 200);
     }
 
-    /// A browser is what `allowed_origins` exists for, and a browser never sends the key
-    /// on its first request. A cross-origin call carrying `X-API-Key` is preflighted with
-    /// an OPTIONS that carries no key, and the real request is sent only if the preflight
-    /// is answered with the origin and the header allowed. Until this was written the
-    /// preflight was refused with a 401 and no CORS header, so a browser could never reach
-    /// a surface that had named its origin, which is the one thing the key exists to do.
+    /// A browser is what `allowed_origins` exists for, and a browser never sends the key on
+    /// its first request. A cross-origin call carrying `X-API-Key` is preflighted with an
+    /// OPTIONS that carries no key, and the real request is sent only if the preflight is
+    /// answered with the origin and the header allowed. Refusing the preflight with a 401
+    /// would keep every browser away from a surface that named its origin.
     void aNamedOriginIsAnsweredThePreflightABrowserSendsFirst()
     {
         const auto preflight{[&](const QByteArray &origin) {
@@ -380,7 +479,8 @@ private slots:
                                  QByteArrayLiteral("GET"));
             request.setRawHeader(QByteArrayLiteral("Access-Control-Request-Headers"),
                                  QByteArrayLiteral("x-api-key, content-type"));
-            QNetworkReply *reply{m_network.sendCustomRequest(request, QByteArrayLiteral("OPTIONS"))};
+            QNetworkReply *reply{
+                m_network.sendCustomRequest(request, QByteArrayLiteral("OPTIONS"))};
             QSignalSpy finished{reply, &QNetworkReply::finished};
             finished.wait(5000);
             return reply;
@@ -401,7 +501,8 @@ private slots:
         // And the real request, which does carry the key, comes back with the header the
         // browser needs to hand the answer to the page.
         QNetworkRequest real{url(QStringLiteral("/lots"))};
-        real.setRawHeader(QByteArrayLiteral("Origin"), QByteArrayLiteral("https://partner.example"));
+        real.setRawHeader(QByteArrayLiteral("Origin"),
+                          QByteArrayLiteral("https://partner.example"));
         real.setRawHeader(QByteArrayLiteral("X-API-Key"), QByteArrayLiteral("right-key"));
         QNetworkReply *reply{m_network.get(real)};
         QSignalSpy finished{reply, &QNetworkReply::finished};
@@ -429,17 +530,15 @@ private slots:
 
     /// The declared body limit is the transport's limit, not a check made after the fact.
     ///
-    /// `refuse()` reads `request.body()`, which is a body QHttpServer has already read into
-    /// memory. On its own it bounds what a handler is handed and not what the process
-    /// allocates. Qt's own ceiling is 32 MiB, so before this an unauthenticated caller could
-    /// spend 32 MiB per connection whatever `network.inbound.max_body_bytes` said, and could
-    /// keep doing it. Four megabytes here because that is the shape of the gap: far past the
-    /// declared limit, far short of Qt's default, so only a limit the transport knows about
-    /// refuses it.
+    /// `refuse()` reads `request.body()`, a body QHttpServer has already read into memory,
+    /// so on its own it bounds what a handler is handed and not what the process allocates.
+    /// Qt's own ceiling is 32 MiB, so an unauthenticated caller could spend 32 MiB per
+    /// connection whatever `network.inbound.max_body_bytes` said. Four megabytes here: far
+    /// past the declared limit and far short of Qt's default, so only a limit the transport
+    /// knows about refuses it.
     ///
-    /// Proved by where the refusal comes from rather than by its status, which is 413 either
-    /// way. A request Qt turns away never reaches ApiServer, so nothing of SynQt's has anything
-    /// to say about it.
+    /// Proved by where the refusal comes from rather than by its status, which is 413
+    /// either way. A request Qt turns away never reaches ApiServer.
     void aBodyPastTheLimitIsRefusedByTheTransportAndNotByTheHandler()
     {
         QSignalSpy refused{m_server.get(), &ApiServer::requestRefused};
@@ -460,11 +559,11 @@ private slots:
         QCOMPARE(send(QStringLiteral("GET"), QStringLiteral("/lots")).status, 200);
     }
 
-    /// A caller that opens sockets and sends nothing is seen by neither the rate limit
-    /// nor the body ceiling, since both see a request, and until this how many such
-    /// sockets one address could hold was whatever the operating system allowed. Counted
-    /// at accept, through Qt's own ceilings, which count correctly here because an API
-    /// socket is never upgraded (the edge counts its own for that reason).
+    /// A caller that opens sockets and sends nothing is seen by neither the rate limit nor
+    /// the body ceiling, since both see a request, so without a socket ceiling one address
+    /// could hold as many sockets as the operating system allows. Counted at accept,
+    /// through Qt's own ceilings, which count correctly here because an API socket is never
+    /// upgraded (the edge counts its own for that reason).
     void aPeerThatOpensSocketsAndSendsNothingIsRefusedAtTheCeiling()
     {
         QQmlEngine engine;
