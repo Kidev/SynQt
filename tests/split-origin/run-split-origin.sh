@@ -23,24 +23,15 @@ fi
 rm -rf "$WORK"
 mkdir -p "$WORK"
 
-# A throwaway server certificate covering both sites, generated per run and never committed.
-# `x509 -req -extfile` rather than `req -x509 -addext`, which has produced certificates with
-# duplicate extensions that some TLS stacks reject outright.
-cat > "$WORK/san.cnf" <<'EOF'
-[req]
-distinguished_name = dn
-[dn]
-[ext]
-subjectAltName = DNS:synqtcdn.test, DNS:synqtedge.test
-basicConstraints = CA:FALSE
-keyUsage = digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-EOF
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
-    -keyout "$WORK/key.pem" -out "$WORK/cert.pem" \
-    -subj "/CN=synqtcdn.test" -config "$WORK/san.cnf" -extensions ext 2>/dev/null
+# The server certificate covering both sites comes from the shared local test network, which
+# is also what maps the names for WebKit. One place issues certificates for these sites, so
+# the openssl subtleties that took a week to find (never `req -x509 -addext`, which has
+# produced anchors with an extension twice that macOS rejects outright) live in one script
+# rather than in each rig that needs a certificate.
+"$HERE/../local-network/local-network.sh" certs > /dev/null
+eval "$("$HERE/../local-network/local-network.sh" env)"
 
-SPLIT_ORIGIN_CERTS="$WORK" node "$HERE/measure.mjs" > "$WORK/report.json"
+SPLIT_ORIGIN_CERTS="$SYNQT_LOCAL_NETWORK_DIR" node "$HERE/measure.mjs" > "$WORK/report.json"
 cat "$WORK/report.json"
 
 # Also leave the report where a CI run can archive it. The gate's pass/fail says whether the

@@ -229,9 +229,7 @@ jobs:
       # here, which is the only place this project has a WebKit runtime.
       - name: Map the split-origin test sites
         shell: bash
-        run: |
-          set -eu
-          echo "127.0.0.1 synqtcdn.test synqtedge.test" | sudo tee -a /etc/hosts
+        run: tests/local-network/local-network.sh hosts
 
       - name: Measure what a split-origin session cookie survives
         shell: bash
