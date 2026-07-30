@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M8 acceptance. A full provider login runs entirely on the edge (Authorization Code +
-// PKCE, framework-generated state verified on the callback, the client secret and tokens
+// Identity on the edge. A full provider login runs entirely on the edge (Authorization Code
+// + PKCE, framework-generated state verified on the callback, the client secret and tokens
 // held on the edge), the browser ends with only an httpOnly session cookie, the session
-// carries the normalized identity and the scope the mapping hook returned, and tokens
-// never appear in what the browser receives. The dev stub provider is refused unless the
-// dev gate is on.
+// carries the normalized identity and the scope the mapping hook returned, and tokens never
+// appear in what the browser receives. The dev stub provider is refused unless the dev gate
+// is on.
 
 #include "connectpointhost.h"
 #include "identityconfig.h"
@@ -319,19 +319,15 @@ QByteArray jsonAnswer(const QByteArray &body)
 
 /// One web edge, on a thread with a quarter of a megabyte of stack.
 ///
-/// What the nesting below spends is stack, and how much a level of it costs is decided by
-/// the compiler. About 3.5 KB with GCC on Linux, several times that with MSVC. So the same
-/// sixty-four levels that fit comfortably in the eight megabytes Linux and macOS give the
-/// main thread overflowed the one megabyte Windows gives it, and the first Windows run of
-/// this test is where that showed up: as a stack overflow, in CI, on a ceiling written to
-/// prevent exactly that.
+/// The nesting below spends stack, and what a level costs is up to the compiler: about 3.5
+/// KB with GCC on Linux, several times that with MSVC. Sixty-four levels fit in the eight
+/// megabytes Linux and macOS give the main thread and overflow the one megabyte Windows
+/// gives it.
 ///
-/// Running the edge on the roomiest stack on offer is what let a bound nobody had measured
-/// look fine for as long as it did, so it is given the smallest stack it can start on
-/// instead. A quarter of a megabyte is under what sixty-four levels cost on the cheapest
-/// platform, which is what makes the unbounded case fail here and not only on Windows. The
-/// bound is a share of the stack rather than a count, so what is left over for everything
-/// else is the same three quarters whatever the number is.
+/// So the edge gets the smallest stack it can start on. A quarter of a megabyte is under
+/// what sixty-four levels cost on the cheapest platform, which makes an unbounded nesting
+/// fail here on every platform. The bound is a share of the stack rather than a count, so
+/// the same three quarters are left for everything else whatever the number is.
 class SmallStackEdge : public QThread
 {
 public:
@@ -862,16 +858,13 @@ private:
                + QLatin1Char('.') + parts.at(2);
     }
 
-    /// The same signature with one bit of it flipped. The cheapest forgery there is, and
-    /// the one a signature check exists to catch.
+    /// The same signature with one bit of it flipped: the cheapest forgery, and the one a
+    /// signature check exists to catch.
     ///
-    /// Decoded, altered, and re-encoded rather than edited as text. Changing the last
-    /// character of the base64url segment looks equivalent and is not: 256 bytes of RSA
-    /// signature encode to 342 characters whose last one carries only two significant bits,
-    /// so 'A' -> 'B' there flips a padding bit and decodes to the identical signature. The
-    /// token then verifies, and the test fails only for the tokens whose final character
-    /// happened to land on a significant bit, so intermittently, in a test
-    /// whose whole job is to prove a forgery is caught.
+    /// Decoded, altered, and re-encoded rather than edited as text. 256 bytes of RSA
+    /// signature encode to 342 base64url characters whose last one carries only two
+    /// significant bits, so changing that character can flip a padding bit and decode to
+    /// the identical signature, and the forged token would verify.
     static QString withForgedSignature(const QStringList &parts)
     {
         QByteArray signature{QByteArray::fromBase64(parts.at(2).toUtf8(),
@@ -1099,10 +1092,10 @@ private slots:
                  "an ID token failing verification must not create a session");
     }
 
-    // The ID-token verifier had exactly one refusal under test (the wrong issuer), and a
-    // verifier is the sum of what it refuses. On the happy path it is indistinguishable
-    // from `return payload`. These drive SynQt::JwksVerifier directly against a real
-    // RS256 token the stub signed, and a real JWKS it serves, mutating one thing at a time.
+    // A verifier is the sum of what it refuses, and on the happy path it is
+    // indistinguishable from `return payload`. These drive SynQt::JwksVerifier directly
+    // against a real RS256 token the stub signed and a real JWKS it serves, changing one
+    // thing at a time.
     void idTokenRefusals()
     {
         // A genuine token for a known nonce, taken straight from the provider's own token
@@ -1444,19 +1437,17 @@ private slots:
     /// Every callback waits for the token exchange inside a nested event loop, and a nested
     /// loop goes on serving requests, so a second callback arriving during the first runs
     /// its own exchange inside that stack frame. The callback route is open, and a state
-    /// this edge issued is all it takes to get past the first check, so without a ceiling
-    /// the nesting depth follows the request rate and the stack is what decides.
+    /// this edge issued is all it takes to pass the first check, so without a ceiling the
+    /// nesting depth follows the request rate and the stack decides.
     ///
-    /// The ceiling covers both paths, and this drives the one that does not delegate to an
-    /// auth entity. Identity in process, a provider whose token endpoint accepts and
-    /// answers nothing, and more callbacks at once than the ceiling allows. What it looks
-    /// for is a callback answered while the others are still waiting, which is the one thing
-    /// a ceiling produces and the one thing its absence rules out.
+    /// The ceiling covers both paths; this drives the one that does not delegate to an auth
+    /// entity. Identity in process, a provider whose token endpoint accepts and answers
+    /// nothing, and more callbacks at once than the ceiling allows. The test looks for a
+    /// callback answered while the others are still waiting, which only a ceiling produces.
     ///
-    /// The edge runs on a small stack (SmallStackEdge) because a count of sixty-four is not
-    /// on its own an answer to how much stack sixty-four levels cost. Run against a roomy
-    /// stack this passed while the ceiling it was testing sat above what a Windows edge can
-    /// hold. Run against a small one it stops rather than crashes, which is the whole claim.
+    /// The edge runs on a small stack (SmallStackEdge) because a count of sixty-four says
+    /// nothing about how much stack sixty-four levels cost. On a small stack the edge must
+    /// stop rather than crash.
     void concurrentCallbacksAreBoundedWithIdentityInProcess()
     {
         // Above both ceilings in identityprovider.cpp, the count (kMaxConcurrentWaits,
@@ -1746,10 +1737,10 @@ private slots:
 
         // An elevation on one edge rotates the credential, and the browser goes on holding
         // the old one in a cookie no slot call can rewrite. The next page load may land on
-        // any replica, so the hand-off from the old id to the new has to be known on every
-        // edge. Without it edge B saw the old id removed, found no hand-off for it, and
-        // minted a fresh anonymous session in its place, which signed a visitor out for
-        // having been signed in on the other replica.
+        // any replica, so every edge must know the hand-off from the old id to the new.
+        // Without it edge B would see the old id removed, find no hand-off, and mint a
+        // fresh anonymous session, signing out a visitor who signed in on the other
+        // replica.
         const QByteArray rotated{edgeA->setScope(token, QStringLiteral("admin"))};
         QVERIFY(!rotated.isEmpty());
         QTRY_VERIFY(edgeB->isLive(rotated));
@@ -1762,8 +1753,8 @@ private slots:
         QTRY_VERIFY(!edgeB->isLive(rotated));
     }
 
-    // AUTH-2: the edge refreshes an access token before it expires, server-side, using the
-    // refresh token, without ever involving the browser. The session is untouched.
+    // The edge refreshes an access token before it expires, server-side, using the refresh
+    // token, without involving the browser. The session is untouched.
     void refreshRenewsAccessTokenServerSide()
     {
         const Response callback{completeLogin(QStringLiteral("?provider=stub"))};
@@ -1790,11 +1781,10 @@ private slots:
                  "a server-side refresh must not disturb the session");
     }
 
-    // A provider that names no lifetime is a conforming provider: `expires_in` is
-    // RECOMMENDED and not REQUIRED (RFC 6749 section 5.1). Keeping the expiry the refresh
-    // replaced left the entry permanently inside the sweep's margin, so the next pass
-    // refreshed it again, and the one after that, spending a refresh token against a third
-    // party once per interval for the life of the session and getting nothing back.
+    // A provider that names no lifetime is conforming: `expires_in` is RECOMMENDED, not
+    // REQUIRED (RFC 6749 section 5.1). Keeping the replaced expiry would leave the entry
+    // permanently inside the sweep's margin, so every pass would refresh it again, spending
+    // a refresh token against a third party once per interval for the life of the session.
     void aRefreshThatNamesNoLifetimeIsNotSweptAgain()
     {
         m_stub->setRefreshOmitsExpiry(true);
@@ -1830,11 +1820,10 @@ private slots:
     }
 
     // An elevation rotates the session credential (SessionManager::setScope, which
-    // Caller.setScope calls on every sign-in that raises somebody's scope), and the provider
-    // tokens are keyed on that credential. Nothing moved them, so after any elevation the
-    // tokens for the live session could not be found and the entry under the replaced id was
-    // unreachable. The refresh sweep went on spending its refresh token against the provider
-    // on behalf of a session that no longer existed, forever.
+    // Caller.setScope calls on every sign-in that raises a scope), and the provider tokens
+    // are keyed on that credential. They must move with it: otherwise the live session's
+    // tokens cannot be found, and the refresh sweep spends the refresh token against the
+    // provider for a session that no longer exists.
     void elevatingASessionCarriesItsProviderTokens()
     {
         const Response callback{completeLogin(QStringLiteral("?provider=stub"))};
@@ -1859,10 +1848,9 @@ private slots:
                  "nothing may be left under the credential the elevation replaced");
     }
 
-    // Revocation is not a rare path. It is what a detected device-credential reuse does to
-    // every session that credential opened. Only expiry released the provider tokens, so a
-    // revoked session kept its live access and refresh tokens on the edge, which is most of
-    // what the revocation was for.
+    // Revocation is not a rare path: a detected device-credential reuse revokes every
+    // session that credential opened. A revoked session must release its provider tokens,
+    // or the edge keeps live access and refresh tokens for it.
     void revokingASessionReleasesItsProviderTokens()
     {
         const Response callback{completeLogin(QStringLiteral("?provider=stub"))};
@@ -1879,23 +1867,22 @@ private slots:
                  "revoking a session must take its provider tokens with it");
     }
 
-    // A connect point slot may not wait, and this is the one that did.
+    // A connect point slot may not wait.
     //
-    // The auth entity answers `exchangeCode` from its Identity Source. An exchange
-    // that drives the provider round trip (the /token POST, then /userinfo)
-    // in a nested event loop and returns when it has an answer looks healthy, because a
-    // nested loop keeps serving, but it puts every later
-    // caller under the earlier one on the stack, and none of them can be answered until
-    // the slowest one below them is. Two people signing in at once is not a rare event,
-    // and the second one's provider being slow would hold the first one's sign-in hostage.
+    // The auth entity answers `exchangeCode` from its Identity Source. An exchange that
+    // drives the provider round trip (the /token POST, then /userinfo) in a nested event
+    // loop looks healthy, because a nested loop keeps serving, but it puts every later
+    // caller under the earlier one on the stack, and none can be answered until the slowest
+    // one below it is. Two people signing in at once is ordinary, and a slow provider for
+    // the second would hold the first one's sign-in hostage.
     //
-    // Measured as ordering, which is what makes it a fact about the entity rather than
-    // about a timer. The first login's provider answers in 150 ms and the second's in
-    // 800, so the first login must finish first. Nested, it cannot. Its own event loop
-    // has the second one's on top of it and cannot return until that one has.
+    // Asserted as ordering, which makes it a fact about the entity rather than about a
+    // timer. The first login's provider answers in 150 ms and the second's in 800, so the
+    // first login must finish first. Nested, it cannot: its event loop has the second one's
+    // on top of it.
     //
-    // The same wait is why an edge dropping mid-login could take the entity down with it;
-    // the case below this one is that half.
+    // The same wait is why an edge dropping mid-login could take the entity down; the case
+    // below covers that half.
     void aSlowLoginDoesNotHoldUpTheOneBehindIt()
     {
         IdentityConfig authConfig;
@@ -1954,21 +1941,19 @@ private slots:
         }
     }
 
-    // The other half of the same wait. What the entity was standing on while it waited.
+    // The other half of the same wait: what the entity stands on while it waits.
     //
-    // A slot runs on a Source, and that Source belongs to the link the call arrived on.
-    // While the exchange waited in its nested loop the entity kept serving events, so an
-    // edge that went away in the meantime was noticed right there: the socket's
-    // `disconnected` ran, the link was deleted, and `releasePeerSource` deleted the very
-    // Source whose slot was on the stack. The wait then returned into a destroyed object
-    // and into QtRemoteObjects' own bookkeeping for a connection that no longer existed.
-    // A login takes a provider round trip, an edge restart or a network blip is ordinary,
-    // so this needed no attacker at all.
+    // A slot runs on a Source, and that Source belongs to the link the call arrived on. A
+    // nested wait keeps serving events, so an edge that went away meanwhile would be
+    // noticed right there: the socket's `disconnected` runs, the link is deleted, and
+    // `releasePeerSource` deletes the Source whose slot is on the stack. The wait would
+    // return into a destroyed object and into QtRemoteObjects' bookkeeping for a closed
+    // connection. A login takes a provider round trip, and an edge restart or a network
+    // blip is ordinary, so this needs no attacker.
     //
-    // A normal build may or may not fall over on that. The tree the leak job configures
-    // with AddressSanitizer reports it as a heap-use-after-free either way. What is
-    // asserted here is what can be asserted in every build. The entity is still there and
-    // still answers the next caller.
+    // A normal build may or may not crash on that; the AddressSanitizer build of the leak
+    // job reports it as a heap-use-after-free either way. What is asserted here holds in
+    // every build: the entity is still there and answers the next caller.
     void anEdgeThatDropsMidLoginLeavesTheAuthEntityServing()
     {
         IdentityConfig authConfig;
@@ -2061,15 +2046,14 @@ private slots:
     // A login that got as far as the provider and then had nobody to hand the session to.
     //
     // The exchange stores what the provider issued under the login's state key and waits
-    // for the caller to bind a session to it, which is normally the very next thing that
-    // happens. When it is not, because the edge that asked went away in between (its link
-    // dropped, or the process restarted), an entry kept for the life of the
-    // process is an access token and a refresh token belonging to somebody who was never
-    // signed in, and with the refresh sweep on, a refresh token spent against the provider
-    // once an interval, forever, on their behalf.
+    // for the caller to bind a session to it, normally the very next step. When the edge
+    // that asked goes away in between (its link dropped, or the process restarted), an
+    // entry kept for the life of the process is an access token and a refresh token
+    // belonging to somebody who never signed in, and with the refresh sweep on, a refresh
+    // token spent against the provider every interval on their behalf.
     //
-    // A session bound to it is the other half, and it must not be swept. That one is a
-    // signed-in visitor, and it lives and dies with their session.
+    // An entry bound to a session must not be swept: that one is a signed-in visitor, and
+    // it lives and dies with their session.
     void aLoginNoSessionWasBoundToDoesNotKeepItsTokens()
     {
         IdentityConfig config;
@@ -2101,8 +2085,8 @@ private slots:
         QVERIFY(backend.tokens(abandoned).isEmpty());
     }
 
-    // AUTH-1: with identity.provider_entity set, the client secret and the tokens live only
-    // on a dedicated auth entity. The edge delegates begin/exchange over the Identity mesh
+    // With identity.provider_entity set, the client secret and the tokens live only on a
+    // dedicated auth entity. The edge delegates begin/exchange over the Identity mesh
     // connect point, holds no OAuth backend, no secret and no token, and only issues the
     // session cookie.
     void providerEntityCentralizedLogin()
@@ -2239,19 +2223,16 @@ private slots:
     // A replicated edge is N interchangeable processes behind a balancer, and the OAuth
     // callback is a fresh top-level navigation from the provider. Nothing steers it back to
     // the process that began the login, so with N replicas N-1 of every N logins land
-    // somewhere else. These three cases are that whole story, and they only work because the
-    // pending record (the CSRF binding and the desktop context) is held by the auth entity
-    // with the state rather than in the memory of whichever edge answered first.
+    // elsewhere. These three cases cover that, and they work only because the pending
+    // record (the CSRF binding and the desktop context) is held by the auth entity with the
+    // state, not in the memory of whichever edge answered first.
     //
-    // What makes it work is worth naming exactly, because the obvious answer is wrong. It is
-    // not that the replicas share a Source: this point is per-caller, and they would still
-    // work if each held its own. It is that every Source on the auth entity bridges to the
-    // SAME engine, so the record is one record however many Sources are in front of it.
+    // The replicas do not share a Source: this point is per-caller, and it would work if
+    // each held its own. Every Source on the auth entity bridges to the SAME engine, so the
+    // record is one record however many Sources are in front of it.
     //
-    // The first of these three is the one that matters. Against the old code the other two
-    // pass for the wrong reason. The edge refused every cross-replica callback outright, so
-    // a test that only ever asserts a refusal is green whether the gate works or is stuck
-    // shut. Only an accept that must succeed can tell those apart.
+    // The first case matters most. A test that only asserts refusals passes whether the
+    // gate works or is stuck shut; only an accept that must succeed tells them apart.
     void aLoginBegunOnOneEdgeCompletesOnAnother()
     {
         AuthEntity auth;
@@ -2536,13 +2517,12 @@ private slots:
 
     /// One nonce in the authorization request, not two.
     ///
-    /// Qt's own `NonceMode::Automatic` already puts a nonce in the request whenever the
-    /// scope contains `openid`, so a second one added beside it went into the same
-    /// multi-map and the request carried the parameter twice with two different values.
-    /// RFC 6749 section 3.1 says a parameter MUST NOT appear more than once: a provider
-    /// that enforces it answers invalid_request and nobody signs in, and one that does
-    /// not picks whichever value it reads first, which decides by coin toss whether the
-    /// ID token's nonce matches the one the edge recorded.
+    /// Qt's `NonceMode::Automatic` already puts a nonce in the request whenever the scope
+    /// contains `openid`, so a second one would go into the same multi-map and the request
+    /// would carry the parameter twice with two values. RFC 6749 section 3.1 says a
+    /// parameter MUST NOT appear more than once: a provider that enforces it answers
+    /// invalid_request, and one that does not picks whichever value it reads first, so the
+    /// ID token's nonce would match the recorded one by chance.
     void anAuthorizationRequestCarriesOneNonce()
     {
         const Response login{
@@ -2587,11 +2567,11 @@ private slots:
 
     void brokenScopeMappingHookIsReported()
     {
-        // A hook that does not compile silently means "no mapping", and no mapping now means
-        // every login is refused rather than every session getting the default scope. Either
-        // way it is a permissions change, so it has to be said out loud rather than left to
-        // a stray Qt warning. The edge still starts. An edge that refuses logins and serves
-        // everything else beats an edge that is down, and the warning names the file.
+        // A hook that does not compile means no mapping, and no mapping refuses every
+        // login. That is a permissions change, so it is reported out loud rather than left
+        // to a stray Qt warning. The edge still starts: an edge that refuses logins and
+        // serves everything else beats an edge that is down, and the warning names the
+        // file.
         QQmlEngine engine;
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
@@ -2630,11 +2610,9 @@ private slots:
 
     void aHookAnswerOutsideTheVocabularyFailsTheLoginClosed()
     {
-        // The vocabulary has four scopes, so 4 is one past the end. Before the answer was an
-        // index into a declared list, mapScope turned whatever the hook returned into a
-        // string and used it, so a hook out of step with scopes.order minted a session
-        // holding a scope no check could satisfy. The visitor was locked out of everything
-        // and nothing anywhere reported why.
+        // The vocabulary has four scopes, so 4 is one past the end. The answer is an index
+        // into a declared list; a hook out of step with scopes.order must be refused, not
+        // turned into a session holding a scope no check can satisfy.
         QQmlEngine engine;
         std::unique_ptr<WebEdge> edge{
             edgeWithHook(&engine, QStringLiteral(M8_SRCDIR "/web/identity/outofrange.qml"))};
@@ -2650,12 +2628,12 @@ private slots:
                  "a login the hook could not place must set no session cookie");
     }
 
-    // A refused login must leave nothing behind, and it left the tokens. The exchange
-    // stores the provider's access, refresh and ID tokens under the state key before the
-    // hook is asked, and a refusal returned without releasing them. One entry per refused
-    // attempt for the life of the process, each with a refresh token the sweep went on
-    // spending against the provider on behalf of a visitor who was never signed in. Any
-    // signed-in account the hook does not place could grow it, one callback at a time.
+    // A refused login must leave nothing behind. The exchange stores the provider's access,
+    // refresh and ID tokens under the state key before the hook is asked, so a refusal has
+    // to release them. Otherwise each refused attempt leaves an entry for the life of the
+    // process, with a refresh token the sweep spends against the provider for a visitor who
+    // never signed in, and any account the hook does not place can grow the table one
+    // callback at a time.
     void aLoginTheHookRefusesLeavesNoTokensBehind()
     {
         QQmlEngine engine;
@@ -2695,12 +2673,76 @@ private slots:
                  "a hook with no scopeFor must sign nobody in");
     }
 
+    // A hook written without a return annotation answers through a QVariant rather than an
+    // int, and a Scope member read that way places the login the same as an annotated one;
+    // a scope's name, even a declared one, is not a member and is refused; a hook with no
+    // scopeFor, and a project with no hook, place nobody. Every refusal sets no session.
+    void aHookIsReadByItsAnswerAndNotByHowItWasSpelled()
+    {
+        const auto signIn{[this](const QString &hook, QByteArray *token) {
+            QQmlEngine engine;
+            std::unique_ptr<WebEdge> edge{edgeWithHook(&engine, hook)};
+            if (!edge->start()) {
+                return QString{};
+            }
+            const Response callback{completeLoginOn(edge->serverPort(), QString{})};
+            *token = sessionToken(callback.setCookie);
+            const SessionRecord *record{
+                token->isEmpty() ? nullptr : edge->sessionManager()->lookup(*token)};
+            return record != nullptr ? record->scope : QString{};
+        }};
+        QByteArray token;
+        QCOMPARE(signIn(QStringLiteral(M8_SRCDIR "/web/identity/unannotated.qml"), &token),
+                 QStringLiteral("admin"));
+
+        const auto refused{[&](const QString &hook, const QString &reason) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression{
+                QStringLiteral("refusing a login the identity mapping hook could not place.*")
+                + QRegularExpression::escape(reason)});
+            QVERIFY(signIn(hook, &token).isEmpty());
+            QVERIFY2(token.isEmpty(), qPrintable(hook + QStringLiteral(" set a session")));
+        }};
+        refused(QStringLiteral(M8_SRCDIR "/web/identity/spelled.qml"),
+                QStringLiteral("returned 'admin', which is not a Scope member"));
+        refused(QStringLiteral(M8_SRCDIR "/web/identity/nofunction.qml"),
+                QStringLiteral("has no scopeFor(identity)"));
+        refused(QString{}, QStringLiteral("declares no identity mapping hook"));
+    }
+
+    // Split origin: the client is served from another site, so the session cookie the
+    // callback sets has to cross sites, which a browser allows only for SameSite=None, and
+    // SameSite=None is only honoured with Secure. So it carries both on any edge, and it is
+    // HttpOnly like every session cookie, which is what keeps the page's own script, and
+    // any script injected into it, from reading the session.
+    void aSplitOriginSessionCookieCrossesSitesOnlyOverTls()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config;
+        config.bundleDir = QStringLiteral(M8_SRCDIR "/bundle");
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.originModel = QStringLiteral("split_origin");
+        config.identity.enabled = true;
+        config.identity.allowDevStub = true;
+        config.identity.mappingHook = QStringLiteral(M8_SRCDIR "/web/identity/map.qml");
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator"), QStringLiteral("admin")};
+        config.identity.providers = {stubProvider(m_stub->baseUrl())};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const Response callback{completeLoginOn(edge.serverPort(), QString{})};
+        QVERIFY2(!sessionToken(callback.setCookie).isEmpty(), callback.setCookie.constData());
+        QVERIFY2(callback.setCookie.contains("SameSite=None"), callback.setCookie.constData());
+        QVERIFY2(callback.setCookie.contains("Secure"), callback.setCookie.constData());
+        QVERIFY2(callback.setCookie.contains("HttpOnly"), callback.setCookie.constData());
+    }
+
     void aHookAnswerInsideTheVocabularyResolvesByIndex()
     {
-        // Not padding. A gate tested only by refusals passes when it refuses everything,
-        // which is how identity.required refused everybody in this tree for months. This is
-        // the case that proves the two above are a bounds check and not an outage: the same
-        // edge, a hook that answers in range, and a session that holds that scope.
+        // A gate tested only by refusals passes when it refuses everything. This case
+        // proves the two above are a bounds check and not an outage: the same edge, a hook
+        // that answers in range, and a session that holds that scope.
         QQmlEngine engine;
         std::unique_ptr<WebEdge> edge{
             edgeWithHook(&engine, QStringLiteral(M8_SRCDIR "/web/identity/map.qml"))};
