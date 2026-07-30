@@ -4,9 +4,14 @@
 #ifndef SYNQT_JOBS_H
 #define SYNQT_JOBS_H
 
+#include <QHash>
 #include <QJSValue>
 #include <QList>
 #include <QObject>
+
+QT_BEGIN_NAMESPACE
+class QTimer;
+QT_END_NAMESPACE
 
 namespace SynQt {
 
@@ -38,6 +43,13 @@ private:
     int m_nextHandle{1};
     bool m_draining{false};
     QList<QJSValue> m_queue;
+    /// Handle to repeating timer, for cancel(). The timers are children of this object, so
+    /// they die with it; this map has to die with it too. It was a process-lifetime static
+    /// keyed on the owner's address, which leaked an entry per Jobs instance and, worse,
+    /// handed a later Jobs allocated at a recycled address the dead one's map, whose
+    /// QTimers had already been destroyed with their old parent: cancel() then stopped a
+    /// dangling pointer.
+    QHash<int, QTimer *> m_timers;
 };
 
 } // namespace SynQt

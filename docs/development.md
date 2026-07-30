@@ -17,7 +17,7 @@ is, not why. For the generated class and member reference, see the
 | Directory | What is in it |
 |-----------|---------------|
 | [`src/`](https://github.com/Kidev/SynQt/tree/main/src) | The framework runtime, one library per trust boundary (see below). |
-| [`tools/`](https://github.com/Kidev/SynQt/tree/main/tools) | The command line tooling: the CLI, the contract generator, the docs lexer. |
+| [`tools/`](https://github.com/Kidev/SynQt/tree/main/tools) | The command line tooling: the CLI, the contract generator, the docs lexer, the coverage reporter. |
 | [`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake) | [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake): the `.syn` to rep to repc and QML registration glue. |
 | [`tests/`](https://github.com/Kidev/SynQt/tree/main/tests) | One self contained CMake project per milestone and per acceptance fixture, plus the tree that builds them all at once. |
 | [`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks) | The performance harnesses and their committed baselines. |
@@ -106,6 +106,11 @@ browser.
 - [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt) is the Pygments lexer that colours SynQt flavoured QML in the
   documentation site, so a `Contract.onSignal` attached handler highlights the same way in
   the docs as it does in an editor.
+- [`tools/coverage`](https://github.com/Kidev/SynQt/tree/main/tools/coverage) reads the
+  C++ line coverage of an instrumented build back out of the counter files the compiler
+  wrote, through `gcov -t -j`. It needs nothing installed beyond the compiler that produced
+  them, which is why neither lcov nor gcovr is a dependency here. See
+  [coverage](#coverage) below.
 
 ## The contract build glue ([`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake))
 
@@ -174,6 +179,48 @@ QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/m7-caller/run-m7.sh
 The scripts default `QT_HOST` to `/opt/Qt/6.11.1/gcc_64` when it is unset, so on that
 layout the variable can be omitted. Each script configures with Ninja, builds, and runs
 `ctest`.
+
+### Coverage
+
+How much of the framework the suites above actually reach is measured, not estimated:
+
+```sh
+QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/run-coverage.sh
+```
+
+That builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, and `Debug` so a line maps
+to the code that is on it rather than to whatever the optimizer made of it), runs the
+suites against it, and reports both halves of the framework:
+
+- **C++**, the five runtime libraries under `src/`. `--coverage` puts a counter file beside
+  every object file, and
+  [`tools/coverage/report.py`](https://github.com/Kidev/SynQt/blob/main/tools/coverage/report.py)
+  reads them back through `gcov -t -j`. Only `src/` is instrumented: counting the suites
+  themselves would add thousands of lines that are executed by definition, and the number
+  would then climb every time a test was written rather than every time one reached
+  somewhere new.
+- **Python**, the CLI under `tools/synqt/`, through `coverage.py` with branch coverage on
+  (configured in
+  [`tools/synqt/pyproject.toml`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/pyproject.toml)).
+  Branch coverage rather than lines alone because most of that tool is decisions about a
+  configuration file, and a line-only figure calls a half-taken `if` covered.
+
+`CXX_FLOOR` and `PY_FLOOR` are the percentages below which the run fails. They are a
+ratchet: raise them when the number goes up, never lower them to make a branch green. The
+Python floor is enforced on every push by
+[`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml); the C++
+floor by the Linux column of
+[`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml), which
+already has the Qt kit the instrumented build needs.
+
+Two things the number deliberately does not claim. The external engine providers
+(`postgres`, `mysql`, `mongodb`, `redis`) sit near 20%, because everything past their
+connect call needs a live server; their tests skip cleanly without one, and what is covered
+is the part that matters most, which is that each refuses an unverified connection in a
+release build. And the client runtime's WebAssembly-only paths cannot execute on a host
+build at all; those are covered by
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml)
+in a real browser instead, where a line counter cannot follow.
 
 ## Benchmarks ([`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks))
 

@@ -27,6 +27,7 @@
 #include "providerregistry.h"
 #include "sqlconnectionpool.h"
 #include "sqliteprovider.h"
+#include "sqlsupport.h"
 
 #include <QJSEngine>
 #include <QQmlComponent>
@@ -788,6 +789,268 @@ private slots:
 
         QTRY_COMPARE(jobs.queued(), 0);  // the queued jobs drain on the event loop
         QCOMPARE(probe.count, 2);
+    }
+
+    void jobsTimersFireAndCancelWithTheirOwner()
+    {
+        QJSEngine engine;
+        Probe probe;
+        engine.globalObject().setProperty(QStringLiteral("probe"),
+                                          engine.newQObject(&probe));
+        const QJSValue tick{engine.evaluate(QStringLiteral("(function(){ probe.bump(); })"))};
+
+        // The repeating timer runs until it is cancelled, and the handle is what cancels it.
+        auto jobs{std::make_unique<Jobs>()};
+        const int handle{jobs->every(1, tick)};
+        QTRY_VERIFY(probe.count > 0);
+        jobs->cancel(handle);
+        const int afterCancel{probe.count};
+        QTest::qWait(20);
+        QCOMPARE(probe.count, afterCancel);
+
+        // Cancelling a handle that was never issued, or one already cancelled, is a no-op
+        // rather than a crash: a QML caller holds handles it may cancel twice.
+        jobs->cancel(handle);
+        jobs->cancel(4242);
+
+        // The timers belong to the Jobs object, so they go when it does. This used to be a
+        // process-lifetime map keyed on the owner's address (see the note on Jobs::m_timers):
+        // a second Jobs landing on a freed address inherited the dead one's handles, and
+        // cancelling one of them stopped an already-destroyed QTimer. Allocating a fresh
+        // Jobs right after destroying one is the arrangement that reproduced it.
+        jobs.reset();
+        auto reborn{std::make_unique<Jobs>()};
+        reborn->cancel(handle);   // must not reach the destroyed timer
+        const int quiet{probe.count};
+        QTest::qWait(20);
+        QCOMPARE(probe.count, quiet);  // no timer from the destroyed Jobs is still running
+    }
+
+    void dbHelperReportsAFailedStatementRatherThanThrowing()
+    {
+        // Errors cross the QML boundary as a signal and a property, never as an exception
+        // (SynQt builds without them) and never as a silent empty result. An entity that
+        // ignores the signal still gets an empty list rather than a wrong one.
+        SqliteProvider provider{sqliteConfig(dbFile(QStringLiteral("db-errors.db")))};
+        QString openError;
+        QVERIFY2(provider.connect(&openError), qPrintable(openError));
+        Db db{&provider};
+        QSignalSpy failures{&db, &Db::errorOccurred};
+
+        QVERIFY(db.exec(kItemsSchema.first()).contains(QStringLiteral("affected")));
+        QVERIFY(db.lastError().isEmpty());
+
+        // A SELECT against a table that is not there.
+        QVERIFY(db.query(QStringLiteral("SELECT * FROM nothing_here")).isEmpty());
+        QCOMPARE(failures.size(), 1);
+        QVERIFY(!db.lastError().isEmpty());
+        QCOMPARE(failures.takeFirst().first().toString(), db.lastError());
+
+        // And a statement the engine will not even accept.
+        QVERIFY(db.exec(QStringLiteral("NOT SQL AT ALL")).isEmpty());
+        QCOMPARE(failures.size(), 1);
+        QVERIFY(!db.lastError().isEmpty());
+
+        // The error is the last one, not an accumulation, and a later good statement is
+        // still answered normally.
+        const QVariantMap inserted{
+            db.exec(QStringLiteral("INSERT INTO items(text, author) VALUES(?, ?)"),
+                    {QStringLiteral("milk"), QStringLiteral("ada")})};
+        QCOMPARE(inserted.value(QStringLiteral("affected")).toInt(), 1);
+        QCOMPARE(db.query(QStringLiteral("SELECT text FROM items")).size(), 1);
+    }
+
+    void cacheHelperForwardsEveryOperationToItsProvider()
+    {
+        // The QML-facing `Cache` is a forwarder: what it must not do is know an engine.
+        // Driving it against the real memory provider proves each member reaches the
+        // interface, which is the whole of its job.
+        ProviderConfig config;
+        MemoryCacheProvider provider{config, /*maxEntries*/ 8};
+        QVERIFY(provider.connect(nullptr));
+        Cache cache{&provider};
+
+        cache.set(QStringLiteral("name"), QStringLiteral("ada"), 0);
+        QCOMPARE(cache.get(QStringLiteral("name")).toString(), QStringLiteral("ada"));
+
+        QCOMPARE(cache.incr(QStringLiteral("hits"), 3), static_cast<qint64>(3));
+        QCOMPARE(cache.incr(QStringLiteral("hits")), static_cast<qint64>(4));
+
+        cache.del(QStringLiteral("name"));
+        QVERIFY(!cache.get(QStringLiteral("name")).isValid());
+
+        // expire() puts a deadline on an entry that was stored without one. A deadline that
+        // has not arrived keeps the entry, so "expired" means expired and not "expire() was
+        // called".
+        cache.set(QStringLiteral("kept"), 2, 0);
+        cache.expire(QStringLiteral("kept"), 600);
+        QCOMPARE(cache.get(QStringLiteral("kept")).toInt(), 2);
+
+        // Naming a key that is not there is a no-op, not a way to create one.
+        cache.expire(QStringLiteral("absent"), 600);
+        QVERIFY(!cache.get(QStringLiteral("absent")).isValid());
+    }
+
+    void memoryCacheDropsAnEntryOnceItsTtlHasPassed()
+    {
+        // The one test here that has to spend real time: a TTL is in whole seconds, so the
+        // shortest one that can be observed to elapse is one second. It is worth the wait,
+        // because expiry is the cache's whole correctness claim and the read path is where
+        // it is enforced (get() erases what it finds expired rather than only hiding it).
+        ProviderConfig config;
+        MemoryCacheProvider cache{config, /*maxEntries*/ 8};
+        QVERIFY(cache.connect(nullptr));
+
+        cache.set(QStringLiteral("ttl-set"), 1, /*ttlSeconds*/ 1);
+        cache.set(QStringLiteral("ttl-expire"), 2, 0);
+        cache.expire(QStringLiteral("ttl-expire"), 1);
+        QCOMPARE(cache.size(), 2);
+
+        QTRY_VERIFY_WITH_TIMEOUT(!cache.get(QStringLiteral("ttl-set")).isValid(), 3000);
+        QTRY_VERIFY_WITH_TIMEOUT(!cache.get(QStringLiteral("ttl-expire")).isValid(), 3000);
+        QCOMPARE(cache.size(), 0);  // erased on read, not merely hidden
+    }
+
+    void memoryCacheExpiresByTtlAndReportsMissesAsInvalid()
+    {
+        ProviderConfig config;
+        MemoryCacheProvider cache{config, /*maxEntries*/ 8};
+        QVERIFY(cache.connect(nullptr));
+
+        QVERIFY(!cache.get(QStringLiteral("never-set")).isValid());
+        cache.del(QStringLiteral("never-set"));  // deleting a missing key is not an error
+
+        // A TTL of zero or less means no deadline at all, which is the default every
+        // caller gets (`set(key, value)` and `incr()` both store without one). Pinning it
+        // here because "0 seconds" could as easily have been read as "already expired",
+        // and a cache that quietly dropped everything stored with the default would be a
+        // cache nothing could rely on.
+        cache.set(QStringLiteral("forever"), 1, 0);
+        cache.set(QStringLiteral("also-forever"), 2, -5);
+        QCOMPARE(cache.get(QStringLiteral("forever")).toInt(), 1);
+        QCOMPARE(cache.get(QStringLiteral("also-forever")).toInt(), 2);
+
+        // incr() on a key that does not exist starts from zero, which is what makes it
+        // usable as a counter without a set() first.
+        QCOMPARE(cache.incr(QStringLiteral("fresh"), 7), static_cast<qint64>(7));
+
+        // incr() on a key holding something that is not a number must not silently invent
+        // one from it.
+        cache.set(QStringLiteral("word"), QStringLiteral("ada"), 0);
+        QCOMPARE(cache.incr(QStringLiteral("word"), 1), static_cast<qint64>(1));
+
+        cache.disconnect();
+        QCOMPARE(cache.size(), 0);
+    }
+
+    void sqlSupportBindsParametersAndReportsFailureInsteadOfThrowing()
+    {
+        // runStatement/applyMigrations are what the postgres and mysql providers execute
+        // every statement through, and neither engine is available in an ordinary test
+        // environment. They are driver-agnostic by construction (prepare + addBindValue,
+        // the portable `?` placeholder), so a SQLite connection exercises exactly the same
+        // code the external providers run.
+        const QString connection{QStringLiteral("m9-sqlsupport")};
+        {
+            QSqlDatabase db{QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connection)};
+            db.setDatabaseName(dbFile(QStringLiteral("sqlsupport.db")));
+            QVERIFY2(db.open(), qPrintable(db.lastError().text()));
+
+            // A statement the driver cannot even prepare comes back as a failed DbResult
+            // with the driver's own message, never as an exception across the interface.
+            const DbResult broken{runStatement(db, QStringLiteral("SELECT FROM"), {}, true)};
+            QVERIFY(!broken.ok);
+            QVERIFY(!broken.error.isEmpty());
+
+            QVERIFY(runStatement(db, kItemsSchema.first(), {}, false).ok);
+
+            const DbResult inserted{
+                runStatement(db, QStringLiteral("INSERT INTO items(text, author) VALUES(?, ?)"),
+                             {QStringLiteral("milk"), QStringLiteral("ada")}, false)};
+            QVERIFY(inserted.ok);
+            QCOMPARE(inserted.affected, 1);
+            QVERIFY(inserted.insertId.isValid());
+
+            const DbResult rows{
+                runStatement(db, QStringLiteral("SELECT text, author FROM items WHERE author = ?"),
+                             {QStringLiteral("ada")}, true)};
+            QVERIFY(rows.ok);
+            QCOMPARE(rows.rows.size(), 1);
+            QCOMPARE(rows.rows.first().toMap().value(QStringLiteral("text")).toString(),
+                     QStringLiteral("milk"));
+
+            // The same injection attempt m9 makes through the provider, one level lower:
+            // the value is bound, so it is compared against, never parsed.
+            const DbResult inert{
+                runStatement(db, QStringLiteral("SELECT text FROM items WHERE author = ?"),
+                             {QStringLiteral("ada'; DROP TABLE items; --")}, true)};
+            QVERIFY(inert.ok);
+            QVERIFY(inert.rows.isEmpty());
+            QVERIFY(runStatement(db, QStringLiteral("SELECT 1 FROM items"), {}, true).ok);
+
+            // A statement that runs but matches nothing reports zero affected rows rather
+            // than failing.
+            const DbResult none{
+                runStatement(db, QStringLiteral("DELETE FROM items WHERE author = ?"),
+                             {QStringLiteral("nobody")}, false)};
+            QVERIFY(none.ok);
+            QCOMPARE(none.affected, 0);
+        }
+        QSqlDatabase::removeDatabase(connection);
+    }
+
+    void sqlSupportAppliesMigrationsOnceAndRollsBackAFailingBatch()
+    {
+        const QString connection{QStringLiteral("m9-migrations")};
+        {
+            QSqlDatabase db{QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connection)};
+            db.setDatabaseName(dbFile(QStringLiteral("migrations.db")));
+            QVERIFY2(db.open(), qPrintable(db.lastError().text()));
+
+            // Without the bookkeeping table there is no version to read, so the whole call
+            // fails and says why rather than starting from zero and re-running everything.
+            QString error;
+            QVERIFY(!applyMigrations(db, {QStringLiteral("SELECT 1")}, &error));
+            QVERIFY(!error.isEmpty());
+
+            QVERIFY(runStatement(db,
+                                 QStringLiteral("CREATE TABLE synqt_migrations (version INTEGER)"),
+                                 {}, false).ok);
+
+            const QStringList steps{
+                QStringLiteral("CREATE TABLE a (id INTEGER PRIMARY KEY)"),
+                QStringLiteral("CREATE TABLE b (id INTEGER PRIMARY KEY)")};
+            error.clear();
+            QVERIFY2(applyMigrations(db, steps, &error), qPrintable(error));
+            QVERIFY(runStatement(db, QStringLiteral("SELECT 1 FROM a"), {}, true).ok);
+            QVERIFY(runStatement(db, QStringLiteral("SELECT 1 FROM b"), {}, true).ok);
+
+            // Forward only, and idempotent: applying the same list again recreates nothing,
+            // which is what makes running migrations on every start safe.
+            QVERIFY2(applyMigrations(db, steps, &error), qPrintable(error));
+            const DbResult version{
+                runStatement(db, QStringLiteral("SELECT version FROM synqt_migrations"), {}, true)};
+            QCOMPARE(version.rows.size(), 1);
+            QCOMPARE(version.rows.first().toMap().value(QStringLiteral("version")).toInt(), 2);
+
+            // A batch with a bad step leaves nothing behind: the good step before it is
+            // rolled back with it, and the recorded version does not move, so the next run
+            // retries the whole batch instead of resuming inside a half-applied one.
+            QStringList failing{steps};
+            failing << QStringLiteral("CREATE TABLE c (id INTEGER PRIMARY KEY)")
+                    << QStringLiteral("THIS IS NOT SQL");
+            error.clear();
+            QVERIFY(!applyMigrations(db, failing, &error));
+            QVERIFY(!error.isEmpty());
+            QVERIFY(!runStatement(db, QStringLiteral("SELECT 1 FROM c"), {}, true).ok);
+            const DbResult unmoved{
+                runStatement(db, QStringLiteral("SELECT version FROM synqt_migrations"), {}, true)};
+            QCOMPARE(unmoved.rows.first().toMap().value(QStringLiteral("version")).toInt(), 2);
+
+            // No steps at all is a no-op, not a rewrite of the version row.
+            QVERIFY(applyMigrations(db, {}, nullptr));
+        }
+        QSqlDatabase::removeDatabase(connection);
     }
 };
 

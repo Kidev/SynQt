@@ -118,11 +118,17 @@ def build_parser() -> argparse.ArgumentParser:
     mc = mesh_sub.add_parser("cert"); mc.add_argument("entity", nargs="?")
     mc.add_argument("--all", action="store_true")
     mr = mesh_sub.add_parser("rotate"); mr.add_argument("entity", nargs="?")
-    mesh_sub.add_parser("status")
-    for mp in (mi, mc, mr):
+    ms = mesh_sub.add_parser("status")
+    for mp in (mi, mc, mr, ms):
+        # `status` takes --project-dir like its siblings: it reads what is on disk, and
+        # "which certificates does that deployment hold" is a question worth asking about
+        # a directory you are not standing in.
         mp.add_argument("--project-dir", default=".")
+    for mp in (mi, mc, mr):
         # A profile may add an entity, and an entity with no certificate cannot join the
         # mesh, so `mesh cert --all` has to see the same entity list the build will.
+        # `status` needs none of that: it reports the certificate files themselves, and
+        # no profile changes which ones exist.
         mp.add_argument("--profile", default=None, metavar="NAME",
                         help="layer synqt.<NAME>.yaml over synqt.yaml")
     meshp.set_defaults(project_dir=".", profile=None)

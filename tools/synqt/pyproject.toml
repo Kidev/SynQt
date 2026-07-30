@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "synqt"
 version = "0.1.0"
-description = "The SynQt CLI. M8 ships 'synqt add auth'; M10 extends it to the full toolchain."
+description = "The SynQt command line tool: scaffold, build, check, serve, and run a SynQt project."
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }
 dependencies = ["PyYAML>=6.0"]
@@ -23,3 +23,26 @@ packages = ["synqt"]
 # synqt, and every generated bundle fails to render its own loading page.
 [tool.setuptools.package-data]
 synqt = ["assets/*.svg"]
+
+# Coverage for the CLI, measured over the package and nothing else. Branch coverage is on
+# because most of this tool is decisions about a configuration file, and a line-only figure
+# calls a half-taken `if` covered. Run it through tests/run-coverage.sh, or directly:
+#
+#     cd tools/synqt && python3 -m coverage run -m pytest tests && python3 -m coverage report
+[tool.coverage.run]
+source = ["synqt"]
+branch = true
+# The assets are data, and _version.py is three lines the release job rewrites.
+omit = ["synqt/assets/*", "synqt/_version.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = [
+    # Lines that exist to be unreachable. A defensive branch that fires only on a broken
+    # install is not something to write a test for; excluding it keeps the number about
+    # code that has a reachable path rather than about how many guards were written.
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
