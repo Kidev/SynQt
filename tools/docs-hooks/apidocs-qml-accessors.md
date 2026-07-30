@@ -123,10 +123,12 @@ check that matters runs on the owner, against \qmlCaller.
 | `Session.login(provider)` | action | SynQt::Session::login | Start the edge login flow. `provider` is optional; pass it when more than one identity provider is configured. |
 | `Session.logout()` | action | SynQt::Session::logout | End the session. The scope returns to the anonymous default and any Replica above it is released. |
 
-`Session.state` is one of `connecting`, `connected`, `reconnecting`, `denied`, or
-`offline`. `denied` is the one that is not a transport state: it means the edge rejected
-the session credential as expired or revoked, so the client routes back through login
-rather than retrying.
+`Session.state` is one of `offline` (the starting state), `connecting`, `connected`, or
+`reconnecting`. All four are transport states, including the case where the edge refused
+the upgrade: the browser does not report why a WebSocket handshake failed, so a rejected
+session credential is not distinguishable from an edge that is down. An expired or
+revoked session shows up instead as `Session.isAuthenticated` going false when the client
+reconnects anonymously, and as its scope-gated replicas being released.
 
 @section qmlsession_implementation Behind the name
 

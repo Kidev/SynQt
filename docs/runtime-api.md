@@ -83,11 +83,17 @@ and "are we connected."
 
 | Value | Meaning |
 |-------|---------|
-| `connecting` | the first wss connection to the edge is being established. |
+| `offline` | the starting state, before the client has tried to reach the edge. |
+| `connecting` | the wss connection to the edge is being established. |
 | `connected` | the link is up and replicas are live. |
-| `reconnecting` | the link dropped; the client is retrying with capped exponential backoff. Replicas report not-ready; bindings hold their last values. |
-| `denied` | the edge rejected the session credential (expired or revoked). The client routes back through login rather than retrying. |
-| `offline` | no usable connection and not currently retrying. |
+| `reconnecting` | the link dropped or was refused; the client is retrying with capped exponential backoff. Replicas report not-ready; bindings hold their last values. |
+
+A refused upgrade is `reconnecting` too, not a state of its own. The browser does
+not report why a WebSocket handshake failed, so a client cannot tell an edge that
+is down from an edge that rejected its session, and a state that claimed to know
+would be guessing. Authorization is observed where it is actually visible: an
+expired or revoked session comes back with the default scope, so
+`Session.isAuthenticated` goes false and every scope-gated Replica is released.
 
 `Session.identity` fields (the normalized identity; the same object the edge's
 mapping hook receives, see [authentication](authentication.md#the-identity-object)):

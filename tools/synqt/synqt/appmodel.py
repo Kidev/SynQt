@@ -230,13 +230,20 @@ def env_file(entity: Dict[str, Any]) -> str:
     tutorials and the scaffolded projects already use ("the client secret lives only in
     ``web/.env``"), and a convention that every document states but nothing loads is the
     same kind of gap as a setting nothing reads.
+
+    The directory is the entity's name, which is the one rule the rest of the tool
+    already follows: the CMake generator, the main generator, and the client root lint
+    all locate an entity's sources at ``<name>/``. This used to prefer an ``entity.path``
+    key that nothing else consulted, so a project that set it moved its ``.env`` and
+    nothing else, and the build went looking for its QML somewhere the secret no longer
+    was. One spelling, everywhere; ``env.file`` above stays as the explicit override.
     """
     env = entity.get("env")
     if isinstance(env, dict):
         path = env.get("file")
         if isinstance(path, str) and path.strip():
             return path.strip()
-    directory = entity.get("path") or entity.get("name")
+    directory = entity.get("name")
     return f"{directory}/.env" if directory else ""
 
 

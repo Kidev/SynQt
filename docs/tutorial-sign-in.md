@@ -28,9 +28,12 @@ First, register a GitHub OAuth app. In a browser, go to GitHub, then Settings, t
 Developer settings, then OAuth Apps, then New OAuth App. Fill in:
 
 - Application name: anything, for example `Gavel (dev)`.
-- Homepage URL: the address `synqt dev` printed, for example `http://localhost:8000`.
+- Homepage URL: the address `synqt dev` printed, `http://127.0.0.1:8080` unless you
+  passed `--port`.
 - Authorization callback URL: that same address with `/auth/callback` on the end,
-  for example `http://localhost:8000/auth/callback`. This must match exactly.
+  `http://127.0.0.1:8080/auth/callback`. This must match exactly, `127.0.0.1` and
+  all: to GitHub that is a different host from `localhost`, and a callback
+  registered for one is refused for the other.
 
 Click Register. GitHub shows a Client ID, and a button to generate a Client secret.
 

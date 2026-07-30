@@ -206,8 +206,11 @@ and the two customizations either side of it.
   that issues short lived tokens; a non-positive interval turns the sweep off.
 - Expiry and revocation. A session expires at its TTL or can be revoked (logout, or
   an administrative action). A revoked or expired session fails the upgrade
-  verifier; the client moves to `denied` and routes back to login rather than
-  retrying.
+  verifier, and the client retries with its backoff as it would against an edge
+  that is down: the browser does not report a handshake's status code, so the two
+  are not distinguishable from inside the client. The session it reconnects with is
+  anonymous, so `Session.isAuthenticated` goes false and every scope-gated Replica
+  is released, which is the signal an app routes back to login on.
 - Logout. `Session.logout()` calls the edge logout route, which clears the session
   server side and expires the cookie.
 

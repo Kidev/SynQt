@@ -300,7 +300,7 @@ sets. Hierarchical is the default because it is the least surprising.
 On the client, session state is read only through `Session`:
 
 - `Session.scope`, `Session.hasScope(name)`.
-- `Session.state`: `connecting`, `connected`, `reconnecting`, `denied`, `offline`.
+- `Session.state`: `offline`, `connecting`, `connected`, `reconnecting`.
 - `Session.identity`: the authenticated identity, or null when anonymous.
 - `Session.login()` and `Session.logout()`.
 
@@ -360,7 +360,9 @@ than only on the next send (QtRO disables the heartbeat by default; SynQt enable
 it). On a browser disconnect, `Session.state` becomes `reconnecting` and the
 client retries with capped exponential backoff; replicas report not ready and QML
 can show cached values or an offline banner. A session the edge rejects (expired or
-revoked credential) moves to `denied`, and the client routes back through login.
+revoked credential) is the same state, because the browser does not say why a
+handshake failed; what an app watches for there is `Session.isAuthenticated` going
+false and its scope-gated replicas being released.
 Service to service links reconnect the same way; an entity that loses a consumed
 connect point reports it as not ready and retries, so a transient database restart
 does not crash the edge.

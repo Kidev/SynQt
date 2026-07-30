@@ -263,7 +263,8 @@ WebAssembly one; see [desktop clients](desktop.md).
 
 1. The contract generator turns each `shared/*.syn` into a QtRO rep file, runs repc
    to produce Source and Replica headers, and emits the QML registrations. Output
-   goes to `synqt/generated/`.
+   goes to `synqt_generated/<target>/` in the CMake binary directory, so it is a
+   build artifact and never something in the project tree to commit or hand edit.
 2. `qt_add_qml_module` declares the client module with all of `client/`'s QML. The
    Qt Quick Compiler (qmlcachegen, or qmlsc with the commercial extensions) compiles
    each document into a compilation unit (structure, byte code, and native C++ for
@@ -271,12 +272,15 @@ WebAssembly one; see [desktop clients](desktop.md).
 3. Emscripten links the module, the SynQt client runtime, and the generated Replica
    types into one `.wasm` module with its loader.
 4. The build emits the page, the loader, the `.wasm`, and assets, then precompresses
-   the `.wasm` with Brotli and gzip; the edge serves the precompressed copy when the
-   browser accepts it.
+   every compressible one (`.wasm`, `.js`, `.html`, `.json`, `.svg`) with gzip, and
+   with Brotli as well where the `brotli` module is available. The compressed copies
+   sit beside the originals rather than replacing them, and the edge picks per
+   request from `Accept-Encoding`. There is nothing to turn on: this always runs.
 
-Optional `build.type_compiler: true` adds qmltc whole component compilation: faster
-load, but a technology preview that links private Qt API and gives no cross patch
-binary compatibility, so it is off by default.
+qmltc, Qt's whole component compiler, is not used. It is a technology preview that
+links private Qt API and offers no cross patch binary compatibility, which is not a
+trade a framework should make on its users' behalf; the client is compiled with
+qmlcachegen, which is what step 2 above describes.
 
 ## CMake and presets structure
 
