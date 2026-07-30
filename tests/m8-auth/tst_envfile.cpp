@@ -133,8 +133,18 @@ void tst_EnvFile::stripsCommentsQuotesAndExportPrefixes()
     QCOMPARE(qEnvironmentVariable("SYNQT_TST_QUOTED"), QStringLiteral("a value"));
     QCOMPARE(qEnvironmentVariable("SYNQT_TST_SINGLE"), QStringLiteral("a value"));
     QCOMPARE(qEnvironmentVariable("SYNQT_TST_EXPORTED"), QStringLiteral("exported"));
+    // A value-less assignment is the one line whose outcome is the platform's to decide.
+    // Windows has no C runtime call that sets a variable to the empty string:
+    // _putenv_s(name, "") is precisely what Qt's own qunsetenv() calls on MSVC, and
+    // MinGW's putenv("NAME=") removes the variable too. So `KEY=` in a .env can only
+    // mean "absent" there, and asserting the POSIX outcome everywhere would only fail on
+    // the platform whose behavior is not ours to change.
+#ifdef Q_OS_WIN
+    QVERIFY(!qEnvironmentVariableIsSet("SYNQT_TST_EMPTY"));
+#else
     QVERIFY(qEnvironmentVariableIsSet("SYNQT_TST_EMPTY"));
     QCOMPARE(qEnvironmentVariable("SYNQT_TST_EMPTY"), QString{});
+#endif
     // Only a MATCHING pair is stripped, so a value that opens a quote and never closes it
     // arrives whole rather than half-eaten.
     QCOMPARE(qEnvironmentVariable("SYNQT_TST_UNBALANCED"), QStringLiteral("\"half"));
