@@ -189,6 +189,13 @@ if [ "$rc" -ne 0 ]; then
     echo "APPGEN-NATIVE GATE: NO-GO"
     exit 1
 fi
+# Resolve the two the byte search below reads, because it reads them from Python and Python
+# is a native Windows program with no MSYS exe magic: `out/web` is a path bash can stat and
+# run, and a plain FileNotFoundError to open(). Every needle then reports as absent, so the
+# leak check passes vacuously while the presence check fails -- which is how a correct build
+# came back NO-GO with four tracebacks.
+promoted_web="$(native_exe_path "$PROMOTED/out/web")"
+promoted_auth="$(native_exe_path "$PROMOTED/out/auth")"
 
 mkdir -p "$PROMOTED/build/client"
 printf '<!doctype html>\n' > "$PROMOTED/build/client/index.html"
@@ -258,7 +265,16 @@ esac
 # correct. (Windows has no `strings` to begin with; tests/desktop-client scans the same way
 # and for the same reason.) Searching bytes is also stricter than `strings`, which only
 # reports runs of printable characters above a minimum length.
+#
+# An unreadable file is a hard error, not an answer. This search is asked both ways round --
+# "the edge must not contain it" and "the auth entity must" -- so a path that cannot be opened
+# would otherwise read as absence and quietly satisfy half the checks it was given.
 promoted_in_binary() {
+    if [ ! -f "$1" ]; then
+        echo "  cannot read $1, so nothing here was established" >&2
+        echo "APPGEN-NATIVE GATE: NO-GO"
+        exit 1
+    fi
     SYNQT_BIN="$1" SYNQT_NEEDLE="$2" python3 - <<'PY'
 import os
 import sys
@@ -271,7 +287,7 @@ PY
 }
 promoted_leak=0
 for needle in "Iv1.0123456789abcdef" "github.com/login/oauth" "$GITHUB_CLIENT_SECRET"; do
-    if promoted_in_binary "$PROMOTED/out/web" "$needle"; then
+    if promoted_in_binary "$promoted_web" "$needle"; then
         echo "  the edge binary must not contain '$needle'"
         promoted_leak=1
     fi
@@ -279,12 +295,12 @@ done
 # The same two values in the auth binary: without this the check above would also pass on a
 # generator that simply dropped the provider, which is a broken login, not a secure one.
 for needle in "Iv1.0123456789abcdef" "github.com/login/oauth"; do
-    if ! promoted_in_binary "$PROMOTED/out/auth" "$needle"; then
+    if ! promoted_in_binary "$promoted_auth" "$needle"; then
         echo "  the auth binary is missing '$needle', so the redirect came from somewhere else"
         promoted_leak=1
     fi
 done
-if promoted_in_binary "$PROMOTED/out/auth" "$GITHUB_CLIENT_SECRET"; then
+if promoted_in_binary "$promoted_auth" "$GITHUB_CLIENT_SECRET"; then
     echo "  the auth binary must read the secret from its environment, never carry it"
     promoted_leak=1
 fi
