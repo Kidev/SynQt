@@ -12,12 +12,22 @@
    its dark variables, so the light rules below never apply in practice; they are kept so
    the stylesheet stays valid if the pin is ever removed.
 
+   That pin is also why the palette below is declared on `html, html.dark-mode` and not on
+   `html` alone. Loading last is not enough on its own: doxygen-awesome declares its dark
+   values on `html.dark-mode`, which is one class more specific than `html`, so a plain
+   `html` block loses every property the theme also sets there no matter what order the
+   files are in. Restating the same selector ties the specificity, and then loading last
+   does decide it. Without the tie the accent silently fell back to the theme's #1982d2
+   and the page background to its #1C1D1F, which is what made the page outline read as an
+   opaque panel bolted onto the gradient.
+
    These pages are published under /api/ref/ and shown in the frame on /api/, which
    carries the site header (overrides/api.html). Nothing here draws or reserves room for
    that header: the frame's viewport starts under it, so `100vh` below is exactly the
    space the reference has. */
 
-html {
+html,
+html.dark-mode {
     /* Accent, used for links, the active tree item, and interactive highlights. */
     --primary-color: #00a6ed;
     --primary-dark-color: #0b7fb4;
@@ -244,6 +254,118 @@ div.memdoc {
    genuinely long signature still scrolls, one that fits no longer pretends to. */
 div.memproto table {
     border-spacing: 0;
+}
+
+/* The page outline: the table of contents down the right-hand side of every reference
+   page, which Doxygen 1.14 introduced as a resizable panel (#page-nav) and fills from
+   the headings on the page as you scroll (navtree.js, initPageToc).
+
+   Doxygen's own presentation for it is a panel: its own opaque background, a divider
+   down its left edge, a drag handle to resize it, and its own scrollbar. Next to the
+   documentation site's table of contents, which is a plain list of links on the page
+   background, that reads as a second menu bolted to the side of the page rather than as
+   the contents of the one being read. The rules below take the panel apart and leave the
+   list, so the reference's table of contents is the site's table of contents
+   (docs/stylesheets/extra.css, .md-sidebar--secondary): same treatment, same sticky
+   label over it, same absence of a frame around it.
+
+   What is kept is the part Doxygen does and the site does not: the outline tracks what
+   is on screen, dimming what has scrolled past, accenting the heading you are in, and
+   marking the range in view down the left edge. That is worth having, so it stays; it is
+   only retuned here from a menu selection to a hairline. */
+#page-nav {
+    background: transparent;
+    border-left: 0;
+}
+
+/* Nothing here is worth resizing: the outline is one column of short links, and the
+   width it starts at (the tree's, so the two panels flanking the content match) already
+   fits them. Hiding the handle also takes away the only thing that writes the width
+   cookie, so the panel cannot be left in a state that outlives the page. */
+#page-nav #page-nav-resize-handle {
+    display: none;
+}
+
+/* The outline scrolls itself to follow the content, so the reader never has to drag it,
+   and the site shows no scrollbar on its own table of contents either (extra.css hides
+   both sidebars'). Hide the bar; the wheel still works. */
+#page-nav-contents {
+    /* navtree.css sizes this `width: 100%` in the browser default content box, so a right
+       inset added there would widen the element instead of insetting it, and the list
+       would run off the edge of the panel it is meant to sit inside. */
+    box-sizing: border-box;
+    padding-right: var(--spacing-large);
+    scrollbar-width: none;
+}
+
+#page-nav-contents::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* The label over the list (tools/docs-hooks/doxygen.py, _name_the_page_outline), styled
+   as the site styles its own: quiet, bold, and pinned while the list scrolls under it.
+   Being pinned is why it needs an opaque backdrop, and the backdrop is why the list
+   starts a line below it rather than flush against it, which is the same trade the site
+   makes for the same reason. */
+#page-nav-title {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 0 0 0 16px;
+    background: var(--page-background-color);
+    box-shadow: 0 0 6px 6px var(--page-background-color);
+    color: var(--page-secondary-foreground-color);
+    font-size: var(--navigation-font-size);
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+/* Only when the page has headings to list. Doxygen emits the panel on every page and
+   fills it from script, so on a page with no sections (an index, a member list) the
+   label would otherwise sit alone over an empty column. */
+#page-nav-contents:not(:has(ul.page-outline li)) #page-nav-title {
+    display: none;
+}
+
+#page-nav ul.page-outline {
+    margin: var(--spacing-medium) 0 var(--spacing-large) 0;
+}
+
+/* Each entry is an indent spacer (span.arrow, which Doxygen widens inline by 16px per
+   level) followed by the link. The theme leaves both inline, which lets a long member
+   name run past the panel instead of wrapping. A flex row keeps the indent as its own
+   fixed column and gives the link the rest, so it wraps under itself the way the site's
+   entries do. */
+#page-nav ul.page-outline div.item {
+    display: flex;
+    align-items: baseline;
+}
+
+#page-nav ul.page-outline .arrow {
+    flex: none;
+}
+
+#page-nav ul.page-outline li a {
+    flex: 1;
+    display: block;
+    font-size: var(--navigation-font-size) !important;
+    line-height: 1.4;
+    margin: 9px 0 0 0;
+    overflow-wrap: anywhere;
+}
+
+/* The range currently on screen, marked down the left edge. The theme draws it as a 4px
+   bar on an opaque plate, which on a gradient is a flat rectangle behind the entries and
+   reads as a selected block of a menu. A hairline on the bare background says the same
+   thing without claiming to be a selection. */
+#page-nav ul.page-outline .vis {
+    background: transparent;
+}
+
+#page-nav ul.page-outline .vis::after {
+    width: 2px;
+    background: var(--separator-color);
 }
 
 /* Between the theme's mobile breakpoint and about 1200px the tree and the page outline
