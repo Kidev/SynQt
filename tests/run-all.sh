@@ -46,7 +46,47 @@ echo
 echo "== [2/3] run the suites =="
 # Serial on purpose: several suites bind fixed ports and start real servers, so -j needs an
 # audit of what they listen on, not just a flag.
-ctest --test-dir "$BUILD_DIR" --output-on-failure
+if ! ctest --test-dir "$BUILD_DIR" --output-on-failure; then
+    # ctest prints a failing test's captured output and nothing else, so a test that exits
+    # non-zero having written nothing reports as a blank line. That is exactly what the
+    # Windows column produced for tst_envfile and tst_pagestore, and it is undiagnosable:
+    # a QTest binary flushes its log line by line, so an empty log means the process never
+    # reached its first assertion, which a loader failure and an early exit both explain.
+    # The exit code separates them (0xc0000135 is a missing DLL; a small number is QTest's
+    # count of failed test functions) and ctest never prints it, so run each failing test
+    # again for it. Only failing tests are re-run, and each is given a deadline, so a test
+    # that failed by hanging cannot hang this too.
+    echo
+    echo "----- exit code of each failing test (ctest reports only their output) -----"
+    ctest --test-dir "$BUILD_DIR" --rerun-failed --show-only=json-v1 \
+        > "$BUILD_DIR/failed-tests.json" || true
+    python3 - "$BUILD_DIR/failed-tests.json" <<'PY' || true
+import json
+import subprocess
+import sys
+
+listing = json.load(open(sys.argv[1], encoding="utf-8"))
+for test in listing.get("tests", []):
+    command = test.get("command")
+    if not command:
+        continue
+    directory = None
+    for prop in test.get("properties", []):
+        if prop.get("name") == "WORKING_DIRECTORY":
+            directory = prop.get("value") or None
+    try:
+        code = subprocess.run(command, cwd=directory, timeout=300).returncode
+    except subprocess.TimeoutExpired:
+        print("%s: no exit within 300s" % test["name"], flush=True)
+        continue
+    except OSError as error:
+        print("%s: could not be started: %s" % (test["name"], error), flush=True)
+        continue
+    print("%s: exit code %d (0x%x)" % (test["name"], code, code & 0xFFFFFFFF), flush=True)
+PY
+    echo "----- end of exit codes -----"
+    exit 1
+fi
 
 # m3 keeps a crash-safe trace because on Windows a piped standard stream is block-buffered
 # and a hard exit loses the whole ctest log. It is the only record of where the process got
