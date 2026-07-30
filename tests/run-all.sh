@@ -104,6 +104,13 @@ fail=0
 failed=""
 warned=""
 while read -r suite; do
+    # CMake's file(WRITE) opens the stream in text mode, so on Windows the "\n" the
+    # registry writes reaches this loop as "\r\n" and every suite name carries a trailing
+    # carriage return. Bash keeps it, the glob below then matches nothing, and the failure
+    # reads as three suites whose run-*.sh does not exist -- on a checkout where all three
+    # are present. Strip it here rather than writing the file differently: the reader is
+    # the side that knows it wants a line, and this costs nothing on the other platforms.
+    suite="${suite%$'\r'}"
     [ -n "$suite" ] || continue
     runner="$(echo tests/"$suite"/run-*.sh)"
     suite_log="$BUILD_DIR/$suite.log"
