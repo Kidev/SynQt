@@ -1,11 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# FIX-3 acceptance: the stall storefront's edge-delivered pages and its real page seed. The
-# web edge serves its Pages connect point; a native SynClient acts as the browser and
-# fetches pages over the same authenticated wss link, so the seed is produced by the
-# production per-connection Caller (WebEdge::hostConnection -> PagesEdgeSource), never a
-# hand-built one. Native host kit; a localhost edge cert is generated at configure time.
+# The stall storefront's edge-delivered pages and page seed, fetched by a
+# native SynClient over the authenticated wss link. Native host kit.
 
 cmake_minimum_required(VERSION 3.21)
 project(synqt_fix3_stall LANGUAGES CXX)
@@ -30,7 +27,7 @@ execute_process(
     COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${FIX3_CERTS}"
     RESULT_VARIABLE _cert_rc ERROR_VARIABLE _cert_err)
 if(NOT _cert_rc EQUAL 0)
-    message(FATAL_ERROR "FIX-3 certificate generation failed:\n${_cert_err}")
+    message(FATAL_ERROR "fix3-stall: certificate generation failed:\n${_cert_err}")
 endif()
 
 enable_testing()
@@ -41,9 +38,7 @@ set(STALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../examples/stall")
 
 qt_add_executable(tst_fix3 tst_fix3.cpp)
 
-# Pages is the framework's own contract, generated once as part of SynQtEdge and exposed
-# publicly from there (src/edge/CMakeLists.txt); this test reaches "rep_pages_source.h"
-# and PageResponse through that link rather than generating a second, colliding copy.
+# Pages comes from SynQtEdge, never a second generated copy.
 target_compile_definitions(tst_fix3 PRIVATE
     FIX3_CERT_DIR="${FIX3_CERTS}"
     FIX3_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
@@ -64,3 +59,34 @@ target_link_libraries(tst_fix3 PRIVATE
 )
 
 add_test(NAME fix3 COMMAND tst_fix3)
+
+# The client half runs in its own process: both sides would define the Pages record.
+qt_add_executable(fix3_edge fix3_edge.cpp)
+target_compile_definitions(fix3_edge PRIVATE
+    FIX3_CERT_DIR="${FIX3_CERTS}"
+    FIX3_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    FIX3_STALL_DIR="${STALL_DIR}"
+)
+target_link_libraries(fix3_edge PRIVATE SynQtEdge Qt6::Core Qt6::Qml)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
+qt_add_executable(tst_fix3_client tst_fix3_client.cpp)
+synqt_add_contract(tst_fix3_client ROLE replica
+    SYN "${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge/contracts/Pages.syn")
+target_compile_definitions(tst_fix3_client PRIVATE
+    FIX3_CERT_DIR="${FIX3_CERTS}"
+    FIX3_EDGE_BINARY="$<TARGET_FILE:fix3_edge>"
+)
+target_link_libraries(tst_fix3_client PRIVATE
+    SynQtClient
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::WebSockets
+    Qt6::Test
+)
+add_dependencies(tst_fix3_client fix3_edge)
+
+add_test(NAME fix3-client COMMAND tst_fix3_client)
+

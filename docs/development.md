@@ -3,39 +3,38 @@
 
 # Developer guide: the codebase
 
-This page is for people working on SynQt itself rather than on an app built with it. If
-you are building an application, start with [getting started](getting-started.md) and
-the tutorials. You never need to read the framework's internals. This page maps the
-repository, names the runtime libraries and what each is responsible for, and shows how
-to build and test the framework locally the same way continuous integration does.
+This page is for people working on SynQt itself, not on an app built with it. To build an
+application, start with [getting started](getting-started.md) and the tutorials; you never
+need the framework's internals. This page maps the repository, describes each runtime
+library, and shows how to build and test the framework locally the way continuous
+integration does.
 
-Why the code is shaped the way it is, and which Qt 6.12 APIs each piece relies on, is
-covered by [architecture](architecture.md), [security](security.md), and
-[entities](entities.md). This page is the orientation layer above them, and says where
-the code is. For the generated class and member reference, see the
+[Architecture](architecture.md), [security](security.md) and [entities](entities.md)
+explain why the code is shaped as it is and which Qt 6.12 APIs each piece uses. This page
+tells you where the code is. For the generated class and member reference, see the
 [C++ API reference](api-reference.md).
 
 ## The Makefile
 
-Everything below has a target in the repository's `Makefile`, and `make` on its own lists
-them. It is the developer's side of the desk rather than the build. `synqt build` builds an
-application and CMake builds the framework, while this installs the CLI you are editing,
-runs the suites, builds the site, and clears out the copies of SynQt that go stale.
+Everything below has a target in the repository's `Makefile`; `make` alone lists them. The
+Makefile is a developer tool, not the build: `synqt build` builds an application and CMake
+builds the framework, while the Makefile installs the CLI you are editing, runs the
+suites, builds the site, and removes stale copies of SynQt.
 
-Three things on a developer's machine answer in place of the checkout, and none of them
-says so:
+Three copies on a developer's machine can silently stand in for the checkout:
 
-- an installed `synqt` on `PATH`. A release binary there runs whatever it was built from,
-  which is why `synqt design` can serve an editor months older than the tree you are in.
-  `make cli` replaces it with an editable install of this checkout.
-- `tools/synqt/synqt/framework/`, the copy of `src/` and `cmake/` that a wheel build vendors.
-  A stale one shadows `synqtc` in any interpreter that imports it, and the whole Python suite
-  starts failing on contracts it parsed yesterday, each of which still passes when run alone.
+- **An installed `synqt` on `PATH`.** A release binary runs the code it was built from, so
+  `synqt design` can serve an editor months older than your tree. `make cli` replaces it
+  with an editable install of this checkout.
+- **`tools/synqt/synqt/framework/`,** the copy of `src/` and `cmake/` that a wheel build
+  vendors. A stale copy shadows `synqtc` in any interpreter that imports it, and the whole
+  Python suite fails on contracts it parsed yesterday, while each test still passes alone.
   `make framework` refreshes it.
-- `site/`, the MkDocs output. `site/designer/` is a copy of the designer, and opening it
-  instead of running `synqt design` shows the editor as of whenever it was last built.
+- **`site/`,** the MkDocs output. `site/designer/` is a copy of the designer, so opening it
+  instead of running `synqt design` shows the editor from its last build.
 
-`make doctor` reports all three and changes nothing. `make clean-stale` clears them.
+`make doctor` reports all three without changing anything. `make clean-stale` removes
+them.
 
 ```sh
 make doctor                              # what answers, and what is stale
@@ -62,22 +61,23 @@ make docs-serve                          # build the site and serve it locally
 | [`overrides/`](https://github.com/Kidev/SynQt/tree/main/overrides) | MkDocs Material theme overrides. |
 | [`.github/`](https://github.com/Kidev/SynQt/tree/main/.github) | Continuous integration and release workflows. |
 
-A SynQt application has no top level CMake project. Each entity is
-its own project that finds Qt through `CMAKE_PREFIX_PATH` and shares only the generated
-contract layer, because entities are separate targets and a client must not be able to link
-what a service links. Each test suite is laid out the same way for the same reason, and each
-still builds and runs on its own through its `run-*.sh`.
+A SynQt application has no top level CMake project. Each entity is its own project that
+finds Qt through `CMAKE_PREFIX_PATH` and shares only the generated contract layer, because
+entities are separate targets and a client must not be able to link what a service links.
+Each test suite follows the same layout for the same reason, and still builds and runs on
+its own through its `run-*.sh`.
 
-The framework's own repository does have a root [`CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/CMakeLists.txt),
-which is a different thing. It builds every runtime library and every host kit test suite in
-one tree, so that working on SynQt does not mean recompiling `SynQtService` once per suite.
-It builds nothing an application deploys, and `synqt build` never reads it.
+The framework's repository does have a root
+[`CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/CMakeLists.txt), for a different
+purpose: it builds every runtime library and every host kit test suite in one tree, so
+working on SynQt does not recompile `SynQtService` once per suite. It builds nothing an
+application deploys, and `synqt build` never reads it.
 
 ## The runtime libraries ([`src/`](https://github.com/Kidev/SynQt/tree/main/src))
 
-The runtime is split by trust boundary. A client target must never
-link a service only module, so the libraries are separate and the client links only the
-two it is allowed to.
+The runtime is split along trust boundaries. A client target must never link a service
+only module, so the libraries are separate, and the client links only the ones it is
+allowed.
 
 | Library          | Directory        | Links                                                              | Responsibility |
 |------------------|------------------|--------------------------------------------------------------------|----------------|
@@ -93,146 +93,142 @@ two it is allowed to.
 | `SynQtContract`  | [`src/contract`](https://github.com/Kidev/SynQt/tree/main/src/contract)   | Qt Core, Gui | `SourceModel`, the model a generated Source publishes its rows through, a `QStandardItemModel` a consumer cannot write into. Linked by [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake) into every owner, which is why a service that owns a connect point links Qt Gui. |
 | `SynQtTesting`   | [`src/testing`](https://github.com/Kidev/SynQt/tree/main/src/testing)    | `SynQtService`, `SynQtProviders`, Qt Qml | `EntityTest`, the `SynQt.Test` import behind `synqt test`. It loads one owned Source on its own, mints its `Caller` through the same factories the transports use, and substitutes only the engine behind a helper. Linked by the generated test runner and by nothing a project deploys. |
 
-The client links only `SynQtTransport`, `SynQtClient`, and `SynQtConsumer`. It never links
-`SynQtService` or `SynQtProviders`. The build fails if it tries, because those
+The client links only `SynQtTransport`, `SynQtClient` and `SynQtConsumer`, never
+`SynQtService` or `SynQtProviders`. The build fails if it tries, because those libraries
 carry storage drivers and credentials that must never reach the browser.
 
-The license is what separates `SynQtEdge`, `SynQtIdentity`, `SynQtGateway` and
-`SynQtMonitor` from the rest. Qt HTTP Server and Qt Network Authorization are GPLv3-only,
-and linking one makes that entity's binary GPLv3, so they are reached only through those
-four. `appmodel.service_libraries` says which of the five service libraries an entity
-links, and both the generated CMake and its generated `THIRD-PARTY-LICENSES` read that one
-function, so what the file claims and what the binary links cannot drift apart. A topology
-with no web edge, no auth entity and no monitor never adds those directories at all, so
-those modules need not even be installed.
+The license separates `SynQtEdge`, `SynQtIdentity`, `SynQtGateway` and `SynQtMonitor` from
+the rest. Qt HTTP Server and Qt Network Authorization are GPLv3 only, and linking either
+makes the entity's binary GPLv3, so only those four libraries use them.
+`appmodel.service_libraries` says which of the five service libraries an entity links.
+Both the generated CMake and the generated `THIRD-PARTY-LICENSES` read that one function,
+so the file's claims always match what the binary links. A topology without a web edge,
+auth entity or monitor never adds those directories, so those Qt modules need not even be
+installed.
 
 ## The tooling ([`tools/`](https://github.com/Kidev/SynQt/tree/main/tools))
 
-- [`tools/synqtc`](https://github.com/Kidev/SynQt/tree/main/tools/synqtc) is the contract generator. It parses the `.syn` a connect point's `export:` block becomes (`parser.py`,
-  `model.py`, `types.py`), reports errors clearly (`errors.py`), and lowers to a QtRO
-  `.rep` plus the Source helper and the QML registration (`emit.py`). It runs as
-  `python -m synqtc <file> --out <dir>`. It has no third party dependencies. `cli.py` and
-  `__main__.py` are the entry points.
-- [`tools/synqt`](https://github.com/Kidev/SynQt/tree/main/tools/synqt) is the `synqt` command line tool. Each subcommand is its own module:
-  `newproject`, `build`, `run` (which covers `dev`, `serve`, and `test`), `check`,
-  `doctor`, `clean`, `mesh`, `examples` (`synqt examples`, and the copy `synqt new
-  --example` makes), and the `add` family (`addentity`, `addauth`, `addprovider`,
-  `addcontract`). Supporting modules resolve and pin the toolchain (`toolchain`), generate
-  the per entity CMake and mains from the topology (`appgen`), write per entity presets
-  (`presets`), emit the per target license file (`licenses`), build the WebAssembly client
-  (`clientbuild`), and write each service's `topology.json` (`topologywriter`). `cli.py`
-  wires them to the argument parser.
-- `docker` is the `synqt docker` family, and it generates rather than runs: a Dockerfile,
-  a compose file, an entrypoint, a `.dockerignore`, and the `synqt.docker.yaml` profile
-  that pins each entity to an address on the container network. Addresses rather than
-  service names, because a mesh endpoint is read into a `QHostAddress`. One arrangement in
-  there needs saying before reading it. An engine container shares its entity's network
-  namespace and holds that entity's address, so the entity reaches its engine over
-  loopback and an external provider's release-time refusal of an unverified connection is
-  satisfied honestly rather than switched off. See
+- **[`tools/synqtc`](https://github.com/Kidev/SynQt/tree/main/tools/synqtc)** is the
+  contract generator. It parses the `.syn` a connect point's `export:` block becomes
+  (`parser.py`, `model.py`, `types.py`), reports errors clearly (`errors.py`), and lowers
+  it to a QtRO `.rep` plus the Source helper and the QML registration (`emit.py`). Run it
+  as `python -m synqtc <file> --out <dir>`. It has no third party dependencies; `cli.py`
+  and `__main__.py` are the entry points.
+- **[`tools/synqt`](https://github.com/Kidev/SynQt/tree/main/tools/synqt)** is the `synqt`
+  command line tool, with one module per subcommand: `newproject`, `build`, `run` (for
+  `dev`, `serve` and `test`), `check`, `doctor`, `clean`, `mesh`, `examples`
+  (`synqt examples`, and the copy `synqt new --example` makes), and the `add` family
+  (`addentity`, `addauth`, `addprovider`, `addcontract`). Supporting modules resolve and pin
+  the toolchain (`toolchain`), generate the per entity CMake and mains from the topology
+  (`appgen`), write per entity presets (`presets`), emit the per target license file
+  (`licenses`), build the WebAssembly client (`clientbuild`), and write each service's
+  `topology.json` (`topologywriter`). `cli.py` connects them to the argument parser.
+- **`docker`** is the `synqt docker` family. It generates files and runs nothing: a
+  Dockerfile, a compose file, an entrypoint, a `.dockerignore`, and the `synqt.docker.yaml`
+  profile that pins each entity to an address on the container network (addresses, not
+  service names, because a mesh endpoint is read into a `QHostAddress`). One detail
+  matters before you read it: an engine container shares its entity's network namespace
+  and address, so the entity reaches its engine over loopback, and an external provider's
+  release refusal of unverified connections is satisfied, not switched off. See
   [running in containers](docker.md#engines).
-- Generation itself is split by what it emits, since the outputs share only the topology
-  they read. `appmodel` reads that topology (entities, connect points, scopes, routes,
-  views, the client's QML files) and refuses one it cannot read, `contractgen` turns each
-  connect point's `export:` block into the `.syn` the compiler reads, `cmakegen` writes the
-  root `CMakeLists.txt`, `maingen` writes one `main.cpp` per entity, `clientshell`
-  writes what the browser loads before the client does (`index.html`, `synqt-boot.js`,
-  the shell cache worker, the dev reload hook), and `authentity` writes the Source QML an
-  auth entity needs when `identity.provider_entity` promotes identity off the edge.
-  `appgen` is the entry point that drives them. `check` reads routes and views through
-  `appmodel` too, so the check and the build can never disagree about which file a route
-  means. All of it lands in the project's `generated/` directory
-  (`appmodel.GENERATED_DIR`), which mirrors the entity folders, so an entity folder holds
-  only what its author wrote and the generated root CMakeLists resolves the sources it
-  names through `SYNQT_APP_ROOT`, one directory up from itself.
-- Every generated file is written through `writer.write_if_changed`, never with
-  `write_text`. `synqt build` regenerates the whole app from the topology each time, and an
-  unconditional write moves a modification time whether or not a byte changed, which is what
-  CMake and the compiler read, so rewriting an identical `main.cpp` would cost a full
-  recompile and turn a 0.08 s no-op build into a 4.3 s one. `build._configure_if_needed` is the same idea for the
-  CMake configure step, keyed on the configure command plus `CMakePresets.json` (the one
-  input the generated build graph does not watch for itself).
-- Two mesh connect points exist that no `synqt.yaml` declares: the `identity` and
-  `sessions` links `identity.provider_entity` implies. `appmodel.with_auth_connect_points`
-  appends them once at each entry point that reads the whole topology (generation, the
-  topology writer, validation), so the auth entity hosts them, each edge opens the consumer
-  link, and `synqt check` holds both to the same mesh rules as any declared link. Their
-  contracts live in [`src/identity/contracts/`](https://github.com/Kidev/SynQt/tree/main/src/identity/contracts) and compile into `SynQtIdentity`, which is why
-  they are marked `framework` and filtered back out wherever an app side
-  `export:` block would otherwise be read.
-- The edge's browser-facing policy (the `security` block, `project.origin_model`, the
+- **Generation is split by output,** since the outputs share only the topology they read.
+  `appmodel` reads the topology (entities, connect points, scopes, routes, views, the
+  client's QML files) and refuses one it cannot read. `contractgen` turns each connect
+  point's `export:` block into the `.syn` the compiler reads. `cmakegen` writes the root
+  `CMakeLists.txt`, and `maingen` one `main.cpp` per entity. `clientshell` writes what the
+  browser loads before the client (`index.html`, `synqt-boot.js`, the shell cache worker,
+  the dev reload hook). `authentity` writes the Source QML an auth entity needs when
+  `identity.provider_entity` moves identity off the edge. `appgen` is the entry point that
+  drives them. `check` also reads routes and views through `appmodel`, so the check and the
+  build always agree on which file a route means. Everything lands in the project's
+  `generated/` directory (`appmodel.GENERATED_DIR`), which mirrors the entity folders: an
+  entity folder holds only what its author wrote, and the generated root CMakeLists finds
+  the sources it names through `SYNQT_APP_ROOT`, one directory above it.
+- **Every generated file goes through `writer.write_if_changed`,** never `write_text`.
+  `synqt build` regenerates the whole app from the topology every time, and an
+  unconditional write updates the modification time even when no byte changed. CMake and
+  the compiler read that time, so rewriting an identical `main.cpp` would force a full
+  recompile and turn a 0.08 s no-op build into a 4.3 s one. `build._configure_if_needed`
+  applies the same idea to the CMake configure step, keyed on the configure command plus
+  `CMakePresets.json` (the one input the generated build graph does not watch itself).
+- **Two mesh connect points appear in no `synqt.yaml`:** the `identity` and `sessions` links
+  that `identity.provider_entity` implies. `appmodel.with_auth_connect_points` adds them at
+  each entry point that reads the whole topology (generation, the topology writer,
+  validation), so the auth entity hosts them, each edge opens the consumer link, and
+  `synqt check` applies the same mesh rules as for any declared link. Their contracts live
+  in [`src/identity/contracts/`](https://github.com/Kidev/SynQt/tree/main/src/identity/contracts)
+  and compile into `SynQtIdentity`, so they are marked `framework` and filtered out
+  wherever the app's `export:` blocks are read.
+- **The edge's browser-facing policy** (the `security` block, `project.origin_model`, the
   starting scope, the public bind and TLS, the `identity` block, and each connect point's
-  `scope`) is read by `appmodel`, and `maingen` emits it as one assignment per key the
-  project declared. Nothing declared gets a line, so the defaults stay where they
-  belong, in `WebEdgeConfig` and `IdentityConfig`, rather than being copied into Python
-  where they could drift out of step with the structs they fill.
-- The [designer](visual-editor.md) and the inference behind it are the same project read
-  two ways, and they share one shape. `designdoc` is that shape, a project as entities,
-  links and members, all of it read from `synqt.yaml` and written back to it.
-  `design` serves the page and answers it, `designplan` turns an edited document into the
-  change set Apply is allowed to write (and refuses one the real `synqt check` fails, or a
-  contract the compiler could not read back), and `yamledit` is what writes `synqt.yaml`
-  again without reformatting the parts nobody touched. On the reading side, `qmlscan` finds
-  the members an entity's QML already uses, `typebackend` answers what type an expression
-  has (TypeScript where node and `ts-morph` are installed, a literal reader otherwise), and
-  `infer` unions the two ends of each link into the contract they imply. The page itself is
-  under [`assets/design/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt/synqt/assets/design)
-  and is plain modules a browser loads directly, with no build step and no reference to
-  anything off-origin. `synqt design` serves it, and a docs hook copies it onto this site
-  out of that same directory. See [adding a rule](#adding-a-rule-to-the-designer)
-  below before touching `rules.js`.
-- [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt) is the Pygments lexer that colours SynQt flavoured QML in the
-  documentation site, so an `<Owner>.onSignal` attached handler highlights the same way in
-  the docs as it does in an editor.
-- [`tools/coverage`](https://github.com/Kidev/SynQt/tree/main/tools/coverage) reads the
-  C++ line coverage of an instrumented build back out of the counter files the compiler
-  wrote, through `gcov -t -j`. It needs nothing installed beyond the compiler that produced
-  them, which is why neither lcov nor gcovr is a dependency here. See
-  [coverage](#coverage) below.
+  `scope`) is read by `appmodel`, and `maingen` emits one assignment per key the project
+  declared. Undeclared keys get no line, so the defaults stay in `WebEdgeConfig` and
+  `IdentityConfig`, not copied into Python where they could drift from the structs they
+  fill.
+- **The [designer](visual-editor.md) and its inference** read the same project two ways
+  and share one shape: `designdoc`, a project as entities, links and members, read from
+  `synqt.yaml` and written back to it. `design` serves the page and answers its requests.
+  `designplan` turns an edited document into the change set Apply may write (and refuses
+  one that fails the real `synqt check`, or a contract the compiler could not read back).
+  `yamledit` writes `synqt.yaml` back without reformatting untouched parts. On the reading
+  side, `qmlscan` finds the members an entity's QML already uses, `typebackend` works out
+  an expression's type (with TypeScript when node and `ts-morph` are installed, a literal
+  reader otherwise), and `infer` merges both ends of each link into the contract they
+  imply. The page lives under
+  [`assets/design/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt/synqt/assets/design)
+  as plain modules a browser loads directly, with no build step and nothing loaded from
+  another origin. `synqt design` serves it, and a docs hook copies it from that directory
+  onto this site. Read [adding a rule](#adding-a-rule-to-the-designer) before touching
+  `rules.js`.
+- **[`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt)**
+  is the Pygments lexer that highlights SynQt flavored QML on the documentation site, so an
+  `<Owner>.onSignal` attached handler looks the same in the docs as in an editor.
+- **[`tools/coverage`](https://github.com/Kidev/SynQt/tree/main/tools/coverage)** reads the
+  C++ line coverage of an instrumented build from the compiler's counter files, through
+  `gcov -t -j`. It needs only the compiler that produced them, so neither lcov nor gcovr is
+  a dependency. See [coverage](#coverage) below.
 
 ## The contract build glue ([`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake))
 
 [`cmake/SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake) provides `synqt_add_contract(target ROLE <role> SYN <file>)`.
-It runs the generator, then drives `repc` through `qt_add_repc_sources` for owners or
+It runs the generator, drives `repc` through `qt_add_repc_sources` for owners or
 `qt_add_repc_replicas` for consumers, and adds the QML registrations. A `ROLE both` target
-uses the merged header, which only a target that is at once owner and consumer needs.
-Real entities are one or the other. The generator runs at configure time and the
-build re runs CMake when a contract or the generator changes, so generated output is never
-edited by hand and never committed.
+uses the merged header, needed only by a target that is both owner and consumer; real
+entities are one or the other. The generator runs at configure time, and the build reruns
+CMake when a contract or the generator changes, so nobody edits or commits generated
+output.
 
 ### How everything here is compiled
 
 [`cmake/SynQtBuildFlags.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtBuildFlags.cmake)
 is included by every `CMakeLists.txt` in this repository, and `synqt build` writes the same
-include into the CMake it generates for an application, so a project built with SynQt
-compiles under the rules SynQt compiles under.
+include into an application's generated CMake, so a SynQt project compiles under the same
+rules as SynQt.
 
 - **C++20**, the newest standard Qt 6.12 supports on all of its compilers.
 - **Warnings are errors.** `-Wall -Wextra -Werror` for GCC and Clang, `/W4 /WX
   /permissive- /utf-8` for MSVC and for `clang-cl`. Qt's own headers and jwt-cpp arrive
   through `SYSTEM` include paths, so nothing third party can fail the build.
-- **Release keeps only what is reachable.** CMake supplies the optimisation level, and
-  this file adds `-ffunction-sections -fdata-sections` with `--gc-sections` (`-dead_strip`
-  on macOS, `/Gy /Gw` with `/OPT:REF /OPT:ICF` on MSVC). Emscripten is left out, because
-  `wasm-ld` drops unreferenced functions already.
-- **Link time optimisation is off**, behind `-DSYNQT_LTO=ON`. It costs minutes a link, and
-  Qt's static plugin registration depends on constructors in translation units nothing
-  references, which is what an aggressive LTO pass exists to remove.
+- **Release keeps only reachable code.** CMake sets the optimization level, and this file
+  adds `-ffunction-sections -fdata-sections` with `--gc-sections` (`-dead_strip` on macOS,
+  `/Gy /Gw` with `/OPT:REF /OPT:ICF` on MSVC). Emscripten is excluded, because `wasm-ld`
+  already drops unreferenced functions.
+- **Link time optimization is off,** available with `-DSYNQT_LTO=ON`. It costs minutes per
+  link, and Qt's static plugin registration relies on constructors in translation units
+  nothing references, exactly what an aggressive LTO pass removes.
 
-Three compilers disagree about which mistakes to report, which is the reason the
-stop is on. The narrowing conversion that broke the Windows and macOS columns compiled
-silently under GCC. `-DSYNQT_WARNINGS_AS_ERRORS=OFF` turns the stop off for a bisect, or for
-the week after a compiler release whose new warnings are not yet triaged. It is not meant to
-live in a preset.
+Warnings are errors because three compilers disagree about which mistakes to report: the
+narrowing conversion that broke the Windows and macOS builds compiled silently under GCC.
+`-DSYNQT_WARNINGS_AS_ERRORS=OFF` turns this off for a bisect, or for the week after a
+compiler release whose new warnings are not yet triaged. Do not put it in a preset.
 
 ## The test suites ([`tests/`](https://github.com/Kidev/SynQt/tree/main/tests))
 
-Each subdirectory is a standalone CMake project with its own `run-*.sh`. The `m0` through
-`m9` directories are the milestone acceptance tests. The rest are focused fixtures that a
-milestone number would not capture. [`tests/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/tests/CMakeLists.txt)
-is the registry of all of them. A suite that is neither built by the tree nor explicitly
-accounted for fails the configure step, because a list nobody checks is how a suite goes
-five commits without ever running.
+Each subdirectory is a standalone CMake project with its own `run-*.sh`. The `m0` to `m9`
+directories are the milestone acceptance tests; the rest are focused fixtures that do not
+fit a milestone. [`tests/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/tests/CMakeLists.txt)
+registers all of them. A suite neither built by the tree nor explicitly listed fails the
+configure step, because an unchecked list lets a suite go five commits without running.
 
 | Directory                | What it proves |
 |--------------------------|----------------|
@@ -259,7 +255,7 @@ five commits without ever running.
 | [`identity-picker`](https://github.com/Kidev/SynQt/tree/main/tests/identity-picker) | The development scope picker in a real browser, and the one claim about it that no in-process test can make. Two tabs of one browser context share one cookie jar (RFC 6265 scopes a cookie to a host rather than a port), so a second per-tab sign-in must not become the first. Three tabs, a moderator and a user side by side, and the bundle the edge answers with is how each tab is asked who it is. |
 | [`dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) | Development-only code is absent from a release build rather than disabled inside it. It configures the framework twice, once with `SYNQT_DEV_TOOLS` and once without, and reads the symbol tables. The release archive must not contain the development sign-ins, the development archive must, and a development header must refuse to be included by a build that did not ask for one. `DEV_SYMBOLS` in that suite is the list, so covering a new development-only type is a word rather than a test. |
 | [`desktop-client`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client)         | The native desktop client target compiles, installs, boots, and, once deployed with `--deploy`, carries its own Qt rather than the host's. |
-| [`fix3-stall`](https://github.com/Kidev/SynQt/tree/main/tests/fix3-stall)             | Edge delivered pages end to end, seeded by the production per connection `Caller`. |
+| [`fix3-stall`](https://github.com/Kidev/SynQt/tree/main/tests/fix3-stall)             | Edge delivered pages end to end, seeded by the production per connection `Caller`, and shown by a real client's router against an edge in its own process. |
 | [`url-routing`](https://github.com/Kidev/SynQt/tree/main/tests/url-routing)            | The route table and the single page application fallback. |
 | [`remote-pages`](https://github.com/Kidev/SynQt/tree/main/tests/remote-pages)           | The framework's own `Pages` connect point and its page store. |
 | [`entity-test`](https://github.com/Kidev/SynQt/tree/main/tests/entity-test)            | The `SynQt.Test` harness an application's own QML tests use, driven against a Source written the way an application writes one. |
@@ -273,24 +269,22 @@ five commits without ever running.
 | [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [designer](visual-editor.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium. Run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
 | [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which makes `split_origin` a measurement rather than folklore. No Qt at all, only two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
 
-One directory there is not a suite.
+Two directories are not suites.
 [`tests/local-network`](https://github.com/Kidev/SynQt/tree/main/tests/local-network) is the
-rig the browser policy suites need: two names, a loopback address each, and a development
-web CA, because a browser answers a cross site question only when it believes it is talking
-to two different sites. `local-network.sh up` puts it in place and `down` takes it back out.
-[`tests/lib`](https://github.com/Kidev/SynQt/tree/main/tests/lib) is likewise shared shell
-helpers rather than a suite.
+rig the browser policy suites need: two names, one loopback address each, and a development
+web CA, because a browser applies cross site rules only when it believes it talks to two
+different sites. `local-network.sh up` installs it and `down` removes it.
+[`tests/lib`](https://github.com/Kidev/SynQt/tree/main/tests/lib) holds shared shell
+helpers.
 
-[`tests/security`](https://github.com/Kidev/SynQt/tree/main/tests/security) is a list rather
-than a suite. `attacks.json` names every attack SynQt claims to defend and, for each one, the
-test that proves it still fails. Those tests live beside the code they are about, because
-that is where somebody changing that code will run them. The list is the half they cannot
-give on their own, which is a reader seeing the whole attack surface at once. An entry naming
-a test that no longer exists fails
+[`tests/security`](https://github.com/Kidev/SynQt/tree/main/tests/security) is a list, not a
+suite. `attacks.json` names every attack SynQt claims to defend against and, for each, the
+test proving it still fails. The tests live beside the code they cover, where someone
+changing that code will run them. The list adds what they cannot: the whole attack surface
+in one view. An entry naming a deleted test fails
 [`test_security_index.py`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/tests/test_security_index.py)
-in the ordinary pytest job, so the list cannot quietly become a set of claims nothing backs.
-A defect found by review or by report gets a test that fails without the fix, and an entry
-here.
+in the ordinary pytest job, so the list cannot silently turn into unbacked claims. A defect
+found by review or report gets a test that fails without the fix, and an entry here.
 
 To run everything, point `QT_HOST` at your Qt 6.12.0 host kit and run the tree:
 
@@ -298,15 +292,14 @@ To run everything, point `QT_HOST` at your Qt 6.12.0 host kit and run the tree:
 QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/run-all.sh
 ```
 
-That builds the framework and every host kit suite once, runs them under a single `ctest`,
-and then runs the suites that have to run a generator before there is anything to
-compile (`custom-provider`, `appgen-native`, `desktop-client`, `monitor-console`,
-`identity-picker`, `dev-exclusion`). It is
-the same command
-[`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) runs. A
-CMake warning fails it, because the two this gate was built for (an incomplete linking
-report, and a Qt module missing from the kit) had been scrolling past in green builds for
-as long as the workflow existed.
+This builds the framework and every host kit suite once, runs them under a single `ctest`,
+then runs the suites that must run a generator before anything compiles
+(`custom-provider`, `appgen-native`, `desktop-client`, `monitor-console`,
+`identity-picker`, `dev-exclusion`).
+[`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) runs the
+same command. A CMake warning fails it: the two warnings this gate targets (an incomplete
+linking report, and a Qt module missing from the kit) had scrolled past in green builds
+since the workflow began.
 
 ### Running one phase, and why CI does
 
@@ -317,70 +310,71 @@ SYNQT_PHASES=tree tests/run-all.sh       # configure, build, and run the tree's 
 SYNQT_PHASES=generated tests/run-all.sh  # only the suites that compile generated output
 ```
 
-Unset means `all`, which is what a developer typing `tests/run-all.sh` gets and what this
-page describes everywhere else. Anything other than those three is refused rather than
-defaulted, because a CI job that asked for `generated` and got the whole tree would pass
-while proving nothing about the suites it was there to run.
+Unset means `all`, what a developer typing `tests/run-all.sh` gets and what the rest of this
+page describes. Any other value is refused, not defaulted: a CI job that asked for
+`generated` and got the whole tree would pass while proving nothing about the suites it
+exists to run.
 
-`generated` configures the shared tree but does not build it. All it needs from that tree
-is `script-suites.txt`, which the configure step writes and which is why CI keeps no second
-copy of the suite list. Each of those suites then compiles a tree of its own from the
-repository root and links nothing out of the shared one.
+`generated` configures the shared tree without building it. It needs only
+`script-suites.txt` from that tree, which the configure step writes, so CI keeps no second
+copy of the suite list. Each of those suites then compiles its own tree from the repository
+root and links nothing from the shared one.
 
-CI runs `tree`, `generated` and the coverage build as three concurrent jobs, so the column
-costs the longest of them rather than their sum.
+CI runs `tree`, `generated` and the coverage build as three concurrent jobs, so the whole
+run takes as long as the slowest, not their sum.
 
 ### Configuring by hand
 
-Two options matter if you drive CMake directly rather than through the CLI, and both default
-to off, so a bare `cmake` produces a production-shaped build:
+Two options matter when you drive CMake directly instead of through the CLI. Both default
+to off, so a bare `cmake` gives a production build:
 
-- `-DSYNQT_STRIP=ON` leaves no symbol table in the linked binaries. `synqt build --release`
-  turns it on and nothing else does.
-- `-DSYNQT_DEV_TOOLS=ON` compiles the development-only sources into the framework, today
-  the stub identity provider and the scope picker. This tree configures with it on,
-  because the suites that test those sources construct them directly, and so does `synqt
-  dev`. Nothing that ships ever does. See
-  [Development code is absent from a release build](security.md#development-code-is-absent-from-a-release-build)
-  for what that buys and
+- **`-DSYNQT_STRIP=ON`** removes the symbol table from the linked binaries. Only
+  `synqt build --release` turns it on.
+- **`-DSYNQT_DEV_TOOLS=ON`** compiles the development-only sources into the framework: today,
+  the stub identity provider and the scope picker. This tree turns it on, because the
+  suites testing those sources construct them directly, and so does `synqt dev`. Nothing
+  that ships does. See
+  [Development code cannot ship](security.md#development-code-cannot-ship) for the
+  reasons, and
   [`tests/dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) for
   the proof.
 
-A generated project also carries presets for each profile, so `cmake --preset host-release`
-configures what `synqt build --release` configures and `cmake --preset host-dev` what
-`synqt dev` does.
+A generated project also has a preset per profile, so `cmake --preset host-release`
+configures the same build as `synqt build --release`, and `cmake --preset host-dev` the
+same as `synqt dev`.
 
 ### The compiler cache
 
-Every build in this repository routes the compiler through `ccache`, or `sccache` under
-MSVC, whenever one is installed. The switch is in
+Every build in this repository runs the compiler through `ccache` (or `sccache` under
+MSVC) when one is installed. The switch is in
 [`cmake/SynQtBuildFlags.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtBuildFlags.cmake),
-which the root `CMakeLists.txt` includes and which `synqt build` writes into every
-application it generates, so it reaches the tree build, all six `appgen-native` topologies,
-and a user's project alike. It is silent when no cache binary is present, because a
-`message(WARNING)` there would fail the run, since this suite treats a CMake warning as a
-defect. `-DSYNQT_COMPILER_CACHE=OFF` turns it off for a bisect.
+which the root `CMakeLists.txt` includes and `synqt build` writes into every generated
+application, so it covers the tree build, all six `appgen-native` topologies, and user
+projects. It stays silent without a cache binary, because this suite treats a CMake
+warning as a defect, so a `message(WARNING)` would fail the run.
+`-DSYNQT_COMPILER_CACHE=OFF` turns it off for a bisect.
 
-It pays off within a single run as well as between runs, and the two phases get very
-different things from it. Every generated application `add_subdirectory()`s the framework
-from `${SYNQT_ROOT}`, so `generated` compiles `SynQtService` and friends nine times over,
-while `tree` compiles each object exactly once. Measured on a 32-core Linux host, cold cache:
+It helps within one run as well as between runs, and the two phases gain very different
+things. Every generated application includes the framework from `${SYNQT_ROOT}` with
+`add_subdirectory()`, so `generated` compiles `SynQtService` and the other libraries nine
+times, while `tree` compiles each object once. Measured on a 32-core Linux host, with a cold
+cache:
 
 | Phase | Wall clock | ccache hits |
 |---|---|---|
 | `tree` | 215 s | 0 of 291 |
 | `generated` | 272 s | 505 of 1016 (49.7%) |
 
-and on the cache those two runs left behind:
+and with the cache those two runs left:
 
 | Phase | Wall clock | ccache hits |
 |---|---|---|
 | `tree` | 201 s | 85 of 291 (29.2%) |
 | `generated` | 113 s | 991 of 1016 (97.5%) |
 
-The `tree` warm figure is pessimistic by construction. That run was given a different build
-directory, and the tree compiles generated sources that carry their own path, so those miss
-on content. CI reuses one build directory, where they do not.
+The warm `tree` figure is pessimistic by design: that run used a different build directory,
+and the tree compiles generated sources that embed their own path, so those miss on content.
+CI reuses one build directory, where they hit.
 
 For comparison, all measured the same way on the same host:
 
@@ -391,138 +385,132 @@ For comparison, all measured the same way on the same host:
 | The two jobs in parallel, cold cache | 272 s |
 | The two jobs in parallel, warm cache | 201 s |
 
-Most of that is the split rather than the cache, and on this host that is expected, since
-32 cores make a compile cheap, so removing a redundant one saves less than running two
-phases at once does. A CI runner has four, where the same redundancy costs proportionally
-more.
+Most of the gain comes from the split, not the cache. That is expected on this host: with
+32 cores a compile is cheap, so removing a redundant one saves less than running two phases
+at once. A CI runner has four cores, where the same redundancy costs proportionally more.
 
-One thing had to be turned off to get any of that, and
-[`tests/lib/compiler-cache.sh`](https://github.com/Kidev/SynQt/blob/main/tests/lib/compiler-cache.sh)
-is where it happens. ccache hashes the working directory whenever the compiler emits debug
-information, which every build here does, so two builds of one target from one source tree
-share nothing if they were configured into different directories. With ccache installed and
-nothing else done, `appgen-native` reported 0 hits out of 676 compiles. `CCACHE_NOHASHDIR`
-took the same suite to 330 hits and 191 seconds to 153. `tests/run-all.sh` and
-`tests/run-coverage.sh` export it, rather than the CMake setting it, because the cost is a
-cached object carrying another build's compilation directory in its debug info, which is a
-fair trade for a test run and not one to impose on somebody's application.
+None of this worked until one ccache behavior was turned off, in
+[`tests/lib/compiler-cache.sh`](https://github.com/Kidev/SynQt/blob/main/tests/lib/compiler-cache.sh).
+ccache hashes the working directory whenever the compiler emits debug information, as every
+build here does, so two builds of the same target from the same sources share nothing if
+configured in different directories. With ccache installed and nothing else,
+`appgen-native` got 0 hits out of 676 compiles. `CCACHE_NOHASHDIR` raised that to 330 hits
+and cut the time from 191 seconds to 153. `tests/run-all.sh` and `tests/run-coverage.sh`
+export it instead of the CMake file setting it, because a cached object then carries another
+build's compilation directory in its debug info: a fair trade for a test run, but not one to
+impose on an application.
 
-To run one suite, which is usually what you want while working on it, run its script:
+To run one suite, usually what you want while working on it, run its script:
 
 ```sh
 QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/m7-caller/run-m7.sh
 ```
 
-The scripts default `QT_HOST` to `/opt/Qt/6.12.0/gcc_64` when it is unset, so on that
-layout the variable can be omitted. Each script configures with Ninja, builds, and runs
-`ctest`.
+The scripts default `QT_HOST` to `/opt/Qt/6.12.0/gcc_64`, so with that layout you can omit
+the variable. Each script configures with Ninja, builds, and runs `ctest`.
 
 ### The Python suites
 
-The tooling has its own tests, and they need no Qt, no display, and no compiler, which is
-why they run on every push across all three operating systems:
+The tooling has its own tests. They need no Qt, display or compiler, so they run on every
+push on all three operating systems:
 
 ```sh
 python -m pytest tools/synqt/tests tools/synqtc/tests tools/pygments-synqt/tests \
     benchmarks/tests -q
 ```
 
-Two groups of them skip rather than fail when what they drive is not installed, and both
-are worth having on the machine you work on.
+Two groups skip instead of failing when their tools are missing; install both on your
+development machine.
 
-A handful drive `qmllint` and `qmlformat`, which come with a Qt kit. Put one on the `PATH`
-and they run. The [coverage](#coverage) floor below knows about this and holds a run
+A few tests drive `qmllint` and `qmlformat`, which come with a Qt kit. Put one on the `PATH`
+and they run. The [coverage](#coverage) floor below accounts for this and holds a run
 without Qt to its own number.
 
-The rest are the TypeScript type backend, the one `synqt infer --types ts` uses to follow
-a value back to where it was built. It runs the JavaScript inside a project's QML through
-`ts-morph`, so it needs node and that package, and the tests announce
-`node and ts-morph are not here` when it is missing:
+The others test the TypeScript type backend, which `synqt infer --types ts` uses to trace a
+value back to where it was built. It runs the JavaScript in a project's QML through
+`ts-morph`, so it needs node and that package; without them, the tests report
+`node and ts-morph are not here`:
 
 ```sh
 npm install ts-morph
 ```
 
-Installed in the repository root or in the project being inferred, either answers, because
-the node side looks for `ts-morph` beside its own script first and in the working directory
-second. No application ever needs any of this, which is why `--types auto` falls back to
-the literal reader where node is not there and names in its last line which backend
-answered. The rest of what needs node here is the browser suites, the mermaid check, and
-the editor's rule fixture, none of which the CLI itself depends on.
+Install it in the repository root or in the project being inferred: the node side looks for
+`ts-morph` beside its own script first, then in the working directory. No application needs
+any of this, so `--types auto` falls back to the literal reader without node, and its last
+output line names the backend it used. The other node users here are the browser suites,
+the mermaid check and the editor's rule fixture; the CLI itself depends on none of them.
 
 ### Adding a rule to the designer
 
-The [editor](visual-editor.md) paints a subset of the `synqt check` rules in the page, live, as
-you draw. Being a subset is the claim the fixtures hold it to. The canvas must never reach
-a verdict the command line would not. So a rule lives in two places, and it moves in two
-places.
+The [editor](visual-editor.md) shows a subset of the `synqt check` rules live on the page as
+you draw. The fixtures enforce that it stays a subset: the canvas must never reach a
+verdict the command line would not. So each rule lives in two places, and changes in both.
 
 [`rules.js`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/synqt/assets/design/rules.js)
 is what the browser runs, and
 [`topologies.json`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/synqt/assets/design/topologies.json)
-beside it holds one small topology per rule, with the verdict it should draw. Two fixtures
-read that same file and each asserts one half of the parity: `test_designrules.py` runs the
-topologies through the real `synqt check` and asserts the command line reaches the named
-verdict, and
+beside it holds one small topology per rule, with the verdict it should show. Two fixtures
+read that file, each checking one side: `test_designrules.py` runs the topologies through
+the real `synqt check` and checks that the command line reaches each verdict, and
 [`tools/check-designrules/check-designrules.mjs`](https://github.com/Kidev/SynQt/blob/main/tools/check-designrules/check-designrules.mjs)
-imports the shipped `rules.js` in node and asserts the page does. Both fail on a rule with
-no case and on a case for a rule nobody paints, so neither file can gain an entry the other
-has never heard of.
+imports the shipped `rules.js` in node and checks that the page does. Both fail on a rule
+without a case and on a case for a rule the page does not show, so neither file can gain an
+entry the other lacks.
 
-Adding a rule is therefore three edits: the rule in `rules.js`, a case in
-`topologies.json`, and whatever in `check.py` produces the same verdict from the command
-line. Run `node tools/check-designrules/check-designrules.mjs`, which installs nothing, and
-the Python suite.
+Adding a rule takes three edits: the rule in `rules.js`, a case in `topologies.json`, and
+the code in `check.py` that gives the same verdict on the command line. Then run
+`node tools/check-designrules/check-designrules.mjs` (it installs nothing) and the Python
+suite.
 
 ### Coverage
 
-How much of the framework the suites above reach is measured:
+The coverage run measures how much of the framework the suites above reach:
 
 ```sh
 QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/run-coverage.sh
 ```
 
-That builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, and `Debug` so a line maps
-to the code that is on it rather than to whatever the optimizer made of it), runs the
-suites against it, and reports both halves of the framework:
+It builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, in `Debug`, so each line maps
+to its own code instead of whatever the optimizer made of it), runs the suites against it,
+and reports both halves of the framework:
 
-- C++, the runtime libraries under `src/`. `--coverage` puts a counter file beside
+- **C++,** the runtime libraries under `src/`. `--coverage` writes a counter file beside
   every object file, and
   [`tools/coverage/report.py`](https://github.com/Kidev/SynQt/blob/main/tools/coverage/report.py)
-  reads them back through `gcov -t -j`. Only `src/` is instrumented, because counting the
-  suites themselves would add thousands of lines that are executed by definition, and the number
-  would then climb every time a test was written rather than every time one reached
-  somewhere new.
-- Python, the CLI under [`tools/synqt/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt), through `coverage.py` with branch coverage on
-  (configured in
+  reads them through `gcov -t -j`. Only `src/` is instrumented: counting the suites
+  themselves would add thousands of lines executed by definition, and the number would rise
+  with every new test instead of with every test that reaches new code.
+- **Python,** the CLI under
+  [`tools/synqt/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt), through
+  `coverage.py` with branch coverage on (configured in
   [`tools/synqt/pyproject.toml`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/pyproject.toml)).
-  Branch coverage rather than lines alone because most of that tool is decisions about a
-  configuration file, and a line-only figure calls a half-taken `if` covered.
+  Branches, not just lines, because most of that tool makes decisions about a configuration
+  file, and a line-only figure counts a half-taken `if` as covered.
 
-`CXX_FLOOR` and `PY_FLOOR` are the percentages below which the run fails. They are a
-ratchet: raise them when the number goes up, never lower them to make a branch green.
+`CXX_FLOOR` and `PY_FLOOR` are the percentages below which the run fails. They only go up:
+raise them when coverage improves, and never lower them to make a branch pass.
 
-The Python half has a second floor, `PY_FLOOR_NO_QT`, and the run picks between the two by
-asking the CLI which QML tools it can find. A handful of its tests drive `qmllint` and
-`qmlformat`, which ship with a Qt kit. Where there is none they skip, the suite reaches
-less code, and the number is honestly lower. Holding a run without Qt to the number a run
-with Qt produces fails the machine rather than the branch, so each environment is held to
-the floor measured in it. The floor that applied is printed with the report.
+The Python half has a second floor, `PY_FLOOR_NO_QT`; the run picks one by asking the CLI
+which QML tools it can find. A few tests drive `qmllint` and `qmlformat`, which ship with a
+Qt kit. Without one, they skip, the suite reaches less code, and the number is genuinely
+lower. Holding a run without Qt to the with-Qt number would fail the machine, not the
+branch, so each environment has its own measured floor. The report prints the floor it
+applied.
 
-The Python floor is enforced on every push by
-[`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml), and the
-C++ floor by the Linux column of
-[`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml), which
-already has the Qt kit the instrumented build needs.
+[`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) enforces
+the Python floor on every push, and the Linux job of
+[`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) the C++
+floor, since it already has the Qt kit the instrumented build needs.
 
-Two things move the figure.
+Two things affect the figure.
 
-The external engine providers need an engine. Everything in `postgres`, `mysql`,
-`mongodb`, and `redis` past the connect call is unreachable without a live server, which is
-why each sits near 20% on a bare checkout. The proofs for them are already written (the same
-Source, swapped engine by engine, producing identical rows, and the same `ICacheProvider`
-surface against real redis) and gated on `SYNQT_TEST_*` naming a reachable server, so they
-skip cleanly rather than pretending. Give them engines and they run:
+**The external engine providers need an engine.** Everything in `postgres`, `mysql`,
+`mongodb` and `redis` past the connect call needs a live server, so each sits near 20% on a
+bare checkout. Their tests already exist (the same Source producing identical rows on each
+engine, and the same `ICacheProvider` surface against a real redis). They run only when
+`SYNQT_TEST_*` names a reachable server, and otherwise skip cleanly. Give them engines and
+they run:
 
 ```sh
 docker run --rm -d --name synqt-pg -e POSTGRES_PASSWORD=synqt \
@@ -535,26 +523,25 @@ export SYNQT_TEST_REDIS_HOST=127.0.0.1 SYNQT_TEST_REDIS_PORT=6379
 export SYNQT_TEST_MONGO_URI=mongodb://127.0.0.1:27017 SYNQT_TEST_MONGO_DB=synqt
 ```
 
-The Linux column of `ctest.yml` starts the same three containers, so this is measured in CI
-too. It does it best-effort. An engine that does not come up leaves the suite skipping
-exactly as it would have, because a coverage number is not worth a build that fails over
-infrastructure. Two things gate the redis and mongodb halves further, and both are why that
-column installs `libhiredis-dev` and `libmongoc-dev`. Without those headers at configure
-time, [`src/providers/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/src/providers/CMakeLists.txt) leaves the wrapper out of the build entirely, so the
-file is absent from the build rather than present but uncovered. Faking the wire
-protocols instead was considered and rejected. Satisfying libpq or the MongoDB driver
-well enough to be useful is a large surface, and a green test against a fake proves the
+The Linux job of `ctest.yml` starts the same three containers, so CI measures this too, on
+a best-effort basis: if an engine fails to start, the suite skips as it would without it,
+because a coverage number is not worth a build failing over infrastructure. The redis and
+mongodb halves also need `libhiredis-dev` and `libmongoc-dev`, which that job installs.
+Without those headers at configure time,
+[`src/providers/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/src/providers/CMakeLists.txt)
+leaves the wrapper out of the build, so the file is absent, not present but uncovered.
+Faking the wire protocols was considered and rejected: imitating libpq or the MongoDB driver
+well enough to matter is a large surface, and a green test against a fake only proves the
 provider talks to the fake.
 
-`mysql` needs one more thing than an engine, and it is a licensing consequence. Qt's
-prebuilt QMYSQL plugin is linked against Oracle's `libmysqlclient`, which SynQt may not
-convey alongside the LGPLv3 Qt modules, and which does not load against MariaDB
-Connector/C either (the versioned symbols are Oracle's). So the live mysql proof needs the
-plugin rebuilt first, which needs the Qt Sources component. The Linux column of `ctest.yml`
-does that too, and caches the result. The source tree is a large download to produce one
-small shared object, so it is fetched only when the cache misses, and a restored plugin that
-no longer loads degrades to the same skip as no plugin at all. Locally it is one command,
-then the engine:
+`mysql` needs one more thing besides an engine, for licensing reasons. Qt's prebuilt QMYSQL
+plugin links Oracle's `libmysqlclient`, which SynQt may not distribute with the LGPLv3 Qt
+modules, and which does not load against MariaDB Connector/C either (the versioned symbols
+are Oracle's). So the live mysql test needs the plugin rebuilt first, which needs the Qt
+Sources component. The Linux job of `ctest.yml` does that too and caches the result. The
+source tree is a large download for one small shared object, so it is fetched only on a
+cache miss, and a restored plugin that no longer loads leads to the same skip as a missing
+one. Locally, it takes one command, then the engine:
 
 ```sh
 tools/qmysql-plugin/build-qmysql-plugin.sh
@@ -566,11 +553,10 @@ export SYNQT_TEST_MYSQL_HOST=127.0.0.1 SYNQT_TEST_MYSQL_PORT=3306 \
     SYNQT_TEST_MYSQL_DB=synqt SYNQT_TEST_MYSQL_USER=synqt SYNQT_TEST_MYSQL_PASSWORD=synqt
 ```
 
-The test tells the two failures apart rather than reporting one as the other. A plugin that
-will not load and an engine that does not answer produce different skips, because they send
-you to different places. The check behind that has to be `addDatabase()` rather than
-`isDriverAvailable()`, which reports a plugin as available from its metadata without ever
-loading it.
+The test distinguishes the two failures. A plugin that will not load and an engine that
+does not answer produce different skip messages, because each points to a different fix.
+The check must use `addDatabase()`, not `isDriverAvailable()`, which reports a plugin as
+available from its metadata without loading it.
 
 WebAssembly-only code is not in the denominator at all. A native build does not compile
 what is behind `#ifdef Q_OS_WASM`, so gcov never instruments it, and it lands in neither the
@@ -590,111 +576,111 @@ is what those two workflows assert directly, in every engine.
 
 ### Memory
 
-A service entity runs for months. An object retained per browser connection, per request or
-per reconnect is a defect even when every one of those operations is correct, and it is one
-the suites above cannot see. The operation passes, the process exits, and whatever it kept
-goes back to the operating system with it. So memory is its own question, asked two ways.
+A service entity runs for months. An object kept per browser connection, request or
+reconnect is a defect even when every operation is correct, and the suites above cannot see
+it: the operation passes, the process exits, and whatever it kept returns to the operating
+system. So memory gets its own tests, in two forms.
 
 [`tests/memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory) is the gate, and it
 runs with every other suite under `ctest`. Each test takes one long-lived object (a web
-edge, a session store, a consumer of a mesh link) and runs the same cycle against it over
-two consecutive windows of equal length, requiring the second window to keep no more than
-the first. It measures the slope rather than the reading, because a process heap is not a
-straight line. Under the browser cycle it climbs a few dozen bytes per connection, drops a
-couple of hundred kilobytes in one move, and climbs again, ending four thousand connections
-later below where it started. A check that compared the reading against zero fails a build
-that keeps nothing and passes one that keeps an object per connection. Two windows subtract
-that away. A one-time cost is paid in the first and not the second, and a leak is paid in
-both.
+edge, a session store, a mesh link consumer), runs the same cycle against it over two
+consecutive windows of equal length, and requires the second window to keep no more memory
+than the first. It measures the slope, not the reading, because a process heap does not
+grow in a straight line. Under the browser cycle, it climbs a few dozen bytes per
+connection, drops a few hundred kilobytes at once, and climbs again, ending four thousand
+connections later below where it started. A check comparing the reading to zero would fail
+a build that keeps nothing and pass one that keeps an object per connection. Two windows
+cancel that out: a one-time cost appears in the first window only, and a leak in both.
 
-The budget is a fixed floor plus an allowance per cycle, and both halves are measured
-rather than chosen. The floor is that rising limb with room to spare, and the allowance is well
-under the smallest thing one of these cycles could retain. Together they resolve a leak of
-about two hundred bytes per connection, which the suite proves it can still see by leaking
-a known amount on purpose in `theBudgetCanTellALeakFromABusyProcess` before it measures
-anything real.
+The budget is a fixed floor plus an allowance per cycle, both measured, not chosen. The
+floor covers that rising section with margin, and the allowance is well below the smallest
+object one of these cycles could keep. Together they detect a leak of about two hundred
+bytes per connection. Before measuring anything real, the suite proves it still can:
+`theBudgetCanTellALeakFromABusyProcess` leaks a known amount on purpose.
 
-A reading over that budget is a hypothesis rather than a verdict, because two things put
-one there. The workload keeps something every cycle, or the window happened to close
-somewhere awkward. So a test that goes over measures again with twice as many cycles, and only the
-second reading is reported. A cost paid once does not repeat, so the deeper window never
-sees it. A leak is paid every cycle, and the deeper window judges it harder rather than more
-gently, since the fixed floor is now spread over twice the cycles. It costs nothing on a
-green run, because a reading inside the budget is returned without a second measurement.
-`theConfirmationDropsAOneTimeCostAndKeepsALeak` feeds that step both answers and requires it
-to tell them apart, the same way the budget itself is checked. It exists because the edge
-cycle failed once on a CI runner and passed the immediate re-run of the same binary, on a
-build where six hundred consecutive edges climb about thirty-five bytes each.
+A reading over budget is a hypothesis, not a verdict, because two things can cause it: the
+workload keeps something every cycle, or the window closed at an awkward moment. So a test
+that goes over measures again with twice as many cycles, and reports only the second
+reading. A one-time cost does not repeat, so the longer window never sees it. A leak recurs
+every cycle, and the longer window judges it more strictly, since the fixed floor is spread
+over twice the cycles. A green run pays nothing, because a reading within budget returns
+without a second measurement. `theConfirmationDropsAOneTimeCostAndKeepsALeak` feeds that
+step both cases and requires it to tell them apart, just as the budget itself is checked.
+The step exists because the edge cycle failed once on a CI runner and passed an immediate
+rerun of the same binary, on a build where six hundred consecutive edges grow about
+thirty-five bytes each.
 
-Every leak this framework has had was
-reachable at the moment it mattered. A promise parented to a facade that lives as long as
-the connection, a node replaced but not retired on reconnect, a verifier map nothing ever
-removed from. A leak checker reports what is unreachable and would have called all three
-clean.
+Every leak this framework has had was still reachable when it mattered: a promise parented
+to a facade that lives as long as the connection, a node replaced but not retired on
+reconnect, a verifier map nothing ever removed entries from. A leak checker reports only
+unreachable memory, and would have passed all three.
 
-The second way runs on demand, and in CI through
+The second form runs on demand, and in CI through
 [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml), on
-dispatch, and on any push that touches `src/` or the harness. It is not on every push
-because the sanitizer pass rebuilds the whole tree instrumented and then runs every suite
-several times slower.
+dispatch and on any push that touches `src/` or the harness. It does not run on every push,
+because the sanitizer pass rebuilds the whole tree instrumented and runs every suite several
+times slower.
 
 ```sh
 tests/memory/run-leakcheck.sh              # both passes
 tests/memory/run-leakcheck.sh --soak       # the fast half, no instrumented rebuild
 ```
 
-Both passes configure and build the tree themselves, with the same flags
-[`tests/run-all.sh`](https://github.com/Kidev/SynQt/blob/main/tests/run-all.sh) uses, so
-what they measure is the binaries you would have run anyway. `-DSYNQT_DEV_TOOLS=ON` is part
-of that line and not optional, because `tests/m8-auth` includes the stub identity server,
-whose header refuses a build that did not ask for one.
+Both passes configure and build the tree themselves, with the same flags as
+[`tests/run-all.sh`](https://github.com/Kidev/SynQt/blob/main/tests/run-all.sh), so they
+measure the binaries you would run anyway. `-DSYNQT_DEV_TOOLS=ON` is required, because
+`tests/m8-auth` includes the stub identity server, whose header refuses a build that did not
+enable it.
 
-The soak pass runs every suite in the tree at two `-repeat` counts and compares the peak
-resident set, which is a broad net for a path nobody wrote a steady-state test for. The
-sanitizer pass rebuilds the tree with AddressSanitizer, runs it again, and charges each
-leak LeakSanitizer reports to whoever allocated it. A record counts as ours when a frame of
-ours appears near the top of its stack, and only a direct record counts at all, since an
-indirect one names a child of a leaked root rather than a culprit. It fails the run on a
-record rooted in `src/`. Reports rooted in a suite are printed too and are worth fixing,
-but they are a fixture a test never freed rather than a defect in what ships.
+The soak pass runs every suite at two `-repeat` counts and compares the peak resident set, a
+broad net for paths nobody wrote a steady-state test for. The sanitizer pass rebuilds the
+tree with AddressSanitizer, runs it again, and attributes each LeakSanitizer report to its
+allocator. A record counts as SynQt's when a SynQt frame appears near the top of its stack,
+and only direct records count, since an indirect one names a child of a leaked root, not a
+culprit. The run fails on a record rooted in `src/`. Records rooted in a suite are printed
+too and worth fixing, but they are test fixtures never freed, not defects in shipped code.
 
-One shape it can see and still cannot attribute is listed on its own. LeakSanitizer calls a
-block direct only when no other leaked block points at it, so a leaked graph whose members
-all point at each other produces no direct record at all, because every block is somebody's
-child. A QObject tree is that shape by construction, since a child holds a pointer back to
-its parent. Such a process is named with what it lost rather than counted as zero, and it
-is not charged to a file, because in a graph lost whole the allocation site is where a
-block was born rather than what dropped it. The soak pass is the gate that sees this
-shape, since memory a process is still holding is exactly what a peak resident set
-measures. The listing is still worth reading. The client's `SessionState` replica,
-acquired without a parent and so left behind on every reconnect, showed up there as thirty
-records in the generated replica header before any gate had a number for it, and
-`tests/memory` measures a client's visit now because it did.
+One pattern is visible but cannot be attributed, so it is listed separately. LeakSanitizer
+calls a block direct only when no other leaked block points to it, so a leaked graph whose
+members all point to each other produces no direct record: every block is someone's child.
+A QObject tree always has this shape, since each child points back to its parent. Such a
+process is listed with what it lost instead of counted as zero, and not charged to a file,
+because in a graph lost whole, the allocation site shows where a block was created, not
+what dropped it. The soak pass is the gate for this pattern, since a peak resident set
+measures exactly the memory a process still holds. The listing is still worth reading: the
+client's `SessionState` replica, acquired without a parent and so left behind on every
+reconnect, appeared there as thirty records in the generated replica header before any gate
+measured it, and that is why `tests/memory` now measures a client visit.
 
-Both passes name what they did not measure. A suite that will not run twice in one process
-is listed rather than dropped, and the benchmark harnesses that stand up whole systems are
-named as excluded from the soak instead of quietly halved.
+Both passes report what they did not measure. A suite that cannot run twice in one process
+is listed, not dropped, and the benchmark harnesses that start whole systems are named as
+excluded from the soak.
 
 ## Benchmarks ([`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks))
 
-Performance is measured, because the client to edge path rides an officially
-unsupported transport. Each harness lives in its own directory (`transport`, `mesh`,
-`fanout`, `sessions`, `monitor`, `persistence`, `edge`, `client`, `remote-pages`, `capstone`) and
+SynQt measures its performance, because the client to edge path runs on an officially
+unsupported transport. Each harness has its own directory (`transport`, `mesh`, `fanout`,
+`sessions`, `monitor`, `persistence`, `edge`, `client`, `remote-pages`, `capstone`) and
 writes a JSON result under
 [`benchmarks/results/`](https://github.com/Kidev/SynQt/tree/main/benchmarks/results), keyed
-by hostname, so a committed baseline fails review when a change regresses it. [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) describes each harness and how to run it,
-including the ones that need a real display or a non sandboxed host.
+by hostname, so a change that regresses a committed baseline fails review.
+[`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md)
+describes each harness and how to run it, including those that need a real display or a
+host outside a sandbox.
 
 ## The documentation site (`docs/`)
 
-The site is MkDocs with the Material theme, configured in [`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml). [`overrides/`](https://github.com/Kidev/SynQt/tree/main/overrides)
-carries the theme partials that differ from stock Material (including `api.html`, the shell
-page that frames the generated C++ reference), `docs/stylesheets` and `docs/javascripts`
-hold the brand styling, the download modal, that shell's URL syncing, and the home page's
-"What it looks like" project, and the SynQt QML lexer in
+The site uses MkDocs with the Material theme, configured in
+[`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml).
+[`overrides/`](https://github.com/Kidev/SynQt/tree/main/overrides) holds the theme partials
+that differ from stock Material (including `api.html`, the shell page around the generated
+C++ reference). `docs/stylesheets` and `docs/javascripts` hold the brand styling, the
+download modal, the shell's URL syncing, and the home page's "What it looks like" project.
+The SynQt QML lexer in
 [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt)
-colours the code samples. It is built and published by
-[`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) on a push to `main`.
+highlights the code samples.
+[`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) builds and
+publishes the site on a push to `main`.
 
 ### Running the site locally
 
@@ -703,50 +689,50 @@ pip install -r requirements.txt   # once, in a virtual environment
 mkdocs serve                      # http://127.0.0.1:8000
 ```
 
-That is the whole site, the C++ reference under `/api/` included. The
-[Doxygen hook](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen.py) runs
-on every build, the same one `mkdocs build` and the workflow run, so what the server shows
-is what gets published. It needs `doxygen` and `graphviz` on the path. Without them the
-site still builds and the reference is missing, with a warning that says so.
+This serves the whole site, including the C++ reference under `/api/`. The
+[Doxygen hook](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen.py) runs on
+every build, as it does for `mkdocs build` and the workflow, so the server shows what gets
+published. It needs `doxygen` and `graphviz` on the path. Without them, the site still
+builds without the reference, and a warning says so.
 
-Match the Doxygen version [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml)
-pins (1.16.1) before concluding anything about the reference. Doxygen generates the
-navigation script that the hook then patches, an older release generates a different one,
-and the hook declines to patch what it does not recognise, so the local page and the
-published page can differ for that reason alone.
+Use the Doxygen version
+[`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) pins
+(1.16.1) before drawing conclusions about the reference. Doxygen generates the navigation
+script the hook patches; an older release generates a different one, and the hook skips
+what it does not recognize, so the local and published pages can differ for that reason
+alone.
 
-The server rebuilds on a change to anything the site is built from, and not only to `docs/`.
-MkDocs watches `docs/` and `mkdocs.yml` by itself, and the `watch` list in
-[`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml) adds the rest: the
-theme overrides, the headers the reference documents, the
+The server rebuilds when anything the site is built from changes, not only `docs/`. MkDocs
+watches `docs/` and `mkdocs.yml` itself, and the `watch` list in
+[`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml) adds the rest: the theme
+overrides, the headers the reference documents, the
 [`Doxyfile`](https://github.com/Kidev/SynQt/blob/main/Doxyfile), and the hook and
 stylesheets in [`tools/docs-hooks`](https://github.com/Kidev/SynQt/tree/main/tools/docs-hooks).
-A rebuild is about two seconds, most of it Doxygen.
+A rebuild takes about two seconds, mostly Doxygen.
 
-There is no test suite for the site. What stands in for one is `mkdocs build --strict`,
-which turns every warning into a failure, and reading the pages, because a build cannot
-catch a stale claim in the prose. The workflow builds that way too. The `validation` block
-in [`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml) puts links in
-that net. A link to a page or a heading anchor that does not exist is a warning, and under
-`--strict` a warning is a failed build. Rename a heading and the build tells you, instead of
-the reader finding out. The reference pages keep state in the browser
-(the sidebar tree's position, the reader's panel widths), so if `/api/` looks wrong in a
-browser that has been through many builds and right in a fresh profile, clear the site data
-for `127.0.0.1` before looking for the cause in the CSS.
+The site has no test suite. `mkdocs build --strict`, which turns every warning into a
+failure, stands in for one, along with reading the pages, since a build cannot catch a
+stale claim in the prose. The workflow builds the same way. The `validation` block in
+[`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml) makes a link to a
+missing page or heading anchor a warning, and under `--strict` a warning fails the build.
+Rename a heading, and the build tells you before a reader finds out. The reference pages
+keep state in the browser (the sidebar tree's position, the panel widths), so if `/api/`
+looks wrong in a browser that has seen many builds but right in a fresh profile, clear the
+site data for `127.0.0.1` before blaming the CSS.
 
 ## Continuous integration ([`.github/workflows/`](https://github.com/Kidev/SynQt/tree/main/.github/workflows))
 
-The workflows are described in [build system and CLI](build-system-and-cli.md#continuous-integration).
-In short, [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) runs the Python suites on Linux, macOS, and Windows. [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml)
+[Build system and CLI](build-system-and-cli.md#continuous-integration) describes the
+workflows. In short: [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) runs the Python suites on Linux, macOS, and Windows. [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml)
 provisions the pinned Qt kit through aqtinstall and runs the native C++ suites.
 [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the M0 transport proof across Chromium, Firefox, and WebKit.
 [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs needing a WebAssembly kit no other workflow installs (the
 multi-threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits, the client
 runtime driven in all three engines against a real web edge, and a real `synqt build` of
-the arena's client bundle). [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) runs both halves of
+the arena's client bundle). [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) runs both passes of
 [`tests/memory/run-leakcheck.sh`](https://github.com/Kidev/SynQt/blob/main/tests/memory/run-leakcheck.sh) over the whole tree.
 [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) freezes and publishes the CLI.
-[`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) publishes this site. [`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) and [`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml) do the
+[`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) publishes this site. [`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) and [`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml) handle
 contributor bookkeeping.
 
 Every workflow name carries a tag so the checks list groups by purpose: `[TEST]`, `[BENCH]`,
@@ -754,16 +740,19 @@ Every workflow name carries a tag so the checks list groups by purpose: `[TEST]`
 
 ### Which checks can be required
 
-A ruleset that requires a status check needs that check to report on a pull
-request, and one GitHub rule decides whether it does. A workflow skipped by a `paths:`
-filter on its trigger reports nothing at all, so requiring it leaves every unrelated pull
-request pending forever. A job skipped by an `if:` condition is different. It reports a
-conclusion of "skipped", and a skipped check satisfies a required one.
+A ruleset that requires a status check needs that check to report on every pull request,
+and one GitHub rule decides whether it does. A workflow skipped by a `paths:` filter on its
+trigger reports nothing, so requiring it leaves every unrelated pull request pending
+forever. A job skipped by an `if:` condition reports "skipped", and a skipped check
+satisfies a requirement.
 
-That is why [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) and [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) carry no `paths:` filter and open with a
-`changes` job instead. It runs [`.github/scripts/relevant-changes.sh`](https://github.com/Kidev/SynQt/blob/main/.github/scripts/relevant-changes.sh) over the diff and
-the expensive job is gated on its answer, so an unrelated pull request costs one small job
-and still reports the check. The script fails safe, so it builds anything it cannot rule out.
+So [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) and
+[`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) have no
+`paths:` filter, and start with a `changes` job instead. It runs
+[`.github/scripts/relevant-changes.sh`](https://github.com/Kidev/SynQt/blob/main/.github/scripts/relevant-changes.sh)
+over the diff, and the expensive job depends on its answer, so an unrelated pull request
+costs one small job and still reports the check. The script fails safe: it builds anything
+it cannot rule out.
 
 These are the checks that report on an open pull request and can be required:
 
@@ -775,36 +764,45 @@ These are the checks that report on an open pull request and can be required:
 | `tree (linux)`, `tree (macos)`, `tree (windows)`, `generated (linux)`, `generated (macos)`, `generated (windows)`, `coverage (linux)` | [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) |
 | `leaks (linux)` | [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) |
 
-A check is named by its job's `name:` with the matrix values substituted, so renaming a job
-or bumping a runner label renames the check and silently orphans the ruleset entry that
-named the old one. The entry does not error. It waits, and the pull request never becomes
-mergeable. Change one and change the other in the same edit.
+A check takes its job's `name:` with the matrix values substituted, so renaming a job or
+changing a runner label renames the check and silently orphans the ruleset entry for the
+old name. The entry raises no error; it waits, and the pull request never becomes
+mergeable. Change both in the same edit.
 
 Three things must not be required. The `build-linux` and `build-native` jobs in
-[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) only run on dispatch. `Regenerate AUTHORS` runs on `pull_request_target`
-at `closed`, so it never reports while a pull request is open. And
-[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml), [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) and [`benchmarks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/benchmarks.yml) are
-not on every pull request, for the reason given below.
+[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) run
+only on dispatch. `Regenerate AUTHORS` runs on `pull_request_target` at `closed`, so it
+never reports while a pull request is open. And
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml),
+[`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml)
+and [`benchmarks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/benchmarks.yml)
+do not run on every pull request, for the reason given below.
 
 ### Who the automation acts as
 
-Three of the workflows write to GitHub rather than only reading it: [`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) comments on a
-pull request and records the signature on the `cla-signatures` branch, [`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml) opens a
-pull request when AUTHORS has gone stale, and the `release` job in [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) creates
-the tag and publishes the release. All three act as the [SynQt-Operations](https://github.com/apps/synqt-operations) GitHub App, so that
-the project is what talks to a contributor and what publishes a release.
+Three workflows write to GitHub instead of only reading it:
+[`cla.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/cla.yml) comments on a
+pull request and records the signature on the `cla-signatures` branch,
+[`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml) opens
+a pull request when AUTHORS is out of date, and the `release` job in
+[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml)
+creates the tag and publishes the release. All three act as the
+[SynQt-Operations](https://github.com/apps/synqt-operations) GitHub App, so the project
+itself talks to contributors and publishes releases.
 
-Nothing pushes to `main`. [`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml) regenerates AUTHORS after a pull request merges and,
-when the result differs from what is on `main`, pushes its own `authors/update` branch and
-opens a pull request from it. A pull request that regenerated the file itself gets nothing.
-This is the safety net for the one that did not. Merging what it opens re-runs it, which
-finds AUTHORS current and stops, so there is no loop. That branch is rebuilt from `main` and
-force-pushed every run, so the open pull request always shows the current answer rather than
-a stack of superseded ones.
+Nothing pushes to `main`.
+[`authors.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/authors.yml)
+regenerates AUTHORS after a pull request merges and, if the result differs from `main`,
+pushes its own `authors/update` branch and opens a pull request from it. A pull request
+that already regenerated the file triggers nothing; this is the safety net for one that did
+not. Merging the generated pull request reruns the workflow, which finds AUTHORS current and
+stops, so there is no loop. The branch is rebuilt from `main` and force-pushed on every run,
+so the open pull request always shows the current result, not a stack of outdated ones.
 
 Each of those jobs trades the app's private key for a short-lived installation token with
-[`actions/create-github-app-token`](https://github.com/actions/create-github-app-token), asking for only the permissions it uses, and the token
-is revoked when the job ends. That needs two repository secrets:
+[`actions/create-github-app-token`](https://github.com/actions/create-github-app-token),
+requesting only the permissions it uses, and the token is revoked when the job ends. This
+needs two repository secrets:
 
 | Secret | Value |
 | --- | --- |
@@ -814,50 +812,54 @@ is revoked when the job ends. That needs two repository secrets:
 The app itself needs, across the three jobs, **contents** write (the signature branch, the
 `authors/update` branch, the tag and release), **pull requests** write (the CLA comment and
 the AUTHORS pull request), **commit statuses** write (the CLA check), and **actions** write
-(re-running the CLA check once a signature is recorded). Without both secrets those jobs fail
-at the token step, which is intended, because they must not fall back to a weaker
-identity or skip silently.
+(rerunning the CLA check once a signature is recorded). Without both secrets, those jobs
+fail at the token step, on purpose: they must never fall back to a weaker identity or skip
+silently.
 
-Two workflows do not use the app. [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) deploys through the official
-Pages OIDC flow, which has no bot identity to set, and `publish-pypi` uses PyPI's trusted
-publisher (see [Publishing to PyPI](#publishing-to-pypi) below), which is matched on the workflow file rather than on
-any token.
+Two workflows do not use the app.
+[`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) deploys
+through the official Pages OIDC flow, which has no bot identity, and `publish-pypi` uses
+PyPI's trusted publishing (see [publishing to PyPI](#publishing-to-pypi) below), which
+matches on the workflow file, not a token.
 
-One side effect is invisible until it costs a CI run. A
-push made with an app token starts other workflows, where a push made with the default
-`GITHUB_TOKEN` starts none. [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) therefore skips a push that touches only AUTHORS,
-which is every push to `authors/update`. It still runs on the pull request itself, which is
-what a required status check has to report on.
+One side effect stays invisible until it costs a CI run: a push made with an app token
+triggers other workflows, while a push with the default `GITHUB_TOKEN` triggers none. So
+[`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) skips a
+push that touches only AUTHORS, which is every push to `authors/update`. It still runs on
+the pull request itself, where a required status check must report.
 
-Neither [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs on every push, because each builds a Qt
-module from source for the WebAssembly kit (which ships no QtRemoteObjects, see
-[`tests/m0-transport/README.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/README.md)), which is too slow for that. They run on dispatch and on
-changes to what they cover. [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) is the one workflow
-whose result depends on software that is not in this repository. The browser engines it
-drives keep moving while the spike it drives does not, so its path triggers can leave the
-Chromium, Firefox, and WebKit claim resting on a run from months ago. Dispatch it when you
-need the claim to be current.
-Each run prints the engine versions it drove. Both workflows depend on aqtinstall resolving
-the right module names for the runner image, which is the first thing to check when one of
-them fails on a fresh runner.
+Neither
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml)
+nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml)
+runs on every push: each builds a Qt module from source for the WebAssembly kit (which ships
+no QtRemoteObjects, see
+[`tests/m0-transport/README.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/README.md)),
+which is too slow. They run on dispatch and when what they cover changes.
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml)
+is the only workflow whose result depends on software outside this repository. The browser
+engines keep changing while the spike does not, so with path triggers alone, the Chromium,
+Firefox and WebKit claim can rest on a run from months ago. Dispatch it when you need a
+current result; each run prints the engine versions it used. Both workflows depend on
+aqtinstall resolving the right module names for the runner image, so check that first when
+one fails on a new runner.
 
 ### Cutting a release
 
 [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) is
-manual, and it does not take a version. You pick `patch`, `minor` or `major` and it bumps
-the newest `v*` tag by that much, with an optional suffix (`-alpha`, `-rc.1`) that also
-marks the release as a pre-release so `/releases/latest`, and therefore the installer, keeps
-resolving to the last stable build. `dry_run` builds and smoke tests every artifact and
-publishes nothing, which is the way to exercise a change to the workflow itself.
+manual and takes no version. You pick `patch`, `minor` or `major`, and it bumps the newest
+`v*` tag accordingly, with an optional suffix (`-alpha`, `-rc.1`) that marks a pre-release,
+so `/releases/latest`, and therefore the installer, keeps resolving to the last stable
+build. `dry_run` builds and smoke tests every artifact and publishes nothing; use it to test
+a change to the workflow itself.
 
 Its first job compares `deploy/get.synqt.org/install.sh` with the `index.html` beside it.
-The two are the same script under two URLs (Pages needs the root document to be
-`index.html`), so a copy that was not made means one of them serves an old installer. The
-release job waits on that comparison, which blocks publishing rather than the builds. The
-Python suite makes the same comparison on every push, so the usual way to find out is on
-the commit that broke it rather than on the release that would have shipped it.
+They are the same script under two URLs (Pages needs the root document to be `index.html`),
+so a missed copy means one URL serves an old installer. The release job waits for that
+comparison, which blocks publishing but not the builds. The Python suite runs the same
+comparison on every push, so you usually find out on the commit that broke it, not on the
+release that would have shipped it.
 
-One run produces every way of installing `synqt`, all from one tag:
+One run produces every way to install `synqt`, all from one tag:
 
 | Artifact | Built by | Where it lands |
 | --- | --- | --- |
@@ -865,49 +867,52 @@ One run produces every way of installing `synqt`, all from one tag:
 | `synqt-macos-{x86_64,arm64}.tar.gz`, `synqt-windows-{x86_64,arm64}.zip` | `build-native`, on the runner for that row | the same release |
 | `synqt-<version>.tar.gz` and `synqt-<version>-py3-none-any.whl` | `build-pypi` | [PyPI](https://pypi.org/p/synqt), and attached to the release as well |
 
-The frozen binaries and the wheel are the same CLI. They differ in one thing. A one-file
-frozen binary unpacks its data into a temporary directory it deletes on exit, so it cannot
-offer the framework sources it carries as a `SYNQT_ROOT` (`synqt new` writes that path into
-the project's CMake, where it has to still exist tomorrow). The wheel installs them durably
-under `synqt/framework/`, so a `pipx install synqt` scaffolds and builds with no checkout on
-the machine.
+The frozen binaries and the wheel are the same CLI, with one difference. A one-file frozen
+binary unpacks its data into a temporary directory it deletes on exit, so it cannot provide
+its bundled framework sources as a `SYNQT_ROOT` (`synqt new` writes that path into the
+project's CMake, where it must still exist tomorrow). The wheel installs them permanently
+under `synqt/framework/`, so after `pipx install synqt` you can scaffold and build without a
+checkout.
 
 ### Publishing to PyPI
 
-Uploading uses [trusted publishing](https://docs.pypi.org/trusted-publishers/), so there is
-no API token in this repository and nothing to rotate. The `publish-pypi` job asks GitHub
-for a short-lived OpenID Connect token naming this repository, this workflow file and this
-environment, and PyPI trades it for an upload token of its own.
+Uploads use [trusted publishing](https://docs.pypi.org/trusted-publishers/), so the
+repository holds no API token and nothing needs rotating. The `publish-pypi` job asks GitHub
+for a short-lived OpenID Connect token naming this repository, workflow file and
+environment, and PyPI exchanges it for its own upload token.
 
-That trade only works once the publisher is registered, which is a one-time manual step:
+This works only after registering the publisher, a one-time manual step:
 
 1. On [pypi.org/manage/account/publishing](https://pypi.org/manage/account/publishing/),
    add a **pending** GitHub publisher: PyPI project name `synqt`, owner `Kidev`, repository
-   `SynQt`, workflow `release.yml`, environment `pypi`. Pending is right because the project
-   does not exist yet. The first successful upload creates it.
+   `SynQt`, workflow `release.yml`, environment `pypi`. It must be pending because the
+   project does not exist yet; the first successful upload creates it.
 2. In the repository settings, create the `pypi`
    [environment](https://docs.github.com/en/actions/how-tos/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment)
-   and require manual approval on it. The environment name has to match what step 1 said,
-   and the approval is what stops a compromised workflow run from publishing on its own.
+   and require manual approval on it. The environment name must match step 1, and the
+   approval stops a compromised workflow run from publishing on its own.
 3. Run the release workflow. `publish-pypi` waits for the approval, then uploads.
 
-Two things matter before the first run. PyPI never allows a version to
-be re-uploaded, so `publish-pypi` runs after the GitHub release is out rather than beside
-it, and `build-pypi` runs `twine check` and confirms the wheel carries `src/` and
-`cmake/` before anything is uploadable. And the publisher is matched on the workflow file
-name, so renaming `release.yml` breaks publishing until the publisher on PyPI is edited to
-match.
+Two points matter before the first run. PyPI never accepts a version twice, so
+`publish-pypi` runs after the GitHub release is out, not alongside it, and `build-pypi` runs
+`twine check` and confirms the wheel contains `src/` and `cmake/` before anything can be
+uploaded. And the publisher matches on the workflow file name, so renaming `release.yml`
+breaks publishing until you update the publisher on PyPI.
 
-A suffix that PEP 440 cannot express (`-nightly`, say) is not an error. The `version` job
-says so, the GitHub release and the frozen binaries happen as usual, and only `publish-pypi`
-steps aside.
+A suffix PEP 440 cannot express (such as `-nightly`) is not an error: the `version` job
+reports it, the GitHub release and frozen binaries proceed as usual, and only
+`publish-pypi` is skipped.
 
 ## Coding standards and file headers
 
-The C++, QML, and JavaScript follow the Qt conventions, with three rules applied
-everywhere: always brace a control statement body, always use brace (uniform)
-initialization, and never use a C-style cast (every conversion is an explicit
-`static_cast<T>(x)`, which unlike the constructor form `int(x)` cannot silently
-reinterpret or strip `const`). Every source file opens with the two line SPDX header
-(`Apache-2.0`) in the file's comment syntax. The full house style and the contribution
-terms are in the repository's [`CONTRIBUTING.md`](https://github.com/Kidev/SynQt/blob/main/CONTRIBUTING.md).
+The C++, QML and JavaScript follow the Qt conventions, plus three rules everywhere:
+
+- **Always brace** a control statement's body.
+- **Always use brace (uniform) initialization.**
+- **Never use a C-style cast.** Every conversion is an explicit `static_cast<T>(x)`, which,
+  unlike the constructor form `int(x)`, cannot silently reinterpret or strip `const`.
+
+Every source file starts with the two line SPDX header (`Apache-2.0`) in the file's comment
+syntax. The repository's
+[`CONTRIBUTING.md`](https://github.com/Kidev/SynQt/blob/main/CONTRIBUTING.md) has the full
+house style and the contribution terms.

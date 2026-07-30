@@ -23,6 +23,8 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QMetaObject>
+#include <QMetaProperty>
+#include <QMetaType>
 #include <QQmlEngine>
 #include <QRemoteObjectNode>
 #include <QTimer>
@@ -55,15 +57,34 @@ namespace SynQt {
 
 namespace {
 
-/// Promise::then()/catchError() are the QML-facing API ("slot(args).then(value =>
-/// ...)"). Both only accept a callable QJSValue, because a consumer facade's returning
-/// slot is meant to settle into a QML callback. SynClient's own Pages wiring needs the
-/// same reply from plain C++, so this bridges the two. A throwaway QObject exposes the
-/// two calls the reply can drive, and the app's own QML engine wraps each into a JS
-/// closure (there being no C++-native way to construct a callable QJSValue). It has no
-/// parent, so once the settled Promise (or its chained rejection handler) drops its
-/// handler list, the engine's garbage collector is free to reclaim it like any other
-/// unreachable JS-owned QObject.
+/// The fields of a reply, whatever shape it has in C++. A returning slot's record arrives
+/// as the gadget repc generated, and a QVariant holding a gadget converts to an empty map.
+/// So a gadget is read through its properties (one per record field), a script value
+/// through its own conversion, and anything else as a map.
+QVariantMap fieldsOf(const QVariant &value)
+{
+    if (value.metaType() == QMetaType::fromType<QJSValue>()) {
+        return value.value<QJSValue>().toVariant().toMap();
+    }
+    const QMetaObject *gadget{value.metaType().metaObject()};
+    if (gadget == nullptr || (value.metaType().flags() & QMetaType::IsGadget) == 0) {
+        return value.toMap();
+    }
+    QVariantMap fields;
+    for (int index{gadget->propertyOffset()}; index < gadget->propertyCount(); ++index) {
+        const QMetaProperty property{gadget->property(index)};
+        fields.insert(QString::fromLatin1(property.name()),
+                      property.readOnGadget(value.constData()));
+    }
+    return fields;
+}
+
+/// Promise::then()/catchError() are the QML-facing API ("slot(args).then(value => ...)")
+/// and accept only a callable QJSValue. SynClient's Pages wiring needs the reply from C++,
+/// so this bridges the two: a throwaway QObject exposes the two calls, and the app's QML
+/// engine wraps each in a JS closure (C++ cannot construct a callable QJSValue directly).
+/// It has no parent, so the engine's garbage collector reclaims it once the settled Promise
+/// drops its handlers.
 class PageReplyBridge : public QObject
 {
     Q_OBJECT
@@ -77,15 +98,15 @@ public:
 
     Q_INVOKABLE void deliver(const QVariant &value)
     {
-        const QVariantMap fields{value.toMap()};
+        const QVariantMap fields{fieldsOf(value)};
         m_router->onPageDelivered(m_route, fields.value(QStringLiteral("qml")).toString(),
                                   fields.value(QStringLiteral("hash")).toString(),
                                   fields.value(QStringLiteral("seed")).toString(),
                                   fields.value(QStringLiteral("status")).toString());
     }
 
-    /// A rejected promise (the connect point not yet live, or the remote call itself
-    /// failing) must still resolve the route, or it is left in Loading forever.
+    /// A rejected promise (the point not live yet, or the call failing) must still resolve
+    /// the route, or it stays in Loading.
     Q_INVOKABLE void fail(const QVariant &reason)
     {
         Q_UNUSED(reason);
@@ -103,19 +124,16 @@ private:
 #ifndef Q_OS_WASM
 namespace {
 
-// The native client verifies the edge's certificate: VerifyPeer against the OS trust
-// store (and the hostname), plus any pinned/self-hosted certificate from config. It
-// never disables verification.
-/// The session this client is holding for `origin`, in the form the handshake wants
-/// ("name=value; name=value"), read out of the network manager's own cookie jar.
+// The native client verifies the edge certificate: VerifyPeer against the OS trust store
+// and the hostname, plus any pinned certificate from config. Verification is never
+// disabled.
+/// The session this client holds for `origin`, in handshake form ("name=value;
+/// name=value"), read from the network manager's cookie jar.
 ///
-/// The jar rather than the reply's Set-Cookie header. Two ordinary things break a read of
-/// the header. The edge withholds Set-Cookie from a request that
-/// already presents a live session, and a redirect is followed by default, so the response
-/// that carries the cookie is not the response this code sees. Either way the header is
-/// empty, the credential is overwritten with nothing, and the wss handshake is refused
-/// for having no session while the jar holds a good one. The jar is where the answer is,
-/// and reading it is also exactly what a browser does.
+/// From the jar, not the reply's Set-Cookie header: the edge withholds Set-Cookie from a
+/// request that already has a live session, and a followed redirect hides the response that
+/// set it. Reading the header would overwrite a good credential with nothing. The jar is
+/// also what a browser uses.
 QByteArray heldCredential(QNetworkAccessManager *network, const QUrl &origin)
 {
     if (!network || !network->cookieJar()) {
@@ -157,35 +175,31 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
 {
     m_reconnectTimer->setSingleShot(true);
     m_handshakeTimer->setSingleShot(true);
-    // An edge that took the socket and then said nothing is treated as a socket that
-    // dropped, because to everything above here it is the same thing and the answer is the
-    // same. Back off and try again. Without it the client waits on that handshake for as
-    // long as the app is left running, with no state change to notice it by.
+    // An edge that accepted the socket and then said nothing is treated as a dropped
+    // socket: back off and retry. Without this the client would wait on the handshake
+    // forever.
     //
-    // Aborted rather than left to run. A handshake this client has stopped waiting on must
-    // not complete a few seconds later, behind the reconnect that has already replaced it,
-    // and report a connection nothing is holding. The abort is enough on its own. The
-    // node and its replicas are retired where they always are, by the next connectToEdge().
+    // The socket is aborted so the stale handshake cannot complete later behind the
+    // reconnect that replaced it. The next connectToEdge() retires the node and its
+    // replicas as usual.
     connect(m_handshakeTimer, &QTimer::timeout, this, [this]() {
         if (m_socket) {
             m_socket->abort();
         }
         onDisconnected();
     });
-    // Reconnect through start() so a native client re-bootstraps its session (the edge
-    // may have restarted). On WASM start() reconnects (the browser holds the cookie).
+    // Reconnect through start(), so a native client re-bootstraps its session (the edge may
+    // have restarted). On WASM start() just reconnects, since the browser holds the cookie.
     connect(m_reconnectTimer, &QTimer::timeout, this, [this]() { start(); });
 
     // The two actions Session offers QML. Session reports them and this answers them,
-    // because ending a session is a thing done to the edge over the network and Session
-    // holds no network. Nothing was connected to either for a long time, so
-    // `Session.logout()` reset the client's own idea of who it was and left the session
-    // and its cookie alive at the edge. The next page load signed the visitor back in.
+    // because ending a session goes over the network to the edge; otherwise
+    // `Session.logout()` would leave the session and its cookie alive at the edge.
     connect(m_session, &Session::loginRequested, this, &SynClient::beginLogin);
     connect(m_session, &Session::logoutRequested, this, &SynClient::endSession);
 
-    // An empty palette means the app uses no remote pages. Give it no loader, so
-    // resolveRemote() falls through to Error rather than silently going Loading forever.
+    // An empty palette means no remote pages: no loader, so resolveRemote() reports Error
+    // instead of staying in Loading.
     if (!m_config.remotePalette.isEmpty()) {
         m_pageLoader = new RemotePageLoader{engine, QmlPalette{m_config.remotePalette}, this};
         m_router->setRemotePageLoader(m_pageLoader);
@@ -256,14 +270,13 @@ void SynClient::beginLogin(const QString &provider)
 
 void SynClient::beginDesktopLogin(const QString &provider)
 {
-    // A native window cannot navigate, so the sign-in happens in the system browser and
-    // the answer comes back over a port this process holds for the length of it. What
-    // comes back is a claim code. The URL the browser was sent to is in that browser's
-    // history, and a session there would outlive the sign-in on a machine that may not be
-    // this visitor's alone.
+    // A native window cannot navigate, so the sign-in happens in the system browser, and
+    // the answer returns on a port this process holds meanwhile. The answer is a claim
+    // code, not a session: the browser's history keeps the URL, on a machine that may be
+    // shared.
     if (m_loopback) {
-        // Already waiting on one. Starting a second would take a second port and leave the
-        // first listening, and the visitor already has a browser open on the first.
+        // Already waiting on a sign-in; a second would open a second port while the first
+        // still listens.
         qWarning("SynQt: a sign-in is already in progress.");
         return;
     }
@@ -301,11 +314,10 @@ void SynClient::beginDesktopLogin(const QString &provider)
 
 void SynClient::onLoginAnswer(const QString &code, const QString &state, const QString &error)
 {
-    // Any local process can reach that port, so nothing that arrives on it is trusted for
-    // being there. Only an answer carrying the nonce this client generated a moment ago
-    // belongs to the sign-in it started. Without this check a process on the same machine
-    // could hand over a code for an account it controls and have the visitor signed in as
-    // somebody else, which is session fixation with extra steps.
+    // Any local process can reach the port, so only an answer carrying the nonce this
+    // client just generated belongs to its sign-in. Otherwise another local process could
+    // hand over a code for its own account and sign the visitor in as someone else (session
+    // fixation).
     if (!constantTimeEquals(state.toUtf8(), m_loginState)) {
         qWarning("SynQt: an answer arrived on the sign-in port that this client did not "
                  "ask for. Refused; no session was claimed.");
@@ -325,9 +337,8 @@ void SynClient::claimSession(const QString &code)
 {
     QNetworkRequest request{QUrl{QString::fromUtf8(edgeHttpOrigin())
                                  + desktopClaimRoute(m_config.loginRoute)}};
-    // This client's own verified connection to the edge, which is the whole reason the
-    // loopback carried a code and not a session. The exchange happens here, over TLS this
-    // process terminates, and not through a browser.
+    // The exchange happens over this client's own verified TLS connection to the edge, not
+    // through a browser, which is why the loopback carried a code.
     request.setSslConfiguration(nativeTlsConfiguration(m_config));
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                       QByteArrayLiteral("application/x-www-form-urlencoded"));
@@ -335,11 +346,9 @@ void SynClient::claimSession(const QString &code)
     QUrlQuery body;
     body.addQueryItem(QStringLiteral("code"), code);
     body.addQueryItem(QStringLiteral("verifier"), QString::fromLatin1(m_loginVerifier));
-    // Enrolment rides on the claim rather than on a route of its own, because this is the
-    // one moment where the session has been proved to belong to this process. The
-    // binding is what this machine's store gives, reported as it is. A deployment
-    // that asked for more than this machine can give gets no credential, and the visitor is
-    // still signed in.
+    // Enrolment rides on the claim, the one moment the session is proven to belong to this
+    // process. The binding is what this machine's store offers. If the deployment requires
+    // more, no credential is issued and the visitor stays signed in.
     DeviceCredential *store{deviceStore()};
     if (store != nullptr && store->isAvailable()) {
         body.addQueryItem(QStringLiteral("device"), QStringLiteral("1"));
@@ -347,9 +356,8 @@ void SynClient::claimSession(const QString &code)
         body.addQueryItem(QStringLiteral("label"), DeviceCredential::machineLabel());
     }
     const QByteArray payload{body.toString(QUrl::FullyEncoded).toUtf8()};
-    // The verifier has done its work. It is of no further use to this client and of every
-    // use to anything reading this process, so it stops existing here rather than at the
-    // end of the sign-in.
+    // The verifier is no longer needed, so it is cleared now rather than at the end of the
+    // sign-in.
     m_loginVerifier.fill('\0');
     m_loginVerifier.clear();
 
@@ -365,11 +373,9 @@ void SynClient::claimSession(const QString &code)
         const QString session{fields.value(QStringLiteral("session")).toString()};
         const QString cookieName{fields.value(QStringLiteral("cookie_name")).toString()};
         if (status != 200 || session.isEmpty() || cookieName.isEmpty()) {
-            // Every refusal looks the same from here (the edge answers 404 to an
-            // unknown, expired, spent or mismatched code alike), so there is nothing more
-            // specific to report than that it was refused. Not reaching the edge at all is
-            // a different sentence, because it is a different thing for whoever reads it:
-            // one of them is worth trying again.
+            // The edge answers 404 to an unknown, expired, spent or mismatched code alike,
+            // so "refused" is all there is to report. Not reaching the edge is reported
+            // differently, because it is worth retrying.
             if (status == 0) {
                 qWarning("SynQt: the edge did not answer the sign-in claim, so this client "
                          "is still signed out. Signing in again is worth a try.");
@@ -385,19 +391,17 @@ void SynClient::claimSession(const QString &code)
         if (enrolled.isValid() && m_device) {
             m_device->save(enrolled);
             m_held = enrolled;
-            // It was issued alongside the session below, so it has bought that session
-            // already. A socket that then fails must retry it rather than spend a
-            // credential one second old for a second session exactly like it.
+            // It was issued with the session below and has paid for it. If the socket then
+            // fails, retry with that session instead of spending the new credential again.
             m_credentialSpent = true;
         }
 
         m_sessionCookie = cookieName.toUtf8() + '=' + session.toUtf8();
-        // Kept on the config too, because that is what a reconnect reads: without it the
-        // next start() would bootstrap a fresh anonymous session and quietly sign the
-        // visitor back out.
+        // Also stored on the config, which a reconnect reads; otherwise start() would
+        // bootstrap a new anonymous session and sign the visitor out.
         m_config.sessionCookie = m_sessionCookie;
-        // Straight to the socket, and not through start(): the session is in hand, and
-        // openSession() would spend the credential that was enrolled to get another.
+        // Directly to the socket, not through start(): openSession() would spend the new
+        // credential again.
         connectToEdge();
     });
 }
@@ -429,21 +433,19 @@ void SynClient::endSession()
     // The cookie is the browser's, and only the route that expires it can take it away.
     leaveForUrl(target);
 #else
-    // Signing out while a sign-in is still open in the browser. The port goes, and an
-    // answer arriving after this is answering a request that no longer exists.
+    // Signing out while a browser sign-in is open: the port closes, and any later answer is
+    // ignored.
     endDesktopLogin();
-    // And the stored credential goes with it, before the request rather than after: a logout
-    // that leaves something redeemable on the disk is worse than no logout at all, because
-    // the visitor believes it worked. The edge deletes its half of the same pair when it
-    // revokes the session. This half must not depend on that request arriving.
+    // The stored credential is deleted first, before the request: a logout that leaves
+    // something redeemable on disk is worse than none. The edge deletes its half when it
+    // revokes the session, but this half must not depend on that request.
     m_held = DeviceCredential::Held{};
     if (m_device) {
         m_device->erase();
     }
-    // The native client is holding the credential, so it presents it once, to be told to
-    // stop holding it. The reconnect below is what makes the rest of the client agree:
-    // the edge closes this session's connections as it revokes it, and start() comes back
-    // with no cookie and therefore as a fresh anonymous visitor.
+    // The native client presents the credential once more, to have it revoked. The edge
+    // closes this session's connections as it revokes it, and the reconnect below returns
+    // as a fresh anonymous visitor.
     QNetworkRequest request{QUrl{target}};
     request.setSslConfiguration(nativeTlsConfiguration(m_config));
     if (!m_sessionCookie.isEmpty()) {
@@ -452,9 +454,7 @@ void SynClient::endSession()
     QNetworkReply *reply{network()->get(request)};
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         deleteSoon(reply);
-        // Dropped whatever the edge answered. A logout that the edge refused is still a
-        // logout as far as this client is concerned, and going on holding a credential
-        // the visitor asked to be rid of is the one outcome that would be wrong.
+        // Dropped whatever the edge answered: the visitor asked to be signed out.
         m_sessionCookie.clear();
         m_config.sessionCookie.clear();
         start();
@@ -465,8 +465,8 @@ void SynClient::endSession()
 void SynClient::start()
 {
 #ifdef Q_OS_WASM
-    // The browser served the page and holds the session cookie. It attaches it to the
-    // wss handshake automatically.
+    // The browser served the page and holds the session cookie, which it attaches to the
+    // wss handshake.
     connectToEdge();
 #else
     openSession();
@@ -478,8 +478,8 @@ void SynClient::start()
 DeviceCredential *SynClient::deviceStore()
 {
     if (!m_config.deviceSession) {
-        // A project that does not persist desktop sessions never touches a keyring, which is
-        // also why this is built here and not in the constructor.
+        // Built here, so a project that does not persist desktop sessions never touches a
+        // keyring.
         return nullptr;
     }
     if (m_device == nullptr) {
@@ -492,11 +492,10 @@ QNetworkAccessManager *SynClient::network()
 {
     if (m_network == nullptr) {
         m_network = new QNetworkAccessManager{this};
-        // Every request this client makes is a step something else is waiting on: the
-        // session it needs before it can open a socket, the claim that finishes a sign-in,
-        // the redemption that keeps a visitor signed in. A socket the far end accepts and
-        // then answers on nobody's schedule is not an error and does not become one, so
-        // without this the wait is the life of the process.
+        // Every request here is something else waits on (the session before a socket, the
+        // claim that ends a sign-in, a redemption), so each has a timeout. A peer that
+        // accepts and never answers is not an error, and would otherwise block for the life
+        // of the process.
         m_network->setTransferTimeout(m_config.requestTimeoutMs);
     }
     return m_network;
@@ -504,27 +503,23 @@ QNetworkAccessManager *SynClient::network()
 
 void SynClient::openSession()
 {
-    // Native desktop. A client that already holds a session (one it signed in for, or
-    // one it was configured with) presents it directly. Otherwise it either spends a device
-    // credential stored at a previous launch or obtains an anonymous session from the edge,
-    // and in the anonymous case stays anonymous until somebody calls Session.login().
+    // Native desktop. A client already holding a session (signed in, or configured)
+    // presents it. Otherwise it spends a device credential stored at a previous launch, or
+    // gets an anonymous session from the edge and stays anonymous until Session.login().
     //
-    // The second condition is what makes an edge restart survivable. A reconnect that has
-    // already been accepted once retries with the same session, because a dropped socket is
-    // usually a network blip. One that has not is either a fresh launch or an edge that came
-    // back without the session table it had, and there the stored credential is exactly the
-    // thing that gets the visitor back in without a sign-in.
+    // The second condition makes an edge restart survivable. A reconnect after an accepted
+    // connection retries with the same session, since a dropped socket is usually a network
+    // blip. Otherwise this is a fresh launch or an edge that lost its session table, and
+    // the stored credential signs the visitor back in.
     //
-    // And it is spent at most once per session it buys, which is what m_credentialSpent is
-    // for. The socket failing says nothing about the session. Whatever refused it would
-    // refuse a brand new one the same. Spending the credential again for that would
-    // retire a generation per reconnect, walk into the edge's per-address rate limit within
-    // the minute, and end with the credential deleted for a refusal that was never about it.
-    // So a failure the session cannot answer is retried with the session, and the credential
-    // waits for the next one that a connection has been accepted since.
+    // The credential is spent at most once per session it buys (m_credentialSpent). A
+    // failing socket says nothing about the session, and spending the credential per
+    // reconnect would retire a generation each time, hit the edge's rate limit, and end
+    // with the credential deleted. So a failed session is retried with the same session,
+    // and the credential waits until a connection has been accepted.
     if (!m_config.sessionCookie.isEmpty() && m_sessionAccepted) {
-        // Cleared as the attempt starts, and set again only by connecting: that is what
-        // makes this one retry rather than a loop against a session the edge has forgotten.
+        // Cleared as the attempt starts and set again only on connecting, so this retries
+        // only once.
         m_sessionAccepted = false;
         m_sessionCookie = m_config.sessionCookie;
         connectToEdge();
@@ -580,15 +575,15 @@ void SynClient::redeemDeviceCredential()
             DeviceCredential::Held next;
             next.id = fields.value(QStringLiteral("device_id")).toString();
             next.secret = fields.value(QStringLiteral("device_secret")).toString().toLatin1();
-            // Stored before the session is used, because the generation presented is
-            // already retired at the edge. Losing this write is the case the edge's overlap
-            // window exists for, and it is not one to walk into on purpose.
+            // Stored before the session is used, because the presented generation is
+            // already retired at the edge. Losing this write is what the edge's overlap
+            // window covers.
             if (next.isValid() && m_device) {
                 m_device->save(next);
                 m_held = next;
             }
-            // The credential has bought the session below. It buys no other until this one
-            // has been accepted and later stops working. See openSession().
+            // The credential paid for this session and buys no other until this one has
+            // been accepted and later fails. See openSession().
             m_credentialSpent = true;
             m_sessionCookie = cookieName.toUtf8() + '=' + session.toUtf8();
             m_config.sessionCookie = m_sessionCookie;
@@ -596,10 +591,8 @@ void SynClient::redeemDeviceCredential()
             return;
         }
         if (status == 404) {
-            // The edge answered about the credential, and its answer was no. Whatever is
-            // stored cannot become a session again, so it goes. Keeping it would mean
-            // presenting a dead credential at every launch for the rest of the
-            // installation's life.
+            // The edge refused the credential, so it can never become a session again and
+            // is deleted.
             m_held = DeviceCredential::Held{};
             if (m_device) {
                 m_device->erase();
@@ -607,25 +600,20 @@ void SynClient::redeemDeviceCredential()
             qInfo("SynQt: the stored sign-in is no longer valid, so this launch starts "
                   "signed out.");
         } else if (status != 0) {
-            // The edge answered something else: 429 from its own rate window, or whatever a
-            // proxy in front of it makes of a bad minute. None of that is an answer about
-            // the credential, so the credential stays, and this waits rather than asking
-            // again at the pace of a reconnect loop. The wait is the one the edge named if
-            // it named one, and a minute otherwise, that being the length of the window
-            // this is nearly always about.
+            // Any other answer (429 from the edge's rate window, or a proxy error) says
+            // nothing about the credential, so it is kept, and the client waits instead of
+            // retrying at reconnect pace. The wait is what the edge named, or a minute, the
+            // window length.
             constexpr qint64 kDefaultHoldMs{60 * 1000};
             constexpr qint64 kMaxHoldMs{5 * 60 * 1000};
             bool numeric{false};
-            // Bounded rather than believed. This is a number a proxy can put in front of
-            // the edge, and an app that took it at face value could be told to stop trying
-            // for a week.
+            // Bounded: a proxy can set this value, and must not stop the client for a week.
             const qint64 asked{static_cast<qint64>(retryAfter.toInt(&numeric)) * 1000};
             m_redeemNotBefore.setRemainingTime(
                 numeric && asked > 0 ? qMin(asked, kMaxHoldMs) : kDefaultHoldMs);
         }
-        // A transport failure keeps it and holds nothing off: the edge said nothing, so
-        // nothing is known about whether the credential is still good, and the next attempt
-        // may well reach an edge that is back.
+        // A transport failure keeps the credential and adds no wait: nothing is known about
+        // it, and the next attempt may reach a recovered edge.
         if (!m_config.sessionCookie.isEmpty()) {
             m_sessionCookie = m_config.sessionCookie;
             connectToEdge();
@@ -660,14 +648,13 @@ void SynClient::connectToEdge()
     setState(QStringLiteral("connecting"));
 
     m_node = new QRemoteObjectNode{this};
-    // Parented like the node and the transport beside it: teardown() retires these on
-    // every reconnect, but deleteLater needs a running event loop, and the destructor can
-    // run after exec() has returned. The parent is what makes the last one deterministic.
+    // Parented like the node and the transport: teardown() retires these on every
+    // reconnect, but deleteLater needs a running event loop and the destructor may run
+    // after exec() returns.
     m_socket = new QWebSocket{QString{}, QWebSocketProtocol::VersionLatest, this};
     m_transport = new WebSocketTransport{m_socket, this};
-    // Started here rather than after open(), so it covers connecting as well as upgrading:
-    // both are waits on somebody else, and neither reports anything if the far side
-    // holds the socket. Stopped by onConnected(), and by teardown() on the way out.
+    // Started before open(), so it covers connecting as well as upgrading, both of which
+    // can stall silently. Stopped by onConnected() and by teardown().
     m_handshakeTimer->start(m_config.requestTimeoutMs);
 
     connect(m_socket, &QWebSocket::connected, this, [this]() { onConnected(); });
@@ -676,16 +663,16 @@ void SynClient::connectToEdge()
             [this](QAbstractSocket::SocketError) { onDisconnected(); });
 
 #ifdef Q_OS_WASM
-    // The browser terminates TLS and attaches the session cookie. Mark the device open,
-    // add the connection, THEN open the socket. The QtRO handshake is server-initiated,
-    // so the connection must be attached before the socket connects.
+    // The browser terminates TLS and attaches the session cookie. Mark the device open, add
+    // the connection, then open the socket: the QtRO handshake starts from the server, so
+    // the connection must be attached first.
     m_transport->open(QIODevice::ReadWrite);
     m_node->addClientSideConnection(m_transport);
     m_node->setHeartbeatInterval(m_config.heartbeatMs);
     m_socket->open(m_config.edgeUrl);
 #else
-    // Native. Mark the device open, then open the socket here so the client terminates
-    // its own TLS and presents the session credential and origin on the handshake.
+    // Native: mark the device open, then open the socket, which terminates TLS here and
+    // presents the session credential and origin on the handshake.
     m_transport->open(QIODevice::ReadWrite);
     m_node->addClientSideConnection(m_transport);
     m_node->setHeartbeatInterval(m_config.heartbeatMs);
@@ -714,12 +701,11 @@ void SynClient::onConnected()
     m_handshakeTimer->stop();
     m_backoffMs = m_config.reconnectBaseMs;
 #ifndef Q_OS_WASM
-    // The edge accepted this credential, so the next dropped socket is a network event and
-    // not an edge that came back without the session table it had. See openSession().
+    // The edge accepted this credential, so the next dropped socket is a network event, not
+    // an edge that lost its session table. See openSession().
     m_sessionAccepted = true;
-    // And this session was worth having, so the stored credential is free to buy the next
-    // one if this one ever stops working. Cleared here and nowhere else. It is a connection
-    // the edge accepted, not merely a session it minted, that says the round trip works.
+    // The session worked, so the stored credential may buy the next one if this one fails.
+    // Cleared only here: an accepted connection proves the round trip.
     m_credentialSpent = false;
 #endif
     setState(QStringLiteral("connected"));
@@ -760,26 +746,23 @@ void SynClient::teardown()
         deleteSoon(m_node);  // deletes the replicas it parents
         m_node = nullptr;
     }
-    // A child of the node retired (bindSessionState), so this is a name for
-    // something already gone.
+    // A child of the retired node (bindSessionState), already gone.
     m_sessionState = nullptr;
 }
 
 void SynClient::bindPagesConnectPoint()
 {
-    // The facade is stable across reconnects (ServerAccessor rebinds the same instance
-    // to each fresh Replica. Its own reconnect logic re-notifies routeTableChanged),
-    // so wire it up once. Without this guard, connectToEdge() calling this on every
-    // reconnect would multiply every connection made below by one more each time.
+    // The facade persists across reconnects (ServerAccessor rebinds it to each new Replica
+    // and re-notifies routeTableChanged), so it is wired once. Without this guard every
+    // reconnect would add another copy of each connection below.
     if (m_pagesFacade) {
         return;
     }
 
-    // The Pages connect point is framework plumbing, not something an app declares for
-    // its own use, but it is still an ordinary consumed connect point: it rides the
-    // same acquire-and-bind path as any other name in m_config.connectPoints (populated
-    // for a remote-pages app by the generated topology), so no separate acquisition
-    // mechanism is introduced here. Nothing to bind yet if that entry has not arrived.
+    // The Pages point is framework plumbing but an ordinary consumed point: it uses the
+    // same acquire-and-bind path as any name in m_config.connectPoints (populated for a
+    // remote-pages app by the generated topology). Nothing to bind until that entry
+    // arrives.
     QString pointName;
     for (const ClientConnectPoint &point : std::as_const(m_config.connectPoints)) {
         if (point.contract == QStringLiteral("Pages")) {
@@ -793,23 +776,21 @@ void SynClient::bindPagesConnectPoint()
 
     auto *facade{qobject_cast<ConsumerBase *>(m_server->point(pointName))};
     if (!facade) {
-        // No consumer facade registered for "Pages" in this build. A raw Replica alone
-        // cannot answer fetchPage() with a value this class can read generically (its
-        // reply type is declared per app by the generated contract). Warn once rather
-        // than resolve every remote route to a silent Error.
+        // No consumer facade is registered for "Pages" in this build, and a raw Replica
+        // cannot answer fetchPage() in a form this class can read (the reply type is
+        // generated per app). Warn once instead of resolving every remote route to a silent
+        // Error.
         qWarning("SynQt: the 'Pages' connect point has no consumer facade; edge-delivered "
                  "pages will not resolve");
         return;
     }
     m_pagesFacade = facade;
     if (m_engine) {
-        // The generated facade's own fetchPage() builds the Promise it returns via
-        // qjsEngine(this), which is null until the object has been given a JS wrapper at
-        // least once. The facade is framework plumbing no app QML ever references
-        // directly, so without this it would never get one, every reply would resolve
-        // as an undefined value, and every remote page would fail. Discarding the
-        // returned QJSValue is fine: the association qjsEngine() reads is recorded on
-        // the object itself, not on the wrapper value's own lifetime.
+        // The generated facade's fetchPage() builds its Promise through qjsEngine(this),
+        // which is null until the object has had a JS wrapper. No app QML references this
+        // facade, so give it one here; otherwise every reply resolves as undefined. The
+        // returned QJSValue can be discarded: qjsEngine() reads an association stored on
+        // the object.
         m_engine->newQObject(facade);
     }
 
@@ -820,18 +801,16 @@ void SynClient::bindPagesConnectPoint()
                                   Q_RETURN_ARG(SynQt::Promise *, promise),
                                   Q_ARG(QString, route), Q_ARG(QString, haveHash));
         if (!promise || !m_engine) {
-            // No promise (the call could not even be dispatched) or no engine to bridge
-            // one through. Either way, resolve to Error now rather than hang in Loading.
+            // No promise (the call could not be dispatched) or no engine: resolve to Error
+            // now.
             m_router->onPageDelivered(route, QString{}, QString{}, QString{},
                                       QStringLiteral("error"));
             return;
         }
         auto *bridge{new PageReplyBridge{m_router, route}};
-        // then()/catchError() only take a callable QJSValue. Wrap the bridge's two
-        // invokable methods into JS closures over it, rather than exposing it as a
-        // named global. A rejection (the connect point not yet live, or the call
-        // itself failing) is handled too, so a failure always reaches onPageDelivered
-        // instead of leaving the route in Loading forever.
+        // then()/catchError() take only a callable QJSValue, so the bridge's two invokable
+        // methods are wrapped in JS closures. A rejection is handled too, so every outcome
+        // reaches onPageDelivered.
         QJSValue factory{m_engine->evaluate(QStringLiteral(
             "(function (bridge) { return {"
             "  onFulfilled: function (value) { bridge.deliver(value); },"
@@ -842,15 +821,14 @@ void SynClient::bindPagesConnectPoint()
             ->catchError(handlers.property(QStringLiteral("onRejected")));
     });
 
-    // Old-style string connects. The facade's concrete type (and so its pageChanged/
-    // routeTableChanged signals) is generated per app, so it is only ever held here
-    // through the generic ConsumerBase surface.
+    // String-based connects: the facade's concrete type (with its pageChanged and
+    // routeTableChanged signals) is generated per app, so it is held only as a
+    // ConsumerBase.
     connect(facade, SIGNAL(pageChanged(QString, QString)), this,
             SLOT(handlePagesPageChanged(QString, QString)));
     connect(facade, SIGNAL(routeTableChanged()), this, SLOT(handlePagesRouteTableChanged()));
-    // Pull whatever the table already holds (a reconnect rebinds the same facade to a
-    // fresh Replica, which re-notifies once initialized. The first bind on a plain
-    // property read needs no signal to have fired yet).
+    // Read what the table already holds. A reconnect rebinds the same facade to a new
+    // Replica, which re-notifies once initialized; the first bind needs no signal.
     handlePagesRouteTableChanged();
 }
 
@@ -872,25 +850,23 @@ void SynClient::bindSessionState()
     if (!m_node) {
         return;
     }
-    // A compile-time Replica, and not the dynamic one: it carries its API rather than
-    // exchanging a description, which is what makes it arrive at all under single-threaded
-    // WebAssembly. The contract is compiled into this library, so this needs nothing from
-    // the app's own generated code and works the same in a project that declares no
-    // connect points at all.
+    // A compile-time Replica, not a dynamic one: it carries its API instead of exchanging a
+    // definition, which is what makes it work under single-threaded WebAssembly. The
+    // contract is compiled into this library, so this works even in a project that declares
+    // no connect points.
     auto *replica{m_node->acquire<SessionStateReplica>(QStringLiteral("SessionState"))};
-    // Given to the node, because acquire() does not: a typed replica comes back with no
-    // parent (`new ObjectType(this, name)` over a `QObject(nullptr)` constructor) and the
-    // node holds only a weak reference to its implementation. teardown() retires the node
-    // on every reconnect and this is what makes the replica go with it. Without it a client
-    // on a flaky network kept one of these per reconnect for as long as the tab was open.
-    // tests/memory measures the visit, and EntityRuntime does the same for a mesh link.
+    // Parented to the node, because acquire() does not parent a typed replica (`new
+    // ObjectType(this, name)` over a `QObject(nullptr)` constructor) and the node holds
+    // only a weak reference. teardown() retires the node on every reconnect, and the
+    // replica goes with it. tests/memory measures this; EntityRuntime does the same for a
+    // mesh link.
     replica->setParent(m_node);
     m_sessionState = replica;
     connect(replica, &SessionStateReplica::sessionChanged, this,
             [this]() { applySessionState(); });
-    // A property that is already at its published value when the replica initializes emits
-    // no change, and that is the ordinary case here. The edge publishes once, on the
-    // connection being accepted, before this client has anything to hear it with.
+    // A property already at its published value when the replica initializes emits no
+    // change, which is the normal case: the edge publishes as soon as the connection is
+    // accepted.
     connect(replica, &QRemoteObjectReplica::initialized, this,
             [this]() { applySessionState(); });
 }
@@ -903,9 +879,8 @@ void SynClient::applySessionState()
     const QByteArray published{
         m_sessionState->property("session").toString().toUtf8()};
     if (published.isEmpty()) {
-        // Not yet said, which is not the same as "anonymous". Leaving Session alone here
-        // is what keeps a reconnect from blanking a signed-in visitor for the moment
-        // between the socket coming up and the edge saying who they are.
+        // Not known yet, which differs from anonymous. Leaving Session alone keeps a
+        // reconnect from briefly blanking a signed-in visitor.
         return;
     }
     const QJsonObject state{QJsonDocument::fromJson(published).object()};
