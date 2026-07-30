@@ -21,6 +21,18 @@ BUILD_DIR="${BUILD_DIR:-build/all}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# On Windows a QtTest binary writes its entire log to the debugger, not to standard output,
+# whenever it is not attached to a console: QPlainTestLogger::outputMessage() calls
+# OutputDebugStringA() and RETURNS, writing nothing to the stream
+# (qtbase/src/testlib/qplaintestlogger.cpp). ctest runs every test through a pipe, so
+# QtPrivate::shouldLogToStderr() is false there and the whole log disappears -- which is why
+# every Windows failure this project has seen reported as "***Failed" with a blank capture,
+# and why re-running the binary by hand printed nothing either. The one documented override
+# is this variable (qtbase/src/corelib/global/qlogging.cpp). Export it for the suites and for
+# the phase [3/3] runners, which inherit it. It is a no-op on Linux and macOS, where the
+# default handler writes to stderr regardless.
+export QT_FORCE_STDERR_LOGGING=1
+
 mkdir -p "$BUILD_DIR"
 log="$BUILD_DIR/configure-build.log"
 
@@ -48,14 +60,13 @@ echo "== [2/3] run the suites =="
 # audit of what they listen on, not just a flag.
 if ! ctest --test-dir "$BUILD_DIR" --output-on-failure; then
     # ctest prints a failing test's captured output and nothing else, so a test that exits
-    # non-zero having written nothing reports as a blank line. That is exactly what the
-    # Windows column produced for tst_envfile and tst_pagestore, and it is undiagnosable:
-    # a QTest binary flushes its log line by line, so an empty log means the process never
-    # reached its first assertion, which a loader failure and an early exit both explain.
-    # The exit code separates them (0xc0000135 is a missing DLL; a small number is QTest's
-    # count of failed test functions) and ctest never prints it, so run each failing test
-    # again for it. Only failing tests are re-run, and each is given a deadline, so a test
-    # that failed by hanging cannot hang this too.
+    # non-zero having written nothing reports as a blank line. The usual cause of that on
+    # Windows was the logger redirection the export at the top of this file now disables;
+    # what is left is a process that really did die before it could say anything, and there
+    # the exit code is the whole diagnosis (0xc0000135 is a missing DLL, 0xc0000005 an access
+    # violation, a small number QTest's count of failed test functions). ctest never prints
+    # it, so run each failing test again for it. Only failing tests are re-run, and each is
+    # given a deadline, so a test that failed by hanging cannot hang this too.
     echo
     echo "----- exit code of each failing test (ctest reports only their output) -----"
     ctest --test-dir "$BUILD_DIR" --rerun-failed --show-only=json-v1 \
