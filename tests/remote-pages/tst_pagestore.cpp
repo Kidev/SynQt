@@ -93,6 +93,10 @@ QString writePage(const QDir &dir, const QString &name, const QByteArray &body)
 {
     QFile file{dir.filePath(name)};
     if (!file.open(QIODevice::WriteOnly)) {
+        // Silence here buys a five-second wait for a change that was never written, and
+        // a failure that names the wait rather than the cause.
+        qWarning("could not write %s: %s", qPrintable(file.fileName()),
+                 qPrintable(file.errorString()));
         return QString{};
     }
     file.write(body);
@@ -104,12 +108,33 @@ QString writePage(const QDir &dir, const QString &name, const QByteArray &body)
 // file, then rename it over the watched path. Unlike writePage's in-place
 // truncate (same inode), this is what a real editor's atomic save does, and
 // it is what drops a naive QFileSystemWatcher watch.
-void replacePage(const QDir &dir, const QString &name, const QByteArray &body)
+//
+// Windows will not unlink or rename over a file another process holds open, and on a CI
+// image an indexer or a scanner opens a freshly written file for a moment. Qt reports that
+// as a plain false, so ignoring the return value leaves the old content in place and the
+// watcher has nothing to report. Retry for a moment, which is what an editor's atomic save
+// does too, and say so rather than pretend the replace happened.
+bool replacePage(const QDir &dir, const QString &name, const QByteArray &body)
 {
     const QString temporaryName{name + QStringLiteral(".tmp")};
-    writePage(dir, temporaryName, body);
-    QFile::remove(dir.filePath(name));
-    QFile::rename(dir.filePath(temporaryName), dir.filePath(name));
+    if (writePage(dir, temporaryName, body).isEmpty()) {
+        return false;
+    }
+    const QString target{dir.filePath(name)};
+    const QString temporary{dir.filePath(temporaryName)};
+    constexpr int attempts{40};
+    for (int attempt{0}; attempt < attempts; ++attempt) {
+        // Split rather than chained: a remove that succeeded must not be retried, or the
+        // next pass fails on a file that is already gone and never reaches the rename.
+        if (!QFile::exists(target) || QFile::remove(target)) {
+            if (QFile::rename(temporary, target)) {
+                return true;
+            }
+        }
+        QTest::qWait(50);
+    }
+    qWarning("could not replace %s after %d attempts", qPrintable(target), attempts);
+    return false;
 }
 
 // A Caller built the way a real accepted connection gets one: a live session
@@ -311,8 +336,9 @@ void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
 
     QSignalSpy changed{&store, &SynQt::PageStore::pageChanged};
 
-    replacePage(dir, QStringLiteral("Campaign.qml"),
-                "import QtQuick\nItem { objectName: \"first\" }");
+    QVERIFY2(replacePage(dir, QStringLiteral("Campaign.qml"),
+                         "import QtQuick\nItem { objectName: \"first\" }"),
+             "the replace itself failed, so there was no change for the store to see");
     QVERIFY(changed.wait(5000));
     // How many notifications one remove-and-rename produces is the operating system's
     // business, not this store's: an unlink and a create arriving as two events is as
@@ -329,8 +355,9 @@ void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
     // The watch must have survived the first replace: a second replace still
     // has to be observed, proving onFileChanged re-armed the watcher instead
     // of silently losing it.
-    replacePage(dir, QStringLiteral("Campaign.qml"),
-                "import QtQuick\nItem { objectName: \"second\" }");
+    QVERIFY2(replacePage(dir, QStringLiteral("Campaign.qml"),
+                         "import QtQuick\nItem { objectName: \"second\" }"),
+             "the second replace itself failed, so the watch was never re-tested");
     QVERIFY(changed.wait(5000));
     QVERIFY(changed.count() > afterFirstCount);
     QCOMPARE(changed.last().at(0).toString(), QStringLiteral("/c"));
