@@ -37,7 +37,7 @@ def _param_list(params, record_names, path) -> str:
     )
 
 
-# --------------------------------------------------------------------------- rep
+# rep
 
 
 def emit_rep(syn: SynFile) -> str:
@@ -81,7 +81,7 @@ def _lower_member(member, records, path) -> str:
     return f"PROP({ctype} {member.name} READPUSH)"
 
 
-# ------------------------------------------------------------------- source side
+# source side
 
 
 def _has_models(syn: SynFile) -> bool:
@@ -405,7 +405,7 @@ def _slot_impl(class_name: str, slot: Slot, records, path) -> str:
     return f"{head}\n{{\n{body}\n}}"
 
 
-# ----------------------------------------------------------------- consumer side
+# consumer side
 #
 # The consumer facade is what the accessor family (Server, Database, ...) exposes for a
 # consumed connect point: it forwards the Replica's push properties, models and signals,
@@ -798,7 +798,7 @@ def _attached_impl(contract: Contract, records, path) -> str:
     return "\n".join(lines)
 
 
-# ------------------------------------------------------------------ replica side
+# replica side
 
 
 def emit_replica_header(syn: SynFile, lstem: str) -> str:

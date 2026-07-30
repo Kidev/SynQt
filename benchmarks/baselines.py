@@ -106,9 +106,7 @@ class Report:
         return not self.failures
 
 
-# --------------------------------------------------------------------------------------
 # Reading
-# --------------------------------------------------------------------------------------
 
 
 def load(path: Path) -> Dict[str, Any]:
@@ -153,9 +151,7 @@ def committed_baselines() -> List[Path]:
     return paths
 
 
-# --------------------------------------------------------------------------------------
 # Flattening: every shape down to one dictionary of comparable numbers
-# --------------------------------------------------------------------------------------
 
 DISTRIBUTION_FIELDS = ("p50", "p95", "p99", "mean", "min", "max")
 
@@ -287,9 +283,7 @@ def _sweep_unit(name: str) -> str:
     return ""
 
 
-# --------------------------------------------------------------------------------------
 # The universal checks: is this a well-formed result at all
-# --------------------------------------------------------------------------------------
 
 REQUIRED_METADATA = ("host", "qt_version", "recorded")
 
@@ -380,9 +374,7 @@ def _count_distributions(document: Mapping[str, Any]) -> int:
     return sum(1 for _ in _iter_distributions(document))
 
 
-# --------------------------------------------------------------------------------------
 # The per-benchmark invariants: the claims README.md makes, mechanically
-# --------------------------------------------------------------------------------------
 
 
 def _ratio(numerator: float, denominator: float) -> float:
@@ -946,9 +938,7 @@ def check_file(path: Path) -> Report:
     return check_document(load(path), path)
 
 
-# --------------------------------------------------------------------------------------
 # Comparison: same benchmark, same runner, two points in time
-# --------------------------------------------------------------------------------------
 
 
 @dataclass
@@ -1029,9 +1019,7 @@ def compare(
     )
 
 
-# --------------------------------------------------------------------------------------
 # Command line
-# --------------------------------------------------------------------------------------
 
 
 def _print_report(report: Report, verbose: bool) -> None:

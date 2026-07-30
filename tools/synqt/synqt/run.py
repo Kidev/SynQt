@@ -265,7 +265,7 @@ def dev(project_dir: os.PathLike[str] | str, *, port: int = 8080,
     return "synqt dev: stopped."
 
 
-# --------------------------------------------------------------- watch and hot reload
+# watch and hot reload
 
 class SourceWatcher:
     """Poll the project's edit surface for changes. Watches ``*.qml`` and ``*.syn`` sources

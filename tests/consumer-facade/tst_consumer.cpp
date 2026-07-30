@@ -66,7 +66,7 @@ private slots:
 
     void facadeSurfacesAndErgonomics()
     {
-        // --- Owner: host the Widget Source over a plaintext WebSocket (no registry). ---
+        // Owner: host the Widget Source over a plaintext WebSocket (no registry).
         QWebSocketServer server{QStringLiteral("facade"), QWebSocketServer::NonSecureMode};
         QVERIFY(server.listen(QHostAddress::LocalHost, 0));
         const quint16 port{server.serverPort()};
@@ -97,7 +97,7 @@ private slots:
             }
         });
 
-        // --- Consumer: the client-side node, the ServerAccessor, and a real QML document. ---
+        // Consumer: the client-side node, the ServerAccessor, and a real QML document.
         QWebSocket clientSocket;
         WebSocketTransport transport{&clientSocket};
         transport.setUrl(QUrl{QStringLiteral("ws://localhost:%1").arg(port)});

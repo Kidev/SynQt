@@ -38,7 +38,7 @@ HOSTS_FILE="${SYNQT_HOSTS_FILE:-/etc/hosts}"
 CA_DAYS=825          # the maximum a modern browser will accept for a server certificate
 LEAF_DAYS=825
 
-# --- the site table ---------------------------------------------------------------
+# the site table
 
 site_names() {
     awk '!/^[[:space:]]*#/ && NF { print $1 }' "$SITES_CONF"
@@ -53,7 +53,7 @@ site_lines() {
         "$SITES_CONF"
 }
 
-# --- certificates -----------------------------------------------------------------
+# certificates
 
 issue_certs() {
     mkdir -p "$WORK"
@@ -105,7 +105,7 @@ EOF
     fi
 }
 
-# --- names ------------------------------------------------------------------------
+# names
 
 # Elevate only where the target actually needs it. /etc/hosts does; the scratch file
 # SYNQT_HOSTS_FILE points at in a test does not, and requiring a password to exercise the
@@ -147,7 +147,7 @@ remove_hosts() {
     echo "removed the entries from $HOSTS_FILE"
 }
 
-# --- addresses --------------------------------------------------------------------
+# addresses
 
 add_aliases() {
     # Linux treats the whole of 127.0.0.0/8 as local with no configuration, so this is a
@@ -188,7 +188,7 @@ remove_aliases() {
     done
 }
 
-# --- trust ------------------------------------------------------------------------
+# trust
 
 trust_ca() {
     issue_certs
@@ -235,7 +235,7 @@ untrust_ca() {
     esac
 }
 
-# --- reporting --------------------------------------------------------------------
+# reporting
 
 status() {
     echo "sites (from $(basename "$SITES_CONF")):"

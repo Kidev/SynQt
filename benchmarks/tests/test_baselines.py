@@ -26,9 +26,7 @@ import pytest
 import baselines
 
 
-# --------------------------------------------------------------------------------------
 # The gate: the committed baselines themselves
-# --------------------------------------------------------------------------------------
 
 
 def committed():
@@ -59,9 +57,7 @@ def test_every_benchmark_in_the_tree_has_invariants():
     assert not missing, f"no invariants defined for: {sorted(missing)}"
 
 
-# --------------------------------------------------------------------------------------
 # Fixtures: a real baseline, loaded fresh so a mutation cannot leak between tests
-# --------------------------------------------------------------------------------------
 
 
 def load_kind(kind):
@@ -81,9 +77,7 @@ def assert_fails(document, invariant):
     assert invariant in names, f"expected `{invariant}` to fail; got {sorted(names) or 'nothing'}"
 
 
-# --------------------------------------------------------------------------------------
 # Mutations: the regressions these invariants exist to catch
-# --------------------------------------------------------------------------------------
 
 
 def test_a_full_table_purge_on_create_is_caught():
@@ -281,9 +275,7 @@ def test_a_threaded_kit_that_lost_cross_origin_isolation_is_caught():
     pytest.skip("no multi-threaded frame-time baseline committed")
 
 
-# --------------------------------------------------------------------------------------
 # The universal checks
-# --------------------------------------------------------------------------------------
 
 
 def test_percentiles_that_do_not_ascend_are_caught():
@@ -340,9 +332,7 @@ def test_malformed_json_names_its_file(tmp_path):
     assert "broken.json" in str(error.value)
 
 
-# --------------------------------------------------------------------------------------
 # Flattening and comparison
-# --------------------------------------------------------------------------------------
 
 
 def test_flatten_reads_the_direction_of_each_unit():
@@ -426,9 +416,7 @@ def test_compare_notices_a_metric_the_candidate_stopped_reporting():
     assert "slot_throughput_64B" in result.missing
 
 
-# --------------------------------------------------------------------------------------
 # The command line, which is what CI actually invokes
-# --------------------------------------------------------------------------------------
 
 
 def test_check_with_no_arguments_passes_over_the_committed_baselines(capsys):

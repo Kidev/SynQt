@@ -197,7 +197,7 @@ int main(int argc, char *argv[])
     QList<Distribution> distributions;
     QList<Scalar> scalars;
 
-    // ---- SQLite ----
+    // SQLite
     SqliteProvider db{sqliteConfig(dbFile)};
     QString error;
     if (!db.connect(&error)) {
@@ -318,7 +318,7 @@ int main(int argc, char *argv[])
     }
     db.disconnect();
 
-    // ---- Memory cache ----
+    // Memory cache
     {
         ProviderConfig cacheConfig;
         cacheConfig.name = QStringLiteral("memory");

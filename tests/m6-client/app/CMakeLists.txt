@@ -22,7 +22,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/SynQtContracts.cmake")
 
 qt_standard_project_setup(REQUIRES 6.11)
 
-# ---- The counter client (browser WASM and native desktop, from one QML) ----
+# The counter client (browser WASM and native desktop, from one QML)
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/../client/Main.qml"
     PROPERTIES QT_RESOURCE_ALIAS Main.qml)
 qt_add_executable(counter-client "${CMAKE_CURRENT_SOURCE_DIR}/../client/main.cpp")
@@ -49,7 +49,7 @@ if(EMSCRIPTEN)
     endif()
 endif()
 
-# ---- The edge server (host only; not built for WASM) ----
+# The edge server (host only; not built for WASM)
 if(NOT EMSCRIPTEN)
     find_package(Qt6 6.11 REQUIRED COMPONENTS Network RemoteObjects WebSockets HttpServer)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../src/service" "${CMAKE_BINARY_DIR}/SynQtService")
