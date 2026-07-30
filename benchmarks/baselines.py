@@ -783,6 +783,51 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
         )
 
 
+def _check_persistence_postgres(document: Mapping[str, Any], checks: List[Check]) -> None:
+    """The SQLite workload through the pooled PostgresProvider.
+
+    A parity check rather than a race, so what it holds is what the provider promises: one
+    transaction around many writes costs less than a commit per write, as on SQLite, and
+    the link was what the run says it was. A verify-full run whose session the server does
+    not report encrypted, or a plaintext run that is, measured something other than its
+    name.
+    """
+    scalars = document.get("scalars", [])
+    autocommit = _by_name(scalars, "postgres_write_autocommit_rate")
+    batched = _by_name(scalars, "postgres_write_batched_rate")
+    if autocommit and batched:
+        factor = _ratio(batched["value"], autocommit["value"])
+        checks.append(
+            Check(
+                "persistence-postgres.batching_beats_autocommit",
+                factor > ASSERT_MARGIN,
+                f"one transaction is {factor:.2f}x autocommit "
+                f"({batched['value']:.4g} vs {autocommit['value']:.4g} rows/s)",
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "persistence-postgres.batching_beats_autocommit",
+                False,
+                "the autocommit or batched write rate is missing",
+            )
+        )
+
+    encrypted = _by_name(scalars, "postgres_session_encrypted")
+    sslmode = document.get("sslmode", "")
+    verified = sslmode in ("verify-ca", "verify-full")
+    checks.append(
+        Check(
+            "persistence-postgres.the_link_is_what_it_says",
+            encrypted is not None and bool(encrypted["value"]) == verified,
+            f"sslmode {sslmode or 'unrecorded'}, session "
+            + ("unreported" if encrypted is None
+               else "encrypted" if encrypted["value"] else "plaintext"),
+        )
+    )
+
+
 def _check_capstone(document: Mapping[str, Any], checks: List[Check]) -> None:
     sweep = sorted(document.get("sweep", []), key=lambda row: row["players"])
     interest_k = document.get("interest_k")
@@ -1322,6 +1367,7 @@ INVARIANTS: Dict[str, Callable[[Mapping[str, Any], List[Check]], None]] = {
     "monitor": _check_monitor_pipeline,
     "fanout": _check_fanout,
     "persistence": _check_persistence,
+    "persistence-postgres": _check_persistence_postgres,
     "capstone": _check_capstone,
     "edge-http": _check_edge_http,
     "client-bundle": _check_client_bundle,

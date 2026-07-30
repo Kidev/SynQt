@@ -166,6 +166,56 @@ def test_contention_moving_the_median_is_caught():
     assert_fails(document, "persistence.contention_does_not_move_the_median")
 
 
+def postgres_run(sslmode="verify-full", encrypted=1.0):
+    """A persistence-postgres result in the shape bench_postgres writes.
+
+    Built here rather than loaded, so the invariants are held to account before the first
+    run is committed, and after it without depending on which link that run used.
+    """
+    def distribution(name, p50):
+        return {"name": name, "unit": "ms", "samples": 500, "min": p50 * 0.8, "p50": p50,
+                "p95": p50 * 1.5, "p99": p50 * 2, "max": p50 * 3, "mean": p50 * 1.1}
+
+    return {
+        "benchmark": "persistence-postgres", "path": "postgresprovider-pool",
+        "qt_version": "6.12.0", "postgres_server": "16.10", "host": "a test host",
+        "arch": "x86_64", "recorded": "2026-09-25T00:00:00Z", "sslmode": sslmode,
+        "pool_size": 4,
+        "latency": [distribution("postgres_write_autocommit", 8.0),
+                    distribution("postgres_read_point", 0.12)],
+        "scalars": [
+            {"name": "postgres_write_autocommit_rate", "unit": "rows/s", "value": 120.0},
+            {"name": "postgres_write_batched_rate", "unit": "rows/s", "value": 5400.0},
+            {"name": "postgres_session_encrypted", "unit": "bool", "value": encrypted},
+        ],
+    }
+
+
+def test_a_postgres_run_in_the_harness_shape_supports_its_claims():
+    for document in (postgres_run(), postgres_run("disable", 0.0)):
+        report = baselines.check_document(document)
+        assert report.ok, "\n".join(f"{c.name}: {c.detail}" for c in report.failures)
+
+
+def test_a_verified_postgres_run_the_server_calls_plaintext_is_caught():
+    """A verify-full run on a session the server reports unencrypted measured a plaintext
+    link under a TLS name, which is the one thing a TLS row must never be."""
+    assert_fails(postgres_run("verify-full", 0.0),
+                 "persistence-postgres.the_link_is_what_it_says")
+
+
+def test_a_plaintext_postgres_run_the_server_calls_encrypted_is_caught():
+    assert_fails(postgres_run("disable", 1.0), "persistence-postgres.the_link_is_what_it_says")
+
+
+def test_postgres_batching_that_no_longer_beats_autocommit_is_caught():
+    """The pinned transaction connection going back to a lease per statement would commit
+    each INSERT on its own, and one transaction would cost what autocommit does."""
+    document = postgres_run()
+    baselines._by_name(document["scalars"], "postgres_write_batched_rate")["value"] = 150.0
+    assert_fails(document, "persistence-postgres.batching_beats_autocommit")
+
+
 def test_batching_losing_its_advantage_is_caught():
     document = load_kind("persistence")
     batched = baselines._by_name(document["scalars"], "sqlite_write_batched_rate")

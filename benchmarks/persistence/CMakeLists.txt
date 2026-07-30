@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The persistence + cache benchmark (M9): the SqliteProvider (WAL, busy timeout, serialized
+# The persistence + cache benchmark: the SqliteProvider (WAL, busy timeout, serialized
 # writer) and the MemoryCacheProvider (bounded LRU), measured through the real provider
 # classes. Native host kit.
 
@@ -27,4 +27,14 @@ target_link_libraries(bench_persistence PRIVATE
     Qt6::Network
     Qt6::Qml
     Threads::Threads
+)
+
+# The same workload through the pooled PostgresProvider, against a live server.
+qt_add_executable(bench_postgres bench_postgres.cpp)
+target_link_libraries(bench_postgres PRIVATE
+    SynQtProviders
+    Qt6::Core
+    Qt6::Sql
+    Qt6::Network
+    Qt6::Qml
 )

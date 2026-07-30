@@ -506,6 +506,30 @@ extra is one erase plus one hash removal. An earlier baseline measured about 1.3
 when the recency order was a `QList<QString>` scanned with `removeOne()` on every access.
 That cost scaled with the bound, and this one does not.
 
+### PostgreSQL, through the pool
+
+The same writes and reads run against a live PostgreSQL through the pooled
+`PostgresProvider`, which is what an entity gets when its config switches engines. It is a
+parity check and not a race: PostgreSQL answers over a socket and SQLite from a file in the
+process, so compare these numbers with earlier runs of this harness, never with the SQLite
+table above.
+
+```sh
+./benchmarks/persistence/run-postgres.sh
+```
+
+It measures the server `SYNQT_TEST_PG_*` names, or starts the throwaway engines from
+`tests/lib/live-engines.sh` when none is named. It runs twice. The first run is plaintext
+over loopback. The second connects by name with `verify-full` against the engines' test CA,
+as a release build does. Each writes its own result
+(`results/persistence-postgres-<host>.json` and
+`results/persistence-postgres-tls-<host>.json`), and each records the server's version,
+the sslmode it asked for, and whether the server reports the session encrypted. The gate holds two claims. One transaction around many
+writes must beat a commit per write, as it does on SQLite. The link must also be what the
+run says it is: a `verify-full` run whose session the server calls plaintext has measured
+the wrong thing, and so has a plaintext run whose session is encrypted. No baseline is
+committed yet, and the first run of the script records one.
+
 ## client: bundle weight and frame time
 
 `client/` measures the two things a browser client is judged on: how much it weighs on
@@ -794,8 +818,9 @@ where build time goes.
 
 Every measured path has a harness: transport, the edge HTTP path, the edge fan-out
 `publish()` growth, the mesh transports, the sessions hot path, the monitoring pipeline's
-call-site cost, the persistence and cache providers, the client (bundle weight and frame
-time), the capstone load test, and the build-time report above. The runtime numbers are
-committed, and every baseline carries the date it was measured.
+call-site cost, the persistence and cache providers (SQLite, and PostgreSQL through the
+pool), the client (bundle weight and frame time), the capstone load test, and the
+build-time report above. The runtime numbers are committed, and every baseline carries the
+date it was measured.
 [Browser proofs](../docs/browser-proofs.md) covers where the runs that need a display
 happen.
