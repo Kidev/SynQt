@@ -56,6 +56,10 @@ theme:
 
 extra_css:
   - stylesheets/extra.css
+  # The scrollbar the page draws for itself. Its own file because the C++ reference in
+  # the frame on /api/ loads the same one (see the Doxyfile), so the bar there and the
+  # bar here are one thing rather than two that have to be kept looking alike.
+  - stylesheets/scrollbar.css
   - stylesheets/home.css
   - stylesheets/download-modal.css
   - stylesheets/api-shell.css
@@ -75,9 +79,10 @@ extra_javascript:
   # The home page's "What it looks like" project: the tree and diagram triggers, the
   # code glossary, and the explanation under the file being read.
   - javascripts/home-flow.js
-  # Draws the window's scrollbar from under the header down, the way the C++
-  # reference's own bar sits inside its frame, where the platform draws one that
-  # takes space. The document keeps scrolling; only the bar is ours.
+  # Draws the scrollbar from under the header down, where the platform draws one that
+  # takes space. The document keeps scrolling; only the bar is ours. The C++ reference
+  # runs this same file inside the frame on /api/ (see the Doxyfile), where it draws the
+  # same bar for the pane that scrolls there.
   - javascripts/scrollbar.js
 
 extra:

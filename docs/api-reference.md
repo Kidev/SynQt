@@ -73,6 +73,16 @@ that joins each page to the shell page above, and a
 [custom footer](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen-footer.html)
 carrying the license instead of a generator credit.
 
+The brand layer carries this site's type scale as well as its colours, so a reference page
+is set in the same sizes as the page you arrived from rather than in the theme's own. The
+scrollbar is shared outright: these pages load the site's
+[scrollbar stylesheet](https://github.com/Kidev/SynQt/blob/main/docs/stylesheets/scrollbar.css)
+and [script](https://github.com/Kidev/SynQt/blob/main/docs/javascripts/scrollbar.js), the
+same two files every other page loads, so there is one bar and not two that have to be kept
+looking alike. It draws at the right of the window here too, which the platform's own could
+not do: what scrolls on a reference page is the middle of three panels, so its bar landed
+three hundred pixels short of the edge.
+
 The two navigation panels each have one job, which the hook enforces after Doxygen runs.
 The tree on the left lists pages and only pages: Doxygen also files a class's member
 sections there, which are anchors in the page that class already occupies, so entries side

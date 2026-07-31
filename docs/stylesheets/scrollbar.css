@@ -1,0 +1,54 @@
+/* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+   SPDX-License-Identifier: Apache-2.0
+
+   The site's scrollbar, drawn by the page rather than by the platform.
+
+   This file is loaded by two documents: the documentation site (mkdocs.yml), where the
+   bar replaces the window's own, and the C++ reference inside the frame on /api/ (the
+   Doxyfile's HTML_EXTRA_STYLESHEET), where it replaces the one on the pane the reference
+   scrolls. One stylesheet and one script (docs/javascripts/scrollbar.js) for both, so
+   the two cannot drift into looking like two different scrollbars, which is what they
+   were: the site drew this element and the reference kept the platform's, and the two
+   agreed only on the one platform they were measured on.
+
+   The measurements below are that platform's, taken off its thin native bar so the
+   replacement is the same object rather than an approximation of it: a 6px thumb in a
+   10px strip, so 2px of clearance on each side, at 22% white over whatever the page puts
+   behind it.
+
+   What each document hides in favour of this, and what a reader who never gets this bar
+   sees instead, is in that document's own stylesheet: docs/stylesheets/extra.css for the
+   site, tools/docs-hooks/doxygen-synqt.css for the reference. Only the bar's own
+   appearance is shared, because only that has to match. */
+
+/* The strip, positioned by the script: it spans the scrolling box, which starts under
+   the site header on a page of the site and at the top of the frame in the reference.
+   `top` and `height` are written from script, so nothing here assumes either. */
+.synqt-scrollbar {
+  position: fixed;
+  right: 0;
+  top: 0;
+  height: 0;
+  z-index: 3;
+  width: 10px;
+}
+
+.synqt-scrollbar[hidden] {
+  display: none;
+}
+
+.synqt-scrollbar__thumb {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 6px;
+  border-radius: 3px;
+  background: rgba(230, 230, 240, .22);
+}
+
+/* Brighter under the pointer and while it is being dragged, which is the one piece of
+   feedback the platform's bar gives that a plain div does not. */
+.synqt-scrollbar__thumb:hover,
+.synqt-bar-dragging .synqt-scrollbar__thumb {
+  background: rgba(230, 230, 240, .35);
+}
