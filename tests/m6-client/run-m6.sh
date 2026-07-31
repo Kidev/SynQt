@@ -6,7 +6,8 @@
 #  [1] native functional test (the runtime = the desktop runtime): two clients sync,
 #      state transitions, reconnect, route guard;
 #  [2] build the desktop counter app and the WASM counter bundle from one QML;
-#  [3] browser end-to-end (the WASM client against the real edge) via Playwright.
+#  [3] browser end-to-end (the WASM client against the real edge) via Playwright, in
+#      every engine whose runtime is installed.
 
 set -euo pipefail
 
@@ -30,7 +31,7 @@ if [ ! -x "$QT_WASM/bin/qt-cmake" ]; then
     echo
     echo "== [2/3] and [3/3] SKIPPED: no WebAssembly kit at $QT_WASM =="
     echo "   (set QT_WASM to a wasm kit with QtRemoteObjects built in to run the browser half;"
-    echo "    the WASM/browser paths are covered by .github/workflows/browser-matrix.yml)"
+    echo "    CI runs it in .github/workflows/wasm-proofs.yml, which installs that kit)"
     echo
     echo "M6 GATE: PARTIAL (native runtime only; WASM bundle and browser e2e not exercised)"
     exit 0
@@ -52,5 +53,11 @@ python3 tools/wasm-shell.py --target counter-client --out build/m6-app-wasm
 echo "== [3/3] browser end-to-end =="
 cd tests/m6-client/verify
 npm install --no-audit --no-fund
-npx --yes playwright install chromium
+# Every engine the harness can drive, not just the one that always installs. The runtimes a
+# machine cannot host are downloaded and then refused by Playwright's dependency check (WebKit
+# needs Debian or Ubuntu libraries an Arch box does not have), which is not a reason to fail
+# the suite: verify.mjs probes each engine and says which one it skipped and why. See
+# docs/browser-proofs.md.
+npx --yes playwright install chromium firefox webkit ||
+    echo "   (a runtime did not install; verify.mjs names the engine it had to skip)"
 node verify.mjs
