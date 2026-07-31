@@ -206,8 +206,16 @@ suites against it, and reports both halves of the framework:
   configuration file, and a line-only figure calls a half-taken `if` covered.
 
 `CXX_FLOOR` and `PY_FLOOR` are the percentages below which the run fails. They are a
-ratchet: raise them when the number goes up, never lower them to make a branch green. The
-Python floor is enforced on every push by
+ratchet: raise them when the number goes up, never lower them to make a branch green.
+
+The Python half has a second floor, `PY_FLOOR_NO_QT`, and the run picks between the two by
+asking the CLI which QML tools it can find. A handful of its tests drive `qmllint` and
+`qmlformat`, which ship with a Qt kit; where there is none they skip, the suite reaches
+less code, and the number is honestly lower. Holding a run without Qt to the number a run
+with Qt produces fails the machine rather than the branch, so each environment is held to
+the floor measured in it. The floor that applied is printed with the report.
+
+The Python floor is enforced on every push by
 [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml); the C++
 floor by the Linux column of
 [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml), which

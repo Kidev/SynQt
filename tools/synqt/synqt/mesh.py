@@ -217,6 +217,14 @@ def status(project_dir: os.PathLike[str] | str, *, dev: bool = False,
             lines.append(f"  {crt.stem}: unreadable")
             continue
         days = (expiry - now).days
-        flag = "  <-- EXPIRES SOON" if days <= warn_days else ("  <-- EXPIRED" if days < 0 else "")
+        # Expired first: an expired certificate also satisfies "within warn_days", so
+        # testing that one first reported a mesh that is already down as one that is
+        # about to need attention, and left the EXPIRED wording unreachable.
+        if days < 0:
+            flag = "  <-- EXPIRED"
+        elif days <= warn_days:
+            flag = "  <-- EXPIRES SOON"
+        else:
+            flag = ""
         lines.append(f"  {crt.stem}: valid until {expiry:%Y-%m-%d} ({days} days){flag}")
     return "\n".join(lines)

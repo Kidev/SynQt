@@ -64,6 +64,29 @@ class AddEntityTest(unittest.TestCase):
         self.assertNotIn("mongo", source.lower())
         self.assertIn('"author": String(author)', source)
 
+    def test_every_blueprint_stub_calls_its_own_helper_and_names_no_engine(self):
+        """One assertion per blueprint, over the whole family at once.
+
+        The stub is the first SynQt code anyone reads after `synqt add entity`, and what
+        it demonstrates is the rule the blueprint exists to enforce: the Source calls the
+        family helper, and the engine is the provider's business. A stub that reached past
+        its helper would teach the opposite on day one.
+        """
+        helpers = {"persistence": "Db.", "cache": "Cache.", "document": "Docs.",
+                   "gateway": "Http.", "jobs": "Jobs."}
+        engines = ("QSqlDatabase", "sqlite", "postgres", "mongo", "redis",
+                   "QNetworkAccessManager", "QTimer")
+        for blueprint, helper in helpers.items():
+            with self.subTest(blueprint=blueprint):
+                root = self._project()
+                addentity.scaffold(root, blueprint, blueprint)
+                source = (root / blueprint / "Items.qml").read_text()
+                self.assertIn(helper, source)
+                for other in set(helpers.values()) - {helper}:
+                    self.assertNotIn(other, source)
+                for engine in engines:
+                    self.assertNotIn(engine.lower(), source.lower())
+
     def test_rejects_unknown_blueprint_and_wrong_provider(self):
         root = self._project()
         with self.assertRaises(addentity.AddEntityError):

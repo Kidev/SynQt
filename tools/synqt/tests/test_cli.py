@@ -427,5 +427,126 @@ class HostBinaryTest(unittest.TestCase):
         self.assertIsNone(run.host_binary(self.root, "web"))
 
 
+class DevLaunchTest(unittest.TestCase):
+    """`synqt dev`: which processes it starts, in what order, and with which arguments.
+
+    No entity is really executed: the binaries are stub files and Popen is replaced, so
+    what is under test is the launch plan rather than the framework it would launch. That
+    plan carries one thing that must never be wrong: `--dev` enables the stub identity
+    provider, and it belongs to `synqt dev` alone.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp()) / "app"
+        newproject.scaffold(self.root.parent, self.root.name)
+        config = yaml.safe_load((self.root / "synqt.yaml").read_text())
+        config["entities"].append({"name": "database", "kind": "service",
+                                   "blueprint": "persistence"})
+        config["entities"].append({"name": "auth", "kind": "service"})
+        config["identity"] = {"provider_entity": "auth"}
+        config["connect_points"] = [
+            {"name": "items", "owner": "database", "consumers": ["web"]},
+            {"name": "todo", "owner": "web", "consumers": ["client"]},
+        ]
+        (self.root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+        self.config = config
+
+    def _entity(self, name):
+        return next(e for e in self.config["entities"] if e["name"] == name)
+
+    def _build(self, *names):
+        binaries = self.root / "build" / "host"
+        binaries.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            (binaries / name).write_bytes(b"\x7fELF")
+        bundle = self.root / "build" / "client"
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "index.html").write_text("<body>\n</body>\n")
+
+    def test_the_edge_serves_the_bundle_and_a_service_gets_its_topology(self):
+        edge = run.dev_command(self.root, self._entity("web"), self.config, 8080)
+        self.assertIn("--bundle", edge)
+        self.assertEqual(edge[edge.index("--bundle") + 1], str(self.root / "build" / "client"))
+        self.assertEqual(edge[edge.index("--port") + 1], "8080")
+
+        database = run.dev_command(self.root, self._entity("database"), self.config, 8080)
+        self.assertEqual(database[database.index("--topology") + 1],
+                         str(self.root / "build" / "database" / "topology.json"))
+        self.assertNotIn("--bundle", database)
+
+    def test_only_the_edge_and_the_identity_entity_are_given_the_dev_stub_gate(self):
+        # --dev is what unlocks the stub identity provider. A service that is not holding
+        # the identity engine has no business being handed it, and `synqt serve` (which
+        # passes no arguments at all) is what keeps the stub out of anything that ships.
+        self.assertIn("--dev", run.dev_command(self.root, self._entity("web"),
+                                               self.config, 8080))
+        self.assertIn("--dev", run.dev_command(self.root, self._entity("auth"),
+                                               self.config, 8080))
+        self.assertNotIn("--dev", run.dev_command(self.root, self._entity("database"),
+                                                  self.config, 8080))
+
+    def test_owners_start_before_the_edge_which_takes_the_public_port_last(self):
+        order = run._launch_order(self.config)
+        self.assertEqual(order[-1], "web")
+        self.assertLess(order.index("database"), order.index("web"))
+        self.assertNotIn("client", order)   # served as files, never a process
+
+    def test_dev_launches_every_entity_in_order_and_writes_the_reload_harness(self):
+        self._build("web", "database", "auth")
+        started = []
+
+        class FakeProcess:
+            def __init__(self, command, **kwargs):
+                started.append(Path(command[0]).name)
+
+            def terminate(self):
+                pass
+
+            def wait(self, timeout=None):
+                return 0
+
+        # Something has to be accepting on the dev port or dev() waits out its timeout for
+        # an edge that will never come up, so the test listens instead of the edge.
+        import socket
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        self.addCleanup(listener.close)
+
+        with unittest.mock.patch.object(run.subprocess, "Popen", FakeProcess):
+            summary = run.dev(self.root, port=port, open_browser=False, block=False)
+
+        self.assertEqual(set(started), {"database", "auth", "web"})
+        self.assertEqual(started[-1], "web")   # the edge takes the public port last
+        self.assertIn(f"http://127.0.0.1:{port}/", summary)
+        # The live-reload hook is served with the bundle, so it has to be there before the
+        # browser opens rather than after the first edit.
+        bundle = self.root / "build" / "client"
+        self.assertTrue((bundle / "synqt-dev.js").exists())
+        self.assertTrue((bundle / "synqt-reload.txt").exists())
+        # Referenced from the page, and as an external file: the dev shell is served under
+        # the same CSP as the real one, which has no inline script.
+        self.assertIn('<script src="synqt-dev.js"></script>', (bundle / "index.html").read_text())
+
+    def test_dev_stops_and_names_what_is_not_built_instead_of_half_starting(self):
+        # Only the edge is built. Starting the two services and then discovering the edge
+        # is missing would leave orphaned processes behind a message about a build.
+        self._build("web")
+        with unittest.mock.patch.object(run.subprocess, "Popen", unittest.mock.MagicMock()):
+            summary = run.dev(self.root, port=8080, open_browser=False, block=False)
+        self.assertIn("not built", summary)
+        self.assertIn("database", summary)
+        self.assertIn("auth", summary)
+        self.assertIn("synqt build", summary)
+
+    def test_dev_without_a_web_edge_has_nothing_to_serve(self):
+        config = dict(self.config)
+        config["entities"] = [e for e in self.config["entities"] if e["name"] != "web"]
+        (self.root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+        self.assertIn("no web_edge entity", run.dev(self.root, open_browser=False,
+                                                    block=False))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -13,18 +13,28 @@
 # into the ordinary run would double every build for a number nobody asked for. This is the
 # command you run when the number is the question.
 #
-# BUILD_DIR moves the tree (default build/coverage). CXX_FLOOR and PY_FLOOR are the
-# percentages below which this fails; they are the ratchet, so raise them when the number
-# goes up and never lower them to make a branch green. HALVES picks which of the two to
-# measure (`both`, the default, or `cxx` or `py`), which is how CI runs each half in the
-# job that already has what it needs: the C++ half needs a Qt kit, the Python half does not.
+# BUILD_DIR moves the tree (default build/coverage). CXX_FLOOR, PY_FLOOR and
+# PY_FLOOR_NO_QT are the percentages below which this fails; they are the ratchet, so raise
+# them when the number goes up and never lower them to make a branch green. HALVES picks
+# which of the two halves to measure (`both`, the default, or `cxx` or `py`), which is how
+# CI runs each half in the job that already has what it needs: the C++ half needs a Qt kit,
+# the Python half does not.
+#
+# The Python half has two floors because it measures two different things. A few of its
+# tests drive qmllint and qmlformat, and those tools ship with a Qt kit; on a machine that
+# has none they skip, so the same suite reaches less code and the number is honestly lower.
+# One floor for both environments meant a run with no Qt failed a bar set by a run with it,
+# which is a bug in the bar rather than in the tests. Which floor applies is decided by
+# asking the CLI itself which tools it can find, so the answer always matches the tests
+# that will be skipped.
 
 set -euo pipefail
 
 QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
 BUILD_DIR="${BUILD_DIR:-build/coverage}"
 CXX_FLOOR="${CXX_FLOOR:-78}"
-PY_FLOOR="${PY_FLOOR:-89}"
+PY_FLOOR="${PY_FLOOR:-92}"
+PY_FLOOR_NO_QT="${PY_FLOOR_NO_QT:-90}"
 HALVES="${HALVES:-both}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -82,11 +92,24 @@ if [ "$do_py" -eq 1 ]; then
 echo
 echo "== [4/4] Python coverage (tools/synqt/) =="
 mkdir -p "$BUILD_DIR"
+# Ask the CLI which QML tools it can find, exactly as `synqt check` will: they come from
+# PATH or from the resolved Qt kit, so looking only at PATH would report "no Qt" on the
+# usual developer machine and apply the lower floor to a run that reached everything.
+if (cd tools/synqt && python3 -c "import sys
+from synqt import check
+sys.exit(0 if (check.qmllint_path() and check.qmlformat_path()) else 1)") 2>/dev/null; then
+    py_floor="$PY_FLOOR"
+    echo "qmllint and qmlformat are available: enforcing the full floor ($py_floor%)."
+else
+    py_floor="$PY_FLOOR_NO_QT"
+    echo "no qmllint/qmlformat on this machine: their tests will skip, so the floor is" \
+         "the one for a run without a Qt kit ($py_floor%)."
+fi
 (
     cd tools/synqt
     python3 -m coverage erase
     python3 -m coverage run -m pytest tests -q
-    python3 -m coverage report --fail-under="$PY_FLOOR"
+    python3 -m coverage report --fail-under="$py_floor"
     python3 -m coverage json -o "$REPO_ROOT/$BUILD_DIR/coverage-py.json"
 ) || py_ok=$?
 
@@ -102,7 +125,7 @@ if [ "$do_cxx" -eq 1 ]; then
 fi
 if [ "$do_py" -eq 1 ]; then
     echo "report: $BUILD_DIR/coverage-py.json"
-    [ "$py_ok" -eq 0 ] || { echo "FAIL Python coverage floor ($PY_FLOOR%)"; status=1; }
+    [ "$py_ok" -eq 0 ] || { echo "FAIL Python coverage floor (${py_floor}%)"; status=1; }
 fi
 [ "$status" -eq 0 ] && echo "PASS"
 exit "$status"

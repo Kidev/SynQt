@@ -8,12 +8,14 @@ import stat
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
 
 from synqt import build as buildmod
-from synqt import check, config as configmod, doctor, licenses, mesh, newproject
+from synqt import check, config as configmod, doctor, licenses, mesh, newproject, toolchain
 
 
 class MeshTest(unittest.TestCase):
@@ -106,6 +108,73 @@ class MeshTest(unittest.TestCase):
         report = mesh.status(self.root)
         self.assertIn("web: valid until", report)
         self.assertIn("ca: valid until", report)
+
+    def test_rotate_issues_a_new_certificate_for_the_same_entity(self):
+        """Rotation replaces the certificate on disk, for one entity or for the topology.
+
+        The point of the command is that the old key stops being the one the mesh trusts,
+        so the file has to actually change: a rotate that reissued nothing would report
+        success and leave a compromised key in service.
+        """
+        mesh.init(self.root)
+        mesh.cert(self.root, "web")
+        before = (self.root / "synqt" / "mesh" / "web.crt").read_bytes()
+
+        self.assertIn("Issued web.crt", mesh.rotate(self.root, "web"))
+        after = (self.root / "synqt" / "mesh" / "web.crt").read_bytes()
+        self.assertNotEqual(before, after)
+
+        # Without an entity it rotates every service entity it is given, and says so for
+        # each. The client is not among them: it never holds a mesh certificate.
+        summary = mesh.rotate(self.root, service_entities=["web", "database"])
+        self.assertIn("Issued web.crt", summary)
+        self.assertIn("Issued database.crt", summary)
+        self.assertTrue((self.root / "synqt" / "mesh" / "database.crt").exists())
+
+        # A topology with no service entities is not an error; there is simply nothing to
+        # issue, and saying that beats printing an empty line that reads like a failure.
+        self.assertEqual(mesh.cert_all(self.root, []),
+                         "No service entities in the topology.")
+
+    def test_status_separates_expired_from_expiring_and_says_when_it_cannot_read_one(self):
+        """The three states `synqt mesh status` exists to tell apart.
+
+        Dates come from a stubbed reader rather than from certificates issued with a past
+        validity: openssl's options for backdating are not the same across the versions
+        this suite runs on, and the question here is what status reports for a given
+        expiry, not whether openssl can be talked into producing one.
+        """
+        mesh.init(self.root)
+        mesh.cert(self.root, "web")
+        now = datetime.now(timezone.utc)
+
+        expiries = {"ca": now + timedelta(days=365), "web": now - timedelta(days=2)}
+        with unittest.mock.patch.object(mesh, "_not_after",
+                                        lambda crt: expiries.get(crt.stem)):
+            report = mesh.status(self.root)
+        # Expired, not "expires soon": a mesh that is already down reads differently from
+        # one that needs attention this month.
+        self.assertIn("web: valid until", report)
+        self.assertIn("<-- EXPIRED", report)
+        self.assertNotIn("<-- EXPIRES SOON", report)
+        # A certificate with a long life carries no flag at all.
+        ca_line = next(line for line in report.splitlines() if line.strip().startswith("ca:"))
+        self.assertNotIn("<--", ca_line)
+
+        expiries["web"] = now + timedelta(days=5)
+        with unittest.mock.patch.object(mesh, "_not_after",
+                                        lambda crt: expiries.get(crt.stem)):
+            self.assertIn("<-- EXPIRES SOON", mesh.status(self.root))
+
+        # None means the file is there but openssl could not read a date out of it, which
+        # is a different problem from an expiry and must not be reported as one.
+        with unittest.mock.patch.object(mesh, "_not_after", lambda crt: None):
+            report = mesh.status(self.root)
+        self.assertIn("web: unreadable", report)
+        self.assertNotIn("valid until", report)
+
+    def test_status_before_the_ca_exists_names_the_command_that_creates_it(self):
+        self.assertIn("Run 'synqt mesh init'", mesh.status(self.root))
 
 
 class LicenseTest(unittest.TestCase):
@@ -285,6 +354,40 @@ class NewBuildDoctorTest(unittest.TestCase):
         self.assertIn("libmysqlclient", report)
         self.assertIn("build-qmysql-plugin.sh", report)
         self.assertNotIn("synqt build resolves it", report)
+
+    def test_doctor_reads_the_plugin_from_the_resolved_kit_not_the_host(self):
+        """The same two providers again, against a kit that has both plugin files.
+
+        The kit is built here rather than borrowed from the machine, for two reasons.
+        A developer box with Qt installed and a CI runner without it are opposite halves
+        of this function, and only one of them can be the environment the suite happens to
+        run in; a kit the test lays down itself exercises both halves everywhere. And the
+        mysql wording is the point: a plugin file being there settles nothing, because the
+        shipped one is linked against Oracle's libmysqlclient, so doctor must not report it
+        the way it reports QPSQL.
+        """
+        newproject.scaffold(self.parent, "app")
+        root = self.parent / "app"
+        # The project's own toolchain directory wins over any system Qt, so this resolves
+        # the same on a machine with a kit installed and on one without.
+        drivers = (root / "synqt" / "toolchain" / "qt" / toolchain.QT_VERSION
+                   / toolchain.host_kit_dir() / "plugins" / "sqldrivers")
+        drivers.mkdir(parents=True)
+        for stem in ("libqsqlpsql.so", "libqsqlmysql.so"):
+            (drivers / stem).write_bytes(b"")
+        config = configmod.load(root)
+        config.setdefault("entities", []).extend([
+            {"name": "warehouse", "kind": "service", "provider": {"name": "postgres"}},
+            {"name": "store", "kind": "service", "provider": {"name": "mysql"}},
+        ])
+        (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+
+        report = doctor.report(root)
+        self.assertIn(f"QPSQL plugin: present ({drivers / 'libqsqlpsql.so'})", report)
+        self.assertNotIn("QPSQL plugin: not in the resolved Qt kit", report)
+        self.assertIn("QMYSQL plugin: a plugin file is in the Qt kit", report)
+        self.assertIn("settles nothing on its own", report)
+        self.assertNotIn("QMYSQL plugin: present", report)
 
 
 class BuildEntitySelectionTest(unittest.TestCase):
