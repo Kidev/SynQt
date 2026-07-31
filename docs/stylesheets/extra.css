@@ -53,8 +53,8 @@
    background becomes the canvas, and of a canvas background the browser paints
    only the colour behind the scrollbar; the image stops at the edge of the page
    area. So the colour is what the reader sees down the right of the window
-   wherever the scrollbar's own track is transparent, which is everywhere, since
-   the track is transparent by the rule further down. Set on the body, this
+   wherever a platform scrollbar is drawn with the transparent track the rule
+   further down gives it. Set on the body, this
    whole declaration is an image with no colour under it, and that strip was left
    at the browser's near-black default: measured at rgb(18, 18, 18) against a
    page whose right edge runs from rgb(34, 41, 89) down to rgb(16, 21, 44), a
@@ -343,7 +343,12 @@ body {
   white-space: nowrap;
 }
 
-/* Reserve the scrollbar's width on every page, whether or not that page scrolls.
+/* The platform's scrollbar, for the reader who does not get ours: this rule and
+   the next one are what a page looks like with scripting off, since the script
+   below hides the native bar itself rather than letting CSS do it. Everything
+   here is written for that case.
+
+   Reserve the scrollbar's width on every page, whether or not that page scrolls.
    Without this the header is a few pixels off between one page and the next: the
    header row is centered inside `.md-grid`, so it is centered in the viewport
    minus the scrollbar on a page long enough to scroll and in the full viewport on
@@ -382,6 +387,61 @@ html {
      nothing wrong with it. */
   scrollbar-width: thin;
   scrollbar-color: rgba(230, 230, 240, .22) transparent;
+}
+
+/* Where javascripts/scrollbar.js runs, the page draws that bar itself, starting
+   under the header instead of beside it, and the platform's is taken away. Both
+   of the rules above are then dead on this page and stay only for the fallback:
+   the class is set by the script, so a reader with scripting off, or on a
+   platform whose bars are overlays and were never replaced, keeps the styled
+   native bar. The gutter goes with it, since nothing is reserving width any
+   more, which is also what keeps the header from shifting between pages. */
+html.synqt-bar-on {
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+
+html.synqt-bar-on::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* The bar itself: fixed to the right of the window, from the bottom of the
+   header down. Only the thumb takes the pointer, so the empty track is not a
+   ten pixel strip down the side of the page swallowing clicks meant for what is
+   under it. */
+.synqt-scrollbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 10px;
+  pointer-events: none;
+}
+
+.synqt-scrollbar[hidden] {
+  display: none;
+}
+
+.synqt-scrollbar__thumb {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 6px;
+  border-radius: 3px;
+  background: rgba(230, 230, 240, .22);
+  pointer-events: auto;
+}
+
+.synqt-scrollbar__thumb:hover,
+.synqt-bar-dragging .synqt-scrollbar__thumb {
+  background: rgba(230, 230, 240, .35);
+}
+
+/* The modal takes the page's scrolling away while it is open (see
+   download-modal.css), so the bar has nothing to report and nothing to drive. */
+body.synqt-dl-open .synqt-scrollbar {
+  display: none;
 }
 
 /* --- Code blocks fit, rather than scroll ---------------------------------- */
