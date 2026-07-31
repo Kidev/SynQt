@@ -223,6 +223,26 @@ body {
   .md-nav--secondary > .md-nav__title ~ .md-nav__list {
     margin-top: 1rem;
   }
+
+  /* And neither of those two labels needs the plate it is drawn on. The plate is there to
+     cover a list scrolling underneath, which is a thing that cannot happen here: the
+     sidebars do not scroll (their scrollwrap is opened up further down) and they are
+     pinned where they start, so nothing ever passes behind either label. What the plate
+     does instead is show, as a flat grey rectangle in Material's own background colour
+     laid across the page gradient, with a soft grey edge fading out of it. Take both away
+     and the labels sit on the page, which is what the same label does in the C++ reference
+     on /api/ (tools/docs-hooks/doxygen-synqt.css, #page-nav-title), where the list under it
+     really does scroll and it covers that with its own box rather than with a colour that
+     is not the page's.
+
+     Inside this media query, and named one by one, because the same class draws the title
+     bar at the head of the mobile navigation drawer, which is a real bar with the wordmark
+     in it and has to keep its background. */
+  .md-nav--secondary > .md-nav__title,
+  .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link {
+    background: transparent;
+    box-shadow: none;
+  }
 }
 
 /* The header logo is now the synqt.svg wordmark (theme.logo in mkdocs.yml), so
@@ -304,12 +324,24 @@ body {
   margin-top: 0;
 }
 
-/* Material assumes navigation.tabs means two stacked header rows (header,
-   then tabs below it) and pushes the sidebar down to 4.8rem to clear both;
-   merged into one row, the header is back to its normal 2.4rem height, so
-   the sidebar only needs to clear that one row. */
+/* Both sidebars are pinned where they start, so neither moves at all.
+
+   Material's own arrangement is that they scroll away with the page until their top
+   reaches the header and then stick there, which is a short slide at the start of every
+   scroll and nothing after it: the sidebars begin 1.5rem below the header (the top margin
+   Material puts on `.md-main__inner`, which is also what sets the content's first line),
+   and stick at the header's own bottom edge. Pin them at the offset they already sit at
+   and that slide is gone, with everything ending up exactly where it is now at rest.
+
+   4rem is the header, whose height is the wordmark's (see the logo rules above), and
+   1.5rem is that margin, so 5.5rem is where a sidebar's box starts on a page at the top
+   of its scroll. It is `!important` because Material's own script writes this property
+   inline, as the height of the header alone, which is the value that produces the slide;
+   an inline declaration beats a stylesheet, an important one does not. Nothing else reads
+   it: the script sizes the sidebars from where they render, so they still end a sidebar's
+   own padding short of the bottom of the window. */
 .md-container .md-sidebar {
-  top: 2.4rem;
+  top: 5.5rem !important;
 }
 
 /* Both sidebars are short enough to show in full, so suppress their own
@@ -406,37 +438,10 @@ html.synqt-bar-on::-webkit-scrollbar {
   height: 0;
 }
 
-/* The bar itself: fixed to the right of the window, from the bottom of the
-   header down. Only the thumb takes the pointer, so the empty track is not a
-   ten pixel strip down the side of the page swallowing clicks meant for what is
-   under it. */
-.synqt-scrollbar {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  z-index: 3;
-  width: 10px;
-  pointer-events: none;
-}
-
-.synqt-scrollbar[hidden] {
-  display: none;
-}
-
-.synqt-scrollbar__thumb {
-  position: absolute;
-  top: 0;
-  right: 2px;
-  width: 6px;
-  border-radius: 3px;
-  background: rgba(230, 230, 240, .22);
-  pointer-events: auto;
-}
-
-.synqt-scrollbar__thumb:hover,
-.synqt-bar-dragging .synqt-scrollbar__thumb {
-  background: rgba(230, 230, 240, .35);
-}
+/* The bar itself is in stylesheets/scrollbar.css, which the C++ reference loads too, so
+   that the bar in the frame on /api/ and the bar on this page are one thing. What stays
+   here is only what is this page's own: what the bar replaces, above, and what hides it,
+   below. */
 
 /* The modal takes the page's scrolling away while it is open (see
    download-modal.css), so the bar has nothing to report and nothing to drive. */
