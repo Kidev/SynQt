@@ -36,7 +36,12 @@ html.dark-mode {
     --primary-lightest-color: #10293a;
 
     --page-background-color: #0d1224;
-    --page-foreground-color: #e6e6f0;
+    /* The documentation site's own body colour, translucent and not quite white
+       (Material's `--md-typeset-color`). The theme's was full strength #e6e6f0, which is
+       what made a page of this reference read as a brighter, harder page than the one the
+       reader came from. It reaches everything the theme calls page text, the outline
+       entries included. */
+    --page-foreground-color: rgba(226, 228, 233, 0.82);
     --page-secondary-foreground-color: #a8a8bd;
 
     --side-nav-background: #150d24;
@@ -47,15 +52,45 @@ html.dark-mode {
     --header-foreground: #ffffff;
 
     --code-background: #161230;
-    --code-foreground: #e6e6f0;
+    /* The site's own code colour (`.md-typeset code`), which is its body colour turned a
+       shade cooler at the same strength. */
+    --code-foreground: rgba(213, 216, 226, 0.82);
     --fragment-background: #161230;
-    --fragment-foreground: #e6e6f0;
+    --fragment-foreground: rgba(213, 216, 226, 0.82);
 
     --border-radius-small: 4px;
     --border-radius-medium: 6px;
     --border-radius-large: 8px;
     --content-maxwidth: 1100px;
     --spacing-medium: 12px;
+
+    /* The type scale, which is the documentation site's rather than the theme's, so that
+       moving from a page of the site into this reference is not a change of size. Every
+       value here is the site's own, measured off it rather than converted: Material sets
+       its root to 137.5% and works in rem from there, this document leaves its root at
+       the browser default, and the theme's variables are all px, so px is the one unit in
+       which the two can be compared at all.
+           body text      .md-typeset          17.6px on 28.16px
+           left menu      .md-nav__link        18.7px (the site's, widened in extra.css)
+           contents       .md-nav--secondary   15.4px on 20.02px
+           inline code    .md-typeset code     14.96px
+       The headings and the block code the theme derives from these rather than declaring
+       (a title is 225% of the page size, a fragment shares the inline code size) are
+       stated outright further down, since the site sizes them independently.
+
+       The sidebar tree takes the body size and not the site's left menu size, which is the
+       one place the two scales cannot simply be matched: that menu holds a dozen page
+       titles and this tree holds four hundred C++ names, and the longest of them only just
+       fit the panel as it is. Measured on the class list, at 300px: two of ninety-nine
+       names run past the edge at the contents size, three at this one, and eight at the
+       menu's, so this is the last step up that costs nothing a reader would notice. */
+    --page-font-size: 17.6px;
+    --content-line-height: 28.16px;
+    --table-line-height: 28.16px;
+    --navigation-font-size: 17.6px;
+    --toc-font-size: 15.4px;
+    --code-font-size: 14.96px;
+    --memtitle-font-size: 17.6px;
 
     --font-family: Roboto, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
     --font-family-monospace: "Roboto Mono", SFMono-Regular, Menlo, Consolas, monospace;
@@ -98,14 +133,62 @@ div.header {
 }
 
 div.header .title {
+    /* The theme sets this to 225% of the page size, so it moved with the body text when
+       that was set to the site's. The site sizes its heading independently, so it is
+       stated here: `.md-typeset h1`, 2rem against Material's 137.5% root. */
+    font-size: 35.2px;
     font-weight: 300;
-    color: rgba(230, 230, 240, 0.56);
+    color: rgba(226, 228, 233, 0.56);
     letter-spacing: -0.01em;
     line-height: 1.3;
     /* The site leaves 44px under its heading. The theme leaves twelve, and taking the rule
        off above lets even that collapse into the content's own top margin, so it is stated
        here instead of inherited from a border that no longer exists. */
     margin-bottom: 44px;
+}
+
+/* The headings inside the content, set as the site sets `.md-typeset h2` and `h3`: light
+   weight, dimmed to the body's own strength, tracked in a touch. The theme's are 600
+   weight at full strength, which is a heavier voice than any heading on the site.
+
+   Doxygen writes a section heading three ways and they are all the same heading: the
+   generated section titles (`h2.groupheader`, "Public Member Functions"), the sections a
+   documentation comment declares with \section (`.doxsection`), and the chip over each
+   member card (`h2.memtitle`). The last keeps the theme's monospace face and its own size,
+   because what it holds is a signature and not a sentence. */
+h2.groupheader,
+h2.doxsection {
+    font-size: 27.5px;
+    font-weight: 300;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    color: var(--page-foreground-color);
+}
+
+h3,
+h3.doxsection {
+    font-size: 22px;
+    font-weight: 400;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--page-foreground-color);
+}
+
+/* Block code is a size below inline code on the site (`.md-typeset pre > code` against
+   `.md-typeset code`), which the theme has no way to express: it sizes every code surface
+   there is from the one `--code-font-size`, set above to the site's inline size, and it
+   does so `!important`. So the blocks are stated here, against the same selectors, which
+   is what it takes to win: same specificity, same `!important`, later file. The list is
+   the theme's own minus `code` and `span.tt`, which are the inline ones and keep the
+   inline size. */
+div.fragment,
+pre.fragment,
+div.fragment span,
+div.fragment .line,
+div.fragment .line a,
+div.fragment .line span {
+    font-size: 13.64px !important;
+    line-height: 1.4;
 }
 
 /* The side layout, restated for this Doxygen against this theme.
@@ -257,6 +340,25 @@ div.header .title {
     height: 0;
 }
 
+/* Where docs/javascripts/scrollbar.js runs, the page draws this pane's bar itself, at the
+   right of the window rather than at the right of the pane, and the platform's is taken
+   away. The pane is not the rightmost column of this layout, the page outline is, so the
+   platform's bar landed three hundred pixels short of the edge of the window: a bar down
+   the middle of the page, where every other page of the site has one at its edge. The
+   reserved width goes with it, since an overlay takes none, which is also what makes a
+   short page lay out exactly as wide as a long one. The rules below are then what a reader
+   with scripting off, or on a platform whose bars are overlays and were never replaced,
+   still gets. */
+html.synqt-bar-on #doc-content {
+    scrollbar-width: none;
+    scrollbar-gutter: auto;
+}
+
+html.synqt-bar-on #doc-content::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
 /* The content pane is the one pane that keeps a scrollbar, because it is the page: on
    every other page of the site that is the window's own bar. Doxygen asks for a thin one
    (doxygen.css) but gives it no colours, and doxygen-awesome's quiet treatment covers the
@@ -388,37 +490,32 @@ div.memproto table {
 
 #page-nav {
     width: var(--side-nav-fixed-width) !important;
-
-    /* And the type in it is the site's table of contents type. Material sets that list at
-       0.7rem against a root it has scaled to 137.5%, which computes to 15.4px; this
-       document leaves its root at the browser default, so the same 15.4px is 0.9625rem
-       here. Scoped to the panel, so the sidebar tree keeps the theme's size. */
-    --navigation-font-size: 0.9625rem;
 }
 
 /* The outline scrolls itself to follow the content, so the reader never has to drag it,
    and the site shows no scrollbar on its own table of contents either (extra.css hides
    both sidebars'). Hide the bar; the wheel still works. */
-#page-nav-contents {
-    /* navtree.css sizes this `width: 100%` in the browser default content box, so an inset
+#page-nav #page-nav-tree #page-nav-contents {
+    /* Three ids, which is the theme's own selector for this element, because that is what
+       it takes to set the offset below: at one id this whole block lost to it.
+
+       navtree.css sizes this `width: 100%` in the browser default content box, so an inset
        added there would widen the element instead of insetting it, and the list would run
        off the edge of the panel it is meant to sit inside.
 
-       The inset is on both sides, and the left one is load-bearing rather than cosmetic:
-       this element scrolls, so it clips at its own edges, and the label below is sticky
-       with a soft backdrop that reaches about twelve pixels past its box. Flush against
-       the left edge, that backdrop was cut off square there and feathered on the right,
-       which read as a panel with a corner sliced off. Inset by the same amount on both
-       sides it has room to fade out on both, the way the site's own label does. The list
-       moves with it, so the label and the entries stay in one column.
+       The theme positions this absolutely and offsets it from the top of the panel; the
+       offset is set here instead, to where the site's own contents label sits, level with
+       the page title. It is the element's own `top` and not padding inside it, so that the
+       label, which is pinned to the top of this box, has nothing above it that can scroll
+       into view behind it. That is what lets the label do its job with its own box rather
+       than with a halo around it; see #page-nav-title.
 
-       The top inset is what lines the label up with the page title, which is where the
-       site's own label sits: without it the outline started at the very top of the frame,
-       a title's height above the title it belongs to. It is inside the scroller rather
-       than above it so that it scrolls away, leaving the label pinned directly under the
-       site header the way the site's is. */
+       The right inset is wider than the left because the window's scrollbar is drawn over
+       that edge now (docs/javascripts/scrollbar.js), and because the site's own table of
+       contents stops well short of the edge of the window rather than running to it. */
     box-sizing: border-box;
-    padding: 15px var(--spacing-large) 0 var(--spacing-large);
+    top: 31px;
+    padding: 0 32px 0 var(--spacing-large);
     scrollbar-width: none;
 }
 
@@ -429,20 +526,30 @@ div.memproto table {
 
 /* The label over the list (tools/docs-hooks/doxygen.py, _name_the_page_outline), styled
    as the site styles its own: quiet, bold, and pinned while the list scrolls under it.
-   Being pinned is why it needs an opaque backdrop, and the backdrop is why the list
-   starts a line below it rather than flush against it, which is the same trade the site
-   makes for the same reason. */
+
+   Being pinned is why it needs to be opaque, and what it is painted with is the page's own
+   background rather than a flat colour standing in for it. That page is a gradient, so a
+   flat colour cannot be the same as it anywhere but one line, and the theme's choice of
+   the darkest stop made the label a dark plate laid across a mid-blue panel. The
+   declaration below is the site's gradient itself, `fixed`, which means its positioning
+   area is the window and not this element: it paints the pixels the page paints there,
+   exactly, at every window size, and the label disappears into it. What is left visible is
+   the text, which is what a label is.
+
+   That in turn is why there is no soft halo around it and no gap under it. A halo is a
+   flat colour by definition, so an invisible label with one would have worn a visible ring
+   of the wrong colour. Instead the label covers what scrolls under it with its own box:
+   padding above and below it, and nothing above it inside the scroller at all
+   (#page-nav-contents is offset rather than padded). */
 #page-nav-title {
     position: sticky;
     top: 0;
     z-index: 1;
-    padding: 0 16px;
-    background: var(--page-background-color);
-    /* The site's own label carries an 8.8px backdrop; matched here, so the two fade out
-       over the same distance rather than one looking tighter than the other. */
-    box-shadow: 0 0 9px 9px var(--page-background-color);
-    color: rgba(230, 230, 240, 0.56);
-    font-size: var(--navigation-font-size);
+    padding: 15px 16px 12px 16px;
+    background-image: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
+    background-attachment: fixed;
+    color: rgba(226, 228, 233, 0.56);
+    font-size: var(--toc-font-size);
     font-weight: 700;
     line-height: 1.3;
 }
@@ -474,17 +581,27 @@ div.memproto table {
 
 /* The entries themselves, as the site sets its own: plain page text weight, dimmed a
    little rather than coloured like a link, which leaves the accent to mean one thing in
-   this panel, the section you are in. The theme's rules for that entry and for the ones
-   scrolled past are more specific, so they still decide those two states. */
+   this panel, the section you are in. */
 #page-nav ul.page-outline li a {
     flex: 1;
     display: block;
-    color: rgba(230, 230, 240, 0.82);
-    font-size: var(--navigation-font-size) !important;
+    font-size: var(--toc-font-size) !important;
     font-weight: 400;
     line-height: 1.3;
     margin: 9.6px 0 0 0;
     overflow-wrap: anywhere;
+}
+
+/* One strength for every entry but the one you are in, which is how the site's table of
+   contents reads. The theme instead runs three: what is above the range on screen is
+   dimmed to the secondary colour, what is below it is at full strength, and the range
+   itself is accented. Two of those three are stated `!important` against selectors more
+   specific than the block above, which is why the entries stayed brighter than the site's
+   after the colours were harmonized, and why they are restated here rather than in it. The
+   accented entry is left alone: it is the one distinction the site draws too. */
+#page-nav ul.page-outline li a,
+#page-nav ul.page-outline li.vis ~ * a {
+    color: var(--page-foreground-color) !important;
 }
 
 /* The range currently on screen, which the theme marks with a 4px bar on an opaque plate
@@ -560,6 +677,19 @@ table.markdownTable td a {
     border-top: 0;
 }
 
+/* And the strip's own height is stated rather than inherited, because the layout depends
+   on it: this strip is pinned to the bottom of the window and the content pane is sized to
+   the window minus a literal 31px (doxygen-awesome-sidebar-only.css). Left to the type
+   scale, the strip grows with the body text and the pane it was measured against starts
+   underneath it. The size is the site's own footer size, and 30px of line box plus the
+   divider above is the 31 the layout expects. */
+#nav-path ul,
+#nav-path li.navelem,
+#nav-path li.navelem a {
+    font-size: 14px;
+    line-height: 30px;
+}
+
 /* Replaces the stock "Generated by doxygen" credit (tools/docs-hooks/doxygen-footer.html).
    It rides in the breadcrumb strip rather than under the content: in this layout that
    strip is pinned to the bottom of the window and the content scrolls inside its own
@@ -569,7 +699,7 @@ table.markdownTable td a {
     float: right;
     padding-right: var(--spacing-medium);
     color: var(--page-secondary-foreground-color);
-    font-size: 12px;
+    font-size: 14px;
     line-height: 30px;
 }
 
