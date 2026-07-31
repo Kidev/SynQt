@@ -101,7 +101,10 @@ client and the sync endpoint from one origin, so the session cookie is first par
 content security policy `connect-src 'self'` is sufficient, and there is no cross origin
 relaxation to get wrong. This is the deployment SynQt is built around.
 
-Split origin (CDN) is the exception, and it is opt in by hand. With
+Split origin (CDN) is the exception, it is opt in by hand, and it is deprecated: its
+session cookie is a third party cookie, so the app loads and never connects wherever
+third party cookies are restricted, and `synqt check` says so. Put a node near the user
+that serves the bundle and terminates the browser link on one hostname instead. With
 `origin_model: split_origin` the client is served from a different origin than the sync
 endpoint, `allowed_origins` must list the client origin explicitly, and the session
 cookie is issued `SameSite=None; Secure` (the edge derives that from `origin_model`, so

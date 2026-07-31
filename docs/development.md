@@ -285,11 +285,14 @@ total (about a hundred: the history and address bar bridge, the resume path's
 `sessionStorage`, the console log route, and the Embind reads of the served page). They are
 covered behaviourally by
 [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml),
-which drives the real client in Chromium, Firefox, and WebKit, and no line counter follows
-them there. Emscripten can emit LLVM coverage and the profile can be lifted out of the
-virtual filesystem after a run, so a number is obtainable; it is not currently worth a second
+which drives the real transport in Chromium, Firefox, and WebKit, and by the `client-runtime`
+row of [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml),
+which drives the client runtime itself in the same three engines. No line counter follows them
+there. Emscripten can emit LLVM coverage and the profile can be lifted out of the virtual
+filesystem after a run, so a number is obtainable; it is deliberately not worth a second
 coverage pipeline for a hundred lines whose failure mode (the address bar, the reconnect, the
-deep link) is what the browser matrix asserts directly.
+deep link) is what those two workflows assert directly, in every engine, which is a stronger
+statement than a percentage.
 
 ## Benchmarks ([`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks))
 

@@ -104,7 +104,7 @@ pairing. In this mode every subresource must be same-origin or carry
   and connects back to, the edge origin. `allowed_origins` is `[self]` (the edge origin),
   `connect-src 'self'` plus the appended wss origin is enough, and the session cookie is
   `SameSite=Lax` (`Secure` under TLS).
-- **`split_origin`** (written by hand, never scaffolded): the client is served from a
+- **`split_origin`** (deprecated; written by hand, never scaffolded): the client is served from a
   different origin than the sync endpoint (a CDN, say). `allowed_origins` must then list the
   client origin explicitly, and the session cookie is `SameSite=None; Secure`, which makes it
   a third-party cookie and therefore subject to a browser policy that is being withdrawn.

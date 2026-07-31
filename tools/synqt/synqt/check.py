@@ -428,6 +428,26 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str]) -> 
     messages: List[str] = []
     security = appmodel.security_settings(config)
 
+    # Deprecated, and said out loud rather than left for the reader to discover in a browser
+    # release note. A split-origin session cookie is a third-party cookie: measured on
+    # 2026-07-28 (tests/split-origin) it works in Chromium and Firefox today and stops working
+    # entirely the moment third-party cookies are restricted, which Safari already does by
+    # default. The repair everyone reaches for does not repair it: Partitioned (CHIPS) rescues
+    # the bootstrap and the upgrade, and breaks login, because the OAuth callback is a
+    # top-level navigation onto the edge and the cookie is filed under the edge's partition.
+    # Handing the session back through the client context would fix that half in Chromium, and
+    # would still not restore the mode, because Firefox stored the Partitioned cookie with no
+    # partition key at all, meaning it did not apply CHIPS. So the redesign buys one engine.
+    # A warning rather than an error: a project already running this way must keep building.
+    if appmodel.origin_model(config) == "split_origin":
+        messages.append(
+            "warn: project.origin_model 'split_origin' is deprecated. Its session cookie is a "
+            "third-party cookie, so the app loads and never connects wherever third-party "
+            "cookies are restricted (Safari today), and Partitioned is not a fix. Serve the "
+            "client and the edge from one origin, with a node near the user that does both; "
+            "see the 'Serving the client from another origin' section of "
+            "docs/project-layout-and-config.md")
+
     try:
         appmodel.session_transport(config)
     except appmodel.AppGenError as error:
