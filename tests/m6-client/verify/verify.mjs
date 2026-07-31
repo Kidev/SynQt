@@ -28,9 +28,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function startEdge() {
     return new Promise((resolve, reject) => {
+        // The edge is a QGuiApplication (it runs a QML engine), so on a machine with no
+        // display it would try the xcb plugin and abort before it ever listens. It draws
+        // nothing, so the offscreen platform is right everywhere and not only in CI; hard
+        // coding it here keeps the harness independent of whether a DISPLAY happens to be
+        // set, while an explicit QT_QPA_PLATFORM still wins for anyone debugging it.
         const proc = spawn(edgeBin, [
             `--bundle=${bundleDir}`, `--counter-qml=${counterQml}`, "--port=0",
-        ], { stdio: ["ignore", "pipe", "pipe"] });
+        ], {
+            stdio: ["ignore", "pipe", "pipe"],
+            env: { QT_QPA_PLATFORM: "offscreen", ...process.env },
+        });
         let done = false;
         const onData = (chunk) => {
             const text = chunk.toString();
