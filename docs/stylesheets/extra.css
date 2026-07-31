@@ -223,26 +223,6 @@ body {
   .md-nav--secondary > .md-nav__title ~ .md-nav__list {
     margin-top: 1rem;
   }
-
-  /* And neither of those two labels needs the plate it is drawn on. The plate is there to
-     cover a list scrolling underneath, which is a thing that cannot happen here: the
-     sidebars do not scroll (their scrollwrap is opened up further down) and they are
-     pinned where they start, so nothing ever passes behind either label. What the plate
-     does instead is show, as a flat grey rectangle in Material's own background colour
-     laid across the page gradient, with a soft grey edge fading out of it. Take both away
-     and the labels sit on the page, which is what the same label does in the C++ reference
-     on /api/ (tools/docs-hooks/doxygen-synqt.css, #page-nav-title), where the list under it
-     really does scroll and it covers that with its own box rather than with a colour that
-     is not the page's.
-
-     Inside this media query, and named one by one, because the same class draws the title
-     bar at the head of the mobile navigation drawer, which is a real bar with the wordmark
-     in it and has to keep its background. */
-  .md-nav--secondary > .md-nav__title,
-  .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link {
-    background: transparent;
-    box-shadow: none;
-  }
 }
 
 /* The header logo is now the synqt.svg wordmark (theme.logo in mkdocs.yml), so
