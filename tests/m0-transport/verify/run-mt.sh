@@ -30,10 +30,14 @@ echo "== [2/4] Build client (WASM multi-threaded) =="
     -DCMAKE_BUILD_TYPE=Release
 cmake --build build/m0-client-mt
 
-echo "== [3/4] Install Playwright + Chromium =="
+echo "== [3/4] Install Playwright + the browser engines =="
 cd "$SPIKE/verify"
 npm install --no-audit --no-fund
-npx --yes playwright install chromium
+# All three, because cross-origin isolation and SharedArrayBuffer are engine decisions and
+# a claim proven in one engine is a claim about that engine. A runtime that will not
+# install is not fatal: verify-mt.mjs probes by launching and names the engine it skipped.
+npx --yes playwright install chromium firefox webkit ||
+    echo "   (a runtime did not install; verify-mt.mjs names the engine it had to skip)"
 
 echo "== [4/4] Run the cross-origin-isolation + threaded-QtRO proof =="
 MT_HEADLESS=1 node verify-mt.mjs
