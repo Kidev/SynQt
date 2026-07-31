@@ -12,6 +12,7 @@
 #include "identityconfig.h"
 #include "identityprovider.h"
 #include "identityservice.h"
+#include "jwksverifier.h"
 #include "meshclient.h"
 #include "oauthbackend.h"
 #include "sessionmanager.h"
@@ -25,6 +26,8 @@
 
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkCookieJar>
 #include <QNetworkReply>
@@ -134,6 +137,87 @@ private:
         response.body = reply->readAll();
         reply->deleteLater();
         return response;
+    }
+
+    /// One real ID token from the stub provider, for a nonce of our choosing.
+    ///
+    /// Driven over the provider's own HTTP surface (/authorize for a code, /token to
+    /// exchange it) rather than by reaching into the stub to sign one, so the token under
+    /// test is the same object a real provider would hand the edge. Empty on any failure,
+    /// which the caller asserts on.
+    QString mintStubIdToken(const QString &nonce)
+    {
+        QUrl authorize{m_stub->baseUrl() + QStringLiteral("/authorize")};
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("client_id"), QStringLiteral("stub-client"));
+        query.addQueryItem(QStringLiteral("response_type"), QStringLiteral("code"));
+        query.addQueryItem(QStringLiteral("redirect_uri"),
+                           edgeUrl(QStringLiteral("/auth/callback")));
+        query.addQueryItem(QStringLiteral("nonce"), nonce);
+        authorize.setQuery(query);
+
+        const Response redirected{get(authorize)};
+        if (redirected.status != 302) {
+            return {};
+        }
+        const QString code{QUrlQuery{QUrl{redirected.location}.query()}
+                               .queryItemValue(QStringLiteral("code"))};
+        if (code.isEmpty()) {
+            return {};
+        }
+
+        QUrlQuery form;
+        form.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("authorization_code"));
+        form.addQueryItem(QStringLiteral("code"), code);
+        form.addQueryItem(QStringLiteral("client_id"), QStringLiteral("stub-client"));
+        form.addQueryItem(QStringLiteral("client_secret"), QStringLiteral("stub-secret"));
+        QNetworkRequest request{QUrl{m_stub->baseUrl() + QStringLiteral("/token")}};
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QStringLiteral("application/x-www-form-urlencoded"));
+        QNetworkReply *reply{m_browser.post(request,
+                                            form.toString(QUrl::FullyEncoded).toUtf8())};
+        QEventLoop loop;
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        const QJsonObject tokens{QJsonDocument::fromJson(reply->readAll()).object()};
+        reply->deleteLater();
+        return tokens.value(QStringLiteral("id_token")).toString();
+    }
+
+    /// The same token with a different header segment, base64url encoded as a JWT is.
+    ///
+    /// The signature is left alone deliberately: every check this is used for (the
+    /// algorithm, the key id) is made before the signature is verified, so a token that
+    /// reaches the signature check has already got further than it should have.
+    static QString reheadered(const QStringList &parts, const QJsonObject &header)
+    {
+        const QByteArray encoded{QJsonDocument{header}.toJson(QJsonDocument::Compact)
+                                     .toBase64(QByteArray::Base64UrlEncoding
+                                               | QByteArray::OmitTrailingEquals)};
+        return QString::fromUtf8(encoded) + QLatin1Char('.') + parts.at(1)
+               + QLatin1Char('.') + parts.at(2);
+    }
+
+    /// The same signature with one bit of it flipped: the cheapest forgery there is, and
+    /// the one a signature check exists to catch.
+    ///
+    /// Decoded, altered, and re-encoded rather than edited as text. Changing the last
+    /// character of the base64url segment looks equivalent and is not: 256 bytes of RSA
+    /// signature encode to 342 characters whose last one carries only two significant bits,
+    /// so 'A' -> 'B' there flips a padding bit and decodes to the identical signature. The
+    /// token then verifies, and the test fails only for the tokens whose final character
+    /// happened to land on a significant bit -- which is to say, intermittently, in a test
+    /// whose whole job is to prove a forgery is caught.
+    static QString withForgedSignature(const QStringList &parts)
+    {
+        QByteArray signature{QByteArray::fromBase64(parts.at(2).toUtf8(),
+                                                    QByteArray::Base64UrlEncoding)};
+        signature[signature.size() / 2] = static_cast<char>(
+            signature.at(signature.size() / 2) ^ 0x01);
+        const QByteArray encoded{signature.toBase64(QByteArray::Base64UrlEncoding
+                                                    | QByteArray::OmitTrailingEquals)};
+        return parts.at(0) + QLatin1Char('.') + parts.at(1) + QLatin1Char('.')
+               + QString::fromUtf8(encoded);
     }
 
     QString edgeUrl(const QString &path) const
@@ -279,6 +363,93 @@ private slots:
         // The failure path clears the login-state cookie but must never set a session.
         QVERIFY2(!callback.setCookie.contains("synqt_session="),
                  "an ID token failing verification must not create a session");
+    }
+
+    // The ID-token verifier had exactly one refusal under test (the wrong issuer), and a
+    // verifier is the sum of what it refuses: on the happy path it is indistinguishable
+    // from `return payload`. These drive SynQt::JwksVerifier directly against a real
+    // RS256 token the stub signed, and a real JWKS it serves, mutating one thing at a time.
+    void idTokenRefusals()
+    {
+        // A genuine token for a known nonce, taken straight from the provider's own token
+        // endpoint rather than minted here, so what is verified is what a provider sends.
+        const QString nonce{QStringLiteral("nonce-for-the-verifier-test")};
+        const QString idToken{mintStubIdToken(nonce)};
+        QVERIFY2(!idToken.isEmpty(), "the stub provider issued no ID token");
+        const QStringList parts{idToken.split(QLatin1Char('.'))};
+        QCOMPARE(parts.size(), 3);
+
+        QNetworkAccessManager network;
+        JwksVerifier verifier{&network};
+        // The stub issues under its own base URL when nothing overrides it, which is what
+        // the OIDC provider above is configured against too.
+        const IdentityProviderConfig good{
+            stubOidcProvider(m_stub->baseUrl(), QStringLiteral("verifier"),
+                             m_stub->baseUrl())};
+
+        // The control: this token, this JWKS, this nonce, and the claims come back.
+        QString error;
+        const QVariantMap claims{verifier.verify(idToken, good, nonce, &error)};
+        QVERIFY2(!claims.isEmpty(), qPrintable(error));
+        QCOMPARE(claims.value(QStringLiteral("iss")).toString(), m_stub->baseUrl());
+        QCOMPARE(claims.value(QStringLiteral("nonce")).toString(), nonce);
+
+        const auto refuses{[&](const QString &token, const IdentityProviderConfig &provider,
+                               const QString &expectedNonce, const QString &reason) {
+            QString why;
+            const QVariantMap result{verifier.verify(token, provider, expectedNonce, &why)};
+            QVERIFY2(result.isEmpty(),
+                     qPrintable(QStringLiteral("expected a refusal (%1) but the token "
+                                               "verified").arg(reason)));
+            QVERIFY2(why.contains(reason),
+                     qPrintable(QStringLiteral("refused with '%1', expected '%2'")
+                                    .arg(why, reason)));
+        }};
+
+        // Not a JWT at all. Two segments, and empty segments, are the shapes a hand-built
+        // token arrives in.
+        refuses(QStringLiteral("header.payload"), good, nonce, QStringLiteral("malformed"));
+        refuses(QStringLiteral(".."), good, nonce, QStringLiteral("malformed"));
+
+        // Algorithm confusion, the classic JWT attack: the attacker rewrites the header to
+        // an algorithm whose "verification" they control. The header is read before any key
+        // is fetched, so this must be refused on the algorithm alone.
+        refuses(reheadered(parts, QJsonObject{{QStringLiteral("alg"), QStringLiteral("HS256")},
+                                              {QStringLiteral("kid"), QStringLiteral("stub")}}),
+                good, nonce, QStringLiteral("unsupported ID-token algorithm"));
+        refuses(reheadered(parts, QJsonObject{{QStringLiteral("alg"), QStringLiteral("none")}}),
+                good, nonce, QStringLiteral("unsupported ID-token algorithm"));
+
+        // A key id the JWKS does not publish: there is nothing to verify against, and
+        // "cannot find the key" must never degrade into "accept it".
+        refuses(reheadered(parts, QJsonObject{{QStringLiteral("alg"), QStringLiteral("RS256")},
+                                              {QStringLiteral("kid"), QStringLiteral("not-ours")}}),
+                good, nonce, QStringLiteral("no matching RSA signing key"));
+
+        // A forged signature over an otherwise perfect token.
+        refuses(withForgedSignature(parts), good, nonce,
+                QStringLiteral("signature invalid"));
+
+        // A token minted for a different client. Accepting it is the token-substitution
+        // confusion: a valid, correctly signed token from the same provider, issued to
+        // someone else.
+        IdentityProviderConfig otherAudience{good};
+        otherAudience.audience = QStringLiteral("a-different-client");
+        refuses(idToken, otherAudience, nonce, QStringLiteral("audience mismatch"));
+
+        // A different issuer entirely.
+        IdentityProviderConfig otherIssuer{good};
+        otherIssuer.issuer = QStringLiteral("https://not.the.issuer");
+        refuses(idToken, otherIssuer, nonce, QStringLiteral("issuer mismatch"));
+
+        // Replay: a token that was fine for one login being presented for another. The
+        // nonce is what binds a token to the request that asked for it.
+        refuses(idToken, good, QStringLiteral("some-other-login"),
+                QStringLiteral("nonce mismatch"));
+
+        // And nothing above quietly broke the verifier: the good token still verifies.
+        error.clear();
+        QVERIFY2(!verifier.verify(idToken, good, nonce, &error).isEmpty(), qPrintable(error));
     }
 
     void loginCsrfRejected()

@@ -398,6 +398,99 @@ private slots:
         QCOMPARE(connectedSpy.count(), 0);
     }
 
+    // The verifier has four gates and the suite proved one of them. These are the other
+    // two that a configuration can turn on (the session-credential gate is exercised by
+    // every accepting test, which has to present a live cookie to get in at all).
+    void anonymousUpgradeRefusedWhenIdentityIsRequired()
+    {
+        WebEdgeConfig config{makeConfig(false)};
+        config.identityRequired = true;   // identity.required in synqt.yaml
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        // A perfectly good anonymous session: right origin, live cookie. What it lacks is a
+        // signed-in user, and a project that declared identity.required says that is not
+        // enough to open the link at all.
+        QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(reply != nullptr);
+        const QByteArray cookie{sessionCookie(reply)};
+        reply->deleteLater();
+        QVERIFY(!cookie.isEmpty());
+
+        QSignalSpy rejectedSpy{&edge, &WebEdge::upgradeRejected};
+        QWebSocket socket;
+        socket.setSslConfiguration(insecureClientConfig());
+        QSignalSpy connectedSpy{&socket, &QWebSocket::connected};
+
+        QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+        request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+        request.setRawHeader("Cookie", cookie);
+        request.setSslConfiguration(insecureClientConfig());
+        socket.open(request);
+
+        QTRY_VERIFY(rejectedSpy.count() >= 1);
+        QCOMPARE(rejectedSpy.takeFirst().first().toString(),
+                 QStringLiteral("authentication required"));
+        QCOMPARE(connectedSpy.count(), 0);  // refused before a socket exists
+    }
+
+    void connectionCapRefusesTheOneOverTheLimit()
+    {
+        // docs/security.md states these caps are applied inside the verifier, "so a
+        // connection over the cap is refused before a socket exists". Nothing checked that,
+        // and a cap that is only documented is a cap.
+        WebEdgeConfig config{makeConfig(false)};
+        config.maxConnectionsPerIp = 1;
+        QQmlEngine engine;
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        const auto liveCookie{[&]() {
+            QNetworkReply *reply{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+            const QByteArray cookie{reply ? sessionCookie(reply) : QByteArray{}};
+            if (reply) {
+                reply->deleteLater();
+            }
+            return cookie;
+        }};
+        const auto openSocket{[&](QWebSocket *socket, const QByteArray &cookie) {
+            socket->setSslConfiguration(insecureClientConfig());
+            QNetworkRequest request{QUrl{edge.wssOrigin() + QStringLiteral("/sync")}};
+            request.setRawHeader("Origin", edge.httpOrigin().toUtf8());
+            request.setRawHeader("Cookie", cookie);
+            request.setSslConfiguration(insecureClientConfig());
+            socket->open(request);
+        }};
+
+        // The first connection from this address is inside the cap.
+        QWebSocket first;
+        QSignalSpy firstConnected{&first, &QWebSocket::connected};
+        openSocket(&first, liveCookie());
+        QTRY_VERIFY(firstConnected.count() >= 1);
+
+        // The second is not, and is refused at the upgrade even though its origin, its
+        // session, and everything else about it are valid.
+        QSignalSpy rejectedSpy{&edge, &WebEdge::upgradeRejected};
+        QWebSocket second;
+        QSignalSpy secondConnected{&second, &QWebSocket::connected};
+        openSocket(&second, liveCookie());
+
+        QTRY_VERIFY(rejectedSpy.count() >= 1);
+        QCOMPARE(rejectedSpy.takeFirst().first().toString(),
+                 QStringLiteral("connection cap reached"));
+        QCOMPARE(secondConnected.count(), 0);
+
+        // And the cap is a live count, not a high-water mark: closing the first frees the
+        // slot, so a legitimate client is not locked out by whoever came before it.
+        first.close();
+        QTRY_VERIFY(first.state() == QAbstractSocket::UnconnectedState);
+        QWebSocket third;
+        QSignalSpy thirdConnected{&third, &QWebSocket::connected};
+        openSocket(&third, liveCookie());
+        QTRY_VERIFY_WITH_TIMEOUT(thirdConnected.count() >= 1, 5000);
+    }
+
     void stalledUpgradeClosed()
     {
         QQmlEngine engine;
