@@ -45,10 +45,36 @@
    (overrides/partials/header.html) rather than also going transparent,
    because it's `position:sticky` with page content scrolling underneath it;
    letting the gradient show through there would make scrolled text bleed
-   into the header instead of being hidden by it. */
-body {
-  background: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
+   into the header instead of being hidden by it.
+
+   It is declared on the root and not on the body, which is not a detail: the
+   flat colour under the gradient is the one thing on this page that reaches the
+   strip the scrollbar sits in. Whichever of the root and the body carries a
+   background becomes the canvas, and of a canvas background the browser paints
+   only the colour behind the scrollbar; the image stops at the edge of the page
+   area. So the colour is what the reader sees down the right of the window
+   wherever the scrollbar's own track is transparent, which is everywhere, since
+   the track is transparent by the rule further down. Set on the body, this
+   whole declaration is an image with no colour under it, and that strip was left
+   at the browser's near-black default: measured at rgb(18, 18, 18) against a
+   page whose right edge runs from rgb(34, 41, 89) down to rgb(16, 21, 44), a
+   black band down the side of every page. #191f42 is that edge's colour at the
+   middle of a typical window, so the strip reads as the last few pixels of the
+   page rather than as an object on top of it.
+
+   The body is then explicitly cleared, because Material sets
+   `body{background-color:var(--md-default-bg-color)}` and an opaque colour there
+   would cover the root's gradient inside the body's box. None of
+   `.md-container`/`.md-main`/`.md-content` set a background of their own, so
+   they show the gradient straight through. */
+html {
+  background-color: #191f42;
+  background-image: linear-gradient(165deg, #201335 0%, #232a5c 38%, #0d1224 100%);
   background-attachment: fixed;
+}
+
+body {
+  background: transparent;
 }
 
 /* GitHub style alerts map to Material admonitions via the callouts plugin.
@@ -328,6 +354,34 @@ body {
    platform with overlay scrollbars, where there was never a difference to correct. */
 html {
   scrollbar-gutter: stable;
+  /* And the bar in that reserved width is the site's own rather than the
+     platform's: thin, with no track, so what is drawn is the thumb and nothing
+     else. It is the same treatment in the same colours as the reference's
+     content pane inside /api/ (tools/docs-hooks/doxygen-synqt.css, #doc-content),
+     which is the same thing one level down: that frame's scrollbar is the window
+     scrollbar of the page being read in it.
+
+     A transparent track is what lets the page reach the strip at all. The
+     platform track is flat and opaque and knows nothing about this page, and it
+     is drawn over the whole height of the bar, so on a scrolling page it was a
+     grey channel and on one too short to scroll the strip stayed at the
+     browser's default. Made transparent, both cases fall through to the one
+     colour behind them, which the root's `background-color` above puts a few
+     shades of the page edge rather than near-black.
+
+     `scrollbar-color` is inherited, so every scroller on the page picks the
+     colours up from here, including the ones Material makes for wide code blocks
+     and tables. `scrollbar-width` is not inherited, and is deliberately left
+     alone below the root: a bar the reader has to find and drag inside a small
+     box is worth its full width.
+
+     Standard properties only, no `::-webkit-scrollbar` fallback. The browsers
+     that need the fallback are the ones with overlay scrollbars, where there is
+     no reserved strip to correct and no track to hide, and taking their overlay
+     bar apart to rebuild it here would be a regression on the platform that had
+     nothing wrong with it. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(230, 230, 240, .22) transparent;
 }
 
 /* --- Code blocks fit, rather than scroll ---------------------------------- */
