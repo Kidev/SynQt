@@ -45,6 +45,7 @@ private slots:
     void storeWatchSurvivesAnAtomicReplace();
     void storeReportsTheContentTheWriterFinishedWith();
     void storeIgnoresARewriteThatChangesNothing();
+    void storeRecoversWhenTheFileIsBrieflyUnreadable();
     void fetchRefusesAnUnderScopedCaller();
     void fetchServesAnAuthorizedCaller();
     void fetchReportsNotModifiedForAMatchingHash();
@@ -427,6 +428,38 @@ void tst_PageStore::storeIgnoresARewriteThatChangesNothing()
     QCOMPARE(store.hashFor(QStringLiteral("/c")), before);
 }
 
+void tst_PageStore::storeRecoversWhenTheFileIsBrieflyUnreadable()
+{
+    QTemporaryDir pages;
+    const QDir dir{pages.path()};
+    writePage(dir, QStringLiteral("Campaign.qml"), "import QtQuick\nItem {}");
+
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/c"), QStringLiteral("Campaign.qml"), QString{});
+    store.setWatching(true);
+
+    QSignalSpy changed{&store, &SynQt::PageStore::pageChanged};
+
+    // A directory in the file's place is the portable way to make a read fail: no
+    // permission bits (Windows ignores those), no root, and it fails identically
+    // everywhere. It stands in for the real thing, which is a scanner or an indexer
+    // holding a freshly written file open for a moment, or the gap an atomic replace
+    // leaves between the unlink and the rename. Either way the store has to keep trying
+    // rather than drop the edit.
+    const QString path{dir.filePath(QStringLiteral("Campaign.qml"))};
+    QVERIFY(QFile::remove(path));
+    QVERIFY(dir.mkdir(QStringLiteral("Campaign.qml")));
+    QTest::qWait(300);
+    QVERIFY2(changed.isEmpty(), "an unreadable page was reported as a change");
+    QVERIFY(dir.rmdir(QStringLiteral("Campaign.qml")));
+    writePage(dir, QStringLiteral("Campaign.qml"),
+              "import QtQuick\nItem { objectName: \"edited\" }");
+
+    QVERIFY2(changed.wait(5000), "the edit never arrived once the file was readable again");
+    QCOMPARE(changed.last().at(0).toString(), QStringLiteral("/c"));
+    QVERIFY(store.sourceFor(QStringLiteral("/c")).contains(QStringLiteral("edited")));
+}
+
 void tst_PageStore::fetchRefusesAnUnderScopedCaller()
 {
     QTemporaryDir pages{};
@@ -749,10 +782,17 @@ void tst_PageStore::hostedPageChangedRelaysToTheSource()
     SynQt::PagesEdgeSource source{&store, &service, caller, this};
     caller->setSource(&source);
 
+    // Two spies, because this test has two halves and a bare timeout does not say which
+    // one broke: the store noticing the file, and the Source relaying what the store
+    // emitted. This one timed out on a Windows runner once with nothing to go on.
+    QSignalSpy storeChanged{&store, &SynQt::PageStore::pageChanged};
     QSignalSpy changed{&source, &SynQt::PagesEdgeSource::pageChanged};
     writePage(dir, QStringLiteral("C.qml"),
               "import QtQuick\nItem { objectName: \"edited\" }");
-    QVERIFY(changed.wait(5000));
+    QVERIFY2(changed.wait(5000),
+             storeChanged.isEmpty()
+                 ? "the store never saw the file change, so there was nothing to relay"
+                 : "the store saw the change but the Source did not relay it");
     QCOMPARE(changed.at(0).at(0).toString(), QStringLiteral("/c"));
     QCOMPARE(changed.at(0).at(1).toString(), store.hashFor(QStringLiteral("/c")));
 }
