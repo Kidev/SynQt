@@ -37,6 +37,8 @@
 #include <QTextStream>
 #include <QVariantList>
 
+#include <limits>
+
 using SynQt::Caller;
 using SynQt::SessionManager;
 
@@ -79,7 +81,7 @@ QList<QByteArray> populate(SessionManager &manager, int count, double &createNsP
     for (int i{0}; i < count; ++i) {
         tokens.append(manager.createSession(kScopeOrder.at(i % kScopeOrder.size())));
     }
-    createNsPerOp = count > 0 ? double(clock.nsecsElapsed()) / count : 0.0;
+    createNsPerOp = count > 0 ? static_cast<double>(clock.nsecsElapsed()) / count : 0.0;
     return tokens;
 }
 
@@ -92,7 +94,7 @@ QList<Caller *> buildCallerPool(SessionManager &manager, const QList<QByteArray>
     const int size{qMin(poolSize, int(tokens.size()))};
     pool.reserve(size);
     for (int i{0}; i < size; ++i) {
-        const qsizetype index{(qsizetype(i) * kStride) % tokens.size()};
+        const qsizetype index{(static_cast<qsizetype>(i) * kStride) % tokens.size()};
         Caller *caller{Caller::forUser(QString{}, &manager, tokens.at(index), nullptr, parent)};
         caller->setScopeOrder(hierarchical ? kScopeOrder : QStringList{}, hierarchical);
         pool.append(caller);
@@ -111,7 +113,7 @@ double lookupNsPerOp(SessionManager &manager, const QList<QByteArray> &tokens, i
         const SynQt::SessionRecord *record{manager.lookup(tokens.at(index))};
         sink += record != nullptr ? 1u : 0u;  // defeat dead-code elimination
     }
-    const double ns{double(clock.nsecsElapsed()) / iterations};
+    const double ns{static_cast<double>(clock.nsecsElapsed()) / iterations};
     if (sink == 0) {
         qWarning("bench-sessions: every lookup missed (unexpected)");
     }
@@ -128,7 +130,7 @@ double lookupMissNsPerOp(SessionManager &manager, int iterations)
         const QByteArray absent{QByteArrayLiteral("absent-") + QByteArray::number(i)};
         sink += manager.lookup(absent) != nullptr ? 1u : 0u;
     }
-    const double ns{double(clock.nsecsElapsed()) / iterations};
+    const double ns{static_cast<double>(clock.nsecsElapsed()) / iterations};
     if (sink != 0) {
         qWarning("bench-sessions: an absent credential matched (unexpected)");
     }
@@ -148,8 +150,8 @@ double hasScopeNsPerOp(const QList<Caller *> &pool, int iterations)
         index = (index + 1) % pool.size();
         sink += pool.at(index)->hasScope(QStringLiteral("editor")) ? 1u : 0u;
     }
-    const double ns{double(clock.nsecsElapsed()) / iterations};
-    if (sink == quint64(-1)) {
+    const double ns{static_cast<double>(clock.nsecsElapsed()) / iterations};
+    if (sink == std::numeric_limits<quint64>::max()) {
         qWarning("impossible");  // keep sink live
     }
     return ns;
@@ -218,9 +220,9 @@ int main(int argc, char *argv[])
         QElapsedTimer snapClock;
         snapClock.start();
         const QVariantList snap = manager.snapshot();  // '=' not '{}': brace-init would wrap
-        const double snapshotMs{double(snapClock.nsecsElapsed()) / 1.0e6};
+        const double snapshotMs{static_cast<double>(snapClock.nsecsElapsed()) / 1.0e6};
         if (snap.size() != count) {
-            qWarning("bench-sessions: snapshot size %lld != %d", qint64(snap.size()), count);
+            qWarning("bench-sessions: snapshot size %lld != %d", static_cast<qint64>(snap.size()), count);
         }
 
         out << qSetFieldWidth(12) << Qt::left << count << qSetFieldWidth(0) << Qt::right

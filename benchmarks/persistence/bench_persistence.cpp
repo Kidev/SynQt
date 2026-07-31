@@ -306,7 +306,7 @@ int main(int argc, char *argv[])
         Scalar rivalCount;
         rivalCount.name = QStringLiteral("sqlite_contended_competitor_writes");
         rivalCount.unit = QStringLiteral("rows");
-        rivalCount.value = double(competitorWrites.load());
+        rivalCount.value = static_cast<double>(competitorWrites.load());
         scalars.append(rivalCount);
 
         const double busyTimeoutMs{5000.0};
@@ -342,7 +342,7 @@ int main(int argc, char *argv[])
             Scalar hit;
             hit.name = QStringLiteral("cache_get_hit");
             hit.unit = QStringLiteral("ns/op");
-            hit.value = double(clock.nsecsElapsed()) / cacheOps;
+            hit.value = static_cast<double>(clock.nsecsElapsed()) / cacheOps;
             scalars.append(hit);
             if (sink == 0) {
                 qWarning("bench-persistence: every cache get missed (unexpected)");
@@ -358,7 +358,7 @@ int main(int argc, char *argv[])
             Scalar miss;
             miss.name = QStringLiteral("cache_get_miss");
             miss.unit = QStringLiteral("ns/op");
-            miss.value = double(clock.nsecsElapsed()) / cacheOps;
+            miss.value = static_cast<double>(clock.nsecsElapsed()) / cacheOps;
             scalars.append(miss);
         }
         // set (overwriting live keys, no eviction).
@@ -371,7 +371,7 @@ int main(int argc, char *argv[])
             Scalar set;
             set.name = QStringLiteral("cache_set");
             set.unit = QStringLiteral("ns/op");
-            set.value = double(clock.nsecsElapsed()) / cacheOps;
+            set.value = static_cast<double>(clock.nsecsElapsed()) / cacheOps;
             scalars.append(set);
         }
         // eviction: a small-bound cache overfilled 2x must hold its bound exactly.
@@ -387,7 +387,7 @@ int main(int argc, char *argv[])
             for (int i{0}; i < overfill; ++i) {
                 bounded.set(QStringLiteral("e-%1").arg(i), i, 0);
             }
-            const double evictNs{double(clock.nsecsElapsed()) / overfill};
+            const double evictNs{static_cast<double>(clock.nsecsElapsed()) / overfill};
             Scalar evict;
             evict.name = QStringLiteral("cache_set_under_eviction");
             evict.unit = QStringLiteral("ns/op");

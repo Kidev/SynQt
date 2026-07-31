@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
     QGuiApplication app{argc, argv};
 
     const int maxBlobs{envInt("SYNQT_BENCH_BLOBS", SYNQT_BENCH_BLOBS_DEFAULT)};
-    const double rampSeconds{envDouble("SYNQT_BENCH_RAMP", double(SYNQT_BENCH_RAMP_DEFAULT))};
+    const double rampSeconds{envDouble("SYNQT_BENCH_RAMP", static_cast<double>(SYNQT_BENCH_RAMP_DEFAULT))};
 
     QQmlApplicationEngine engine;
 
