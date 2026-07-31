@@ -113,16 +113,43 @@ PostgreSQL (QPSQL), MySQL and MariaDB (QMYSQL), Oracle (QOCI), ODBC (QODBC), DB2
 facts from the Qt SQL driver documentation drive SynQt's defaults:
 
 - SQLite is the in process database with the best test coverage and support on all
-  platforms, and its plugin is the only one shipped with binary Qt builds (Windows
-  binaries also include ODBC and PostgreSQL). So SQLite is the default persistence
-  provider: zero configuration, no external engine, no extra build step.
-- The other relational drivers need the engine's client library present and the
-  driver plugin built (Qt ships the sources). The SynQt build automates this when
-  you select such a provider, but it is a real dependency, so it is opt in. For
-  MySQL the build uses MariaDB Connector/C (LGPLv2.1) as the client library, never
-  Oracle's GPLv2 only libmysqlclient, which would be license incompatible with the
-  LGPLv3 Qt modules in the same entity the moment the binary is conveyed (see
-  [licensing](licensing.md)).
+  platforms, and it is the one driver that is always usable straight out of a binary
+  Qt build. So SQLite is the default persistence provider: zero configuration, no
+  external engine, no extra build step.
+- The other relational drivers need two things SynQt cannot supply for you: the
+  engine's client library on the machine, and a driver plugin that loads against it.
+  A binary Qt build ships more plugin files than SQLite (the pinned Linux kit also
+  carries QPSQL, QMYSQL, QODBC, QOCI, QIBASE, and QMIMER), but a plugin file being
+  present is not the same as a plugin that loads: each is bound to the client library
+  it was built against. PostgreSQL usually just works, because the shipped QPSQL
+  loads against a normally installed libpq. MySQL does not, and the reason is the
+  licensing one.
+
+Qt's prebuilt QMYSQL is linked against Oracle's `libmysqlclient`, using its versioned
+symbols. SynQt cannot use that plugin, on two counts at once:
+
+- It cannot be conveyed. `libmysqlclient` is GPLv2 only, which is license
+  incompatible with the LGPLv3 Qt modules in the same entity, so an entity linking
+  both cannot be distributed at all (see [licensing](licensing.md)).
+- It does not work anyway. The versioned symbols it imports are Oracle's, and MariaDB
+  Connector/C does not export them, so pointing the shipped plugin at Connector/C
+  fails to load rather than falling back. Qt then reports only `Driver not loaded`,
+  naming nothing.
+
+So a `mysql` provider needs the QMYSQL plugin rebuilt against MariaDB Connector/C
+(LGPLv2.1), which is the licensing correct client and the one a SynQt deployment may
+ship. `synqt build` does not do this for you; it is a one time step per machine, and
+`tools/qmysql-plugin/build-qmysql-plugin.sh` in the SynQt repository does it:
+
+```console
+$ tools/qmysql-plugin/build-qmysql-plugin.sh
+$ export QT_PLUGIN_PATH="$HOME/.cache/synqt-qmysql"
+```
+
+It needs the Qt sources for your pinned version (the installer's Sources component)
+and Connector/C's headers and library, it refuses to build against Oracle's client,
+and it checks the linkage of what it produced before installing it. `synqt doctor`
+reports the plugin state for every SQL backed provider entity in your project.
 
 Document and cache providers wrap an external client library, because Qt has no
 official MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client;

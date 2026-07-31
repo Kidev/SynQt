@@ -29,6 +29,14 @@
 # distributed alongside the LGPLv3 Qt modules in the same entity (docs/licensing.md). The
 # test engine matching what a deployment may actually link keeps that honest.
 #
+# The mysql test also needs a QMYSQL plugin that loads, and the one in a binary Qt kit is
+# not it: Qt's prebuilt QMYSQL is linked against Oracle's libmysqlclient with its versioned
+# symbols, so it neither may be shipped nor loads against Connector/C. Build the plugin
+# once and put it on the plugin path, or the test skips and says so:
+#
+#   tools/qmysql-plugin/build-qmysql-plugin.sh
+#   export QT_PLUGIN_PATH="$HOME/.cache/synqt-qmysql"
+#
 # The postgres swap (PROV-1) needs the QPSQL plugin's libpq; the redis test needs SynQt built
 # with hiredis; the mongodb test needs the MongoDB C driver (mongo-c-driver). A provider not
 # compiled in, or an engine not reachable, skips rather than fails. See .run-for-me.sh for a

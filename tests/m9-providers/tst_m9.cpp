@@ -126,6 +126,43 @@ private:
 
     QString dbFile(const QString &name) { return m_dir.filePath(name); }
 
+    // Why the named Qt SQL driver plugin cannot be used, or a null string when it can.
+    // Worth separating from "the engine did not answer": both surface as a failed connect,
+    // but they call for opposite fixes, and a skip that says the wrong one sends whoever
+    // reads it to the wrong place.
+    //
+    // The check has to be addDatabase(), not isDriverAvailable(). The availability list is
+    // built from plugin metadata, which is read without loading the plugin, so a plugin
+    // whose client library is missing or ABI-incompatible is still reported as available;
+    // addDatabase() actually loads it and hands back an invalid database when it will not
+    // load. Measured on the pinned kit: isDriverAvailable("QMYSQL") is true even where the
+    // plugin cannot load at all.
+    static QString driverLoadFailure(const QString &driver)
+    {
+        const QString connection{QStringLiteral("synqt-driver-probe")};
+        bool loaded{false};
+        {
+            const QSqlDatabase probe{QSqlDatabase::addDatabase(driver, connection)};
+            loaded = probe.isValid();
+        }
+        QSqlDatabase::removeDatabase(connection);
+        if (loaded) {
+            return QString{};
+        }
+        QString reason{QStringLiteral("the %1 driver plugin will not load").arg(driver)};
+        if (driver == QLatin1String("QMYSQL")) {
+            // Not an oversight to fix by installing a package: Qt's prebuilt QMYSQL is
+            // linked against Oracle's libmysqlclient with its versioned symbols, and SynQt
+            // may not convey that (GPLv2-only against LGPLv3 Qt; docs/licensing.md). The
+            // plugin has to be rebuilt against MariaDB Connector/C.
+            reason += QStringLiteral("; Qt's prebuilt one links Oracle's libmysqlclient, "
+                                     "which SynQt cannot ship. Rebuild it with "
+                                     "tools/qmysql-plugin/build-qmysql-plugin.sh and put "
+                                     "PLUGIN_ROOT on QT_PLUGIN_PATH");
+        }
+        return reason;
+    }
+
 private slots:
     void sqliteStoresQueriesAndPersistsAcrossRestart()
     {
@@ -305,6 +342,10 @@ private slots:
         if (!qEnvironmentVariableIsSet("SYNQT_TEST_PG_HOST")) {
             QSKIP("no live postgres (set SYNQT_TEST_PG_HOST/DB/USER/PASSWORD; see run-m9.sh)");
         }
+        const QString driverProblem{driverLoadFailure(QStringLiteral("QPSQL"))};
+        if (!driverProblem.isEmpty()) {
+            QSKIP(qPrintable(driverProblem));
+        }
         ProviderConfig pg;
         pg.name = QStringLiteral("postgres");
         pg.host = qEnvironmentVariable("SYNQT_TEST_PG_HOST");
@@ -463,6 +504,10 @@ private slots:
         if (!qEnvironmentVariableIsSet("SYNQT_TEST_MYSQL_HOST")) {
             QSKIP("no live mysql/mariadb (set SYNQT_TEST_MYSQL_HOST/DB/USER/PASSWORD; "
                   "see run-m9.sh)");
+        }
+        const QString driverProblem{driverLoadFailure(QStringLiteral("QMYSQL"))};
+        if (!driverProblem.isEmpty()) {
+            QSKIP(qPrintable(driverProblem));
         }
         ProviderConfig my;
         my.name = QStringLiteral("mysql");

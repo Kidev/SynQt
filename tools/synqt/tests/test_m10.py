@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 
 from synqt import build as buildmod
-from synqt import check, doctor, licenses, mesh, newproject
+from synqt import check, config as configmod, doctor, licenses, mesh, newproject
 
 
 class MeshTest(unittest.TestCase):
@@ -252,6 +252,39 @@ class NewBuildDoctorTest(unittest.TestCase):
         self.assertIn("Qt license mode: open_source", report)
         self.assertIn("no production CA", report)
         self.assertIn("GPLv3", report)
+
+    def test_doctor_reports_the_sql_driver_plugin_a_provider_needs(self):
+        """A SQL-backed provider needs a Qt driver plugin at run time, and doctor is the
+        only place that says so before the first query fails. It used to claim `synqt
+        build` resolved it, which was wrong twice: the build installs no engine client,
+        and it does not produce the plugin either."""
+        newproject.scaffold(self.parent, "app")
+        root = self.parent / "app"
+        config = configmod.load(root)
+        config.setdefault("entities", []).extend([
+            {"name": "store", "kind": "service", "provider": {"name": "mysql"}},
+            {"name": "warehouse", "kind": "service", "provider": {"name": "postgres"}},
+            {"name": "hot", "kind": "service", "provider": {"name": "redis"}},
+        ])
+        (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+
+        report = doctor.report(root)
+        # postgres: the plugin question, without the mysql licensing tail.
+        self.assertIn("Provider 'postgres' on entity 'warehouse'", report)
+        self.assertIn("QPSQL", report)
+        # redis: a compile-time dependency instead, so no plugin line at all.
+        self.assertIn("Provider 'redis' on entity 'hot'", report)
+        self.assertIn("hiredis", report)
+        self.assertNotIn("QREDIS", report)
+
+        self.assertIn("Provider 'mysql' on entity 'store'", report)
+        self.assertIn("QMYSQL", report)
+        self.assertIn("MariaDB Connector/C", report)
+        # The licensing reason, not just the instruction: it is why the shipped plugin is
+        # unusable rather than merely inconvenient.
+        self.assertIn("libmysqlclient", report)
+        self.assertIn("build-qmysql-plugin.sh", report)
+        self.assertNotIn("synqt build resolves it", report)
 
 
 class BuildEntitySelectionTest(unittest.TestCase):

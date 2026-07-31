@@ -243,6 +243,30 @@ file is not uncovered, it is not there. Faking the wire protocols instead was co
 rejected: satisfying libpq or the MongoDB driver well enough to be useful is a large surface,
 and a green test against a fake proves the provider talks to the fake.
 
+**`mysql` needs one more thing than an engine, and it is a licensing consequence.** Qt's
+prebuilt QMYSQL plugin is linked against Oracle's `libmysqlclient`, which SynQt may not
+convey alongside the LGPLv3 Qt modules, and which does not load against MariaDB
+Connector/C either (the versioned symbols are Oracle's). So the live mysql proof needs the
+plugin rebuilt first, which needs the Qt Sources component, which is why this one is not in
+the CI column: it would download a source tree to run a single test, and skip anyway on
+every machine that has not. Locally it is one command, then the engine:
+
+```sh
+tools/qmysql-plugin/build-qmysql-plugin.sh
+export QT_PLUGIN_PATH="$HOME/.cache/synqt-qmysql"
+docker run --rm -d --name synqt-mysql -e MARIADB_ROOT_PASSWORD=synqt \
+    -e MARIADB_USER=synqt -e MARIADB_PASSWORD=synqt -e MARIADB_DATABASE=synqt \
+    -p 3306:3306 mariadb:11
+export SYNQT_TEST_MYSQL_HOST=127.0.0.1 SYNQT_TEST_MYSQL_PORT=3306 \
+    SYNQT_TEST_MYSQL_DB=synqt SYNQT_TEST_MYSQL_USER=synqt SYNQT_TEST_MYSQL_PASSWORD=synqt
+```
+
+The test tells the two failures apart rather than reporting one as the other: a plugin that
+will not load and an engine that does not answer produce different skips, because they send
+you to different places. The check behind that has to be `addDatabase()`, not
+`isDriverAvailable()`, which reports a plugin as available from its metadata without ever
+loading it.
+
 **WebAssembly-only code is not in the denominator at all.** A native build does not compile
 what is behind `#ifdef Q_OS_WASM`, so gcov never instruments it, and it lands in neither the
 covered nor the missed column. That would let the percentage rise by moving code into a
