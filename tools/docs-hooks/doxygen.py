@@ -13,12 +13,14 @@ Doxygen is optional. Without it the rest of the site still builds, and the hook 
 rather than failing: only the API reference pages are missing. Continuous integration
 installs it (see .github/workflows/docs.yml), so the published site always has them.
 
-After Doxygen runs, four passes rewrite what it produced. `_uniform_navigation_tree` makes
-the sidebar tree list pages and nothing else, drops the directories it documents nothing
-in, and stops it from remembering a selection across a visit; `_version_tree_data`
+After Doxygen runs, a series of passes rewrite what it produced. `_uniform_navigation_tree`
+makes the sidebar tree list pages and nothing else, drops the directories it documents
+nothing in, and stops it from remembering a selection across a visit; `_version_tree_data`
 stamps the tree's run time data fetches so a cached copy cannot outlive the shape this
 hook gives them; `_dedupe_index_title` collapses the doubled title on the landing page;
-and `_fingerprint_assets` version-stamps the stylesheets and scripts the pages
+`_reserve_the_page_outline` gives the pages Doxygen leaves without an outline the column
+anyway, so the layout is the same on all of them; `_name_the_page_outline` labels that
+column; and `_fingerprint_assets` version-stamps the stylesheets and scripts the pages
 reference. See each for why it is not optional.
 """
 
@@ -499,6 +501,52 @@ def _uniform_navigation_tree(html_dir):
     data.write_text(text, encoding="utf-8")
 
 
+# The outline panel with nothing in it, written exactly as Doxygen writes it on the pages
+# that have one, down to the closing comments. `_reserve_the_page_outline` puts this on the
+# pages that have none, and `_name_the_page_outline` labels it afterwards like any other.
+_EMPTY_PAGE_OUTLINE = """<div id="page-nav" class="page-nav-panel">
+<div id="page-nav-resize-handle"></div>
+<div id="page-nav-tree">
+<div id="page-nav-contents">
+</div><!-- page-nav-contents -->
+</div><!-- page-nav-tree -->
+</div><!-- page-nav -->
+"""
+
+
+def _reserve_the_page_outline(html_dir):
+    """Give every page the outline column, so moving between two pages does not shift one.
+
+    Doxygen emits the outline panel only on a page that has headings to list, and half the
+    reference has none: every "List of all members" page, every source view, and every
+    index (the class list, the file list, the alphabetical member lists). The panel is not
+    just missing there, it is missing from the layout: navtree.js sizes the frame's grid
+    from whether the element exists (`if (pagenav.length) ... else
+    gridTemplateColumns:'auto'`), so the content column is three hundred pixels wider on
+    those pages. A reader clicking from a class to its member list saw the whole page jump
+    sideways and re-wrap, and the table of contents disappear, because the two pages were
+    laid out to different widths.
+
+    Reserving the column costs those pages nothing they had: there are no headings to
+    list, so what is added is empty, and the label over it is hidden while it stays empty
+    (doxygen-synqt.css, the #page-nav-title rule). It is what the documentation site does
+    around these pages, where the contents column is part of the template and is rendered
+    on every page whether or not the page fills it.
+
+    Doxygen's own script fills the panel if the page turns out to have anything to list
+    (`initPageToc` already runs on every page, and until now had nowhere to put its result
+    on these ones), so a page that gains headings gains its outline with no further work.
+    """
+    anchor = "</div><!-- container -->"
+    for page in sorted(html_dir.rglob("*.html")):
+        text = page.read_text(encoding="utf-8")
+        # doxygen_crawl.html is the search crawler's link dump: no layout, no container.
+        if 'id="page-nav"' in text or anchor not in text:
+            continue
+        page.write_text(text.replace(anchor, _EMPTY_PAGE_OUTLINE + anchor, 1),
+                        encoding="utf-8")
+
+
 def _name_the_page_outline(html_dir):
     """Put a "Table of contents" label over the outline down the right of every page.
 
@@ -621,6 +669,7 @@ def on_post_build(config, **kwargs):
     _uniform_navigation_tree(html_dir)
     _version_tree_data(html_dir)
     _dedupe_index_title(html_dir)
+    _reserve_the_page_outline(html_dir)
     _name_the_page_outline(html_dir)
     _fingerprint_assets(html_dir)
     log.info("C++ API reference generated into %s", html_dir)

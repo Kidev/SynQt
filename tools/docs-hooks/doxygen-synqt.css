@@ -246,6 +246,13 @@ div.header {
 #doc-content {
     scrollbar-width: thin;
     scrollbar-color: rgba(230, 230, 240, 0.22) transparent;
+    /* And the width of that bar is held whether or not the page is long enough to need
+       one, so a short page (a member list, a small header) is not laid out a few pixels
+       wider than the long one the reader came from. The track is transparent, so what is
+       reserved on a page that does not scroll is the gradient, not an empty channel. The
+       other half of the same problem, the outline column Doxygen omits on those pages, is
+       reserved in tools/docs-hooks/doxygen.py (`_reserve_the_page_outline`). */
+    scrollbar-gutter: stable;
 }
 
 #doc-content::-webkit-scrollbar {
@@ -331,12 +338,35 @@ div.memproto table {
     border-left: 0;
 }
 
-/* Nothing here is worth resizing: the outline is one column of short links, and the
-   width it starts at (the tree's, so the two panels flanking the content match) already
-   fits them. Hiding the handle also takes away the only thing that writes the width
-   cookie, so the panel cannot be left in a state that outlives the page. */
+/* Nothing here is worth resizing: the outline is one column of short links, and the width
+   it starts at already fits them. */
 #page-nav #page-nav-resize-handle {
     display: none;
+}
+
+/* The column is sized here rather than by Doxygen's script, and that is a repair as much
+   as a preference. The script writes the panel's width to a cookie on one page and reads
+   it back on the next, and it sets the panel a pixel short of the column to leave room for
+   the border the theme draws down its left edge (navtree.js, `rightPanelWidth-1`). That
+   border is taken off above, so the compensation became a loss: every page visited took
+   another pixel off the outline, which is a layout that shifts on every navigation and,
+   after a couple of hundred pages, a table of contents narrowed away to a sliver, in a
+   cookie that follows the reader from visit to visit.
+
+   Pinning the width ends the round trip: the script reads back what it wrote, the stored
+   width holds still, and a browser carrying a collapsed one from before is repaired by
+   the next page it loads.
+
+   The width is the sidebar's, so the two panels flanking the content are the same, and it
+   is unconditional: the narrow window is handled by the rule further down this file that
+   drops the outline below 1200px, which is later in the source and equally `!important`,
+   so it wins wherever it applies. */
+#container {
+    grid-template-columns: auto var(--side-nav-fixed-width) !important;
+}
+
+#page-nav {
+    width: var(--side-nav-fixed-width) !important;
 }
 
 /* The outline scrolls itself to follow the content, so the reader never has to drag it,
