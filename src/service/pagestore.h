@@ -11,6 +11,7 @@
 
 QT_BEGIN_NAMESPACE
 class QFileSystemWatcher;
+class QTimer;
 QT_END_NAMESPACE
 
 namespace SynQt {
@@ -68,11 +69,17 @@ private:
 
     bool reload(const QString &route);
     void onFileChanged(const QString &path);
+    void flushPending();
 
     QString m_pagesDir;
     QHash<QString, Page> m_pages;
     QHash<QString, QString> m_routeByFile;
     QFileSystemWatcher *m_watcher{nullptr};
+    QTimer *m_reloadTimer{nullptr};
+    /// Routes whose file was reported changed, against the number of reads still
+    /// allowed before the change is given up on. Read the file after the writer
+    /// stops, not on the notification itself.
+    QHash<QString, int> m_pending;
 };
 
 } // namespace SynQt

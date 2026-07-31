@@ -344,7 +344,11 @@ A rebuild is about two seconds, most of it Doxygen.
 
 There is no test suite for the site. What stands in for one is `mkdocs build --strict`,
 which turns every warning into a failure, and reading the pages: a stale claim in the prose
-is not something a build can catch. The reference pages keep state in the browser
+is not something a build can catch. The workflow builds that way too. The `validation` block
+in [`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml) is what puts links in
+that net: a link to a page or a heading anchor that does not exist is a warning, and under
+`--strict` a warning is a failed build. Rename a heading and the build tells you, instead of
+the reader finding out. The reference pages keep state in the browser
 (the sidebar tree's position, the reader's panel widths), so if `/api/` looks wrong in a
 browser that has been through many builds and right in a fresh profile, clear the site data
 for `127.0.0.1` before looking for the cause in the CSS.
@@ -356,8 +360,9 @@ In short: [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflo
 provisions the pinned Qt kit through aqtinstall and runs the native C++ suites;
 [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the M0 transport proof across Chromium, Firefox, and WebKit;
 [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs needing a WebAssembly kit no other workflow installs (the
-multi-threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits, and a real
-`synqt build` of the arena's client bundle); [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) freezes and publishes the CLI; and
+multi-threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits, the client
+runtime driven in all three engines against a real web edge, and a real `synqt build` of
+the arena's client bundle); [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) freezes and publishes the CLI; and
 [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) publishes this site.
 
 Neither [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs on every push: each builds a Qt

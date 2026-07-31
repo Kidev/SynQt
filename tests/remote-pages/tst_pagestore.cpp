@@ -14,6 +14,7 @@
 #include "webedgeconfig.h"
 #include "websockettransport.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -42,6 +43,8 @@ private slots:
     void storeEmitsWhenAWatchedPageChanges();
     void storeRouteTableCarriesPathsAndScopes();
     void storeWatchSurvivesAnAtomicReplace();
+    void storeReportsTheContentTheWriterFinishedWith();
+    void storeIgnoresARewriteThatChangesNothing();
     void fetchRefusesAnUnderScopedCaller();
     void fetchServesAnAuthorizedCaller();
     void fetchReportsNotModifiedForAMatchingHash();
@@ -362,6 +365,66 @@ void tst_PageStore::storeWatchSurvivesAnAtomicReplace()
     QVERIFY(changed.count() > afterFirstCount);
     QCOMPARE(changed.last().at(0).toString(), QStringLiteral("/c"));
     QVERIFY(store.hashFor(QStringLiteral("/c")) != afterFirst);
+}
+
+void tst_PageStore::storeReportsTheContentTheWriterFinishedWith()
+{
+    QTemporaryDir pages;
+    const QDir dir{pages.path()};
+    writePage(dir, QStringLiteral("Campaign.qml"), "import QtQuick\nItem {}");
+
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/c"), QStringLiteral("Campaign.qml"), QString{});
+    store.setWatching(true);
+
+    QSignalSpy changed{&store, &SynQt::PageStore::pageChanged};
+
+    // One edit, written the way an editor writes it: the file is truncated when it is
+    // opened and the content arrives afterwards. Read at the truncate and the page is
+    // empty, which is worse than a late reload -- every open tab would be told to fetch a
+    // blank page. So the store waits for the writing to stop.
+    QFile file{dir.filePath(QStringLiteral("Campaign.qml"))};
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QVERIFY(file.flush());
+    QTest::qWait(20);
+    file.write("import QtQuick\nItem { objectName: \"edited\" }");
+    file.close();
+
+    QVERIFY(changed.wait(5000));
+    // Not a count: a writer slow enough to go quiet mid-edit is entitled to two reloads,
+    // and which one this machine produces is its business. What the store promises is that
+    // it ends up holding what the writer finished with, and that its last word matches.
+    QTRY_VERIFY(store.sourceFor(QStringLiteral("/c")).contains(QStringLiteral("edited")));
+    QTRY_COMPARE(changed.last().at(1).toString(), store.hashFor(QStringLiteral("/c")));
+    // And that no tab was ever sent after the empty file that existed between the two
+    // halves of the write. This is the assertion that fails if the store reads on the
+    // notification instead of after it.
+    const QString emptyHash{QString::fromLatin1(
+        QCryptographicHash::hash(QByteArray{}, QCryptographicHash::Sha256).toHex())};
+    for (const QList<QVariant> &emission : changed) {
+        QVERIFY2(emission.at(1).toString() != emptyHash,
+                 "a half-written page was published as a change");
+    }
+}
+
+void tst_PageStore::storeIgnoresARewriteThatChangesNothing()
+{
+    QTemporaryDir pages;
+    const QDir dir{pages.path()};
+    writePage(dir, QStringLiteral("Campaign.qml"), "import QtQuick\nItem {}");
+
+    SynQt::PageStore store{pages.path()};
+    store.addPage(QStringLiteral("/c"), QStringLiteral("Campaign.qml"), QString{});
+    const QString before{store.hashFor(QStringLiteral("/c"))};
+    store.setWatching(true);
+
+    QSignalSpy changed{&store, &SynQt::PageStore::pageChanged};
+
+    // Saving a file without editing it is a notification, not a change. Relaying it would
+    // make every open tab re-fetch a page it already has, byte for byte.
+    writePage(dir, QStringLiteral("Campaign.qml"), "import QtQuick\nItem {}");
+    QVERIFY2(!changed.wait(1000), "an unchanged file was reported as a change");
+    QCOMPARE(store.hashFor(QStringLiteral("/c")), before);
 }
 
 void tst_PageStore::fetchRefusesAnUnderScopedCaller()

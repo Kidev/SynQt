@@ -321,7 +321,10 @@ void WebEdge::buildPageSeedHooks()
         }
         QQmlComponent *component{
             new QQmlComponent{m_engine, QUrl::fromLocalFile(page.seed), this}};
-        QObject *hook{component->create()};
+        // Asked before creating: create() on a component that failed to compile prints its
+        // own "Component is not ready" first, which names neither the file nor the reason
+        // the message below does.
+        QObject *hook{component->isReady() ? component->create() : nullptr};
         if (!hook) {
             // The hook's own file and QML diagnostic, which the developer wrote; never
             // the page's source, and never anything the hook could have read.
@@ -794,7 +797,13 @@ void WebEdge::trackPendingUpgrade(QAbstractSocket *socket)
         emit upgradeRejected(QStringLiteral("handshake timeout"));
         socket->abort();
     });
-    connect(socket, &QObject::destroyed, this, [this, key]() { m_pendingTimers.remove(key); });
+    // The entry has to go when the socket does (a peer that hangs up mid-handshake never
+    // reaches verifyUpgrade), but watching the socket's own destroyed() is what made every
+    // closed connection print "wildcard call disconnects from destroyed signal of
+    // QTcpSocket": QWebSocketPrivate::releaseConnections() wildcard-disconnects that very
+    // socket and Qt warns about any destroyed() connection it finds there. The timer is a
+    // child of the socket, so it dies with it and nothing wildcard-disconnects the timer.
+    connect(timer, &QObject::destroyed, this, [this, key]() { m_pendingTimers.remove(key); });
     m_pendingTimers.insert(key, timer);
     timer->start(m_config.handshakeTimeoutMs);
 }
@@ -981,7 +990,9 @@ QObject *WebEdge::createSource(const WebEdgeConnectPoint &connectPoint, QObject 
         context->setContextProperty(it.key(), it.value());
     }
     QQmlComponent component{m_engine, QUrl::fromLocalFile(connectPoint.serverFile)};
-    QObject *source{component.create(context)};
+    // Asked before creating: create() on a component that failed to compile prints its own
+    // "Component is not ready" first, which says less than the error built below.
+    QObject *source{component.isReady() ? component.create(context) : nullptr};
     if (!source) {
         if (error) {
             *error = QStringLiteral("failed to load %1: %2")
