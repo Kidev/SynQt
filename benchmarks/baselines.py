@@ -687,6 +687,28 @@ def _check_capstone(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
     )
 
+    # A player cannot be handed more snapshots than the loop publishes. This is not a
+    # performance claim, it is an arithmetic one, and it is enforced because the only way
+    # to break it is for the harness to be measuring the wrong thing. It has happened: the
+    # rate was once derived by subtracting a coalescing counter, so a backed-up link
+    # draining the previous window's backlog reported 84.9/s from a 30 Hz tick, and the
+    # sweep's saturated end looked healthier than its healthy end. Nothing here caught it.
+    # A small tolerance covers the window boundary, not a factor of three.
+    overrun = [
+        f"{row['players']} players received {row['snapshot_rate_hz']:.1f}/s"
+        for row in sweep
+        if row.get("snapshot_rate_hz", 0.0) > hz * 1.05
+    ]
+    checks.append(
+        Check(
+            "capstone.snapshot_rate_never_exceeds_the_tick_rate",
+            not overrun,
+            f"no player is handed more than the {hz} Hz the loop publishes"
+            if not overrun
+            else "; ".join(overrun) + f" against a {hz} Hz loop",
+        )
+    )
+
     # The point of the capstone is to find the ceiling, so the ceiling is reported, not
     # gated: past it the fixed-rate loop stops holding its cadence, and that is the
     # honest limit of a single-edge deployment rather than a defect.

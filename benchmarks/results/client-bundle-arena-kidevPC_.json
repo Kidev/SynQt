@@ -5,25 +5,25 @@
   "host": "Arch Linux",
   "arch": "x86_64",
   "qt_version": "6.11.1",
-  "recorded": "unknown",
+  "recorded": "2026-07-31T06:16:52Z",
   "files": [
     {
       "name": "client.js",
-      "raw": 263497,
-      "gzip": 60450,
-      "brotli": 52357
+      "raw": 264309,
+      "gzip": 60673,
+      "brotli": 52606
     },
     {
       "name": "client.wasm",
-      "raw": 25813848,
-      "gzip": 9514925,
-      "brotli": 6685370
+      "raw": 25885706,
+      "gzip": 9539951,
+      "brotli": 6699990
     },
     {
       "name": "index.html",
-      "raw": 6084,
-      "gzip": 2260,
-      "brotli": 1804
+      "raw": 6265,
+      "gzip": 2599,
+      "brotli": 2166
     },
     {
       "name": "qtloader.js",
@@ -39,9 +39,9 @@
     },
     {
       "name": "synqt-boot.js",
-      "raw": 5572,
-      "gzip": 1986,
-      "brotli": 1617
+      "raw": 7187,
+      "gzip": 2574,
+      "brotli": 2100
     },
     {
       "name": "synqt-sw.js",
@@ -50,7 +50,7 @@
       "brotli": 1709
     }
   ],
-  "total_raw": 26109058,
-  "total_gzip": 9586701,
-  "total_brotli": 6747044
+  "total_raw": 26183524,
+  "total_gzip": 9612877,
+  "total_brotli": 6762758
 }

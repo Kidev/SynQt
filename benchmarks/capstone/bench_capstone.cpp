@@ -60,6 +60,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 #ifdef Q_OS_LINUX
 #include <unistd.h>
@@ -145,8 +146,8 @@ double residentMegabytes()
         return -1.0;
     }
     const qint64 residentPages{fields.at(1).toLongLong()};
-    const qint64 pageBytes{qint64(sysconf(_SC_PAGESIZE))};
-    return double(residentPages * pageBytes) / (1024.0 * 1024.0);
+    const qint64 pageBytes{static_cast<qint64>(sysconf(_SC_PAGESIZE))};
+    return static_cast<double>(residentPages * pageBytes) / (1024.0 * 1024.0);
 #else
     return -1.0;
 #endif
@@ -287,7 +288,23 @@ struct Player
     WebSocketTransport *transport{nullptr};
     QRemoteObjectNode *node{nullptr};
     PlayerViewReplica *view{nullptr};
+
+    // Snapshots this player has actually been handed, counted by the replica's own change
+    // signal. Shared, because the sweep hands run() a mid() slice of the player list and a
+    // counter living in the struct would be incremented on the original while the copy is
+    // the one measured.
+    //
+    // It has to be a count of deliveries, not the distance the published tick moved. The
+    // tick is the run's cumulative counter and QtRO coalesces property pushes, so a
+    // backed-up link that delivers one update carrying a value 400 ticks newer looks
+    // identical, by subtraction, to 400 delivered snapshots. That is not a rounding error:
+    // it made the saturated end of the sweep report 84.9 snapshots/s from a 30 Hz tick,
+    // draining the previous window's backlog and calling it throughput, so the one metric
+    // meant to expose the ceiling was the one hiding it.
+    std::shared_ptr<quint64> received{std::make_shared<quint64>(0)};
     quint64 snapshots{0};
+    // Whether this player's replica was live when the window opened.
+    bool baselined{false};
 };
 
 // Spin the event loop until the predicate holds or the deadline passes, so a wedged link fails the
@@ -313,20 +330,19 @@ void run(Arena &arena, int hz, double seconds, int interestK,
          const QList<PlayerViewSimpleSource *> &sources,
          const QList<QStandardItemModel *> &models, QList<Player> &players, bool measuring,
          quint64 &tickCounter, Distribution &jitter, Distribution &publishCpu,
-         double &snapshotRate, double &rssMb, int &rowsPerSession)
+         double &snapshotRate, double &rssMb, int &rowsPerSession, int &playersNotCounted)
 {
     const int n{arena.size()};
-    const double dt{1.0 / double(hz)};
-    const qint64 intervalUs{qint64(1'000'000.0 / double(hz))};
+    const double dt{1.0 / static_cast<double>(hz)};
+    const qint64 intervalUs{static_cast<qint64>(1'000'000.0 / static_cast<double>(hz))};
     const int totalTicks{int(seconds * hz)};
     rowsPerSession = std::min(interestK, n);
 
     // Baseline each player's snapshot counter at the window start, so the delivered count below
     // measures only this window.
     for (Player &player : players) {
-        player.snapshots = (player.view != nullptr && player.view->isInitialized())
-                               ? player.view->tick()
-                               : 0;
+        player.baselined = player.view != nullptr && player.view->isInitialized();
+        player.snapshots = *player.received;
     }
 
     QElapsedTimer wall;
@@ -344,7 +360,7 @@ void run(Arena &arena, int hz, double seconds, int interestK,
             publishSlice(models.at(i), arena, visible);
             sources.at(i)->setTick(tickCounter);
         }
-        const double cpuMs{double(cpu.nsecsElapsed()) / 1'000'000.0};
+        const double cpuMs{static_cast<double>(cpu.nsecsElapsed()) / 1'000'000.0};
 
         // Drain the sockets until the next tick is due, so snapshots reach players inside the
         // budget and the loop keeps its cadence when it can.
@@ -353,7 +369,7 @@ void run(Arena &arena, int hz, double seconds, int interestK,
             QCoreApplication::processEvents(QEventLoop::AllEvents, 1);
         }
         const qint64 actualUs{wall.nsecsElapsed() / 1000};
-        const double jitterMs{std::abs(double(actualUs - deadlineUs)) / 1000.0};
+        const double jitterMs{std::abs(static_cast<double>(actualUs - deadlineUs)) / 1000.0};
 
         if (measuring) {
             publishCpu.samples.append(cpuMs);
@@ -365,19 +381,30 @@ void run(Arena &arena, int hz, double seconds, int interestK,
         return;
     }
 
+    // Count only players whose replica was live for the whole window: one that was still
+    // acquiring at the start had nothing to receive for part of it, and averaging it in
+    // reports the shortfall as a lower rate for everyone instead of as the connection
+    // problem it is. Those players are the finding, so they are reported, not dropped.
     quint64 delivered{0};
+    int counted{0};
     for (const Player &player : players) {
-        const quint64 now{player.view != nullptr && player.view->isInitialized()
-                              ? player.view->tick()
-                              : 0};
-        delivered += now - player.snapshots;
+        if (!player.baselined || player.view == nullptr || !player.view->isInitialized()) {
+            continue;
+        }
+        delivered += *player.received - player.snapshots;
+        ++counted;
     }
-    snapshotRate = players.isEmpty() ? 0.0 : (double(delivered) / double(players.size())) / seconds;
+    playersNotCounted = static_cast<int>(players.size()) - counted;
+    snapshotRate = counted == 0
+                       ? 0.0
+                       : (static_cast<double>(delivered) / static_cast<double>(counted))
+                             / seconds;
     rssMb = residentMegabytes();
 }
 
 void printRow(QTextStream &out, int n, int rows, const Distribution &jitter,
-              const Distribution &publishCpu, double snapshotRate, double rssMb)
+              const Distribution &publishCpu, double snapshotRate, double rssMb,
+              int playersNotCounted)
 {
     out << "  N=" << qSetFieldWidth(4) << n << qSetFieldWidth(0)
         << "  rows/session=" << qSetFieldWidth(4) << rows << qSetFieldWidth(0)
@@ -386,7 +413,13 @@ void printRow(QTextStream &out, int n, int rows, const Distribution &jitter,
         << "  jitter p50/p95=" << QString::number(jitter.percentile(0.50), 'f', 3) << "/"
         << QString::number(jitter.percentile(0.95), 'f', 3) << "ms"
         << "  snap=" << QString::number(snapshotRate, 'f', 1) << "/s"
-        << "  rss=" << QString::number(rssMb, 'f', 1) << "MB" << Qt::endl;
+        << "  rss=" << QString::number(rssMb, 'f', 1) << "MB"
+        // Printed only when it happened, and it is not a footnote: a player the run could
+        // not keep a live replica for is a player the deployment dropped.
+        << (playersNotCounted > 0
+                ? QStringLiteral("  players_not_counted=%1").arg(playersNotCounted)
+                : QString{})
+        << Qt::endl;
 }
 
 } // namespace
@@ -495,6 +528,10 @@ int main(int argc, char *argv[])
         player.node->setHeartbeatInterval(2000);
         player.view = player.node->acquire<PlayerViewReplica>(
             QStringLiteral("PlayerView_%1").arg(i));
+        // One increment per snapshot this player is actually handed. Capturing the
+        // shared counter, not the Player, so the copy the sweep measures sees it.
+        QObject::connect(player.view, &PlayerViewReplica::tickChanged, player.view,
+                         [counter = player.received]() { ++(*counter); });
         players.append(player);
     }
 
@@ -540,9 +577,11 @@ int main(int argc, char *argv[])
         double warmRate{0.0};
         double warmRss{0.0};
         int warmRows{0};
+        int warmNotCounted{0};
         if (warmupSeconds > 0.0) {
             run(arena, hz, warmupSeconds, interestK, activeSources, activeModels, activePlayers,
-                false, tickCounter, warmJitter, warmCpu, warmRate, warmRss, warmRows);
+                false, tickCounter, warmJitter, warmCpu, warmRate, warmRss, warmRows,
+                warmNotCounted);
         }
 
         Distribution jitter;
@@ -552,10 +591,13 @@ int main(int argc, char *argv[])
         double snapshotRate{0.0};
         double rssMb{0.0};
         int rowsPerSession{0};
+        int playersNotCounted{0};
         run(arena, hz, seconds, interestK, activeSources, activeModels, activePlayers, true,
-            tickCounter, jitter, publishCpu, snapshotRate, rssMb, rowsPerSession);
+            tickCounter, jitter, publishCpu, snapshotRate, rssMb, rowsPerSession,
+            playersNotCounted);
 
-        printRow(out, n, rowsPerSession, jitter, publishCpu, snapshotRate, rssMb);
+        printRow(out, n, rowsPerSession, jitter, publishCpu, snapshotRate, rssMb,
+                 playersNotCounted);
 
         sweepJson.append(QJsonObject{
             {QStringLiteral("players"), n},
@@ -563,6 +605,10 @@ int main(int argc, char *argv[])
             {QStringLiteral("rows_per_tick"), rowsPerSession * n},
             {QStringLiteral("snapshot_rate_hz"), snapshotRate},
             {QStringLiteral("target_rate_hz"), hz},
+            // The rate above is over the players that held a replica for the whole window;
+            // this says how many did not, so a healthy-looking rate over a shrinking
+            // population cannot pass for a healthy run.
+            {QStringLiteral("players_not_counted"), playersNotCounted},
             {QStringLiteral("rss_mb"), rssMb},
             {QStringLiteral("tick_jitter"), jitter.toJson()},
             {QStringLiteral("publish_cpu"), publishCpu.toJson()}});
