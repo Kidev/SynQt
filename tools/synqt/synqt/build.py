@@ -124,6 +124,70 @@ def built_note(host_targets: List[str], client_targets: List[str]) -> str:
     return f"compiled {', '.join(built)} through the pinned toolchain."
 
 
+def _preset_generator(project_dir: Path, preset: str) -> Optional[str]:
+    """The generator a configure preset names, following `inherits`. None when the preset
+    leaves it to CMake's per-platform default, in which case there is nothing to compare."""
+    presets_file = project_dir / "CMakePresets.json"
+    try:
+        document = json.loads(presets_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    by_name = {entry.get("name"): entry
+               for entry in document.get("configurePresets", [])
+               if isinstance(entry, dict)}
+    seen: set[str] = set()
+    while preset and preset in by_name and preset not in seen:
+        seen.add(preset)  # a malformed inherits cycle must not hang the build
+        entry = by_name[preset]
+        if entry.get("generator"):
+            return str(entry["generator"])
+        inherits = entry.get("inherits")
+        preset = inherits[0] if isinstance(inherits, list) and inherits else inherits
+    return None
+
+
+def _cached_generator(build_dir: Path) -> Optional[str]:
+    """The generator an existing CMake cache was configured with, or None."""
+    cache = build_dir / "CMakeCache.txt"
+    try:
+        for line in cache.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("CMAKE_GENERATOR:"):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        return None
+    return None
+
+
+def _clear_incompatible_cache(configure: List[str], build_dir: Path,
+                              project_dir: Path) -> Optional[str]:
+    """Delete a CMake cache that was made by a different generator than the preset asks
+    for, so the configure below can succeed. Returns a line to report, or None.
+
+    CMake refuses outright to reconfigure such a directory ("Does not match the generator
+    used previously"), and it is the build directory synqt owns and would have created
+    itself, so the fix is synqt's to apply rather than an error to hand back. It is not a
+    hypothetical: the host preset moved to Ninja so the host build has the same shape on
+    Windows as elsewhere, which left every project configured before that change unable
+    to build until someone deleted a directory cmake named only indirectly.
+
+    Only the cache and CMakeFiles go: build outputs are left alone, so this costs a
+    reconfigure and a rebuild of what changed, not the whole tree.
+    """
+    if "--preset" not in configure:
+        return None
+    wanted = _preset_generator(project_dir, configure[configure.index("--preset") + 1])
+    existing = _cached_generator(build_dir)
+    if not wanted or not existing or wanted == existing:
+        return None
+    shutil.rmtree(build_dir / "CMakeFiles", ignore_errors=True)
+    try:
+        (build_dir / "CMakeCache.txt").unlink()
+    except OSError:
+        return None
+    return (f"note: {build_dir} was configured with {existing} and the preset now asks "
+            f"for {wanted}; reconfiguring it from scratch.")
+
+
 def _configure_if_needed(configure: List[str], build_dir: Path, project_dir: Path,
                          verbose: bool) -> bool:
     """Configure the build directory, unless it is already configured with this exact
@@ -153,6 +217,9 @@ def _configure_if_needed(configure: List[str], build_dir: Path, project_dir: Pat
                 return False
         except OSError:
             pass  # never configured through this path, or the stamp is gone: configure.
+    note = _clear_incompatible_cache(configure, build_dir, project_dir)
+    if note:
+        print(note)
     _run(configure, project_dir, verbose)
     # Written only after a configure that succeeded, so a failed one is retried rather
     # than remembered as done.

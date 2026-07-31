@@ -138,5 +138,85 @@ class ConfigureSkipping(unittest.TestCase):
         self.assertTrue(self.configure())
 
 
+class IncompatibleCache(unittest.TestCase):
+    """A build directory configured by a different generator than the preset now names.
+
+    CMake refuses to reconfigure one ("Does not match the generator used previously") and
+    `synqt build` used to pass that straight through, which made a preset change break
+    every project configured before it until someone deleted a directory by hand. Found on
+    examples/arena, whose build/host predated the host preset moving to Ninja.
+    """
+
+    def setUp(self):
+        self._dir = TemporaryDirectory()
+        self.root = Path(self._dir.name)
+        self.build_dir = self.root / "build" / "host"
+        self.build_dir.mkdir(parents=True)
+        (self.root / "CMakePresets.json").write_text(json.dumps({
+            "version": 6,
+            "configurePresets": [
+                {"name": "host", "generator": "Ninja"},
+                {"name": "child", "inherits": "host"},
+                {"name": "default"},
+            ],
+        }))
+
+    def tearDown(self):
+        self._dir.cleanup()
+
+    def write_cache(self, generator):
+        (self.build_dir / "CMakeCache.txt").write_text(
+            f"CMAKE_GENERATOR:INTERNAL={generator}\nCMAKE_HOME_DIRECTORY:INTERNAL=/x\n")
+        (self.build_dir / "CMakeFiles").mkdir(exist_ok=True)
+
+    def clear(self, preset="host"):
+        return build._clear_incompatible_cache(["cmake", "--preset", preset],
+                                               self.build_dir, self.root)
+
+    def test_a_mismatched_generator_clears_the_cache(self):
+        self.write_cache("Unix Makefiles")
+        note = self.clear()
+        self.assertIn("Unix Makefiles", note)
+        self.assertIn("Ninja", note)
+        self.assertFalse((self.build_dir / "CMakeCache.txt").exists())
+        self.assertFalse((self.build_dir / "CMakeFiles").exists())
+
+    def test_a_matching_generator_is_left_alone(self):
+        self.write_cache("Ninja")
+        self.assertIsNone(self.clear())
+        self.assertTrue((self.build_dir / "CMakeCache.txt").exists())
+
+    def test_the_generator_is_followed_through_inherits(self):
+        self.write_cache("Unix Makefiles")
+        self.assertIsNotNone(self.clear("child"))
+
+    def test_a_preset_naming_no_generator_never_clears(self):
+        """Nothing to compare against: CMake's default is per platform, so a cache made by
+        any generator is as legitimate as the next one."""
+        self.write_cache("Unix Makefiles")
+        self.assertIsNone(self.clear("default"))
+        self.assertTrue((self.build_dir / "CMakeCache.txt").exists())
+
+    def test_an_unconfigured_directory_is_not_touched(self):
+        self.assertIsNone(self.clear())
+
+    def test_build_outputs_survive_the_clearing(self):
+        """Only the cache and CMakeFiles go; this costs a reconfigure, not a clean tree."""
+        self.write_cache("Unix Makefiles")
+        artifact = self.build_dir / "web"
+        artifact.write_text("a built entity")
+        self.clear()
+        self.assertTrue(artifact.exists())
+
+    def test_an_inherits_cycle_does_not_hang(self):
+        (self.root / "CMakePresets.json").write_text(json.dumps({
+            "version": 6,
+            "configurePresets": [{"name": "a", "inherits": "b"},
+                                 {"name": "b", "inherits": "a"}],
+        }))
+        self.write_cache("Unix Makefiles")
+        self.assertIsNone(self.clear("a"))
+
+
 if __name__ == "__main__":
     unittest.main()
