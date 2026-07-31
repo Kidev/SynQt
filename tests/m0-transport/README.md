@@ -45,8 +45,18 @@ needs `SharedArrayBuffer`, and the browser only grants that under cross-origin i
 **with** those headers and asserts the page is `crossOriginIsolated`, has `SharedArrayBuffer`,
 boots the threaded runtime, and still passes all four QtRO paths; then serves the identical
 bundle **without** the headers and asserts it is *not* isolated, proving the headers are
-load-bearing. Verified headless on Chromium (`chromium-1228`, emsdk 4.0.7). This closes the
-multi-threaded-WASM runtime check the single-threaded matrix does not cover.
+load-bearing. Run in every engine Playwright can launch, the same way the single-threaded
+matrix is.
+
+The isolated page is served under the policy the edge actually emits, with one difference:
+`worker-src 'self'` and no `blob:`. That turns the `blob:` allowance the edge ships into
+something measured on every run rather than assumed, and each engine's
+`securitypolicyviolation` events are reported by directive. It is reported, not enforced:
+an engine that turns out to need `blob:` is a finding about that engine, and it would still
+work on the shipped policy. Serving the real policy is also why the client reads its `?url=`
+through Embind instead of `emscripten_run_script_string`, and links
+`-sDYNAMIC_EXECUTION=0`: `script-src 'wasm-unsafe-eval'` does not permit an eval, so without
+that the spike would need a policy no SynQt app uses.
 
 ## What it contains
 

@@ -15,8 +15,12 @@
 #include <cstdio>
 
 #ifdef Q_OS_WASM
+#include <emscripten/bind.h>
 #include <emscripten/console.h>
 #include <emscripten/emscripten.h>
+#include <emscripten/val.h>
+
+#include <string>
 #endif
 
 namespace {
@@ -59,10 +63,17 @@ QUrl resolveEdgeUrl()
 {
     QString url;
 #ifdef Q_OS_WASM
-    char *raw{emscripten_run_script_string(
-        "(function(){return (new URLSearchParams(window.location.search))"
-        ".get('url') || '';})()")};
-    url = QString::fromUtf8(raw);
+    // Through Embind, not emscripten_run_script_string: that one is an eval, so it needs
+    // `script-src 'unsafe-eval'` and the CSP SynQt's edge actually emits does not grant it.
+    // The product reads the browser the same way for the same reason (BrowserHistory, and
+    // the -sDYNAMIC_EXECUTION=0 the generated client links with), and this spike is only
+    // worth anything if it runs the way the shipped client does.
+    const emscripten::val params{emscripten::val::global("URLSearchParams").new_(
+        emscripten::val::global("location")["search"])};
+    const emscripten::val value{params.call<emscripten::val>("get", std::string{"url"})};
+    if (!value.isNull() && !value.isUndefined()) {
+        url = QString::fromStdString(value.as<std::string>());
+    }
 #endif
     if (url.isEmpty()) {
         url = qEnvironmentVariable("M0_URL", QStringLiteral("ws://localhost:8088"));

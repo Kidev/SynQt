@@ -36,6 +36,18 @@ const WS_PORT = 8092;
 
 const headless = process.env.MT_HEADLESS === "1" ? true : !process.env.DISPLAY;
 
+// The policy the edge emits (WebEdgeConfig::csp), plus the wss origin it appends and a
+// worker-src of 'self' with NO blob:. The edge ships `worker-src 'self' blob:` under
+// cross-origin isolation as a margin for engines that spawn pthread workers from blob
+// URLs; serving the strict form here is what turns "the pinned kit does not need blob:"
+// into a measurement, in whichever engines this run can launch. A page that needs it
+// fails visibly: its workers never start, so the threaded client never connects, and the
+// violations counted below name the directive that stopped it.
+const STRICT_CSP = `default-src 'self'; connect-src 'self' ws://localhost:${WS_PORT}; `
+    + "img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    + "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; "
+    + "object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+
 const MIME = {
     ".html": "text/html",
     ".js": "text/javascript",
@@ -85,6 +97,7 @@ function startStaticServer(port, isolate) {
                 // carry CORP; here everything is same-origin, so it loads.
                 headers["Cross-Origin-Opener-Policy"] = "same-origin";
                 headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+                headers["Content-Security-Policy"] = STRICT_CSP;
             }
             res.writeHead(200, headers);
             res.end(data);
@@ -234,15 +247,35 @@ async function isolationState(page) {
     return { isolated: false, sab: false };
 }
 
+// Every Content-Security-Policy the page reports being stopped by, listened for in the
+// page itself rather than read out of console text: securitypolicyviolation is the
+// engine's own event and every engine fires it, while the console wording is each
+// engine's own and Firefox in particular says it differently.
+async function collectCspViolations(page) {
+    const violations = [];
+    await page.exposeFunction("__mtCspViolation", (report) => violations.push(report));
+    await page.addInitScript(() => {
+        document.addEventListener("securitypolicyviolation", (event) => {
+            // The blocked URI as well as the directive: "script-src" alone does not say
+            // whether an inline script, an eval, or a file was stopped, and those are
+            // three different findings.
+            const directive = event.effectiveDirective || event.violatedDirective;
+            window.__mtCspViolation(`${directive} (${event.blockedURI || "unknown"})`);
+        });
+    });
+    return violations;
+}
+
 async function runIsolated(browserType) {
     const browser = await browserType.launch(launchOptions());
     try {
         const context = await browser.newContext({ ignoreHTTPSErrors: true });
         const { page, logs } = await newPageWithLogs(context, "isolated");
+        const violations = await collectCspViolations(page);
         await page.goto(pageUrl(ISOLATED_PORT), { waitUntil: "load", timeout: 60000 });
         const iso = await isolationState(page);
         const paths = await waitForAllPaths(logs);
-        return { iso, paths };
+        return { iso, paths, violations: [...new Set(violations)] };
     } finally {
         await browser.close();
     }
@@ -314,6 +347,10 @@ async function main() {
                     `signal=${isolated.paths.signal} reply=${isolated.paths.reply} ` +
                     `model=${isolated.paths.model}`
             );
+            console.log(`    strict worker-src 'self' (no blob:): ` +
+                (isolated.violations.length === 0
+                    ? "no CSP violation"
+                    : `violated ${isolated.violations.join(", ")}`));
 
             console.log(`=== ${name}: case control (no isolation headers) ===`);
             const plain = await runPlainControl(browserType);
@@ -332,8 +369,15 @@ async function main() {
     for (const { name, isolated, plain } of results) {
         const isolatedOk = isolated.iso.isolated && isolated.iso.sab && isolated.paths.pass;
         const controlOk = !plain.iso.isolated;   // the headers are what unlock isolation
+        // Reported, not enforced. The edge ships `worker-src 'self' blob:`, so an engine
+        // that turns out to need blob: is a finding about that engine, not a broken build:
+        // it would keep working on the shipped policy. Failing the gate here would say the
+        // opposite. The paths above already fail loudly if workers could not start at all.
+        const strictOk = isolated.violations.length === 0;
         console.log(`  ${isolatedOk ? "PASS" : "FAIL"}  ${name} isolated: COI + SAB + threaded QtRO paths`);
         console.log(`  ${controlOk ? "PASS" : "FAIL"}  ${name} control: not isolated without the headers`);
+        console.log(`  ${strictOk ? "note" : "NOTE"}  ${name} ran under a strict worker-src 'self': `
+            + (strictOk ? "no blob: worker needed" : `needs ${isolated.violations.join(", ")}`));
         allOk = allOk && isolatedOk && controlOk;
     }
     console.log("===================================================");

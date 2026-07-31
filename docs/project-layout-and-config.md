@@ -367,7 +367,8 @@ security:
   # connect-src (browsers differ on whether 'self' covers WebSocket schemes), and
   # adds "worker-src 'self' blob:" when cross_origin_isolation is on ('self' covers the
   # pinned kit's pthread workers and the shell cache's service worker; blob: is a kept
-  # margin for engines not measured yet, see docs/csp.md).
+  # margin for a future toolchain, and the multi threaded proof serves the bundle
+  # without it on every run to keep that honest, see docs/csp.md).
   csp: >-
     default-src 'self'; connect-src 'self'; img-src 'self' data:;
     style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval';
@@ -465,20 +466,20 @@ connects.
 #### What it costs
 
 The session cookie is a third party cookie, so it lives or dies by browser policy.
-Measured on 2026-07-28 in Chromium 149 and Firefox 151, across two real sites over
-TLS (the rig and the full table are in
+Measured on 2026-07-28 in Chromium 149 and Firefox 151, and on 2026-07-31 in WebKit
+26.5 on a Linux and a macOS runner, across two real sites over TLS (the rig and the
+full table are in
 [`tests/split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)):
 
 | regime | what happens |
 |---|---|
 | Chromium and Firefox today | works: bundle loads, session mints, `wss` upgrade carries it, login works |
+| WebKit, which is Safari's engine, today | **nothing works**: the session request comes back unreadable and the upgrade carries no credential, with or without `Partitioned` |
 | third party cookies restricted | **nothing works**: the session request is ignored, the upgrade arrives with no credential, the edge refuses it |
 
-The second row is not a slow degradation. The app appears on screen and is
-permanently disconnected. Browsers are moving toward that row, not away from it.
-Safari already blocks third party cookies by default, which very likely puts it in
-that row today, though the numbers above do not yet say so: WebKit is measured only
-where a WebKit runtime exists, which is CI rather than the development machine.
+Those last two rows are not a slow degradation. The app appears on screen and is
+permanently disconnected. The middle row is today, in a shipping browser, and the
+others are where browsers are heading.
 
 The obvious repair does not work either. Marking the cookie `Partitioned` (CHIPS) is
 the standard way to keep a third party cookie alive, and it rescues the session
@@ -494,10 +495,11 @@ through the client context: the edge redirects to the client origin with a one t
 code, and the page exchanges it there, so the cookie is filed under the client's
 partition and login works. It buys one engine. In the same measurement Firefox stored
 the `Partitioned` cookie with **no partition key**, meaning it did not apply CHIPS at
-all, so under restriction the mode still dies there whatever the callback does, and
-Safari, which restricts today, is not measured. A redesign that fixes Chromium and
-leaves Firefox and Safari where they were is not a fix for this, which is why the
-deprecation above is the answer instead.
+all, so under restriction the mode still dies there whatever the callback does; and
+WebKit, measured since, never reads the cookie back from the client site at all, with
+the attribute or without it. A redesign that fixes Chromium and leaves Firefox and
+Safari where they are is not a fix for this, which is why the deprecation above is the
+answer instead.
 
 #### What to do instead
 

@@ -38,6 +38,13 @@ if [ ! -x "$QT_HOST/bin/qmake" ] && [ ! -d "$QT_HOST/lib/cmake" ]; then
     exit 1
 fi
 
+# Point the tooling's resolver at the same kit, the way tests/desktop-client does. The
+# `synqt check` calls below find qmllint on PATH or in the resolved kit's bin; on CI the
+# kit is on neither, so without this the QML lint reports "qmllint not found" and skips,
+# and a fixture written to lint a generated app lints nothing. QTDIR is the product's own
+# documented escape hatch for exactly this.
+export QTDIR="$QT_HOST"
+
 WORK="$REPO_ROOT/build/appgen-native"
 SRC="$WORK/gavel"
 echo "== [1/5] Materialize the gavel topology and run appgen over it =="
