@@ -213,14 +213,49 @@ floor by the Linux column of
 [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml), which
 already has the Qt kit the instrumented build needs.
 
-Two things the number deliberately does not claim. The external engine providers
-(`postgres`, `mysql`, `mongodb`, `redis`) sit near 20%, because everything past their
-connect call needs a live server; their tests skip cleanly without one, and what is covered
-is the part that matters most, which is that each refuses an unverified connection in a
-release build. And the client runtime's WebAssembly-only paths cannot execute on a host
-build at all; those are covered by
-[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml)
-in a real browser instead, where a line counter cannot follow.
+Two things move the figure, and it is worth knowing which is which.
+
+**The external engine providers need an engine.** Everything in `postgres`, `mysql`,
+`mongodb`, and `redis` past the connect call is unreachable without a live server, which is
+why each sits near 20% on a bare checkout. The proofs for them are already written (the same
+Source, swapped engine by engine, producing identical rows; the same `ICacheProvider`
+surface against real redis) and gated on `SYNQT_TEST_*` naming a reachable server, so they
+skip cleanly rather than pretending. Give them engines and they run:
+
+```sh
+docker run --rm -d --name synqt-pg -e POSTGRES_PASSWORD=synqt \
+    -e POSTGRES_USER=synqt -e POSTGRES_DB=synqt -p 5432:5432 postgres:16
+docker run --rm -d --name synqt-redis -p 6379:6379 redis:7
+docker run --rm -d --name synqt-mongo -p 27017:27017 mongo:7
+export SYNQT_TEST_PG_HOST=127.0.0.1 SYNQT_TEST_PG_PORT=5432 \
+    SYNQT_TEST_PG_DB=synqt SYNQT_TEST_PG_USER=synqt SYNQT_TEST_PG_PASSWORD=synqt
+export SYNQT_TEST_REDIS_HOST=127.0.0.1 SYNQT_TEST_REDIS_PORT=6379
+export SYNQT_TEST_MONGO_URI=mongodb://127.0.0.1:27017 SYNQT_TEST_MONGO_DB=synqt
+```
+
+The Linux column of `ctest.yml` starts the same three containers, so this is measured in CI
+too. It does it best-effort: an engine that does not come up leaves the suite skipping
+exactly as it would have, because a coverage number is not worth a build that fails over
+infrastructure. Two things gate the redis and mongodb halves further, and both are why that
+column installs `libhiredis-dev` and `libmongoc-dev`: without those headers at configure
+time, `src/providers/CMakeLists.txt` leaves the wrapper out of the build entirely, so the
+file is not uncovered, it is not there. Faking the wire protocols instead was considered and
+rejected: satisfying libpq or the MongoDB driver well enough to be useful is a large surface,
+and a green test against a fake proves the provider talks to the fake.
+
+**WebAssembly-only code is not in the denominator at all.** A native build does not compile
+what is behind `#ifdef Q_OS_WASM`, so gcov never instruments it, and it lands in neither the
+covered nor the missed column. That would let the percentage rise by moving code into a
+browser-only branch, so the report counts those lines separately and prints them under the
+total (about a hundred: the history and address bar bridge, the resume path's
+`sessionStorage`, the console log route, and the Embind reads of the served page). They are
+covered behaviourally by
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml),
+which drives the real client in Chromium, Firefox, and WebKit, and no line counter follows
+them there. Emscripten can emit LLVM coverage and the profile can be lifted out of the
+virtual filesystem after a run, so a number is obtainable; it is not currently worth a second
+coverage pipeline for a hundred lines whose failure mode (the address bar, the reconnect, the
+deep link) is what the browser matrix asserts directly.
 
 ## Benchmarks ([`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks))
 

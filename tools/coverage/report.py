@@ -17,6 +17,12 @@ dependency worth adding to read a number that gcov already knows.
     tools/coverage/report.py --build-dir build/coverage [--fail-under 70]
 
 `--json` writes the same figures as a machine-readable file, which is what CI keeps.
+
+One thing this number must not do quietly: a native build does not compile the code behind
+`#ifdef Q_OS_WASM`, so gcov never instruments it and it lands in neither the covered nor the
+missed column. It simply is not in the denominator, which would let the percentage rise by
+moving code into a WebAssembly-only branch. The report counts those lines separately and
+names them, so the blind spot is on the same screen as the figure it is missing from.
 """
 
 from __future__ import annotations
@@ -120,6 +126,46 @@ def _collect(build_dir: Path, source_root: Path, gcov: str) -> Dict[Path, Tuple[
     return per_file
 
 
+def _wasm_only_lines(path: Path) -> Set[int]:
+    """The lines of one file that only a WebAssembly build compiles.
+
+    A deliberately shallow reading of the preprocessor: it tracks `#if`/`#else`/`#endif`
+    nesting and calls a branch WebAssembly-only when its condition names Q_OS_WASM
+    positively. That is exactly the shape the runtime uses (`#ifdef Q_OS_WASM` ... `#else`
+    ... `#endif`), and being approximate is acceptable here because the figure it produces
+    is reported on its own rather than folded into the coverage percentage: at worst it
+    misstates the size of a hole it exists to point at.
+    """
+    branches: list = []
+    wasm: Set[int] = set()
+    for number, line in enumerate(path.read_text(encoding="utf-8",
+                                                 errors="replace").splitlines(), 1):
+        text = line.strip()
+        if text.startswith("#if"):
+            branches.append("Q_OS_WASM" in text
+                            and "!defined" not in text
+                            and not text.startswith("#ifndef"))
+        elif text.startswith("#else") and branches:
+            branches[-1] = not branches[-1]
+        elif text.startswith("#endif") and branches:
+            branches.pop()
+        elif any(branches) and text and not text.startswith("//"):
+            wasm.add(number)
+    return wasm
+
+
+def _unmeasured_wasm(source_root: Path, per_file: Dict[Path, Tuple[Set[int], Set[int]]]) -> int:
+    """How many WebAssembly-only lines this build never compiled, across all of src/."""
+    total = 0
+    for path in sorted(source_root.rglob("*.cpp")):
+        guarded = _wasm_only_lines(path)
+        if not guarded:
+            continue
+        executable, _ = per_file.get(path.resolve(), (set(), set()))
+        total += len(guarded - executable)
+    return total
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -174,12 +220,19 @@ def main() -> int:
     print("-" * (width + 26))
     print("%-*s  %7d %7d %7.1f%%" % (width, "TOTAL", total_executable, total_executed, total))
 
+    unmeasured = _unmeasured_wasm(source_root, per_file)
+    if unmeasured:
+        print("\nnot in the figure above: %d line(s) behind #ifdef Q_OS_WASM, which a native "
+              "build\ndoes not compile. Those run in a browser and are covered behaviourally "
+              "by\nbrowser-matrix.yml, where no line counter follows them." % unmeasured)
+
     if args.json:
         Path(args.json).parent.mkdir(parents=True, exist_ok=True)
         Path(args.json).write_text(json.dumps({
             "lines": total_executable,
             "covered": total_executed,
             "percent": round(total, 2),
+            "wasm_only_lines_not_measured": unmeasured,
             "files": rows,
         }, indent=2) + "\n", encoding="utf-8")
 
