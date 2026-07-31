@@ -130,6 +130,13 @@ div.header {
 #titlearea {
     background: transparent;
     border-bottom: none;
+    /* Doxygen also draws a divider down the right of the title area, in its own light
+       palette rather than in the separator colour. #top and #nav-tree already carry the
+       divider that separates the sidebar from the content, so this one was a second,
+       much brighter line drawn over the first for the height of the head alone: a short
+       pale streak that stopped level with the search box and looked like a rendering
+       fault. One divider, full height, in the palette the rest of the page uses. */
+    border-right: 0;
 }
 
 #synqt-sidebar-head {
@@ -211,6 +218,51 @@ div.header {
    tree, its border, and the panel edge line up. */
 #nav-tree {
     margin-right: 0;
+    /* And no scrollbar of its own, for the reason the page outline has none: this layout
+       gives each of its three panes its own scroller, so a reference page could show
+       three bars down a window where every other page of the site shows one. (Only
+       Firefox drew all three: doxygen-awesome already fades this one's WebKit thumb out
+       until the pointer is over the tree, which is why the count depended on the
+       browser.) The two flanking panes are navigation, and the site shows no bar on
+       either of its own (extra.css, .md-sidebar__scrollwrap), so they lose theirs here as
+       well. Nothing is hidden by it: the wheel still scrolls the tree, and Doxygen
+       scrolls the entry for the page you are on into view when you arrive. What keeps its
+       bar is the content pane below, which is this layout's equivalent of the window's. */
+    scrollbar-width: none;
+}
+
+#nav-tree::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* The content pane is the one pane that keeps a scrollbar, because it is the page: on
+   every other page of the site that is the window's own bar. Doxygen asks for a thin one
+   (doxygen.css) but gives it no colours, and doxygen-awesome's quiet treatment covers the
+   tree and the code fragments rather than this pane, so it kept the browser's own track:
+   over the gradient, an opaque channel down the middle of the window between the content
+   and the outline. Same treatment as everything around it, so what is left is the
+   position indicator rather than the channel. */
+#doc-content {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(230, 230, 240, 0.22) transparent;
+}
+
+#doc-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+#doc-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#doc-content::-webkit-scrollbar-thumb {
+    background: rgba(230, 230, 240, 0.22);
+    border-radius: 4px;
+}
+
+#doc-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(230, 230, 240, 0.35);
 }
 
 /* doxygen-awesome paints two things with --page-background-color as though it were the
@@ -269,10 +321,11 @@ div.memproto table {
    (docs/stylesheets/extra.css, .md-sidebar--secondary): same treatment, same sticky
    label over it, same absence of a frame around it.
 
-   What is kept is the part Doxygen does and the site does not: the outline tracks what
-   is on screen, dimming what has scrolled past, accenting the heading you are in, and
-   marking the range in view down the left edge. That is worth having, so it stays; it is
-   only retuned here from a menu selection to a hairline. */
+   What is kept is the tracking: the outline dims what has scrolled past and accents the
+   heading you are in, which is what the site's own table of contents does. What is not
+   kept is the bar Doxygen draws down the left of the range in view. Toned down to a
+   hairline it stopped reading as a menu selection and started reading as a stray line
+   next to two entries, which is worse: the accent already says where you are. */
 #page-nav {
     background: transparent;
     border-left: 0;
@@ -290,11 +343,19 @@ div.memproto table {
    and the site shows no scrollbar on its own table of contents either (extra.css hides
    both sidebars'). Hide the bar; the wheel still works. */
 #page-nav-contents {
-    /* navtree.css sizes this `width: 100%` in the browser default content box, so a right
-       inset added there would widen the element instead of insetting it, and the list
-       would run off the edge of the panel it is meant to sit inside. */
+    /* navtree.css sizes this `width: 100%` in the browser default content box, so an inset
+       added there would widen the element instead of insetting it, and the list would run
+       off the edge of the panel it is meant to sit inside.
+
+       The inset is on both sides, and the left one is load-bearing rather than cosmetic:
+       this element scrolls, so it clips at its own edges, and the label below is sticky
+       with a soft backdrop that reaches about twelve pixels past its box. Flush against
+       the left edge, that backdrop was cut off square there and feathered on the right,
+       which read as a panel with a corner sliced off. Inset by the same amount on both
+       sides it has room to fade out on both, the way the site's own label does. The list
+       moves with it, so the label and the entries stay in one column. */
     box-sizing: border-box;
-    padding-right: var(--spacing-large);
+    padding: 0 var(--spacing-large);
     scrollbar-width: none;
 }
 
@@ -355,17 +416,17 @@ div.memproto table {
     overflow-wrap: anywhere;
 }
 
-/* The range currently on screen, marked down the left edge. The theme draws it as a 4px
-   bar on an opaque plate, which on a gradient is a flat rectangle behind the entries and
-   reads as a selected block of a menu. A hairline on the bare background says the same
-   thing without claiming to be a selection. */
+/* The range currently on screen, which the theme marks with a 4px bar on an opaque plate
+   down the left edge. Both go. On a gradient the plate is a flat rectangle behind the
+   entries that reads as a selected block of a menu, and the bar without it is a line
+   segment hanging beside the first entries with nothing to attach it to. The site marks
+   the same thing by accenting the heading you are in, which this page does too. */
 #page-nav ul.page-outline .vis {
     background: transparent;
 }
 
 #page-nav ul.page-outline .vis::after {
-    width: 2px;
-    background: var(--separator-color);
+    display: none;
 }
 
 /* Between the theme's mobile breakpoint and about 1200px the tree and the page outline

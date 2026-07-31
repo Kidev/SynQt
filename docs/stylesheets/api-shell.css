@@ -49,13 +49,13 @@
 }
 
 /* The reference scrolls inside its own frame, so this page has nothing left to
-   scroll and no bar of its own. What is left is the reference's outline panel,
-   whose bar sits a few pixels inboard of where the window's bar sits on every
-   other page and starts under the header rather than at the top of the window,
-   so moving between this page and any other moved the bar on the right. Every
-   page already reserves that width (`scrollbar-gutter: stable`, extra.css), so
-   putting this page's own bar in it costs nothing and there is a bar in the same
-   place, the same height, whichever page is on screen. */
-html:has(.md-content--api) {
-  overflow-y: scroll;
-}
+   scroll, and it no longer asks for a bar of its own. It used to: `overflow-y:
+   scroll` here forced one, to keep a bar in the same place from page to page
+   back when the outline panel inside the frame had a visible bar. That reason
+   is gone (the outline's bar is hidden now, see
+   tools/docs-hooks/doxygen-synqt.css), and so is the rule, because
+   `scrollbar-gutter: stable` in extra.css already reserves the same width on
+   every page including this one. Measured with and without: the right-hand edge
+   of this page renders identically either way, and identically to any other
+   page of the site. This note is what is left of the rule, so that the next
+   person to notice the reserved strip knows it is the site's, not this page's. */
