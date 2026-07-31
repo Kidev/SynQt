@@ -87,6 +87,27 @@ div.header {
     background: transparent;
 }
 
+/* The page title, set the way the documentation site sets the heading at the top of any
+   of its pages (Material's `.md-typeset h1`): light weight, dimmed rather than full
+   strength, and with nothing drawn under it. The theme's own is the opposite of all three,
+   which made a reference page announce itself in a heavier, whiter, underlined title than
+   every other page of the site. The size already matched (both land on 35px), so only the
+   weight, the colour, the tracking and the rule change here. */
+div.header {
+    border-bottom: 0;
+}
+
+div.header .title {
+    font-weight: 300;
+    color: rgba(230, 230, 240, 0.56);
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    /* The site leaves 44px under its heading. The theme leaves twelve, and taking the rule
+       off above lets even that collapse into the content's own top margin, so it is stated
+       here instead of inherited from a border that no longer exists. */
+    margin-bottom: 44px;
+}
+
 /* The side layout, restated for this Doxygen against this theme.
 
    Doxygen 1.16 nests the sidebar head inside the sidebar (#top inside #side-nav);
@@ -367,6 +388,12 @@ div.memproto table {
 
 #page-nav {
     width: var(--side-nav-fixed-width) !important;
+
+    /* And the type in it is the site's table of contents type. Material sets that list at
+       0.7rem against a root it has scaled to 137.5%, which computes to 15.4px; this
+       document leaves its root at the browser default, so the same 15.4px is 0.9625rem
+       here. Scoped to the panel, so the sidebar tree keeps the theme's size. */
+    --navigation-font-size: 0.9625rem;
 }
 
 /* The outline scrolls itself to follow the content, so the reader never has to drag it,
@@ -383,9 +410,15 @@ div.memproto table {
        the left edge, that backdrop was cut off square there and feathered on the right,
        which read as a panel with a corner sliced off. Inset by the same amount on both
        sides it has room to fade out on both, the way the site's own label does. The list
-       moves with it, so the label and the entries stay in one column. */
+       moves with it, so the label and the entries stay in one column.
+
+       The top inset is what lines the label up with the page title, which is where the
+       site's own label sits: without it the outline started at the very top of the frame,
+       a title's height above the title it belongs to. It is inside the scroller rather
+       than above it so that it scrolls away, leaving the label pinned directly under the
+       site header the way the site's is. */
     box-sizing: border-box;
-    padding: 0 var(--spacing-large);
+    padding: 15px var(--spacing-large) 0 var(--spacing-large);
     scrollbar-width: none;
 }
 
@@ -403,13 +436,15 @@ div.memproto table {
     position: sticky;
     top: 0;
     z-index: 1;
-    padding: 0 0 0 16px;
+    padding: 0 16px;
     background: var(--page-background-color);
-    box-shadow: 0 0 6px 6px var(--page-background-color);
-    color: var(--page-secondary-foreground-color);
+    /* The site's own label carries an 8.8px backdrop; matched here, so the two fade out
+       over the same distance rather than one looking tighter than the other. */
+    box-shadow: 0 0 9px 9px var(--page-background-color);
+    color: rgba(230, 230, 240, 0.56);
     font-size: var(--navigation-font-size);
     font-weight: 700;
-    line-height: 1.4;
+    line-height: 1.3;
 }
 
 /* Only when the page has headings to list. Doxygen emits the panel on every page and
@@ -437,12 +472,18 @@ div.memproto table {
     flex: none;
 }
 
+/* The entries themselves, as the site sets its own: plain page text weight, dimmed a
+   little rather than coloured like a link, which leaves the accent to mean one thing in
+   this panel, the section you are in. The theme's rules for that entry and for the ones
+   scrolled past are more specific, so they still decide those two states. */
 #page-nav ul.page-outline li a {
     flex: 1;
     display: block;
+    color: rgba(230, 230, 240, 0.82);
     font-size: var(--navigation-font-size) !important;
-    line-height: 1.4;
-    margin: 9px 0 0 0;
+    font-weight: 400;
+    line-height: 1.3;
+    margin: 9.6px 0 0 0;
     overflow-wrap: anywhere;
 }
 
