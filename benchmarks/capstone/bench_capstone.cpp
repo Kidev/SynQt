@@ -88,8 +88,8 @@ struct Distribution
         QList<double> sorted{samples};
         std::sort(sorted.begin(), sorted.end());
         const double rank{fraction * (sorted.size() - 1)};
-        const int low{int(std::floor(rank))};
-        const int high{int(std::ceil(rank))};
+        const int low{static_cast<int>(std::floor(rank))};
+        const int high{static_cast<int>(std::ceil(rank))};
         if (low == high) {
             return sorted.at(low);
         }
@@ -219,7 +219,7 @@ public:
     // player sees. This O(N) scan per player is the realistic edge cost the sweep loads.
     QList<int> nearest(int viewer, int k) const
     {
-        const int cap{std::min(k, int(m_blobs.size()))};
+        const int cap{std::min(k, static_cast<int>(m_blobs.size()))};
         QList<int> indices;
         indices.reserve(m_blobs.size());
         for (int i{0}; i < m_blobs.size(); ++i) {
@@ -362,7 +362,7 @@ void run(Arena &arena, int hz, double seconds, int interestK,
     const int n{arena.size()};
     const double dt{1.0 / static_cast<double>(hz)};
     const qint64 intervalUs{static_cast<qint64>(1'000'000.0 / static_cast<double>(hz))};
-    const int totalTicks{int(seconds * hz)};
+    const int totalTicks{static_cast<int>(seconds * hz)};
     rowsPerSession = std::min(interestK, n);
 
     // Baseline each player's snapshot counter at the window start, so the delivered count below

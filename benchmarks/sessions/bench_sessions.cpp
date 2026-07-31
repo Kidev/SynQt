@@ -91,7 +91,7 @@ QList<Caller *> buildCallerPool(SessionManager &manager, const QList<QByteArray>
                                 int poolSize, bool hierarchical, QObject *parent)
 {
     QList<Caller *> pool;
-    const int size{qMin(poolSize, int(tokens.size()))};
+    const int size{qMin(poolSize, static_cast<int>(tokens.size()))};
     pool.reserve(size);
     for (int i{0}; i < size; ++i) {
         const qsizetype index{(static_cast<qsizetype>(i) * kStride) % tokens.size()};

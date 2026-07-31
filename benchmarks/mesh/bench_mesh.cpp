@@ -1,18 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The mesh-transport baseline (M3), the service-to-service links, measured the way the
+// The mesh-transport baseline, the service-to-service links, measured the way the
 // transport benchmark measures the browser link. It stands up the real framework transports
 // in one process (SynQt::MeshServer / MeshClient) and reports the full distribution
 // (p50/p95/p99) for two link modes:
 //
-//   * mutual TLS on loopback. The DEFAULT for every mesh link, including two entities on one
+//   * mutual TLS on loopback: the DEFAULT for every mesh link, including two entities on one
 //     host (the same QSslServer/QSslSocket pair, bound to the loopback interface);
-//   * the opt-in local socket (QLocalServer/QLocalSocket). The explicit fast path.
+//   * the opt-in local socket (QLocalServer/QLocalSocket): the explicit fast path.
 //
-// The point of the run is the DELTA between them. The benchmarking plan is explicit that the
-// loopback-mTLS vs local-socket gap is "the number that justifies keeping transport: local as
-// an explicit fast path. Measure it, do not assume it." So this harness measures, per link:
+// The point of the run is the DELTA between them, which is the number that justifies keeping
+// `transport: local` as an explicit fast path. So this harness measures, per link:
 //   connection setup cost (handshake + verify against the project CA vs a local connect),
 //   slot round-trip latency, one-way property-push propagation, and pipelined throughput.
 //
@@ -92,8 +91,8 @@ struct Distribution
         QList<double> sorted{samples};
         std::sort(sorted.begin(), sorted.end());
         const double rank{fraction * (sorted.size() - 1)};
-        const int low{int(std::floor(rank))};
-        const int high{int(std::ceil(rank))};
+        const int low{static_cast<int>(std::floor(rank))};
+        const int high{static_cast<int>(std::ceil(rank))};
         if (low == high) {
             return sorted.at(low);
         }
@@ -496,7 +495,7 @@ int main(int argc, char *argv[])
         scalars.append(measureThroughput(kind, link.replica.data(), throughputCalls, 64));
     }
 
-    // Connection-setup cost, the number the transport. Local fast path is justified by.
+    // Connection-setup cost, the number the `transport: local` fast path is justified by.
     for (const LinkKind kind : {LinkKind::MutualTls, LinkKind::LocalSocket}) {
         distributions.append(measureSetupCost(kind, setupSamples));
     }
