@@ -91,6 +91,18 @@ hooks:
   # deploy can never pair this page's new script with a reader's cached stylesheet.
   - tools/docs-hooks/assets.py
 
+# What `mkdocs serve` rebuilds on. It watches this file and docs/ by itself, and nothing
+# else: everything the site is also built from has to be named here or an edit to it is
+# invisible until the server is restarted, which is a slow way to find out that the page
+# in front of you is stale. That is the page templates, and the whole of what the C++
+# reference under /api/ is made of: the headers it documents, the Doxyfile, and the
+# stylesheets, templates and hook that shape the result.
+watch:
+  - overrides
+  - src
+  - Doxyfile
+  - tools/docs-hooks
+
 plugins:
   - search
   # Converts GitHub style alerts (> [!NOTE], > [!TIP], ...) into Material

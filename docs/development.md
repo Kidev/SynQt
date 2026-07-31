@@ -310,6 +310,40 @@ hold the brand styling, the download modal, that shell's URL syncing, and the ho
 colours the code samples. It is built and published by
 [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) on a push to `main`.
 
+### Running the site locally
+
+```sh
+pip install -r requirements.txt   # once, in a virtual environment
+mkdocs serve                      # http://127.0.0.1:8000
+```
+
+That is the whole site, the C++ reference under `/api/` included: the
+[Doxygen hook](https://github.com/Kidev/SynQt/blob/main/tools/docs-hooks/doxygen.py) runs
+on every build, the same one `mkdocs build` and the workflow run, so what the server shows
+is what gets published. It needs `doxygen` and `graphviz` on the path. Without them the
+site still builds and the reference is simply missing, with a warning that says so.
+
+Match the Doxygen version [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml)
+pins (1.16.1) before concluding anything about the reference. Doxygen generates the
+navigation script that the hook then patches, an older release generates a different one,
+and the hook declines to patch what it does not recognise: the local page and the
+published page can differ for that reason alone.
+
+The server rebuilds on a change to anything the site is built from, not only to `docs/`.
+MkDocs watches `docs/` and `mkdocs.yml` by itself, and the `watch` list in
+[`mkdocs.yml`](https://github.com/Kidev/SynQt/blob/main/mkdocs.yml) adds the rest: the
+theme overrides, the headers the reference documents, the
+[`Doxyfile`](https://github.com/Kidev/SynQt/blob/main/Doxyfile), and the hook and
+stylesheets in [`tools/docs-hooks`](https://github.com/Kidev/SynQt/tree/main/tools/docs-hooks).
+A rebuild is about two seconds, most of it Doxygen.
+
+There is no test suite for the site. What stands in for one is `mkdocs build --strict`,
+which turns every warning into a failure, and reading the pages: a stale claim in the prose
+is not something a build can catch. The reference pages keep state in the browser
+(the sidebar tree's position, the reader's panel widths), so if `/api/` looks wrong in a
+browser that has been through many builds and right in a fresh profile, clear the site data
+for `127.0.0.1` before looking for the cause in the CSS.
+
 ## Continuous integration ([`.github/workflows/`](https://github.com/Kidev/SynQt/tree/main/.github/workflows))
 
 The workflows are described in [build system and CLI](build-system-and-cli.md#continuous-integration).
