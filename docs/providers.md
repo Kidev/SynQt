@@ -101,6 +101,12 @@ framework headers):
 - Cache: `connect()`, `health()`, `get(key)`, `set(key, value, ttl)`, `del(key)`,
   `incr(key)`, `expire(key, ttl)`.
 
+The entity's QML never holds the interface itself. Each blueprint exposes one helper,
+injected into every owned connect point Source by the entity runtime: `Db` for
+persistence, `Docs` for document, `Cache` for cache (and, outside the provider
+families, `Http` for a gateway and `Jobs` for a jobs entity). The helper forwards to
+whichever provider the config selected, which is why the Source never names an engine.
+
 ## Bundled providers, and how honest each one is
 
 SynQt bundles providers across the families. They differ in how they reach the

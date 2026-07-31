@@ -142,6 +142,14 @@ class QmlFormatCheckTest(unittest.TestCase):
         # first check: that is how people learn to skim the output.
         self.assertEqual(check.check_qml_format(self.root), [])
 
+    def test_every_blueprint_stub_is_format_clean_too(self):
+        # The Source stubs are scaffolding as much as Main.qml is, and they are what the
+        # first check after `synqt new --blueprint <kind>` looks at.
+        root = Path(tempfile.mkdtemp())
+        newproject.scaffold(root.parent, root.name,
+                            blueprints=["persistence", "cache", "document", "gateway", "jobs"])
+        self.assertEqual(check.check_qml_format(root), [])
+
     def test_the_scaffold_opts_in_and_ships_the_settings(self):
         config = yaml.safe_load((self.root / "synqt.yaml").read_text())
         self.assertTrue(check.wants_qml_format_check(config))

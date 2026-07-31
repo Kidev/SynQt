@@ -99,9 +99,9 @@ case "$(readlink -f "$MYSQL_LIBRARY")" in
 esac
 
 echo "Qt kit:      $QT_HOST"
-echo "Qt sources:  $sqldrivers"
+echo "Qt sources: $sqldrivers"
 echo "Connector/C: $MYSQL_LIBRARY (headers: $MYSQL_INCLUDE_DIR)"
-echo "installing:  $PLUGIN_ROOT/sqldrivers"
+echo "installing: $PLUGIN_ROOT/sqldrivers"
 
 generator=(-G Ninja)
 command -v ninja >/dev/null 2>&1 || generator=()

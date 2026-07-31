@@ -492,8 +492,8 @@ page protects the page's markup, never the data the page later reads.
   auditable.
 - The generated contract layer is reproducible from `shared/` and is not edited by
   hand, so it cannot hide unreviewed behavior.
-- Official entity blueprints (persistence, cache, gateway, jobs) are part of the
-  framework and reviewed; using one does not pull in an unaudited third party
+- Official entity blueprints (persistence, cache, document, gateway, jobs) are part
+  of the framework and reviewed; using one does not pull in an unaudited third party
   product.
 
 ## Logging and observability

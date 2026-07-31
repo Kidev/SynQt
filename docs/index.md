@@ -74,9 +74,9 @@ irm https://get.synqt.org/install.ps1 | iex
 
 -   :material-database: __Batteries included, no third party servers__
 
-    Add a database, cache, gateway, or jobs runner as a first party entity. Back it
-    with an embedded engine, or mask PostgreSQL, MongoDB, or Redis behind it with one
-    config value.
+    Add a database, cache, document store, gateway, or jobs runner as a first party
+    entity. Back it with an embedded engine, or mask PostgreSQL, MongoDB, or Redis
+    behind it with one config value.
 
 -   :material-devices: __Web and desktop, one codebase__
 

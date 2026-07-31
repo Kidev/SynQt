@@ -87,7 +87,7 @@ private:
     void openConsumerLink(const ConnectPointConfig &connectPoint);
     QQmlPropertyMap *accessorFor(const QString &capitalizedOwner);
 
-    /// Build the backend helper (Db/Cache/Http/Jobs) this entity's blueprint calls for, so
+    /// Build the backend helper (Db/Cache/Docs/Http/Jobs) this entity's blueprint calls for, so
     /// it can be injected into every owned Source's QML context before the Source is created.
     /// False with errorString() set when the entity cannot serve its blueprint at all: its
     /// `provider.name` selects nothing, or the selected engine will not open. An entity whose

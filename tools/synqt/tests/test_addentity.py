@@ -50,6 +50,20 @@ class AddEntityTest(unittest.TestCase):
         self.assertFalse(entity["inbound"])  # inbound exposure is an explicit choice
         self.assertIn("Http.get", (root / "api" / "Items.qml").read_text())
 
+    def test_document_stub_calls_the_docs_helper_with_its_own_filter(self):
+        root = self._project()
+        addentity.scaffold(root, "notes", "document")
+        entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
+        self.assertEqual(entity["blueprint"], "document")
+        self.assertEqual(entity["provider"]["name"], "memory")  # embedded, nothing to install
+        source = (root / "notes" / "Items.qml").read_text()
+        self.assertIn("Docs.insert", source)
+        self.assertIn("Docs.find", source)
+        # A filter map is the engine's query language, so the stub builds its own from a
+        # value rather than forwarding a caller's map, and it names no engine.
+        self.assertNotIn("mongo", source.lower())
+        self.assertIn('"author": String(author)', source)
+
     def test_rejects_unknown_blueprint_and_wrong_provider(self):
         root = self._project()
         with self.assertRaises(addentity.AddEntityError):

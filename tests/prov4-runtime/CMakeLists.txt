@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# PROV-4 acceptance: EntityRuntime injects a blueprint's backend helper (Db/Cache/Http/Jobs)
+# PROV-4 acceptance: EntityRuntime injects a blueprint's backend helper (Db/Cache/Docs/Http/Jobs)
 # into every owned Source from the entity's provider config, with no manual wiring. Native
 # host kit; a local-socket connect point keeps the owner cert-free (this proves injection,
 # not the mesh, which M3/M4 already cover).
