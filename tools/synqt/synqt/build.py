@@ -19,7 +19,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import (appgen, appmodel, clientbuild, clientcache, clientmodules, clientshell,
                config as configmod, deploy as deploymod, licenses, manifest, presets,
@@ -155,9 +155,8 @@ def built_note(host_targets: List[str], client_targets: List[str]) -> str:
     return f"compiled {', '.join(built)} through the pinned toolchain."
 
 
-def _preset_generator(project_dir: Path, preset: str) -> Optional[str]:
-    """The generator a configure preset names, following `inherits`. None when the preset
-    leaves it to CMake's per-platform default, in which case there is nothing to compare."""
+def _preset_value(project_dir: Path, preset: str, read: Callable[[Dict[str, Any]], Any]) -> Any:
+    """What `read` finds on a configure preset, following `inherits` until one answers."""
     presets_file = Path(project_dir) / "CMakePresets.json"
     try:
         document = json.loads(presets_file.read_text(encoding="utf-8"))
@@ -170,11 +169,19 @@ def _preset_generator(project_dir: Path, preset: str) -> Optional[str]:
     while preset and preset in by_name and preset not in seen:
         seen.add(preset)  # a malformed inherits cycle must not hang the build
         entry = by_name[preset]
-        if entry.get("generator"):
-            return str(entry["generator"])
+        value = read(entry)
+        if value:
+            return value
         inherits = entry.get("inherits")
         preset = inherits[0] if isinstance(inherits, list) and inherits else inherits
     return None
+
+
+def _preset_generator(project_dir: Path, preset: str) -> Optional[str]:
+    """The generator a configure preset names, following `inherits`. None when the preset
+    leaves it to CMake's per-platform default, in which case there is nothing to compare."""
+    generator = _preset_value(project_dir, preset, lambda entry: entry.get("generator"))
+    return str(generator) if generator else None
 
 
 def _cached_generator(build_dir: Path) -> Optional[str]:
@@ -189,34 +196,116 @@ def _cached_generator(build_dir: Path) -> Optional[str]:
     return None
 
 
+# Where a configured tree remembers which Qt it was made with. CMake reads a toolchain file
+# once and a package directory until it goes missing, so none of them follows a change of kit.
+_KIT_CACHE_KEYS = ("CMAKE_TOOLCHAIN_FILE", "Qt6_DIR", "QT_HOST_PATH_CMAKE_DIR")
+
+
+def _cached_values(build_dir: Path, keys: Tuple[str, ...]) -> Dict[str, str]:
+    values: Dict[str, str] = {}
+    try:
+        lines = (build_dir / "CMakeCache.txt").read_text(
+            encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return values
+    for line in lines:
+        name, _, rest = line.partition(":")
+        if name in keys and "=" in rest:
+            values[name] = rest.split("=", 1)[1].strip()
+    return values
+
+
+def _real(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return path
+
+
+def _kits_asked_for(configure: List[str], project_dir: Path) -> List[Path]:
+    """Every Qt kit this configure command names, resolved.
+
+    The wasm kit through its own qt-cmake wrapper, the host kit through QT_HOST_PATH or
+    CMAKE_PREFIX_PATH on the command line, and a preset's prefix path and toolchain file.
+    Resolved, because a project names its kits through the links under synqt/toolchain.
+    """
+    kits: List[Path] = []
+    if configure and Path(configure[0]).name.startswith("qt-cmake"):
+        kits.append(Path(configure[0]).parent.parent)
+    for part in configure:
+        for flag in ("-DQT_HOST_PATH=", "-DCMAKE_PREFIX_PATH="):
+            if part.startswith(flag):
+                kits += [Path(entry) for entry in part[len(flag):].split(";") if entry]
+    if "--preset" in configure:
+        preset = configure[configure.index("--preset") + 1]
+
+        def expand(value: str) -> str:
+            return value.replace("${sourceDir}", str(project_dir))
+
+        def prefix(entry: Dict[str, Any]) -> Any:
+            value = (entry.get("cacheVariables") or {}).get("CMAKE_PREFIX_PATH")
+            return value.get("value") if isinstance(value, dict) else value
+
+        prefix_path = _preset_value(project_dir, preset, prefix)
+        if prefix_path:
+            kits += [Path(expand(entry)) for entry in str(prefix_path).split(";") if entry]
+        toolchain = _preset_value(project_dir, preset, lambda entry: entry.get("toolchainFile"))
+        if toolchain:
+            # <kit>/lib/cmake/Qt6/qt.toolchain.cmake
+            kits.append(Path(expand(str(toolchain))).parents[3])
+    return [_real(kit) for kit in kits]
+
+
+def _foreign_kit(configure: List[str], build_dir: Path, project_dir: Path) -> Optional[str]:
+    """A path the cache holds into a Qt kit this configure does not use, or None."""
+    kits = _kits_asked_for(configure, project_dir)
+    if not kits:
+        return None
+    for value in _cached_values(build_dir, _KIT_CACHE_KEYS).values():
+        if not value or value.endswith("-NOTFOUND"):
+            continue
+        cached = _real(Path(value))
+        if not any(cached == kit or kit in cached.parents for kit in kits):
+            return value
+    return None
+
+
 def _clear_incompatible_cache(configure: List[str], build_dir: Path,
                               project_dir: Path) -> Optional[str]:
-    """Delete a CMake cache that was made by a different generator than the preset asks
-    for, so the configure below can succeed. Returns a line to report, or None.
+    """Delete a CMake cache this configure cannot reuse, so the configure below can succeed.
+    Returns a line to report, or None.
 
-    CMake refuses outright to reconfigure such a directory ("Does not match the generator
-    used previously"), and it is the build directory synqt owns and would have created
-    itself, so the fix is synqt's to apply rather than an error to hand back. It is not a
-    hypothetical: the host preset moved to Ninja so the host build has the same shape on
-    Windows as elsewhere, which left every project configured before that change unable
-    to build until someone deleted a directory cmake named only indirectly.
+    Two caches cannot be reused. One made by a different generator than the preset asks for,
+    which CMake refuses outright ("Does not match the generator used previously"). And one
+    made against a different Qt kit: its toolchain file and Qt6_DIR are read once and kept,
+    so after the pinned Qt moves, every configure of that tree fails with "could not find a
+    configuration file for package Qt6 that is compatible", naming the old kit and not the
+    directory to delete. Either way it is the build directory synqt owns and would have
+    created itself, so the fix is synqt's to apply rather than an error to hand back.
 
     Only the cache and CMakeFiles go. Build outputs are left alone, so this costs a
     reconfigure and a rebuild of what changed, not the whole tree.
     """
-    if "--preset" not in configure:
-        return None
-    wanted = _preset_generator(project_dir, configure[configure.index("--preset") + 1])
-    existing = _cached_generator(build_dir)
-    if not wanted or not existing or wanted == existing:
+    note = None
+    if "--preset" in configure:
+        wanted = _preset_generator(project_dir, configure[configure.index("--preset") + 1])
+        existing = _cached_generator(build_dir)
+        if wanted and existing and wanted != existing:
+            note = (f"note: {build_dir} was configured with {existing} and the preset now "
+                    f"asks for {wanted}; reconfiguring it from scratch.")
+    if note is None:
+        foreign = _foreign_kit(configure, build_dir, project_dir)
+        if foreign:
+            note = (f"note: {build_dir} was configured against {foreign}, which is not the "
+                    f"Qt kit this build uses; reconfiguring it from scratch.")
+    if note is None:
         return None
     shutil.rmtree(build_dir / "CMakeFiles", ignore_errors=True)
     try:
         (build_dir / "CMakeCache.txt").unlink()
     except OSError:
         return None
-    return (f"note: {build_dir} was configured with {existing} and the preset now asks "
-            f"for {wanted}; reconfiguring it from scratch.")
+    return note
 
 
 def _configure_if_needed(configure: List[str], build_dir: Path, project_dir: Path,

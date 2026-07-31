@@ -1,19 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""`synqt build` regenerates everything, and that must not mean rebuilding everything.
+"""`synqt build` regenerates everything without rebuilding everything.
 
-Every build rewrites the CMake, the presets, each `main.cpp` and each resolved topology
-from `synqt.yaml`, which is what keeps them from drifting. The cost was that `write_text`
-moves a file's modification time whether or not a byte changed, and CMake and the compiler
-read modification times. An unchanged `main.cpp` rewritten identically still bought a full
-reconfigure and a full recompile of everything including it. Measured on the gavel example,
-a no-op `synqt build` went from 4.76s to 0.08s once it stopped doing that.
-
-Both halves are pinned here. The first is that regeneration is content-addressed: identical
-output leaves the file alone. The second is that the explicit configure is skipped only when
-it is redundant, and specifically that it is NOT skipped when the preset changed,
-which is the one input the generated build graph does not watch for itself.
+Regeneration is content-addressed: identical output leaves the file and its timestamp alone.
+The explicit configure is skipped only when redundant, and never when the preset changed,
+which the generated build graph does not watch.
 """
 
 import json
@@ -57,8 +49,7 @@ class WriteIfChanged(unittest.TestCase):
         self.assertTrue(target.is_file())
 
     def test_an_unreadable_file_is_overwritten_rather_than_compared(self):
-        """Something else wrote it, in an encoding this cannot read. Regenerating is the
-        job. Refusing because the old bytes are strange would leave stale output in place."""
+        """A file in an unreadable encoding is overwritten, not compared."""
         target = self.root / "main.cpp"
         target.write_bytes(b"\xff\xfe binary")
         self.assertTrue(writer.write_if_changed(target, "clean\n"))
@@ -107,9 +98,9 @@ class ConfigureSkipping(unittest.TestCase):
                                         "-DSYNQT_EDGE_URL=wss://other/sync")))
 
     def test_a_changed_preset_configures_again(self):
-        """The case the generated build graph cannot catch. Ninja re-runs cmake for a
-        changed CMakeLists.txt and never looks at CMakePresets.json, which is read when
-        cmake is invoked and carries the cache variables."""
+        """A changed preset configures again: Ninja re-runs cmake for CMakeLists.txt but never
+        reads CMakePresets.json.
+        """
         self.write_presets(json.dumps({"version": 6}))
         self.configure()
         (self.build_dir / "CMakeCache.txt").write_text("")
@@ -126,8 +117,7 @@ class ConfigureSkipping(unittest.TestCase):
         self.assertTrue(self.configure())
 
     def test_a_failed_configure_is_retried_rather_than_remembered(self):
-        """The stamp is written after the run, so a configure that raised leaves nothing
-        behind claiming the directory is ready."""
+        """The stamp is written after the run, so a failed configure is retried."""
         def failing(command, cwd, verbose):
             raise RuntimeError("cmake failed")
 
@@ -141,11 +131,8 @@ class ConfigureSkipping(unittest.TestCase):
 
 
 class IncompatibleCache(unittest.TestCase):
-    """A build directory configured by a different generator than the preset now names.
-
-    CMake refuses to reconfigure one ("Does not match the generator used previously"), and
-    a `synqt build` that passes that straight through makes a preset change break
-    every project configured before it until someone deletes a directory by hand.
+    """A build directory configured by another generator than the preset names is cleared:
+    CMake refuses to reconfigure it ("Does not match the generator used previously").
     """
 
     def setUp(self):
@@ -193,11 +180,69 @@ class IncompatibleCache(unittest.TestCase):
         self.assertIsNotNone(self.clear("child"))
 
     def test_a_preset_naming_no_generator_never_clears(self):
-        """Nothing to compare against: CMake's default is per platform, so a cache made by
-        any generator is as legitimate as the next one."""
+        """A preset naming no generator never clears: the default is per platform."""
         self.write_cache("Unix Makefiles")
         self.assertIsNone(self.clear("default"))
         self.assertTrue((self.build_dir / "CMakeCache.txt").exists())
+
+    def write_kit_cache(self, **values):
+        lines = ["CMAKE_GENERATOR:INTERNAL=Ninja"]
+        lines += [f"{key}:PATH={value}" for key, value in values.items()]
+        (self.build_dir / "CMakeCache.txt").write_text("\n".join(lines) + "\n")
+        (self.build_dir / "CMakeFiles").mkdir(exist_ok=True)
+
+    def kit(self, version, name):
+        path = self.root / "qt" / version / name
+        (path / "bin").mkdir(parents=True, exist_ok=True)
+        return path
+
+    def test_a_tree_configured_against_another_wasm_kit_clears(self):
+        """A tree configured against another wasm kit clears; its cached toolchain file names
+        the old Qt.
+        """
+        old = self.kit("6.11.1", "wasm_singlethread")
+        new = self.kit("6.12.0", "wasm_singlethread")
+        host = self.kit("6.12.0", "gcc_64")
+        self.write_kit_cache(
+            CMAKE_TOOLCHAIN_FILE=old / "lib/cmake/Qt6/qt.toolchain.cmake",
+            QT_HOST_PATH_CMAKE_DIR=self.root / "qt/6.11.1/gcc_64/lib/cmake")
+        note = build._clear_incompatible_cache(
+            [str(new / "bin" / "qt-cmake"), "-S", ".", "-B", str(self.build_dir),
+             f"-DQT_HOST_PATH={host}"], self.build_dir, self.root)
+        self.assertIsNotNone(note)
+        self.assertIn("6.11.1", note)
+        self.assertFalse((self.build_dir / "CMakeCache.txt").exists())
+
+    def test_a_tree_configured_against_the_same_kit_is_left_alone(self):
+        new = self.kit("6.12.0", "wasm_singlethread")
+        host = self.kit("6.12.0", "gcc_64")
+        self.write_kit_cache(
+            CMAKE_TOOLCHAIN_FILE=new / "lib/cmake/Qt6/qt.toolchain.cmake",
+            QT_HOST_PATH_CMAKE_DIR=host / "lib/cmake", Qt6_DIR="Qt6_DIR-NOTFOUND")
+        self.assertIsNone(build._clear_incompatible_cache(
+            [str(new / "bin" / "qt-cmake"), "-S", ".", "-B", str(self.build_dir),
+             f"-DQT_HOST_PATH={host}"], self.build_dir, self.root))
+        self.assertTrue((self.build_dir / "CMakeCache.txt").exists())
+
+    def test_a_host_preset_that_moved_kit_clears_through_a_link(self):
+        """Kits are compared by the real path behind the synqt/toolchain links."""
+        old = self.kit("6.11.1", "gcc_64")
+        new = self.kit("6.12.0", "gcc_64")
+        link = self.root / "synqt" / "toolchain" / "qt" / "6.12.0" / "gcc_64"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(new, target_is_directory=True)
+        (self.root / "CMakePresets.json").write_text(json.dumps({
+            "version": 6,
+            "configurePresets": [
+                {"name": "host", "generator": "Ninja", "cacheVariables": {
+                    "CMAKE_PREFIX_PATH": "${sourceDir}/synqt/toolchain/qt/6.12.0/gcc_64"}},
+                {"name": "host-release", "inherits": "host"},
+            ],
+        }))
+        self.write_kit_cache(Qt6_DIR=new / "lib/cmake/Qt6")
+        self.assertIsNone(self.clear("host-release"))
+        self.write_kit_cache(Qt6_DIR=old / "lib/cmake/Qt6")
+        self.assertIsNotNone(self.clear("host-release"))
 
     def test_an_unconfigured_directory_is_not_touched(self):
         self.assertIsNone(self.clear())
