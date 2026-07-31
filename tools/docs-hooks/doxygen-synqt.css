@@ -483,9 +483,33 @@ div.memproto table {
    The width is the sidebar's, so the two panels flanking the content are the same, and it
    is unconditional: the narrow window is handled by the rule further down this file that
    drops the outline below 1200px, which is later in the source and equally `!important`,
-   so it wins wherever it applies. */
+   so it wins wherever it applies.
+
+   The content column is capped here too, and that is what puts the outline back beside the
+   text. The theme caps the text itself (`div.contents`, --content-maxwidth) and centers it
+   in whatever width the column happens to have, while the outline is pinned to the far
+   right of the window. On a wide screen those two are not the same place: at 2560px the
+   text ended around x=1840 and the table of contents started at 2250, four hundred pixels
+   of gradient apart, where every other page of the site keeps its contents column a few
+   tens of pixels from the text it belongs to. Capping the column to what the text can
+   actually use (the sidebar it clears, the text, and the text's own padding) and centering
+   the pair puts the same gap there at every width, and spends the width left over on the
+   margins either side, which is exactly what the site does with it. Below the cap there is
+   no free space to distribute, so this is the layout that was already there.
+
+   The cap adds up what the first column holds: the sidebar the pane clears with its own
+   left margin, the text at its cap, the padding `div.contents` carries either side, and
+   the 10px the pane reserves for its scrollbar (`scrollbar-gutter: stable`, below). A
+   pixel short and the text is capped by the column instead of by its own rule, which is
+   the same page a few pixels narrower; the sum is stated so it is not. */
 #container {
-    grid-template-columns: auto var(--side-nav-fixed-width) !important;
+    grid-template-columns:
+        minmax(0, calc(var(--side-nav-fixed-width) + var(--content-maxwidth)
+                       + 2 * var(--spacing-xlarge) + 10px))
+        var(--side-nav-fixed-width) !important;
+    /* Two jobs: it centers the pair, and it stops the first track stretching to fill the
+       window, which an `auto` or `minmax()` track does on its own while this is `normal`. */
+    justify-content: center;
 }
 
 #page-nav {
@@ -506,9 +530,9 @@ div.memproto table {
        The theme positions this absolutely and offsets it from the top of the panel; the
        offset is set here instead, to where the site's own contents label sits, level with
        the page title. It is the element's own `top` and not padding inside it, so that the
-       label, which is pinned to the top of this box, has nothing above it that can scroll
-       into view above its plate: padding here would have left a band of the list showing
-       over it, which is what the plate's fade had to cover before.
+       label sitting over this box has nothing above it that can scroll into view above its
+       plate: padding here would have left a band of the list showing over it, which is what
+       the plate's fade had to cover before.
 
        The right inset is wider than the left because the window's scrollbar is drawn over
        that edge now (docs/javascripts/scrollbar.js), and because the site's own table of
@@ -525,10 +549,10 @@ div.memproto table {
 }
 
 /* The label over the list (tools/docs-hooks/doxygen.py, _name_the_page_outline), styled
-   as the site styles its own: quiet, bold, pinned while the list scrolls under it, and on
-   the same plate with the same soft edge fading out of it.
+   as the site styles its own: quiet, bold, held still while the list scrolls under it, and
+   on the same plate with the same soft edge fading out of it.
 
-   Being pinned is why it needs a plate at all, and the plate is the site's, colour
+   Being held still is why it needs a plate at all, and the plate is the site's, colour
    included. #1e2129 is Material's own dark background (`--md-default-bg-color`), which is
    what the label on every other page of the site is drawn on and faded out with, over the
    same 8.8px. It is not the colour of the page it sits on, on either side: the page is a
@@ -537,10 +561,19 @@ div.memproto table {
    inventing a second one.
 
    The plate is also why the list starts a line below the label rather than flush against
-   it, which is the same trade, for the same reason, that the site makes. */
+   it, which is the same trade, for the same reason, that the site makes.
+
+   It is placed here rather than pinned inside the list's own box, because that box scrolls
+   and a scrolling box clips at its edge: `position: sticky; top: 0` in there put the label
+   exactly on the clip, and cut the glow off square on the side facing the reader. Sitting
+   in the panel instead (which clips nothing) the plate fades out all round, as the site's
+   does. The offsets are the scrolling box's own insets, so the label and the entries under
+   it stay in one column; `top` is that box's, so the label covers its first line. */
 #page-nav-title {
-    position: sticky;
-    top: 0;
+    position: absolute;
+    top: 31px;
+    left: var(--spacing-large);
+    right: 32px;
     z-index: 1;
     padding: 0 16px;
     background: #1e2129;
@@ -554,12 +587,16 @@ div.memproto table {
 /* Only when the page has headings to list. Doxygen emits the panel on every page and
    fills it from script, so on a page with no sections (an index, a member list) the
    label would otherwise sit alone over an empty column. */
-#page-nav-contents:not(:has(ul.page-outline li)) #page-nav-title {
+#page-nav:not(:has(ul.page-outline li)) #page-nav-title {
     display: none;
 }
 
+/* The list starts under the label rather than at the top of the box it scrolls in, since
+   the label no longer takes a line of that box itself (it is over it, not in it). The line
+   it would have taken is stated as the label's own line box, so the two move together if
+   the contents size does. */
 #page-nav ul.page-outline {
-    margin: var(--spacing-medium) 0 var(--spacing-large) 0;
+    margin: calc(var(--spacing-medium) + var(--toc-font-size) * 1.3) 0 var(--spacing-large) 0;
 }
 
 /* Each entry is an indent spacer (span.arrow, which Doxygen widens inline by 16px per

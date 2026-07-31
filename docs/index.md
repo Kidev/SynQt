@@ -153,9 +153,11 @@ Seven files are that whole system: one configuration file, one contract, one
 QML file per entity, and the table the database keeps them in. Hover (or focus)
 any part of the diagram to read the file
 behind it, or pick the file out of the project tree beside it; it stays open
-until you move to another one. Hover any line of a file to see what that
-line does, and a line that ends in an arrow opens the page covering it, whether
-that is a page of this guide or the class in the C++ reference.
+until you move to another one. The database opens two, its QML and the table
+that QML queries, since neither says much without the other. Hover any line of
+a file to see what that line does, and a line that ends in an arrow opens the
+page covering it, whether that is a page of this guide or the class in the C++
+reference.
 
 <div class="synqt-explorer">
 
@@ -338,7 +340,7 @@ that is a page of this guide or the class in the C++ reference.
 <div class="synqt-flow__hotspot synqt-flow__hotspot--hub" data-file="web" tabindex="0" role="button" aria-label="Show web/Feed.qml"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--contract" data-file="contract" tabindex="0" role="button" aria-label="Show shared/Feed.syn"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--config" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml"></div>
-<div class="synqt-flow__hotspot synqt-flow__hotspot--database" data-file="database" tabindex="0" role="button" aria-label="Show database/Access.qml"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--database" data-file="database schema" tabindex="0" role="button" aria-label="Show database/Access.qml and database/schema.sql"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--api" data-file="api" tabindex="0" role="button" aria-label="Show api/Upstream.qml"></div>
 </div>
 </div>
@@ -627,8 +629,8 @@ UpstreamSource {
 <li class="synqt-tree__dir synqt-tree__dir--nested">web</li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/Feed.qml">Feed.qml</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested">database</li>
-<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="database" tabindex="0" role="button" aria-label="Show database/Access.qml">Access.qml</span></li>
-<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="schema" tabindex="0" role="button" aria-label="Show database/schema.sql">schema.sql</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show database/Access.qml and database/schema.sql">Access.qml</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show database/Access.qml and database/schema.sql">schema.sql</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested">api</li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="api" tabindex="0" role="button" aria-label="Show api/Upstream.qml">Upstream.qml</span></li>
 </ul>

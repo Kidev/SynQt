@@ -3,12 +3,12 @@
 
 /* The home page's "What it looks like" project.
  *
- * The section is one small system, drawn three times: a project tree of its six files,
+ * The section is one small system, drawn three times: a project tree of its seven files,
  * a diagram of the mesh those files build, with a file behind every part of it (the
  * configuration behind the cog, the contract behind the link the browser and the edge
  * share, one QML file behind each entity), and a file view showing exactly one of those
  * files at a time. Pointing at a file in either the tree or the diagram opens it, and
- * lights it in the other, so the two are one set of triggers over the same six files.
+ * lights it in the other, so the two are one set of triggers over the same seven files.
  * A file stays until another is pointed at, so the reader can move the pointer into the
  * file and read it, and it takes a moment's dwell to open, so a pointer crossing the
  * section on its way elsewhere does not leaf through every file behind it. The
@@ -31,6 +31,7 @@
   "use strict";
 
   var CURRENT = "synqt-file--current";
+  var STACKED = "synqt-file--stacked";
   var ON = "synqt-trigger--on";
   var SHOWN = "synqt-flow__hint--on";
   // Long enough that a pointer crossing the diagram on its way somewhere else does
@@ -174,12 +175,35 @@
       hint.classList.toggle(SHOWN, !!text);
     }
 
+    // What a trigger names, as one string. Almost every trigger names one file, and the
+    // database names two: the entity's QML and the schema.sql the query in it reads. They
+    // are one thing to point at, so the pair is written on the diagram's database and on
+    // both of its rows in the tree, and pointing at any of the three opens both files and
+    // lights both rows. Nothing else about them is special: they are short enough to sit
+    // one under the other in the panel without either of them scrolling.
+    function nameOf(element) {
+      return element.getAttribute("data-file").trim().split(/\s+/).join(" ");
+    }
+
     function show(name) {
+      var wanted = name.split(" ");
+      var open = [];
       for (var at = 0; at < files.length; at++) {
-        files[at].classList.toggle(CURRENT, files[at].getAttribute("data-file") === name);
+        var current = wanted.indexOf(files[at].getAttribute("data-file")) !== -1;
+        files[at].classList.toggle(CURRENT, current);
+        files[at].classList.remove(STACKED);
+        if (current) {
+          open.push(files[at]);
+        }
+      }
+      // With two files open, the first is as tall as it is and the second takes the rest
+      // of the panel, which is what keeps the explanation and the note at the foot of it
+      // rather than floating up under a short file.
+      for (var index = 0; index + 1 < open.length; index++) {
+        open[index].classList.add(STACKED);
       }
       for (var on = 0; on < triggers.length; on++) {
-        var chosen = triggers[on].getAttribute("data-file") === name;
+        var chosen = nameOf(triggers[on]) === name;
         triggers[on].classList.toggle(ON, chosen);
         triggers[on].setAttribute("aria-pressed", chosen ? "true" : "false");
       }
@@ -203,7 +227,7 @@
 
     for (var wire = 0; wire < triggers.length; wire++) {
       (function (trigger) {
-        var name = trigger.getAttribute("data-file");
+        var name = nameOf(trigger);
         trigger.addEventListener("mouseenter", function () {
           cancel();
           pending = window.setTimeout(function () {
@@ -262,7 +286,7 @@
       window.location.href = line.getAttribute("data-href");
     });
 
-    show(files[0].getAttribute("data-file"));
+    show(nameOf(files[0]));
   }
 
   function setup() {
