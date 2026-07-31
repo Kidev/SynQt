@@ -89,6 +89,16 @@ json="$json$(printf '"qt_version":"%s","recorded":"%s","files":[%s],' \
 json="$json$(printf '"total_raw":%s,"total_gzip":%s,"total_brotli":%s}' \
     "$total_raw" "$total_gzip" "$total_brotli_field")"
 
+# Indent it if python is around. These files are committed baselines whose whole job is to
+# be read in a diff when a later change moves a number, and one line holding every file's
+# three sizes is a diff nobody can review: a single byte of drift rewrites the whole line.
+# The other harnesses here already write indented JSON; this one was the odd one out.
+if command -v python3 >/dev/null 2>&1; then
+    indented="$(printf '%s' "$json" | python3 -c \
+        'import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))' 2>/dev/null)"
+    [ -n "$indented" ] && json="$indented"
+fi
+
 if [ -n "$OUT" ]; then
     printf '%s\n' "$json" > "$OUT"
     echo "wrote $OUT" >&2
