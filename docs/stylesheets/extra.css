@@ -258,11 +258,34 @@ body {
   width: auto;
 }
 
-/* The mobile nav drawer's own logo (overrides/partials/nav.html), same idea
-   as the header's: give the wordmark a bit more presence than Material's
-   generic 2.4rem default in that fairly tall title bar. */
+/* The mobile nav drawer's own logo (overrides/partials/nav.html). Material
+   sizes that title bar for a bar with text in it (5.6rem tall, the top 3rem
+   of it padding) and pins the logo into the top-left corner absolutely, so a
+   wordmark with no text beside it sat small and off-center in a tall box.
+   The bar holds nothing but the logo here, so let the logo be the bar: take
+   the button out of the corner, give it the whole box, and let the image fill
+   that box with `contain`, which is what keeps the wordmark's 284x150 ratio
+   while it grows to whichever edge it meets first (the height, at every
+   drawer width down to about 9.1rem). */
+.md-nav--primary .md-nav__title[for="__drawer"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: .4rem .8rem;
+}
+
+.md-nav--primary .md-nav__title[for="__drawer"] .md-logo {
+  position: static;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
 .md-nav--primary .md-nav__title[for="__drawer"] .md-logo img {
-  height: 3.5rem;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 /* Tabs to the right of the logo, on the header's own row, instead of stock's

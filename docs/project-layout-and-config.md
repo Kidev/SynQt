@@ -423,7 +423,7 @@ word is refused at `synqt check`. The Qt half of that measurement is kept as a t
 Nothing needs it today. A browser holds the httpOnly cookie, and a native desktop client,
 which terminates its own TLS, presents its stored session on the handshake directly.
 
-### Serving the client from another origin (deprecated)
+### Serving the client from another origin (deprecated) { #serving-the-client-from-another-origin }
 
 This section is the exception to the rest of this document. Everything above assumes
 the client and the web edge share an origin, which is what you get by writing nothing.
