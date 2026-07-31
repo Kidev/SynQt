@@ -487,6 +487,59 @@ private slots:
         QCOMPARE(asMysql->name(), QStringLiteral("mysql"));
     }
 
+    void mysqlAsksTheDriverForTheTlsItClaims()
+    {
+        // The provider used to emit "SSL_MODE=VERIFY_IDENTITY", which the QMYSQL driver
+        // does not know: it warns "Illegal connect option value" and ignores it, and the
+        // key it does know (MYSQL_OPT_SSL_MODE) is compiled out of a plugin built against
+        // MariaDB Connector/C, which is the only build SynQt may convey. So an entity
+        // configured for verified TLS could have been speaking plaintext with every check
+        // above it satisfied. Assert the option string, because it is the one place where
+        // what the entity believes and what the driver was told can drift apart.
+        ProviderConfig verified;
+        verified.name = QStringLiteral("mysql");
+        verified.host = QStringLiteral("db.internal");
+        verified.sslMode = QStringLiteral("verify-full");
+        verified.caCert = QStringLiteral("certs/db-ca.pem");
+        QString error;
+        const QString options{MysqlProvider::connectOptions(verified, &error)};
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(!options.contains(QStringLiteral("SSL_MODE=")));
+        QVERIFY(options.contains(QStringLiteral("SSL_CA=certs/db-ca.pem")));
+        QVERIFY(options.contains(QStringLiteral("MYSQL_OPT_SSL_VERIFY_SERVER_CERT=TRUE")));
+
+        // require encrypts without pinning the identity, so verification is off, but a CA is
+        // still what turns TLS on in Connector/C.
+        ProviderConfig required{verified};
+        required.sslMode = QStringLiteral("require");
+        const QString requiredOptions{MysqlProvider::connectOptions(required, &error)};
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(requiredOptions.contains(QStringLiteral("MYSQL_OPT_SSL_VERIFY_SERVER_CERT=FALSE")));
+
+        // disable asks for nothing, so nothing is sent.
+        ProviderConfig plain{verified};
+        plain.sslMode = QStringLiteral("disable");
+        QVERIFY(MysqlProvider::connectOptions(plain, &error).isEmpty());
+        QVERIFY(error.isEmpty());
+
+        // A TLS mode with no CA cannot be enforced through this driver, so it is refused
+        // rather than approximated into a plaintext connection.
+        ProviderConfig noCa{verified};
+        noCa.caCert.clear();
+        QVERIFY(MysqlProvider::connectOptions(noCa, &error).isEmpty());
+        QVERIFY2(error.contains(QStringLiteral("ca_cert")), qPrintable(error));
+        MysqlProvider refusing{noCa};
+        QString connectError;
+        QVERIFY(!refusing.connect(&connectError));
+        QVERIFY2(connectError.contains(QStringLiteral("ca_cert")), qPrintable(connectError));
+
+        // An unknown mode is a typo, and a typo must not silently become "no TLS".
+        ProviderConfig typo{verified};
+        typo.sslMode = QStringLiteral("verify_full");
+        QVERIFY(MysqlProvider::connectOptions(typo, &error).isEmpty());
+        QVERIFY2(error.contains(QStringLiteral("verify-full")), qPrintable(error));
+    }
+
     void liveSwapSqliteAndMysqlAreObservablyIdentical()
     {
         // The same masking claim as the postgres swap above, for the third relational

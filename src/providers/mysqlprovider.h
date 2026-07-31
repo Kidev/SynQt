@@ -44,6 +44,13 @@ public:
     /// refused (release + a non-loopback host + TLS disabled or no CA to verify against).
     bool refusesInsecure() const;
 
+    /// The QMYSQL connect-option string this configuration produces, or an empty string with
+    /// \a error set when the driver cannot express what was asked for. A pure function of the
+    /// configuration, so the mapping can be asserted without an engine: it is the one place
+    /// where "the entity believes it has TLS" and "the driver was actually told to use TLS"
+    /// could drift apart.
+    static QString connectOptions(const ProviderConfig &config, QString *error);
+
 private:
     DbResult runOnLease(const QString &sql, const QVariantList &params, bool collectRows);
 

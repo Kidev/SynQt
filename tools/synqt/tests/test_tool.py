@@ -115,6 +115,26 @@ class PrecompressTest(unittest.TestCase):
             self.assertTrue((client / (name + ".gz")).exists(), name)
             self.assertTrue((client / (name + ".br")).exists(), name)
 
+    def test_an_unchanged_asset_is_not_compressed_again(self):
+        # Brotli over a 30 MB .wasm is tens of seconds of one core, and it used to run on
+        # every build whether or not the bundle had changed: 38 s of a 38.7 s no-op build,
+        # with the compiler doing nothing at all. The variants carry the asset's timestamp,
+        # so an asset the build did not rebuild is left alone.
+        client = Path(tempfile.mkdtemp())
+        asset = client / "client.wasm"
+        asset.write_bytes(b"\x00asm" + b"x" * 5000)
+        self.assertEqual(buildmod.precompress(client), 1)
+        stamped = (client / "client.wasm.gz").stat().st_mtime_ns
+
+        self.assertEqual(buildmod.precompress(client), 0)
+        self.assertEqual((client / "client.wasm.gz").stat().st_mtime_ns, stamped)
+
+        # A rebuilt asset is newer than its variants, and it is compressed again.
+        later = asset.stat().st_mtime_ns + 2_000_000_000
+        os.utime(asset, ns=(later, later))
+        self.assertEqual(buildmod.precompress(client), 1)
+        self.assertGreater((client / "client.wasm.gz").stat().st_mtime_ns, stamped)
+
     def test_compressing_twice_does_not_compress_the_compressed(self):
         # The variants live beside their source, so a second pass must not pick them up
         # and produce client.wasm.gz.gz.

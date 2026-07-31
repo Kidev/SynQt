@@ -901,12 +901,22 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
         if "touched_s" in row:
             edit = _ratio(row["touched_s"], row["clean_s"])
+            # A WebAssembly client is link-dominated, and no edit can avoid the link. Measured
+            # on the gavel client: touching Main.qml costs 16.9 s to compile the one translation
+            # unit qmlcachegen produced from it and 36.3 s in the Emscripten link that follows,
+            # so the link alone is over half of a clean build. Held to the service band, that row
+            # fails for being a WebAssembly target rather than for being unincremental, which
+            # would teach the reader to ignore the check. The band that still means something
+            # here is that an edit costs less than a clean build, plus the no-op check above,
+            # which the client passes at 0.2%.
+            band = 0.90 if row["kind"] == "client" else 1.0 / ASSERT_MARGIN
             checks.append(
                 Check(
                     f"buildtime.one_edit_does_not_rebuild_everything[{row['target']}]",
-                    edit < 1.0 / ASSERT_MARGIN,
+                    edit < band,
                     f"rebuilding after touching {row.get('touched_file', 'one file')} costs "
-                    f"{edit * 100:.0f}% of a clean build ({row['touched_s']:.2f}s; band: < 50%)",
+                    f"{edit * 100:.0f}% of a clean build ({row['touched_s']:.2f}s; "
+                    f"band: < {band * 100:.0f}%)",
                 )
             )
 

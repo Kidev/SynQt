@@ -157,6 +157,14 @@ and Connector/C's headers and library, it refuses to build against Oracle's clie
 and it checks the linkage of what it produced before installing it. `synqt doctor`
 reports the plugin state for every SQL backed provider entity in your project.
 
+That build decides how the `mysql` provider asks for TLS, so it is worth one line
+here. A Connector/C plugin has no ssl mode option at all (Qt compiles the one it has
+out for that client), and the way TLS is turned on is by naming a CA. So any
+`sslmode` other than `disable` needs `ca_cert`, and the provider refuses to connect
+without it rather than opening the plaintext connection the driver would otherwise
+have given you. The certificate check that CA enables covers the host name too, so
+`verify-ca` is honoured at least as strictly as `verify-full`, never more loosely.
+
 Document and cache providers wrap an external client library, because Qt has no
 official MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client;
 the Redis provider wraps a Redis client (or speaks RESP over Qt Network). These

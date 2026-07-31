@@ -398,20 +398,45 @@ def _install_binary(build_dir: Path, entity_name: str, dest: Path) -> bool:
 _COMPRESSIBLE = ("*.wasm", "*.js", "*.html", "*.json", "*.svg")
 
 
+def _is_current(variant: Path, source_mtime: int) -> bool:
+    """Whether a compressed variant was written from the asset as it stands now."""
+    try:
+        return variant.stat().st_mtime_ns >= source_mtime
+    except OSError:
+        return False
+
+
 def precompress(client_dir: Path) -> int:
     """Brotli + gzip every compressible bundle asset so the edge can serve the smaller
     copy. The edge picks per request from Accept-Encoding; these are additions beside the
-    original, never replacements."""
+    original, never replacements. Returns how many assets were compressed here.
+
+    An asset whose variants are already newer than it is left alone, because recompressing
+    an unchanged bundle is the most expensive thing a no-op build can do: Brotli over a
+    30 MB `.wasm` is tens of seconds of one core, and it dominated the no-op and edit
+    rebuild figures in benchmarks/results/buildtime-*.json (38 s of a 38.7 s no-op, while
+    the compiler did nothing). The bundle is assembled with `shutil.copy2`, which carries
+    the compiled artifact's timestamp across, so an asset the build did not rebuild keeps
+    the mtime its variants were made from."""
     count = 0
     for pattern in _COMPRESSIBLE:
         for asset in sorted(Path(client_dir).glob(pattern)):
-            data = asset.read_bytes()
-            asset.with_name(asset.name + ".gz").write_bytes(gzip.compress(data, 9))
+            source_mtime = asset.stat().st_mtime_ns
+            gzipped = asset.with_name(asset.name + ".gz")
+            brotlied = asset.with_name(asset.name + ".br")
             try:
                 import brotli
-                asset.with_name(asset.name + ".br").write_bytes(brotli.compress(data))
             except ImportError:
-                pass
+                brotli = None
+            needs_gzip = not _is_current(gzipped, source_mtime)
+            needs_brotli = brotli is not None and not _is_current(brotlied, source_mtime)
+            if not needs_gzip and not needs_brotli:
+                continue
+            data = asset.read_bytes()
+            if needs_gzip:
+                gzipped.write_bytes(gzip.compress(data, 9))
+            if needs_brotli:
+                brotlied.write_bytes(brotli.compress(data))
             count += 1
     return count
 
@@ -529,6 +554,8 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
     summary.append(f"  {compile_note}")
     if compressed:
         summary.append(f"  precompressed {compressed} bundle file(s) (Brotli + gzip).")
+    elif built_wasm_client:
+        summary.append("  bundle already precompressed; nothing changed to redo.")
     summary.append("  wrote build/process-manifest.json (owners start before consumers).")
 
     # Each licence reminder belongs to an artifact this build actually produced. With

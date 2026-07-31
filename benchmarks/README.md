@@ -436,6 +436,22 @@ loaded from disk at runtime rather than compiled in, so moving its timestamp cor
 rebuilds nothing. The number to watch on that row is the client's, which does compile its
 QML (`--include-client`).
 
+The client row is now measured, and it found the second no-op defect this harness exists
+for. A clean WebAssembly client build costs **68.4 s**, a touched `Main.qml` **52.9 s**, and
+a no-op **0.12 s** -- but that last number was **38.6 s** when it was first measured, with
+the compiler doing nothing at all: `synqt build` recompressed the whole bundle on every
+invocation, and Brotli over a 30 MB `.wasm` is tens of seconds of one core. Precompression
+now skips an asset whose `.br` and `.gz` are already newer than it, which is what makes a
+client no-op 320x cheaper and takes 4.7 s off every edit-rebuild cycle. Nothing in the test
+suite could have caught that; only a clock could.
+
+What remains in the client's 52.9 s is not a defect, and the gate says so in its own band.
+Timed step by step, a touched `Main.qml` costs 16.9 s to compile the one translation unit
+qmlcachegen produces from it and 36.3 s in the Emscripten link that follows. No edit avoids
+that link, so a WebAssembly client is held to `touched < 90%` of a clean build rather than
+the 50% a service is held to, while the no-op band that catches real unincrementality stays
+strict for both.
+
 Contract generation is a rounding error at this size, 0.7% of a clean build, which is the
 useful thing to know about it: `.syn` lowering is not where build time goes.
 
@@ -446,8 +462,9 @@ fan-out `publish()` growth, the mesh transports, the sessions hot path, the pers
 providers, the client (bundle weight and frame time), the capstone load test, and the
 build-time report above. The runtime numbers are all committed.
 
-One gap remains, and it is about coverage rather than a missing harness: the build-time report
-has not been run with `--include-client`, so the WASM/Emscripten client and qmlcachegen build
-times are not yet in the baseline (the flag exists and the path is the same; it needs the
-Emscripten kit and several minutes). Every other baseline now carries the date it was
-measured. See `docs/browser-proofs.md` for where the display-dependent runs happen.
+Nothing is outstanding. The last gap was coverage rather than a missing harness: the
+build-time report had never been run with `--include-client`, so the WebAssembly client and
+qmlcachegen build times were absent from the baseline. They are in it now, and the run that
+put them there found the precompression defect described above. Every baseline carries the
+date it was measured. See `docs/browser-proofs.md` for where the display-dependent runs
+happen.

@@ -255,9 +255,11 @@ and a green test against a fake proves the provider talks to the fake.
 prebuilt QMYSQL plugin is linked against Oracle's `libmysqlclient`, which SynQt may not
 convey alongside the LGPLv3 Qt modules, and which does not load against MariaDB
 Connector/C either (the versioned symbols are Oracle's). So the live mysql proof needs the
-plugin rebuilt first, which needs the Qt Sources component, which is why this one is not in
-the CI column: it would download a source tree to run a single test, and skip anyway on
-every machine that has not. Locally it is one command, then the engine:
+plugin rebuilt first, which needs the Qt Sources component. The Linux column of `ctest.yml`
+does that too, and caches the result: the source tree is a large download to produce one
+small shared object, so it is fetched only when the cache misses, and a restored plugin that
+no longer loads degrades to the same skip as no plugin at all. Locally it is one command,
+then the engine:
 
 ```sh
 tools/qmysql-plugin/build-qmysql-plugin.sh
