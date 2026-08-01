@@ -67,22 +67,23 @@ bundle change without you hand-editing the string:
    this directive if you did not write one, so the threaded client can start its pthread
    workers.
 
-    The `blob:` half is a deliberate margin rather than a present need. Measured on
-    2026-07-15 against the pinned toolchain (Qt 6.11.1, Emscripten 4.0.7), the loader
-    spawns its workers from the same-origin `client.js`, not from `blob:` URLs: served
-    under a strict `worker-src 'self'`, the multi-threaded client still reached cross-origin
-    isolation and started its whole pthread pool in both Chromium and Firefox, with no CSP
-    violation. That is no longer a one-off: the
+    The `blob:` half is a deliberate margin rather than a present need. Against the pinned
+    toolchain (Qt 6.11.1, Emscripten 4.0.7) the loader spawns its workers from the
+    same-origin `client.js`, not from `blob:` URLs, and the
     [multi threaded proof](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify-mt.mjs)
-    now serves its threaded bundle under this exact policy, `worker-src 'self'` with no
-    `blob:`, on every run and in every engine it can launch, and reports each engine's
-    security-policy violations by directive. So a future toolchain that starts needing
+    serves its threaded bundle under this exact policy, `worker-src 'self'` with no
+    `blob:`, on every run and in every engine it can launch, reporting each engine's
+    security-policy violations by directive. **All three engines version 1 targets have
+    now been measured under it and none needs `blob:`**: Chromium and Firefox since
+    2026-07-15, and WebKit, the last one open, on 2026-07-31 on macOS 15.7.8 (WebKit
+    26.5). Each reached cross-origin isolation, got `SharedArrayBuffer`, started its whole
+    pthread pool, and logged no CSP violation. So a future toolchain that starts needing
     `blob:` shows up as a line in that run rather than as a mystery in production.
     The allowance stays because Emscripten's worker-spawning strategy is an
     implementation detail that has varied across versions, and because dropping it buys
     almost nothing: creating a `blob:` worker already requires script execution, which
     `script-src` governs. If you set your own `worker-src`, `'self'` alone is enough for
-    this Qt and this emsdk.
+    this Qt and this emsdk, in every engine SynQt targets.
 
 3. **`script-src` gets the sha256 of each inline loader script.** The Qt WebAssembly loader
    the bundle ships has an inline bootstrap; rather than weaken the policy to

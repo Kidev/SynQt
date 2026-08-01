@@ -53,7 +53,10 @@ The isolated page is served under the policy the edge actually emits, with one d
 something measured on every run rather than assumed, and each engine's
 `securitypolicyviolation` events are reported by directive. It is reported, not enforced:
 an engine that turns out to need `blob:` is a finding about that engine, and it would still
-work on the shipped policy. Serving the real policy is also why the client reads its `?url=`
+work on the shipped policy. As of 2026-07-31 all three engines have run it and none needed
+`blob:`: Chromium 149, Firefox 151, and WebKit 26.5, the last of those on macOS 15.7.8, where
+it also confirmed WebKit grants `SharedArrayBuffer` under COOP and COEP and withholds it
+without them. Serving the real policy is also why the client reads its `?url=`
 through Embind instead of `emscripten_run_script_string`, and links
 `-sDYNAMIC_EXECUTION=0`: `script-src 'wasm-unsafe-eval'` does not permit an eval, so without
 that the spike would need a policy no SynQt app uses.

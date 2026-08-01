@@ -90,10 +90,11 @@ WebAssembly kit, which ships no QtRemoteObjects, so neither runs on every push.
   client frame time benchmark) need a normal host with a display, not a headless CI
   runner. [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) marks which harnesses those are.
 - `worker-src 'self' blob:` is still emitted under cross origin isolation even though
-  Chromium and Firefox provably do not need it. Both questions it hedges against,
-  whether an engine's loader uses `blob:` workers and whether it grants
-  SharedArrayBuffer under those headers, are now asked on every run of the multi
-  threaded proof, in every engine that runs there: it serves the threaded bundle under
-  a strict `worker-src 'self'` and prints each engine's violations. The allowance stays
-  as a margin for a future toolchain, not for want of an answer. See
-  [Content-Security-Policy](csp.md).
+  no engine SynQt targets needs it. Both questions it hedges against, whether an
+  engine's loader uses `blob:` workers and whether it grants SharedArrayBuffer under
+  those headers, are asked on every run of the multi threaded proof, in every engine
+  that runs there: it serves the threaded bundle under a strict `worker-src 'self'`
+  and prints each engine's violations. Chromium, Firefox, and WebKit have all now
+  answered no `blob:` and yes SharedArrayBuffer, WebKit on 2026-07-31 on macOS 15.7.8
+  (WebKit 26.5). The allowance stays as a margin for a future toolchain, not for want
+  of an answer. See [Content-Security-Policy](csp.md).
