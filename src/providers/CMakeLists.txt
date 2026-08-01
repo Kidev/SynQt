@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The SynQt provider library: the backend-facing family interfaces (persistence, cache,
-# document) and the bundled providers, plus the QML helpers (Db, Cache, Docs, Http, Jobs) that a
+# document) and the bundled providers, plus the QML helpers (Db, Cache, Docs, Http, Jobs)
 # an entity's Sources call. The connect point Source calls only an interface, never
 # an engine; credentials live inside a provider, sourced from the entity env, never on a
 # connect point or in a log. A pure service links this; the client never does.
@@ -62,8 +62,10 @@ target_link_libraries(SynQtProviders PUBLIC
     Qt6::Qml
 )
 
-# External cache provider: the redis wrapper is built only when hiredis is available. It is
-# an honest thin wrapper over the client library, never a reimplementation of the protocol.
+# The redis wrapper, built only when hiredis is available. External libraries are recorded
+# for THIRD-PARTY-LICENSES (licenses.provider_libraries).
+set(_synqt_provider_libraries "")
+
 find_path(HIREDIS_INCLUDE_DIR hiredis/hiredis.h)
 find_library(HIREDIS_LIBRARY hiredis)
 if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
@@ -71,6 +73,7 @@ if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
     target_include_directories(SynQtProviders PRIVATE "${HIREDIS_INCLUDE_DIR}")
     target_link_libraries(SynQtProviders PRIVATE "${HIREDIS_LIBRARY}")
     target_compile_definitions(SynQtProviders PRIVATE SYNQT_HAVE_HIREDIS)
+    list(APPEND _synqt_provider_libraries hiredis)
     # OpenSSL is linked directly as well as through hiredis_ssl: the provider builds its own
     # context to check the server's name, which hiredis does not (see
     # RedisCacheProvider::startTls).
@@ -81,6 +84,7 @@ if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
         target_link_libraries(SynQtProviders PRIVATE
             "${HIREDIS_SSL_LIBRARY}" OpenSSL::SSL OpenSSL::Crypto)
         target_compile_definitions(SynQtProviders PRIVATE SYNQT_HAVE_HIREDIS_SSL)
+        list(APPEND _synqt_provider_libraries OpenSSL)
         message(STATUS "SynQt: redis TLS enabled (hiredis_ssl and OpenSSL found)")
     else()
         message(STATUS "SynQt: redis TLS disabled (hiredis_ssl or OpenSSL not found); "
@@ -91,11 +95,8 @@ else()
     message(STATUS "SynQt: redis cache provider disabled (hiredis not found)")
 endif()
 
-# External document provider: the mongodb wrapper is built only when the MongoDB C driver is
-# available (via pinned vcpkg or the system package). The driver's major versions ship
-# different CMake packages and imported targets: 1.x is `mongoc-1.0` with `mongo::mongoc_shared`,
-# 2.x is `mongoc` with `mongoc::shared`. Try each so either generation is picked up; the same
-# `<mongoc/mongoc.h>` include and the API the provider uses are common to both.
+# The mongodb wrapper, built only when the MongoDB C driver is available: `mongoc-1.0` for
+# 1.x, `mongoc` for 2.x.
 set(_synqt_mongoc_target "")
 find_package(mongoc-1.0 QUIET)
 if(mongoc-1.0_FOUND)
@@ -110,7 +111,11 @@ if(_synqt_mongoc_target)
     target_sources(SynQtProviders PRIVATE mongoprovider.cpp mongoprovider.h)
     target_link_libraries(SynQtProviders PRIVATE ${_synqt_mongoc_target})
     target_compile_definitions(SynQtProviders PRIVATE SYNQT_HAVE_MONGOC)
+    list(APPEND _synqt_provider_libraries mongoc)
     message(STATUS "SynQt: mongodb document provider enabled (mongo-c-driver found)")
 else()
     message(STATUS "SynQt: mongodb document provider disabled (mongo-c-driver not found)")
 endif()
+
+list(JOIN _synqt_provider_libraries "\n" _synqt_provider_libraries_text)
+file(WRITE "${CMAKE_BINARY_DIR}/synqt-provider-libraries.txt" "${_synqt_provider_libraries_text}\n")

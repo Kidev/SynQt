@@ -3,15 +3,12 @@
 
 """Generate a per-entity ``THIRD-PARTY-LICENSES`` from what each entity links.
 
-The file is derived from the resolved topology, never hand-written, so it stays accurate
-as entities and providers change (docs/licensing.md). Under open-source Qt the client
-(WASM) and the web edge are GPLv3, pure services are LGPLv3; some Qt add-ons (HTTP Server,
-Network Authorization, Qt Quick 3D/Physics) are GPLv3-only and make their entity GPLv3.
-Under a commercial Qt license none of the GPL terms apply.
-
-The GPLv3-only modules are read off :data:`appmodel.LIBRARY_GPL_MODULES`, keyed by the
-runtime libraries :func:`appmodel.service_libraries` gives the entity, which are the same
-ones ``cmakegen`` links. A module cannot appear in one and not the other.
+Derived from the resolved topology (docs/licensing.md). Under open-source Qt the WASM client
+and the web edge are GPLv3 and pure services LGPLv3; the GPLv3-only add-ons (HTTP Server,
+Network Authorization, Qt Quick 3D/Physics) make their entity GPLv3. Under a commercial Qt
+license no GPL terms apply. The GPLv3-only modules come from
+:data:`appmodel.LIBRARY_GPL_MODULES`, keyed by :func:`appmodel.service_libraries`, which
+``cmakegen`` also links.
 """
 
 from __future__ import annotations
@@ -22,8 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from . import appmodel, clientmodules
 
-# Qt module -> its open-source license. LGPLv3 modules keep an entity LGPLv3; a GPLv3-only
-# module makes its entity GPLv3.
+# Qt module to open-source license. A GPLv3-only module makes its entity GPLv3.
 _MODULE_LICENSE = {
     "Qt Core": "LGPL-3.0-only", "Qt Gui": "LGPL-3.0-only", "Qt Network": "LGPL-3.0-only",
     "Qt Qml": "LGPL-3.0-only", "Qt Quick": "LGPL-3.0-only",
@@ -34,14 +30,8 @@ _MODULE_LICENSE = {
     "Qt for WebAssembly platform": "GPL-3.0-only",
 }
 
-#: The CMake component a Qt module is linked as, for the client target.
-#:
-#: One table rather than two lists. `cmakegen` writes the client's
-#: `target_link_libraries` line and this file names the same modules in the notice, and the
-#: two had drifted: the client links `Qt6::Network` (Qt WebSockets pulls it, and a native
-#: build reaches for it directly) and the notice did not say so. The effective license was
-#: unaffected, Qt Network being LGPLv3, but the file's whole claim is that it lists what the
-#: entity links. test_m10 holds the two to this table.
+#: The CMake component each client Qt module is linked as. `cmakegen` writes the client
+#: `target_link_libraries` from it too; test_m10 checks both.
 CLIENT_MODULES = {
     "Qt6::Core": "Qt Core",
     "Qt6::Gui": "Qt Gui",
@@ -58,22 +48,45 @@ _THIRD_PARTY = {
     "jwt-cpp": "MIT", "picojson": "BSD-2-Clause", "OpenSSL": "Apache-2.0",
     "MariaDB Connector/C": "LGPL-2.1-only",
     "libsecret (Linux desktop builds only)": "LGPL-2.1-or-later",
+    "hiredis": "BSD-3-Clause",
+    "MongoDB C driver (libmongoc, libbson)": "Apache-2.0",
+    "libpq (loaded by Qt's QPSQL plugin)": "PostgreSQL",
 }
+
+#: The names the providers library records for what it linked (src/providers/CMakeLists.txt
+#: writes one per line), mapped to the names listed here.
+PROVIDER_LIBRARY_NAMES = {
+    "hiredis": "hiredis",
+    "OpenSSL": "OpenSSL",
+    "mongoc": "MongoDB C driver (libmongoc, libbson)",
+}
+
+#: The record's name, under the host build tree.
+PROVIDER_LIBRARIES_FILE = "synqt-provider-libraries.txt"
+
+
+def provider_libraries(host_build_dir: os.PathLike[str] | str) -> List[str]:
+    """The third-party libraries the providers library linked in this build, by listed name.
+
+    Read from the configure record, since redis and mongodb compile in only when their
+    client libraries are found. Empty when there is no record.
+    """
+    record = Path(host_build_dir) / PROVIDER_LIBRARIES_FILE
+    try:
+        names = record.read_text(encoding="utf-8").split()
+    except OSError:
+        return []
+    return [PROVIDER_LIBRARY_NAMES[name] for name in names if name in PROVIDER_LIBRARY_NAMES]
 
 
 def entity_modules(entity: Dict[str, Any], target: str = "wasm",
                    config: Optional[Dict[str, Any]] = None,
                    project_dir: Optional[os.PathLike[str] | str] = None) -> List[str]:
-    """The Qt modules an entity links, from its `type:`, its provider, and what it runs.
+    """The Qt modules an entity links, from its `type:`, its provider and what it runs.
 
-    `config` is what tells an auth entity apart from any other service, since nothing on
-    the entity itself says so. `identity.provider_entity` names it from the project block.
-    Without it the entity is read as a plain service, which is what it is in every project
-    that does not promote identity.
-
-    `project_dir` is where a client's QML is read from, for the add-ons its imports make it
-    link (clientmodules.py), which is what the build links too. Without it only the base set
-    is known.
+    `config` identifies the auth entity (`identity.provider_entity`). `project_dir` is where
+    the client QML is read for its add-on imports (clientmodules.py); without it only the
+    base set is known.
     """
     entity_type = appmodel.entity_type(entity)
 
@@ -89,23 +102,18 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm",
             modules.append("Qt for WebAssembly platform")
         return modules
 
-    # Every service links the core runtime, and the core runtime pulls in the provider
-    # layer, which carries the bundled SQLite and PostgreSQL providers and therefore Qt Sql
-    # whatever the entity's own type is.
+    # Every service links the core runtime, which pulls in the provider layer and Qt Sql.
     modules = ["Qt Core", "Qt Network", "Qt Qml", "Qt RemoteObjects", "Qt WebSockets",
                "Qt Sql"]
-    # Qt Gui, because the published model is a QStandardItemModel (SynQt::SourceModel, in
-    # SynQtContract). An entity that owns a connect point links it, and one that only
-    # consumes does not. The edge always owns at least the framework's Pages point, and it
-    # runs a QGuiApplication.
+    # Qt Gui: the published model is a QStandardItemModel (SynQt::SourceModel), linked by an
+    # entity that owns a point. The edge always owns the Pages point and runs a
+    # QGuiApplication.
     if entity_type in ("web_edge", "monitor") or (config is not None
                                                   and appmodel.owned_by(config, entity.get("name"))):
         modules.append("Qt Gui")
     if entity_type in ("web_edge", "monitor"):
         modules.append("Qt HTTP Server")
-    # The GPLv3-only modules come from the runtime library this entity links, so the file
-    # cannot claim one the build does not link, or miss one it does. The auth entity
-    # (`identity.provider_entity`) is the case that reads as an ordinary service otherwise.
+    # The GPLv3-only modules come from the runtime library this entity links.
     for library in appmodel.service_libraries(config or {}, entity):
         modules += appmodel.LIBRARY_GPL_MODULES[library]
     # De-duplicate, preserve order.
@@ -118,24 +126,27 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm",
 
 def entity_third_party(entity: Dict[str, Any],
                        config: Optional[Dict[str, Any]] = None,
-                       target: str = "wasm") -> List[str]:
+                       target: str = "wasm",
+                       linked: Optional[List[str]] = None) -> List[str]:
+    """The third-party libraries an entity links. `linked` is what the providers library linked
+    in this build (provider_libraries()).
+    """
     if appmodel.is_client(entity):
-        # A client links no mesh transport and no OAuth engine. What a native build on Linux
-        # does link is libsecret, which is how it keeps a device credential in the Secret
-        # Service. The macOS and Windows stores are system frameworks and not third-party
-        # code. Listed for the desktop target as a whole, because which platform a desktop
-        # build is for is a property of the machine it is built on and not of the topology.
+        # A desktop client on Linux links libsecret for the device credential. The macOS and
+        # Windows stores are system frameworks. Listed for the desktop target as a whole.
         return ["libsecret (Linux desktop builds only)"] if target == "desktop" else []
     libs: List[str] = ["OpenSSL"]  # the mesh transport is mutual TLS on every link
     provider = (entity.get("provider") or {}).get("name", "")
-    # jwt-cpp verifies an OIDC ID token's signature, and it is linked by the same library
-    # that carries the OAuth engine. The edge, and the auth entity when identity is promoted.
-    # SynQtMonitor is SynQtEdge plus a history, so it carries the same login stack.
+    # jwt-cpp verifies ID tokens; it is linked by the edge, a promoted auth entity, and the
+    # monitor (SynQtMonitor is SynQtEdge plus a history).
     if any(library in ("SynQtIdentity", "SynQtEdge", "SynQtMonitor")
            for library in appmodel.service_libraries(config or {}, entity)):
         libs += ["jwt-cpp", "picojson"]
     if provider == "mysql":
         libs.append("MariaDB Connector/C")
+    if provider == "postgres":
+        libs.append("libpq (loaded by Qt's QPSQL plugin)")
+    libs += linked or []
     return sorted(set(libs))
 
 
@@ -150,11 +161,12 @@ def effective_license(modules: List[str], qt_license_mode: str = "open_source") 
 def generate(entity: Dict[str, Any], *, target: str = "wasm",
              qt_license_mode: str = "open_source",
              config: Optional[Dict[str, Any]] = None,
-             project_dir: Optional[os.PathLike[str] | str] = None) -> str:
+             project_dir: Optional[os.PathLike[str] | str] = None,
+             linked: Optional[List[str]] = None) -> str:
     """The THIRD-PARTY-LICENSES text for one entity/target."""
     name = entity.get("name", "entity")
     modules = entity_modules(entity, target, config, project_dir)
-    third_party = entity_third_party(entity, config, target)
+    third_party = entity_third_party(entity, config, target, linked)
     effective = effective_license(modules, qt_license_mode)
 
     lines = [
