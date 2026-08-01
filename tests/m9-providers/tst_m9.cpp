@@ -271,7 +271,15 @@ private:
             return QString{};
         }
         QString reason{QStringLiteral("the %1 driver plugin will not load").arg(driver)};
-        if (driver == QLatin1String("QMYSQL")) {
+        if (driver == QLatin1String("QMYSQL") && qEnvironmentVariableIsSet("QT_PLUGIN_PATH")) {
+            // A rebuilt plugin is on the path and still will not load, which is what one
+            // built for another Qt does.
+            reason += QStringLiteral("; the one on QT_PLUGIN_PATH (%1) may be built for another "
+                                     "Qt than %2. Rebuild it with "
+                                     "tools/qmysql-plugin/build-qmysql-plugin.sh")
+                          .arg(qEnvironmentVariable("QT_PLUGIN_PATH"),
+                               QString::fromLatin1(qVersion()));
+        } else if (driver == QLatin1String("QMYSQL")) {
             // Not an oversight to fix by installing a package: Qt's prebuilt QMYSQL is
             // linked against Oracle's libmysqlclient with its versioned symbols, and SynQt
             // may not convey that (GPLv2-only against LGPLv3 Qt. Docs/licensing.md). The

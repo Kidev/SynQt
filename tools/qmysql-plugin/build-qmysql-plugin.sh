@@ -2,28 +2,15 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# Build Qt's QMYSQL SQL driver plugin against MariaDB Connector/C, which is the only
-# build of it SynQt's `mysql` persistence provider can legally use.
+# Build Qt's QMYSQL driver plugin against MariaDB Connector/C (LGPLv2.1). Qt's prebuilt
+# plugin links Oracle's GPLv2 libmysqlclient, which cannot ship beside the LGPLv3 Qt modules
+# (docs/licensing.md), and it needs Oracle's versioned symbols, so it cannot load against
+# Connector/C.
 #
-# Why this script exists at all. The Qt online installer ships a prebuilt
-# plugins/sqldrivers/libqsqlmysql.so, and it is the wrong one twice over:
+# Installs into a private plugin root that Qt finds through QT_PLUGIN_PATH.
 #
-#   1. Legally. It is linked against Oracle's libmysqlclient, which is GPLv2-only and
-#      therefore license-incompatible with the LGPLv3 Qt modules in the same conveyed
-#      entity. An entity linking both cannot be distributed at all (docs/licensing.md).
-#      SynQt's rule is MariaDB Connector/C (LGPLv2.1), never libmysqlclient.
-#   2. Practically. It does not merely need `libmysqlclient.so.21` present. It needs
-#      Oracle's versioned symbols (`libmysqlclient_21.0`). MariaDB Connector/C does not
-#      export those, so no symlink or LD_LIBRARY_PATH shim can bridge the two. Point the
-#      prebuilt plugin at Connector/C and Qt reports the driver as "not loaded",
-#      naming nothing. Rebuilding is the only path.
-#
-# What you get. A libqsqlmysql.so linked against libmariadb.so, installed into a private
-# plugin root, which Qt picks up through QT_PLUGIN_PATH without touching the installed
-# Qt kit (no sudo, nothing to undo).
-#
-# Requirements: the Qt *source* tree for the pinned version (the online installer's "Qt
-# 6.12.0 > Sources" component) and MariaDB Connector/C's headers and library.
+# Requirements: the Qt source tree for the pinned version and Connector/C's headers and
+# library.
 #   Arch:   pacman -S mariadb-libs
 #   Debian: apt install libmariadb-dev
 #   Fedora: dnf install mariadb-connector-c-devel
@@ -39,14 +26,28 @@
 #   PLUGIN_ROOT  where to install (default: $HOME/.cache/synqt-qmysql)
 #
 #   tools/qmysql-plugin/build-qmysql-plugin.sh
-#   export QT_PLUGIN_PATH="$HOME/.cache/synqt-qmysql"   # then run your entity or the tests
+#   export QT_PLUGIN_PATH="$HOME/.cache/synqt-qmysql"
 
 set -euo pipefail
 
 QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 QT_SRC="${QT_SRC:-$(cd "$QT_HOST/.." 2>/dev/null && pwd)/Src}"
 PLUGIN_ROOT="${PLUGIN_ROOT:-$HOME/.cache/synqt-qmysql}"
-BUILD_DIR="${BUILD_DIR:-$PLUGIN_ROOT/build}"
+
+# A plugin loads only into the Qt it was built for: one build directory and stamp per version.
+qt_version="$(sed -n 's/^set(PACKAGE_VERSION "\([^"]*\)").*/\1/p' \
+    "$QT_HOST/lib/cmake/Qt6/Qt6ConfigVersionImpl.cmake" 2>/dev/null)"
+if [ -z "$qt_version" ]; then
+    echo "cannot tell which Qt the kit at $QT_HOST is (set QT_HOST to your Qt kit)" >&2
+    exit 1
+fi
+BUILD_DIR="${BUILD_DIR:-$PLUGIN_ROOT/build-$qt_version}"
+stamp="$PLUGIN_ROOT/sqldrivers/.qt-version"
+if [ "$(cat "$stamp" 2>/dev/null)" = "$qt_version" ] \
+        && ls "$PLUGIN_ROOT"/sqldrivers/*qsqlmysql* >/dev/null 2>&1; then
+    echo "the QMYSQL plugin in $PLUGIN_ROOT/sqldrivers is already built for Qt $qt_version"
+    exit 0
+fi
 
 sqldrivers="$QT_SRC/qtbase/src/plugins/sqldrivers"
 if [ ! -f "$sqldrivers/CMakeLists.txt" ]; then
@@ -59,8 +60,7 @@ if [ ! -x "$QT_HOST/bin/qt-cmake" ]; then
     exit 1
 fi
 
-# Locate Connector/C. pkg-config is authoritative where the package ships a .pc file;
-# the fallbacks cover the distributions that do not.
+# Locate Connector/C: pkg-config first, then the usual paths.
 if [ -z "${MYSQL_INCLUDE_DIR:-}" ] && command -v pkg-config >/dev/null 2>&1; then
     if pkg-config --exists libmariadb; then
         MYSQL_INCLUDE_DIR="$(pkg-config --variable=includedir libmariadb)/mysql"
@@ -87,9 +87,7 @@ if [ -z "${MYSQL_INCLUDE_DIR:-}" ] || [ -z "${MYSQL_LIBRARY:-}" ]; then
     exit 1
 fi
 
-# Refuse to build against Oracle's client even if it is what was found: a plugin linked
-# to it cannot be distributed with the LGPLv3 Qt modules, so producing one here would
-# only postpone the problem to the deployment that cannot ship.
+# Refuse Oracle's client even if found.
 case "$(readlink -f "$MYSQL_LIBRARY")" in
     *mariadb*) ;;
     *) echo "refusing to build against $MYSQL_LIBRARY: it does not resolve to MariaDB" >&2
@@ -98,7 +96,7 @@ case "$(readlink -f "$MYSQL_LIBRARY")" in
        exit 1 ;;
 esac
 
-echo "Qt kit:      $QT_HOST"
+echo "Qt kit:      $QT_HOST (Qt $qt_version)"
 echo "Qt sources: $sqldrivers"
 echo "Connector/C: $MYSQL_LIBRARY (headers: $MYSQL_INCLUDE_DIR)"
 echo "installing: $PLUGIN_ROOT/sqldrivers"
@@ -125,8 +123,7 @@ if [ ! -f "$built" ]; then
     exit 1
 fi
 
-# Prove the linkage rather than trusting the configure summary. This is the check that
-# would have caught the shipped plugin's Oracle dependency.
+# Check the linkage itself.
 if command -v ldd >/dev/null 2>&1; then
     if ldd "$built" | grep -q "libmysqlclient"; then
         echo "the built plugin links libmysqlclient (Oracle); refusing to install it" >&2
@@ -137,6 +134,7 @@ fi
 
 mkdir -p "$PLUGIN_ROOT/sqldrivers"
 cp "$built" "$PLUGIN_ROOT/sqldrivers/"
+printf '%s\n' "$qt_version" > "$stamp"
 
 echo
 echo "done. Put it on Qt's plugin path for anything that uses the mysql provider:"
