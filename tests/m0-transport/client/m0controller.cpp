@@ -53,7 +53,8 @@ M0Controller::M0Controller(const QUrl &edgeUrl, QObject *parent)
     // so the watcher never fires though the reply data is present and correct. This timer resolves
     // the reply from its own state when the watcher has not, so a starved queued signal cannot
     // strand the fourth direction. It is logged "(via poll fallback)" so the workaround is always
-    // visible, never silent; on every engine where the watcher fires it is a no-op.
+    // visible, never silent; on every engine where the watcher fires it is a no-op. The full
+    // investigation, including the ruled-out set, is in tests/m0-transport/FIREFOX-LINUX.md.
     m_replyPollTimer = new QTimer{this};
     m_replyPollTimer->setInterval(250);
     connect(m_replyPollTimer, &QTimer::timeout, this, [this]() {
