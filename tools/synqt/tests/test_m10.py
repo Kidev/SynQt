@@ -277,7 +277,7 @@ class CheckTest(unittest.TestCase):
 
     def test_non_boolean_scopes_hierarchical_is_an_error(self):
         # The string "false" is truthy in Python, so a quoted value would silently stay
-        # hierarchical -- the authorization surprise the setter meant to turn off. Refuse it.
+        # hierarchical, the authorization surprise the setter meant to turn off. Refuse it.
         config = self._base()
         config["connect_points"] = [
             {"name": "todo", "owner": "web", "consumers": ["client"]}]

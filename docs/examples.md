@@ -62,7 +62,7 @@ No `identity` section, so every connection runs at the default anonymous scope.
 
 This config is the development shape: `synqt dev` serves it plaintext on
 localhost. A release build refuses to start without TLS, so running it with
-`synqt serve` additionally needs a `tls` section on the web entity with a
+`synqt serve` also needs a `tls` section on the web entity with a
 certificate, as Example 2 shows (see the
 [validation rules](project-layout-and-config.md#validation)).
 

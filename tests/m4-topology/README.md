@@ -26,27 +26,27 @@ topology finally wire together.
 
 ## How it works
 
-- **`ConnectPointHost`** (owner side of one connect point): loads the authoritative
+- `ConnectPointHost` (owner side of one connect point): loads the authoritative
   Source from the entity's QML (`a/Thing.qml`, an `import SynQt; ThingSource { value:
   42 }`), calls `enableRemoting()` on a host node, and listens over the mesh
-  (`MeshServer`, mutual TLS by default). On each verified peer it enforces **deny by
-  default**: the connection is added to the host only if the calling entity is on this
+  (`MeshServer`, mutual TLS by default). On each verified peer it enforces deny by
+  default: the connection is added to the host only if the calling entity is on this
   connect point's consumer allowlist; any other peer is refused (the socket is aborted,
   never added).
-- **`EntityRuntime`**: resolves owned vs consumed connect points from the topology,
+- `EntityRuntime`: resolves owned vs consumed connect points from the topology,
   starts a `ConnectPointHost` per owned one, and opens a `MeshClient` per consumed one,
   and only those, so an entity never even opens a link to an owner it does not
   consume from. Each acquired replica is exposed through a per-owner `QQmlPropertyMap`
   keyed by capitalized owner name (`Database.items` in QML).
 - Consumers acquire with `acquireDynamic` (a generic runtime has no compile-time
-  replica types); owners host QML Sources via the **dynamic** `enableRemoting(QObject*,
+  replica types); owners host QML Sources via the dynamic `enableRemoting(QObject*,
   name)`. Both were verified to interoperate.
 
 ## Deny by default, two ways
 
-1. **Structural (consumer side):** `EntityRuntime` opens links only for the connect
+1. Structural (consumer side): `EntityRuntime` opens links only for the connect
    points this entity consumes. It cannot reach an owner it does not consume from.
-2. **Enforced (owner side):** even though C presents a valid, CA-signed certificate
+2. Enforced (owner side): even though C presents a valid, CA-signed certificate
    (so the *transport* accepts it), the `ConnectPointHost` refuses it because `c` is not
    on `thing`'s consumer list. Authorization sits above authentication.
 

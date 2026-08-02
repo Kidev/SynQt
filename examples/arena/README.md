@@ -29,14 +29,14 @@ many players --wss+session--> web edge --mesh mTLS--> database
 
 The tutorial's three "try it, then think" checks are kept as acceptance fixtures:
 
-1. **`Server.arena.steer(3999, 3999)` from the console only crawls, never teleports**: the
+1. `Server.arena.steer(3999, 3999)` from the console only crawls, never teleports: the
    edge takes an aim point and integrates every blob's motion itself at the speed the blob's
    mass allows, so there is no position to forge. Proven in `tests/fix2-arena`.
-2. **A signed-out or unapproved caller never has `arena` acquired**: the connect point's
+2. A signed-out or unapproved caller never has `arena` acquired: the connect point's
    `scope: player` is the barrier, not the on-screen gate: an under-scoped session never
    acquires the Replica, so `steer`, `ping`, and the roster are all out of reach. Proven in
    `tests/fix2-arena`.
-3. **Adding the client as a consumer of the `scores` connect point fails `synqt check`**:
+3. Adding the client as a consumer of the `scores` connect point fails `synqt check`:
    the browser can reach only the edge; the database is not a web edge. Proven in
    `tools/synqt/tests/test_examples.py`.
 

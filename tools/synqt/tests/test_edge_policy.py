@@ -5,7 +5,7 @@
 
 A knob that is documented, validated, and then dropped on the way to the binary is worse
 than one that does not exist: the project believes it set something. These tests pin the
-whole path -- the `security:` block, the origin model, the starting scope, the public bind
+whole path: the `security:` block, the origin model, the starting scope, the public bind
 and TLS, the `identity:` block and, most sharply, a connect point's `scope`, which is the
 barrier deciding whether that connect point is acquired for a session at all.
 

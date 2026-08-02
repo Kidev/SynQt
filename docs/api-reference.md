@@ -4,7 +4,7 @@
 # C++ API reference
 
 The generated class and member reference for SynQt's C++ runtime lives at
-[**/api/**](api.md). It is produced by Doxygen from the
+[/api/](api.md). It is produced by Doxygen from the
 headers in [`src/`](https://github.com/Kidev/SynQt/tree/main/src), so it never drifts from the code.
 
 This is the reference for working on SynQt itself, or for extending it from C++ (a custom

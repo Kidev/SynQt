@@ -27,24 +27,24 @@ session). The two native clients are the "two tabs" at the functional level.
 
 ## What the browser path proved (and the open issue)
 
-Getting the WASM client to run under the edge's **strict CSP** (`script-src 'self'
+Getting the WASM client to run under the edge's strict CSP (`script-src 'self'
 'wasm-unsafe-eval'`, no `'unsafe-inline'`/`'unsafe-eval'`) surfaced four real findings,
 all fixed here:
 
-1. **Inline loader `<script>`**: the edge now hashes each inline script in the served
+1. Inline loader `<script>`: the edge now hashes each inline script in the served
    page and adds `'sha256-...'` to `script-src` (`WebEdge::computeScriptHashes`).
-2. **Inline `onload=` handler**: CSP hashes do not cover event handlers; the served
+2. Inline `onload=` handler: CSP hashes do not cover event handlers; the served
    shell registers `init` via an inline *script* (`addEventListener`) instead.
-3. **`emscripten_run_script` uses `eval`**: the client reads `window.location` through
+3. `emscripten_run_script` uses `eval`: the client reads `window.location` through
    the Embind `emscripten::val` bridge instead (no eval).
-4. **The emscripten runtime emits `eval`/`new Function` by default**: the WASM client
+4. The emscripten runtime emits `eval`/`new Function` by default: the WASM client
    is built with `-sDYNAMIC_EXECUTION=0`.
 
 After these, the WASM client loads and connects (`state=connected`) to the real edge in
-a headless browser. **Open issue:** the counter *value* does not appear in the browser
+a headless browser. Open issue: the counter *value* does not appear in the browser
 (`Server.counter.value` stays undefined). It works natively (`tst_m6`, value crosses)
 and M0 proved typed replicas replicate over a browser WebSocket, so the gap is specific
-to a **dynamic replica acquired against a `QHttpServer`/upgrade edge in the browser**
+to a dynamic replica acquired against a `QHttpServer`/upgrade edge in the browser
 not completing its QtRO handshake there. Under investigation; it does not affect the
 native/desktop runtime or the mesh.
 

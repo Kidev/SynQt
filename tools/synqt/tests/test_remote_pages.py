@@ -260,7 +260,7 @@ def test_check_project_fails_on_a_missing_seed_file(tmp_path):
 
 def test_a_non_string_seed_is_rejected(tmp_path):
     # `seed: true` (or a nested map from a YAML typo) used to slip through the
-    # isinstance guard and reach appgen, which emitted QStringLiteral("/True") -- a path
+    # isinstance guard and reach appgen, which emitted QStringLiteral("/True"), a path
     # that can never exist, with nothing said at build time.
     config, root = _project(
         tmp_path, [{"path": "/c", "remote": "C.qml", "seed": True}],

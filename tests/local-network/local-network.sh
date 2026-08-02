@@ -5,8 +5,8 @@
 # The local test network: names, loopback addresses and a development web CA.
 #
 # Several things this project has to prove are browser policy questions rather than Qt
-# questions -- what a split-origin session cookie survives, whether a bundle served from
-# one origin can reach an edge on another -- and they can only be asked of a browser that
+# questions (what a split-origin session cookie survives, whether a bundle served from
+# one origin can reach an edge on another), and they can only be asked of a browser that
 # believes it is talking to two different sites. This is the shared plumbing for that, in
 # one place, so a harness that needs it does not grow its own.
 #

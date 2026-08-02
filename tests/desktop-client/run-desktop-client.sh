@@ -147,7 +147,7 @@ if [ "$PLATFORM" = "macos" ]; then
         # so the artifact it installs is the undeployed one and that is what step 4 must boot;
         # deploying in place would mean the fixture asserts the boot of something the build never
         # produces. And macdeployqt ships only the platform plugin a released app needs (cocoa),
-        # so a deployed bundle cannot be booted with QT_QPA_PLATFORM=offscreen at all -- it
+        # so a deployed bundle cannot be booted with QT_QPA_PLATFORM=offscreen at all; it
         # aborts with "Could not find the Qt platform plugin", which is correct behaviour for a
         # deployed app and was, briefly, this fixture reporting a crash that was its own doing.
         PROBE="$WORK/deploy-probe"

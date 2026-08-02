@@ -136,7 +136,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
 
     # Scope checks are hierarchical (a higher scope satisfies a lower one) by default, or
     # set-based when scopes.hierarchical is false. Both mains read it as a boolean; a string
-    # like "false" is truthy in Python, so it would silently stay hierarchical -- the exact
+    # like "false" is truthy in Python, so it would silently stay hierarchical; the exact
     # authorization surprise (a lower scope granted to a higher-ranked holder) the setter
     # meant to turn off. Insist on a real boolean rather than misread one.
     scopes = config.get("scopes")
@@ -205,7 +205,7 @@ def _mesh_policy_messages(config: Dict[str, Any], endpoints: Dict[str, Dict[str,
         messages.append(
             "error: mesh.require_mtls_cross_host is false, which a release build does not "
             "allow: a cross-host link without mutual TLS puts entity identity on a wire "
-            "anyone who can reach the port can speak on (see docs/security.md)")
+            "anyone who can reach the port can speak on (see https://synqt.org/security/)")
 
     for name, endpoint in sorted(endpoints.items()):
         if endpoint.get("transport") != "local":
@@ -446,7 +446,7 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str]) -> 
             "cookies are restricted (Safari today), and Partitioned is not a fix. Serve the "
             "client and the edge from one origin, with a node near the user that does both; "
             "see the 'Serving the client from another origin' section of "
-            "docs/project-layout-and-config.md")
+            "https://synqt.org/project-layout-and-config/")
 
     try:
         appmodel.session_transport(config)
@@ -642,7 +642,7 @@ def _provider_messages(name: str, entity: Dict[str, Any]) -> List[str]:
         return [f"error: entity '{name}' selects provider.name '{selected}', which is not a "
                 f"{family} provider; the bundled {family} providers are "
                 f"{', '.join(addentity.PROVIDERS[family])}, or write your own and select it "
-                f"with custom:<Name> (see docs/providers.md)"]
+                f"with custom:<Name> (see https://synqt.org/providers/)"]
     return []
 
 
@@ -876,7 +876,7 @@ def lint_routes(config: Dict[str, Any],
 
 def _edge_entity_name(config: Dict[str, Any]) -> Optional[str]:
     """The name of the project's web_edge entity, also the directory its edge-delivered
-    pages live under (`<edge>/pages`, flat under the project root -- there is no
+    pages live under (`<edge>/pages`, flat under the project root; there is no
     `entities/` prefix).
 
     Recognized the same way `_is_web_edge` recognizes one (`capability: web_edge` or a
@@ -911,7 +911,7 @@ def _imports_of(qml_file: os.PathLike[str] | str) -> List[str]:
     `QmlPalette` still refuses at run time: a quoted import (`import "helpers.js"`,
     read as simply not a module import here, with nothing to check against the
     palette) and an unquoted import an inline comment obscures from the regex
-    (`import /* x */ EvilModule` -- `QmlPalette` strips the comment first and still
+    (`import /* x */ EvilModule`; `QmlPalette` strips the comment first and still
     sees `EvilModule`; the anchored regex here does not strip it and never matches the
     line at all). Both are missed builds, never a security hole: a page this lint
     waves through on either count is still refused by `QmlPalette` at run time, just
@@ -947,7 +947,7 @@ def lint_remote_pages(config: Dict[str, Any],
 
     Given `project_dir`, a page's existence and its imports are also checked against
     the filesystem, under `<edge>/pages` (the edge entity's directory directly under
-    the project root, per Task 7's corrected entity layout -- not `entities/<edge>`).
+    the project root, per Task 7's corrected entity layout, not `entities/<edge>`).
     A `seed:` is resolved project-root relative instead (like `identity.mapping`),
     because a hook is edge code rather than a delivered page.
     Without it, only the config-shape rules run (mutual exclusion, the palette being

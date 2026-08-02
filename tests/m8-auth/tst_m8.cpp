@@ -207,7 +207,7 @@ private:
     /// signature encode to 342 characters whose last one carries only two significant bits,
     /// so 'A' -> 'B' there flips a padding bit and decodes to the identical signature. The
     /// token then verifies, and the test fails only for the tokens whose final character
-    /// happened to land on a significant bit -- which is to say, intermittently, in a test
+    /// happened to land on a significant bit, which is to say, intermittently, in a test
     /// whose whole job is to prove a forgery is caught.
     static QString withForgedSignature(const QStringList &parts)
     {

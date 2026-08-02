@@ -5,7 +5,7 @@
 
 The service-to-service transports, in the framework service runtime
 ([`src/service/`](../../src/service), the `SynQtService` library). Mutual TLS is the
-default on **every** mesh link; a same-host link is just mutual TLS bound to the
+default on every mesh link; a same-host link is just mutual TLS bound to the
 loopback address. The local socket is an explicit opt-in and is never selected
 implicitly. This is the first milestone where the security default ships with the
 link it protects.
@@ -32,7 +32,7 @@ link it protects.
 to the caller (the entity runtime, M4) for `addHostSideConnection()` /
 `addClientSideConnection()`. No registry.
 
-**Mutual TLS (default).** `QSslServer` / `QSslSocket`, both configured with the
+Mutual TLS (default). `QSslServer` / `QSslSocket`, both configured with the
 project CA (`setCaCertificates`) and `setPeerVerifyMode(VerifyPeer)`, presenting this
 entity's certificate. The entity name is the certificate subject (CN): the server
 reads the verified peer certificate's subject as the calling entity (`authenticated =
@@ -41,11 +41,11 @@ entity, not merely the address (`connectToHostEncrypted(addr, port, ownerEntity)
 a `DNS:<entity>` SAN on the certificate). A peer with no certificate, or one from
 another CA, fails the TLS handshake and never reaches `peerConnected()`.
 
-**Local socket (opt-in).** `QLocalServer` / `QLocalSocket`. The socket file is
+Local socket (opt-in). `QLocalServer` / `QLocalSocket`. The socket file is
 restricted to the run-as user (`QLocalServer::UserAccessOption`), and the peer's OS
 credentials are checked through the native descriptor (`SO_PEERCRED` on Linux,
 `getpeereid` on macOS). The OS identifies the *user*, not the *entity*: any same-user
-process could present the configured name, so `MeshPeer::authenticated` is **false**;
+process could present the configured name, so `MeshPeer::authenticated` is false;
 colocation trust, not authentication. Authorization (M4/M7) must treat it accordingly.
 
 ## How to run
@@ -56,7 +56,7 @@ tests/m3-mesh/run-m3.sh
 
 Builds `SynQtService` and the test, generating throwaway certificates at configure
 time (project CA + `alpha`/`beta` entity certs with SANs + a foreign CA + a `rogue`
-cert) into `build/m3-mesh/certs/`. These are **git-ignored and never committed**; no
+cert) into `build/m3-mesh/certs/`. These are git-ignored and never committed; no
 production mesh CA key is created here.
 
 ## Notes / findings
@@ -66,7 +66,7 @@ production mesh CA key is created here.
   rejected client may briefly compute an encrypted channel *before* the server's
   rejection arrives, so the authoritative check is server-side (no authenticated peer),
   corroborated by the client being dropped.
-- A `QLocalSocket` connects **synchronously**, emitting `connected()` from within
+- A `QLocalSocket` connects synchronously, emitting `connected()` from within
   `connectToServer()`; the test checks the emission count (via `QTRY`) rather than
   waiting for a later signal.
 - `MeshPeer` carries `authenticated` so callers can never conflate a certificate-

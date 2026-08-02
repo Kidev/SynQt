@@ -441,12 +441,10 @@ QByteArray WebEdge::computeCsp() const
         // pthread workers are actually spawned from: measured on the real threaded bundle
         // (Qt 6.11.1, Emscripten 4.0.7), a strict worker-src 'self' with no blob: kept the
         // page isolated, spawned every pthread worker, and logged no CSP violation in
-        // Chromium or Firefox. blob: is kept as a deliberate margin, not a present need:
-        // WebKit is a version 1 target that could not be measured here, a future emsdk may
-        // go back to blob: workers, and the exposure is near zero (constructing a blob:
+        // Chromium, Firefox, or WebKit. blob: is kept as a margin for a future emsdk that
+        // goes back to blob: workers, and it costs close to nothing (constructing a blob:
         // worker already needs script execution, which script-src governs). See
-        // <https://synqt.org/csp/>; do not restate the blob: need as fact without a
-        // Safari measurement.
+        // <https://synqt.org/csp/>.
         //
         // Naming the directive at all is for explicitness rather than permission (worker-src
         // already falls back through child-src to script-src 'self'), but it documents the

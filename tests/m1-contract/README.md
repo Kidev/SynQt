@@ -69,7 +69,7 @@ ctest --test-dir build/m1-contract --output-on-failure
 
 ## Notes / findings
 
-- **repc + PODs across roles.** A rep containing a POD defines its `Q_GADGET` in both
+- repc + PODs across roles. A rep containing a POD defines its `Q_GADGET` in both
   the `_source.h` and `_replica.h`; a target that is both an owner and a consumer must
   therefore use repc's *merged* header (POD emitted once). Real entities are owner-only
   (`ROLE source`) or consumer-only (`ROLE replica`) and never hit this; only the

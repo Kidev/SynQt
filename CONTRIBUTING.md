@@ -61,10 +61,10 @@ Conventions](https://wiki.qt.io/Coding_Conventions), [QML Coding
 Conventions](https://doc.qt.io/qt-6/qml-codingconventions.html)), with three rules applied
 everywhere, without exception:
 
-1. **Always brace a control statement body**, even a single line one.
-2. **Always use brace (uniform) initialization** (`int a{0}`), which also rejects
+1. Always brace a control statement body, even a single line one.
+2. Always use brace (uniform) initialization (`int a{0}`), which also rejects
    narrowing.
-3. **Never use a C-style cast. Every conversion is an explicit `static_cast<T>(x)`**
+3. Never use a C-style cast. Every conversion is an explicit `static_cast<T>(x)`
    (or `qobject_cast` for QObjects; `reinterpret_cast` or `const_cast` only at a C API
    boundary). This one departs from the Qt wiki, which permits the constructor form
    `int(myFloat)` for built in types: `T(x)` on a single expression is *defined* to be

@@ -13,12 +13,12 @@ it with `./run-split-origin.sh`.
 
 ## Verdict
 
-**Split-origin works in current browsers and stops working the moment third-party
-cookies are restricted.** Not "degrades": the client loads from the CDN, the session
+Split-origin works in current browsers and stops working the moment third-party
+cookies are restricted. Not "degrades": the client loads from the CDN, the session
 request is ignored, the `wss` upgrade arrives with no credential, and the edge
 refuses it. The app is on screen and permanently disconnected.
 
-**The `Partitioned` (CHIPS) attribute is not the fix, as things stand.** It rescues
+The `Partitioned` (CHIPS) attribute is not the fix, as things stand. It rescues
 the bootstrap and the upgrade under restriction, and it breaks login everywhere,
 because the OAuth callback is a top-level navigation that lands on the edge. The
 cookie is stored under the edge's own partition, and the client site can never read
@@ -46,11 +46,11 @@ Two readings of that table are load bearing:
 - Chromium reports the partition key it stored, and for the login row it is
   `https://synqtedge.test`, the edge's site. That is the mechanism, not an inference
   from the failure.
-- Firefox stores the `Partitioned` cookie with **no** partition key, so it did not
+- Firefox stores the `Partitioned` cookie with no partition key, so it did not
   apply CHIPS at all. Its "pass" in that row is the unpartitioned behavior wearing a
   different attribute, which is a second reason not to rely on the attribute yet.
 
-**WebKit was inference until 2026-07-31, and is now measured.** There is no WebKit
+WebKit was inference until 2026-07-31, and is now measured. There is no WebKit
 runtime on the development machine, and WebKit has neither a host resolver flag nor a
 DNS pref, so the rig reports it as skipped there rather than passing it over in
 silence. [`browser-matrix.yml`](../../.github/workflows/browser-matrix.yml) already
@@ -93,7 +93,7 @@ them for WebKit, since WebKit has no resolver override of its own. Run
 `tests/local-network/local-network.sh hosts` once and the WebKit column stops skipping
 here too.
 
-They must be separate **registrable domains**. The first version of this rig used
+They must be separate registrable domains. The first version of this rig used
 `cdn.synqt.test` and `app.synqt.test`, which are two names under one site, so no
 third-party rule applied and every single cell came back "works". The `lax_control`
 variant exists to make that failure loud: a `SameSite=Lax` cookie must never cross

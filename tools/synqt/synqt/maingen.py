@@ -117,7 +117,7 @@ def _env_file_section(entity: Dict[str, Any]) -> str:
 
     Order is precedence, because `loadEnvFile` never overwrites: whatever the real
     environment set wins over both files, and the entity's file wins over the project's.
-    Paths are relative to the working directory, which is the project root -- where
+    Paths are relative to the working directory, which is the project root, where
     `synqt dev` and `synqt serve` run an entity, and where every other relative default in
     these mains already points (``build/client``, ``build/<entity>/topology.json``). A
     deployment with a real secret store has neither file and needs neither.
@@ -485,7 +485,7 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     # check.lint_remote_pages, enforced at run time by the client's QmlPalette). Emitted
     # only when there is a remote route to enforce it on, so a project that sets
     # router.palette but declares no remote route keeps this line out of its generated
-    # main entirely -- render_edge_main's pages block is gated on the same condition.
+    # main entirely; render_edge_main's pages block is gated on the same condition.
     palette = router.get("palette") or []
     palette_line = (f'\n    config.remotePalette = {{{string_list_literal(palette)}}};'
                     if palette and any(appmodel.is_remote_route(r) for r in routes) else "")

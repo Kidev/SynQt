@@ -45,7 +45,7 @@ requests to its own origin or to a CORS enabled server, and can open a WebSocket
 to any host, but it cannot open a listening socket of any kind. The Qt for
 WebAssembly platform notes are explicit that QWebSocketServer is unusable in the
 browser, and that QtRemoteObjects can ride QtWebSockets only if you supply your
-own QIODevice. This fixes one fact for all time:
+own QIODevice. That settles the direction of the client link:
 
 - A client entity is always a connector. It reaches exactly one web edge entity
   over a WebSocket it opens itself.
@@ -107,9 +107,9 @@ Plane B is plural: one pipe per link in the mesh.
   socket (QLocalServer and QLocalSocket). The socket is a filesystem object
   protected by filesystem permissions and never touches the network, so the
   operating system enforces which user may connect, but not which entity: on this
-  transport the calling entity's name is trusted by colocation. It is a fast path
-  you opt co located, equally trusted entities into; the default even on one host
-  is the mutual TLS link over loopback, which keeps entity identity certificate
+  transport the calling entity's name is trusted by colocation. You opt into it
+  for co located, equally trusted entities; the default even on one host is the
+  mutual TLS link over loopback, which keeps entity identity certificate
   authenticated everywhere (see [security](security.md)).
 
 ### Plane C: objects (the shared object tree)

@@ -13,9 +13,9 @@ It uses the [stall](../../examples/stall) storefront, whose two campaign pages
 the real `synqt build` path and weighs each client bundle with the shared
 [measure-bundle.sh](../client/measure-bundle.sh) (raw, gzip, and Brotli):
 
-- **remote** -- the example as written: the campaign pages are edge-delivered, so they are
+- remote, the example as written: the campaign pages are edge-delivered, so they are
   not in the first-load bundle.
-- **compiled-in** -- the same example with those two routes rewritten to compiled-in `view:`
+- compiled-in, the same example with those two routes rewritten to compiled-in `view:`
   routes, so qmlcachegen compiles the pages into the client module and they ship on first
   load.
 

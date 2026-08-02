@@ -22,7 +22,7 @@
 #
 # The .exe variant is tried FIRST, and that order is load-bearing on Windows. Git-for-Windows
 # bash is Cygwin/MSYS2, whose stat() transparently resolves a bare name to its `.exe` sibling
-# (the "exe magic"), so `[ -f "$1" ]` is TRUE for a target that only exists as `$1.exe` -- and
+# (the "exe magic"), so `[ -f "$1" ]` is TRUE for a target that only exists as `$1.exe`, and
 # this function would then echo the bare, extension-less path. That path works in bash (od, test)
 # but is a plain FileNotFoundError to any NATIVE Windows program, which has no exe magic: it cost
 # a CI round when a native Python step downstream tried to open the returned path and failed on a

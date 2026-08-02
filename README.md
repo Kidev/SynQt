@@ -48,7 +48,7 @@ your-app/
   cache/              # an in memory cache entity (official blueprint)
 ```
 
-Entities never write network code. They share **connect points**: named live objects
+Entities never write network code. They share connect points: named live objects
 owned by exactly one entity and mirrored to the others, with their shape declared
 once in a contract.
 

@@ -9,14 +9,15 @@ SynQt's own embedded engine and needs no configuration. A third party engine
 and masked behind the same entity, so the rest of the system, and its security
 model, do not change.
 
-This embodies the framework principle: simple by default, expandable by
+The rule behind that is simple by default, expandable by
 configuration. A database entity is one line. A database entity backed by a managed
 PostgreSQL cluster over verified TLS with a connection pool is a few more lines, in
 the same place, with nothing else in the system aware of the difference.
 
 ## The two faces of an entity
 
-Every service entity has two faces.
+Every service entity has two faces: the one its consumers call, and the one that
+talks to an engine.
 
 ```mermaid
 flowchart LR

@@ -72,20 +72,20 @@ record of its own. YAML expresses that nesting directly, with block lists
 
 A few conventions hold throughout the file:
 
-- **Lists of records** (`entities`, `connect_points`, `identity.providers`,
+- Lists of records (`entities`, `connect_points`, `identity.providers`,
   `routes`) are YAML block sequences: each element begins with `- ` and its keys are
   indented under it. Order does not matter anywhere, `routes` included: when two
   routes both match a path, the one with more literal segments wins, not the one
   declared first.
-- **Grouped settings** (for example an entity's `public`, `mesh`, `tls`, `env`,
+- Grouped settings (for example an entity's `public`, `mesh`, `tls`, `env`,
   `settings`, and `provider` sections) are nested maps under the record they belong
   to. There is no repetition of the entity name inside those sub sections the way a
   flatter format would require; they nest under the entity.
-- **Scalars are written plainly.** Unquoted strings (`name: web`), booleans (`true`
+- Scalars are written plainly. Unquoted strings (`name: web`), booleans (`true`
   / `false`), and integers (`port: 8443`) are all fine. Quote a string only when it
   contains YAML significant characters; the examples quote values such as URLs and
   CSP strings where quoting aids readability, and leave the rest bare.
-- **Secrets are never literals here.** Any value that carries a credential is an
+- Secrets are never literals here. Any value that carries a credential is an
   `env:` reference (for example `env:DB_PASSWORD`), never written into `synqt.yaml`.
   Validation enforces this. The name is answered when the entity starts, from its own
   environment: the entity's env file (`web/.env` for an entity in `web/`, or wherever
@@ -93,7 +93,7 @@ A few conventions hold throughout the file:
   neither able to overwrite a variable the real environment already set. That last rule
   is what lets an entity be deployed with a container secret, a systemd unit or a CI
   secret store and no file on disk at all.
-- **Comments** use `#`, and are used liberally in the scaffolded file to explain
+- Comments use `#`, and are used liberally in the scaffolded file to explain
   each default in place.
 
 A minimal project needs a `project` block, two entities, and one connect point.
@@ -171,7 +171,7 @@ entity's owned and consumed connect points the whole mesh topology, is defined h
 Each entry is a map; the two keys every entity has are `name` and `kind`, and the
 rest depend on the kind of entity.
 
-**`name` is also the entity's directory**, and its QML module, and the name other
+`name` is also the entity's directory, and its QML module, and the name other
 entities address it by. There is no separate path key: `name: web` means the entity's
 QML lives in `web/`, its secrets in `web/.env`, and its build output in `build/web/`.
 A client entity's window is `<name>/Main.qml`, always, which is why nothing declares
@@ -430,7 +430,7 @@ This section is the exception to the rest of this document. Everything above ass
 the client and the web edge share an origin, which is what you get by writing nothing.
 What follows is for putting the client on a separate origin, usually a CDN.
 
-`split_origin` is **deprecated**. It still builds, `synqt check` still validates it,
+`split_origin` is deprecated. It still builds, `synqt check` still validates it,
 and a project already running it keeps working in the browsers it works in today;
 what `synqt check` now adds is a warning saying so, because the mode rests on a
 third party cookie and that is a browser policy decision going one way. Read the cost
@@ -494,7 +494,7 @@ it needs nothing from Qt and could have been. The callback could hand the sessio
 through the client context: the edge redirects to the client origin with a one time
 code, and the page exchanges it there, so the cookie is filed under the client's
 partition and login works. It buys one engine. In the same measurement Firefox stored
-the `Partitioned` cookie with **no partition key**, meaning it did not apply CHIPS at
+the `Partitioned` cookie with no partition key, meaning it did not apply CHIPS at
 all, so under restriction the mode still dies there whatever the callback does; and
 WebKit, measured since, never reads the cookie back from the client site at all, with
 the attribute or without it. A redesign that fixes Chromium and leaves Firefox and
@@ -713,8 +713,8 @@ feature, the palette trust boundary, the page seed, and what a page's `scope`
 does and does not protect, is in [remote pages](remote-pages.md).
 
 The `remote:` routes are not baked into the client at build time the way `view:`
-routes are. The edge sends the connected client its route table (the **edge-served
-route table**), so the client learns which paths are edge-delivered from the edge
+routes are. The edge sends the connected client its route table (the edge-served
+route table), so the client learns which paths are edge-delivered from the edge
 itself, and a brand-new `remote:` route becomes reachable without a client rebuild.
 The two halves merge with the compiled-in half winning: a path the bundle already
 declares as a `view:` is kept even if the edge announces a `remote:` at the same
@@ -730,13 +730,13 @@ a route's view.
 
 Three rules decide what a path resolves to:
 
-- **More literal segments win.** `/c/summary` beats `/c/:campaign` however the two
+- More literal segments win. `/c/summary` beats `/c/:campaign` however the two
   are ordered in the file. Declaration order never decides a match, so moving a
   route in the file cannot change what an existing link does.
-- **An empty segment is not a segment.** `/c`, `/c/`, and `/c//` are one and the
+- An empty segment is not a segment. `/c`, `/c/`, and `/c//` are one and the
   same route; declaring two of them is an error, since only the first could ever be
   reached.
-- **The query string is not part of the path.** It is split off before matching and
+- The query string is not part of the path. It is split off before matching and
   arrives as `Router.query`, so `/search` and `/search?q=hat` are the same route.
 
 A route guard is a redirect rule, not a secrecy mechanism: every view's QML ships
@@ -935,7 +935,7 @@ entities:
 `entities` and `connect_points` are matched entry by entry on `name`, so a profile
 retunes one entity without restating the topology. Every other list, such as a
 connect point's `consumers` or `scopes.order`, is replaced whole: its membership and
-order are the value. **A profile changes and adds; it never removes.** There is no
+order are the value. A profile changes and adds; it never removes. There is no
 delete syntax, because dropping a consumer or an entity is a security change and it
 belongs in the file that declares the list, not in an overlay.
 

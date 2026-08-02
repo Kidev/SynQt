@@ -411,7 +411,8 @@ def _deploy_note(root: Path, name: str, out: Path) -> str:
     not the missing information, and the previous text did not even say which folder to run it in.
     """
     platform = desktop_platform()
-    header = ("The platform deploy step is not run by `synqt build` (docs/desktop.md); it is "
+    header = ("The platform deploy step is not run by `synqt build` "
+              "(https://synqt.org/desktop/); it is "
               "where\nsigning and notarization live. Until it runs, what is here links Qt from "
               "the kit it\nwas built against and runs only on a machine that has that kit.\n\n"
               "For this build, on %s:\n\n" % platform)
@@ -647,7 +648,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
             notices.append(licenses.CLIENT_GPL_WARNING)
         if any(e.get("capability") == "web_edge" or e.get("web_edge") for e in selected):
             notices.append("Note: distributing the edge binary triggers GPLv3 (Qt HTTP "
-                           "Server / Network Authorization). See docs/licensing.md.")
+                           "Server / Network Authorization). See https://synqt.org/licensing/.")
         if notices:
             summary += [""] + notices
     return "\n".join(summary)

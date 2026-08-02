@@ -42,7 +42,7 @@ QString name() const;
 Two things in that list are load bearing, and they are the reason the interface looks the
 way it does.
 
-The SQL and its parameters arrive **separately**, and there is no overload that takes
+The SQL and its parameters arrive separately, and there is no overload that takes
 them together. A provider is never handed a finished statement with a value already
 pasted into it, so there is no place in your adaptor where an injection could be
 introduced even by accident. Whatever your engine's binding syntax is, it is your job to
@@ -206,19 +206,19 @@ public:
 
 Three rules are being obeyed here, and none of them is optional.
 
-**The credentials never leave.** `m_config.password` came from the entity's own
+The credentials never leave. `m_config.password` came from the entity's own
 environment, through an `env:` reference the build refuses to resolve in a client target.
 It is written into the connection and into nothing else: not a log line, not an error
 message, not a property on a connect point. The error above names the host, deliberately,
 and not the string the host was reached with.
 
-**An unverified connection is refused in release.** `refusesInsecure()`, two steps below,
+An unverified connection is refused in release. `refusesInsecure()`, two steps below,
 is the whole of that policy. Development on loopback stays easy, and a release build
 pointed at a real address with verification off does not start. This is a rule an adaptor
 inherits, not one it decides: see
 [security of third party backends](providers.md#security-of-third-party-backends).
 
-**The connection belongs to one thread.** Qt SQL requires that a `QSqlDatabase` be used
+The connection belongs to one thread. Qt SQL requires that a `QSqlDatabase` be used
 only on the thread that created it, and `SqlConnectionPool` is built around that. The
 entity's event loop is that thread. Do not hand a lease to a worker.
 

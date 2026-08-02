@@ -360,12 +360,12 @@ the edge has to answer a path it has never heard of, and the client has to remem
 where a visitor was going across a trip to an identity provider. Both touch input an
 attacker controls.
 
-**The application shell for an unmatched path.** A visitor who bookmarks
+The application shell for an unmatched path. A visitor who bookmarks
 `/c/summer-sale` or refreshes on it sends the edge a path no route of its own
 answers. The edge serves `index.html` there, and the client resolves the path
 itself.
 
-- It is registered as a **route**, not as a missing handler. Qt answers a missing
+- It is registered as a route, not as a missing handler. Qt answers a missing
   handler through a `QHttpServerResponder`, and it does not run after request
   handlers for a responder answered request, which is where every hardening header
   is added. Served that way the shell would go out with no CSP, no COOP, and no
@@ -373,13 +373,13 @@ itself.
   same headers as every other response.
 - Only `GET` and `HEAD` get the shell. A `POST` or a `DELETE` to an unknown URL is
   a client bug or a probe, and answering it with HTML would hide that.
-- A path whose **final segment contains a `.`** returns 404 instead of HTML. An
+- A path whose final segment contains a `.` returns 404 instead of HTML. An
   asset request has to fail honestly: HTML with a 200 in place of a missing script
   surfaces as a confusing module load error rather than as the missing file it is.
 - A single segment path (`/about`) gets the shell too. The edge's asset route and
   the shell fallback share one URL template and the asset route is registered
   first, so it answers on the fallback's terms when the bundle holds no such file.
-  A path that resolves to a real file **outside** the bundle directory is refused
+  A path that resolves to a real file outside the bundle directory is refused
   as 404 and never dressed up as a client route, and an absolute path or one
   carrying a backslash or a NUL is refused as 403 before anything looks at it.
 - The shell response carries the same session cookie and the same cache terms
@@ -389,7 +389,7 @@ itself.
   perfectly, and without the cache terms an intermediary can pin a loader the deploy
   has replaced.
 
-**The login resume.** When a route guard refuses a navigation, the client remembers
+The login resume. When a route guard refuses a navigation, the client remembers
 the path so that signing in lands the visitor where they were going. In the browser
 that value lives in `sessionStorage`, which is per tab and is never sent to the
 server; on a [native desktop build](desktop.md#navigating-without-an-address-bar) it
@@ -398,7 +398,7 @@ query string the guard is dropping, which may carry a token.
 
 Anyone can put a link in front of a user, and the link is what decides the stored
 path, so validation is the whole of what keeps a resume from becoming an open
-redirect. A stored path is accepted only when **all** of the following hold, checked
+redirect. A stored path is accepted only when all of the following hold, checked
 again at the moment it is used rather than trusted for having been stored:
 
 - it is not empty, and is no longer than 2048 characters;
@@ -419,7 +419,7 @@ again at the moment it is used rather than trusted for having been stored:
   `%2e%2e` in one rule;
 - and it matches a route the client actually declares.
 
-The stored path is **cleared as it is read**, whether or not it validated, so a
+The stored path is cleared as it is read, whether or not it validated, so a
 stale intent cannot steer a later visit. Anything that fails the check simply does
 not resume: the visitor stays where the guard put them. Nor does a path the new
 scope still cannot reach, since going there would only bounce off the same guard.
@@ -444,31 +444,31 @@ that redirects an under-scoped navigation is navigation only, exactly as it is f
 compiled-in view: it steers the address bar, it is not what keeps the page's markup
 off an under-scoped machine. The edge's refusal is.
 
-**A refusal carries nothing.** When `fetchPageFor` refuses a request, `forbidden` for
+A refusal carries nothing. When `fetchPageFor` refuses a request, `forbidden` for
 an under-scoped caller or `notFound` for a path no route answers, the reply carries no
 markup, no content hash, and no seed. An under-scoped visitor cannot even learn the
 size of a page they may not see, let alone its source. The page is delivered only on
 the path where the scope check has already passed.
 
-**The seed is public output of a privileged context.** The seed hook runs on the edge,
+The seed is public output of a privileged context. The seed hook runs on the edge,
 after the scope check, with access to edge state and the `caller`. Whatever it returns
 is sent to the browser to paint the first frame, so treat its return value as public:
 scope it to what the caller is entitled to see, exactly as you would any value that
 crosses to the browser. The hook is privileged; its output is not.
 
-**The palette is a trust boundary.** `router.palette` is the whole set of QML modules
+The palette is a trust boundary. `router.palette` is the whole set of QML modules
 a delivered page may import, enforced by the client's `QmlPalette` at run time (a page
 that imports anything else is refused, not rendered). It bounds what an edge-delivered
 page can reach inside the client. Keep it as small as the pages actually need.
 
-**Accepted risk: a delivered page reaches the client accessors.** A delivered page can
+Accepted risk: a delivered page reaches the client accessors. A delivered page can
 still reach `Server`, `Session`, `Router`, and `App`, the same context the compiled-in
 views have. This is deliberate, and it is not a new exposure: the entity that can send
 a malicious remote page is the web edge, and an edge that would ship a malicious page
 can equally ship a malicious *bundle*. The trust you place in your own edge is the same
 trust either way. The palette narrows what a page may import; it does not, and is not
 meant to, sandbox a page away from the runtime the client already trusts its edge to
-drive. What a remote page does **not** do is widen any data boundary: it reads a connect
+drive. What a remote page does not do is widen any data boundary: it reads a connect
 point through the same owner-side scope checks as any other consumer, so a `scope` on a
 page protects the page's markup, never the data the page later reads.
 

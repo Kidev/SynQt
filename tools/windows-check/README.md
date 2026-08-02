@@ -14,22 +14,22 @@ fetches, linking the Windows Qt kit while running the code generators (`moc`, `r
 
 ## What it does and does not catch
 
-It **does** catch: `Q_OS_WIN` blocks that do not compile, wrong or missing Windows
+It does catch: `Q_OS_WIN` blocks that do not compile, wrong or missing Windows
 includes and types, MSVC STL and SDK header incompatibilities, the named-pipe and ACL
 API usage compiling and linking at all, ABI-level mistakes. A target that builds here
 builds under the CI's `cl.exe`.
 
-It **does not** catch: the exact `cl.exe /W4 /WX` warning verdict (clang emits its own
-warning set, so a specific MSVC warning number can differ) or any **runtime** behaviour.
+It does not catch: the exact `cl.exe /W4 /WX` warning verdict (clang emits its own
+warning set, so a specific MSVC warning number can differ) or any runtime behaviour.
 The Windows named-pipe ACL semantics that the m3 assertion was really about need a real
 Windows kernel; that verdict stays with the CI. Think of this as the compile-and-ABI
 gate that trims most of the back-and-forth, not a replacement for the Windows column.
 
 ## Pieces
 
-- `../../cmake/toolchains/windows-clang-cl.cmake` - the cross toolchain.
-- `check-windows.sh` - configure and build a CMake source dir with that toolchain.
-- `probe.cpp` / `CMakeLists.txt` - a QtCore console target that proves the toolchain
+- `../../cmake/toolchains/windows-clang-cl.cmake`: the cross toolchain.
+- `check-windows.sh`: configure and build a CMake source dir with that toolchain.
+- `probe.cpp` / `CMakeLists.txt`: a QtCore console target that proves the toolchain
   before any framework target is attempted.
 
 ## One-time provisioning

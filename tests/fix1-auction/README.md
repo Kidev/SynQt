@@ -13,12 +13,12 @@ localhost edge cert generated at configure time, then `ctest`).
 
 `tst_fix1.cpp` verifies:
 
-- **Hands-on check 1**: a bid that does not beat the standing one is refused *by the edge*,
+- Hands-on check 1: a bid that does not beat the standing one is refused *by the edge*,
   and the standing bid is untouched.
-- **Hands-on check 2**: `placeBid` while signed out (as from the browser console) is refused
+- Hands-on check 2: `placeBid` while signed out (as from the browser console) is refused
   by the edge, whatever the UI shows.
 - The Hall-of-Fame segmentation; the auctioneer's `closeLot` records a winner in the
-  database, and the database records **only** for the edge (`Caller.entity === "web"`),
+  database, and the database records only for the edge (`Caller.entity === "web"`),
   refusing a listed-but-non-edge consumer.
 
 The third hands-on check (client-as-consumer of the database `ledger` fails `synqt check`) is

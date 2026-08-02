@@ -83,11 +83,11 @@ no second set of paths to keep in step.
 A route path is a sequence of segments, each either a literal or a `:name` parameter that
 captures whatever sits in that position. Two rules decide everything else:
 
-- **More literal segments win, whatever the declaration order.** `/c/summary` beats
+- More literal segments win, whatever the declaration order. `/c/summary` beats
   `/c/:campaign` even when `/c/:campaign` is written first. Precedence is a property of
   the table, not of the order it happens to be written in, so moving a route in
   `synqt.yaml` never silently changes which page a URL opens.
-- **An empty segment is not a segment.** `/c` and `/c/` are one route, and `synqt check`
+- An empty segment is not a segment. `/c` and `/c/` are one route, and `synqt check`
   refuses a table that declares both rather than leaving one of them unreachable.
 
 `synqt check` also refuses a path that is not absolute, a parameter name that is not an
@@ -127,7 +127,7 @@ there and the client resolves the path itself, before its link to the edge is ev
 The edge is deliberate about which paths get the shell, because that response is the one
 HTML document in the system:
 
-- It is registered as a **route**, not as a missing-handler hook, so it carries the same
+- It is registered as a route, not as a missing-handler hook, so it carries the same
   CSP, COOP, COEP, session cookie, and cache terms as the root document. Served through
   Qt's missing-handler path it would go out with none of them.
 - Only `GET` and `HEAD` get it. A `POST` to an unknown URL is a bug or a probe, and
@@ -139,13 +139,13 @@ The reasoning behind each of those is in
 [deep links and the login resume](security.md#deep-links-and-the-login-resume).
 
 At the moment a deep link resolves, the session holds only the default scope, because the
-link to the edge has not opened yet. A **scope-gated** deep link therefore resolves
+link to the edge has not opened yet. A scope-gated deep link therefore resolves
 `Forbidden` at boot, and is resumed the instant the real scope arrives. That is not a bug
 to work around; it is the same guard behaving the same way it does mid-session.
 
 ## Guards, refusals, and the login resume
 
-A route's `scope:` is a **navigation rule**. When a session lacks it, the router goes to
+A route's `scope:` is a navigation rule. When a session lacks it, the router goes to
 `router.fallback` instead and reports `Forbidden`, and it re-resolves the current route on
 every scope change, in both directions: gaining scope promotes a route that was refused,
 losing it evicts a visitor from a page they may no longer see and corrects the address bar

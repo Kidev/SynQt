@@ -134,7 +134,7 @@ def scopes_hierarchical(config: Dict[str, Any]) -> bool:
 # the edge's browser-facing policy
 #
 # Everything under here answers one question: what did the project DECLARE? Never "what
-# does the framework do when the project declares nothing" -- the defaults live once, in
+# does the framework do when the project declares nothing": the defaults live once, in
 # `WebEdgeConfig` (src/service/webedgeconfig.h) and `IdentityConfig`
 # (src/service/identityconfig.h), and a second copy here would be a second thing to keep
 # in step and a silent way for the generated edge to disagree with the struct it fills.
@@ -318,7 +318,7 @@ def identity_enabled(config: Dict[str, Any], entity: Dict[str, Any]) -> bool:
     """Whether this web edge serves the login, callback and logout routes.
 
     A project that declares no provider has no login to serve. When it does, every web
-    edge serves it unless that entity opts out with ``identity: false`` -- the key the
+    edge serves it unless that entity opts out with ``identity: false``, the key the
     examples spell as ``identity: true`` on the edge that signs users in.
     """
     if not identity_providers(config):
@@ -503,7 +503,7 @@ def client_secret_variable(provider: Dict[str, Any]) -> str:
 
     A secret is only ever a name here. It is read from the edge environment when the
     process starts, so it never becomes a literal in the generated source or in the
-    binary that source compiles to -- which is also why a literal is refused outright
+    binary that source compiles to, which is also why a literal is refused outright
     rather than passed through: emitting it would bake a credential into an artifact
     that gets copied, cached and shipped.
     """

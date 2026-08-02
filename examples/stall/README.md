@@ -41,15 +41,15 @@ sends the fresh seed even when the page body itself is unchanged (a `notModified
 
 `tests/fix3-stall` brings the example up on the native host kit and pins:
 
-1. **`synqt check` passes** on this project (the happy path).
-2. **Adding the client as a consumer of the `inventory` connect point fails `synqt
-   check`**: a connect point the browser consumes must be owned by a web edge; the database
+1. `synqt check` passes on this project (the happy path).
+2. Adding the client as a consumer of the `inventory` connect point fails `synqt
+   check`: a connect point the browser consumes must be owned by a web edge; the database
    is not, so the browser can never reach the durable stock.
-3. **An under-scoped fetch of `/members` returns `forbidden`** with no markup, no hash, and
+3. An under-scoped fetch of `/members` returns `forbidden` with no markup, no hash, and
    no seed; a signed-in (`user`) fetch of the same page succeeds.
-4. **A route the client never compiled in is still reachable** through the edge's pushed
+4. A route the client never compiled in is still reachable through the edge's pushed
    route table, proving the edge-delivered pages need no client rebuild.
-5. **The seed is real and fresh per parameter**, driven through the production
+5. The seed is real and fresh per parameter, driven through the production
    per-connection `Caller`: fetching `/c/summer-sale` seeds `Summer Sale`, and fetching
    `/c/black-friday` while already holding the first page's hash comes back `notModified`
    carrying the second parameter's seed, `Black Friday`, never the first's.

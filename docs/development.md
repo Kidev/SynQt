@@ -192,14 +192,14 @@ That builds a second, instrumented tree (`-DSYNQT_COVERAGE=ON`, and `Debug` so a
 to the code that is on it rather than to whatever the optimizer made of it), runs the
 suites against it, and reports both halves of the framework:
 
-- **C++**, the five runtime libraries under `src/`. `--coverage` puts a counter file beside
+- C++, the five runtime libraries under `src/`. `--coverage` puts a counter file beside
   every object file, and
   [`tools/coverage/report.py`](https://github.com/Kidev/SynQt/blob/main/tools/coverage/report.py)
   reads them back through `gcov -t -j`. Only `src/` is instrumented: counting the suites
   themselves would add thousands of lines that are executed by definition, and the number
   would then climb every time a test was written rather than every time one reached
   somewhere new.
-- **Python**, the CLI under `tools/synqt/`, through `coverage.py` with branch coverage on
+- Python, the CLI under `tools/synqt/`, through `coverage.py` with branch coverage on
   (configured in
   [`tools/synqt/pyproject.toml`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/pyproject.toml)).
   Branch coverage rather than lines alone because most of that tool is decisions about a
@@ -223,7 +223,7 @@ already has the Qt kit the instrumented build needs.
 
 Two things move the figure, and it is worth knowing which is which.
 
-**The external engine providers need an engine.** Everything in `postgres`, `mysql`,
+The external engine providers need an engine. Everything in `postgres`, `mysql`,
 `mongodb`, and `redis` past the connect call is unreachable without a live server, which is
 why each sits near 20% on a bare checkout. The proofs for them are already written (the same
 Source, swapped engine by engine, producing identical rows; the same `ICacheProvider`
@@ -251,7 +251,7 @@ file is not uncovered, it is not there. Faking the wire protocols instead was co
 rejected: satisfying libpq or the MongoDB driver well enough to be useful is a large surface,
 and a green test against a fake proves the provider talks to the fake.
 
-**`mysql` needs one more thing than an engine, and it is a licensing consequence.** Qt's
+`mysql` needs one more thing than an engine, and it is a licensing consequence. Qt's
 prebuilt QMYSQL plugin is linked against Oracle's `libmysqlclient`, which SynQt may not
 convey alongside the LGPLv3 Qt modules, and which does not load against MariaDB
 Connector/C either (the versioned symbols are Oracle's). So the live mysql proof needs the
@@ -277,7 +277,7 @@ you to different places. The check behind that has to be `addDatabase()`, not
 `isDriverAvailable()`, which reports a plugin as available from its metadata without ever
 loading it.
 
-**WebAssembly-only code is not in the denominator at all.** A native build does not compile
+WebAssembly-only code is not in the denominator at all. A native build does not compile
 what is behind `#ifdef Q_OS_WASM`, so gcov never instruments it, and it lands in neither the
 covered nor the missed column. That would let the percentage rise by moving code into a
 browser-only branch, so the report counts those lines separately and prints them under the

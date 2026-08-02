@@ -15,15 +15,15 @@ cannot cheat your way across the map: the edge owns every blob's position and mo
 it itself, so a hostile client can neither teleport nor outrun its own size.
 
 > [!NOTE]
-> A 2D blob world is simple enough that the edge can be the **real** authority over
+> A 2D blob world is simple enough that the edge can be the real authority over
 > movement rather than an approximation. The client never sends its position; it sends
 > only where it would *like* to go, and the edge advances every blob itself at the
 > speed that blob's mass allows. That rules out an entire category of cheats:
 > there is no position to forge, because the client never reports one. And because the
 > view is a window onto the arena rather than the whole map, this tutorial builds the
-> three techniques that make a networked game feel right and scale: **client-side
-> prediction** so your own blob tracks your cursor instantly, **entity interpolation**
-> so everyone else moves smoothly between snapshots, and **interest management** so the
+> three techniques that make a networked game feel right and scale: client-side
+> prediction so your own blob tracks your cursor instantly, entity interpolation
+> so everyone else moves smoothly between snapshots, and interest management so the
 > edge sends each player only what they can see. The owner stays the sole authority
 > throughout; what remains after all three (input replay reconciliation, lag
 > compensation, splitting) is in the
@@ -60,8 +60,9 @@ never by the browser, exactly as in [the Hall of Fame](tutorial-hall-of-fame.md)
 
 - How an owner runs a simulation rather than storing values: a fixed tick that
   integrates the whole world, and consumers that see the result instead of driving it.
-- Why a server authoritative position is not a policy but a shape. The client sends an
-  aim point, never a position, so there is no position to forge.
+- Why a server authoritative position is enforced by the shape of the contract rather
+  than by a rule. The client sends an aim point, never a position, so there is no
+  position to forge.
 - Client-side prediction: moving your own blob the instant you point, without ever
   letting your guess become the truth.
 - Entity interpolation: drawing everyone else smoothly between snapshots that arrive

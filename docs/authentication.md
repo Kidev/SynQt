@@ -6,7 +6,7 @@ reasoning behind each default, the distinction between user identity and entity
 identity, and the session lifecycle. The security rationale here is the same as in
 [security](security.md); this page is the practical, opinionated front door to it.
 
-## The reflection: secure defaults, no insecure middle state
+## Secure defaults, with no insecure state to get stuck in
 
 The most dangerous thing about authentication is the gap between "it works" and
 "it is safe." Many systems reach a working login that is quietly insecure (a token
@@ -17,9 +17,9 @@ SynQt's stance is that the default path is the secure path, and there is no
 working but insecure intermediate state to get stuck in. The single command that
 adds auth produces a configuration that is already hardened. You can widen it
 deliberately, but you never have to remember to add the protections, because they
-are on from the first run. The reflection that shaped this: every security control
-that is opt in will be forgotten by someone, so the controls that matter must be
-opt out, visible, and justified when removed.
+are on from the first run. The reasoning is that every security control that is opt
+in will be forgotten by someone, so the controls that matter must be opt out,
+visible, and justified when removed.
 
 Concretely, the defaults baked in by `synqt add auth`:
 

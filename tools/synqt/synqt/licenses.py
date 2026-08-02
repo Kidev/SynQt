@@ -115,11 +115,11 @@ def generate(entity: Dict[str, Any], *, target: str = "wasm",
         lines.append(
             "This client is conveyed to every visitor, so you must offer its complete "
             "corresponding source under GPLv3 (or use a commercial Qt license to keep it "
-            "closed). See docs/licensing.md.")
+            "closed). See https://synqt.org/licensing/.")
     elif effective == "GPL-3.0-only":
         lines.append(
             "Distributing this binary conveys it under GPLv3; a self-hosted SaaS use is "
-            "not conveyance. See docs/licensing.md.")
+            "not conveyance. See https://synqt.org/licensing/.")
     return "\n".join(lines) + "\n"
 
 
@@ -127,4 +127,4 @@ def generate(entity: Dict[str, Any], *, target: str = "wasm",
 CLIENT_GPL_WARNING = (
     "Note: built with open-source Qt, your client is GPLv3 and is served to every visitor, "
     "so you must publish its source. Use a commercial Qt license to keep it closed. "
-    "See docs/licensing.md.")
+    "See https://synqt.org/licensing/.")

@@ -22,17 +22,17 @@ The libraries
 The runtime is split by trust boundary, one library per boundary, so that a client target
 cannot link a service only module:
 
-- **SynQtTransport**: SynQt::WebSocketTransport, the `QIODevice` over a `QWebSocket` that
+- SynQtTransport: SynQt::WebSocketTransport, the `QIODevice` over a `QWebSocket` that
   carries QtRemoteObjects. Shared by the client and the web edge.
-- **SynQtClient**: SynQt::SynClient, SynQt::ServerAccessor, SynQt::Session,
+- SynQtClient: SynQt::SynClient, SynQt::ServerAccessor, SynQt::Session,
   SynQt::Router, and the typed replica factory registry (SynQt::acquireReplica). Links
   into both the WebAssembly and the native desktop client.
-- **SynQtConsumer**: the connect point resolver and the attached handler types behind the
+- SynQtConsumer: the connect point resolver and the attached handler types behind the
   `Contract.on<Signal>` and returning slot `.then()` QML sugar.
-- **SynQtService**: SynQt::EntityRuntime, SynQt::ConnectPointHost, SynQt::MeshServer,
+- SynQtService: SynQt::EntityRuntime, SynQt::ConnectPointHost, SynQt::MeshServer,
   SynQt::MeshClient, SynQt::WebEdge, SynQt::SessionManager, SynQt::Caller,
   SynQt::IdentityProvider.
-- **SynQtProviders**: SynQt::IPersistenceProvider, SynQt::IDocumentProvider,
+- SynQtProviders: SynQt::IPersistenceProvider, SynQt::IDocumentProvider,
   SynQt::ICacheProvider, SynQt::ProviderRegistry, and the bundled implementations.
 
 What is listed

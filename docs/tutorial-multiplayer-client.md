@@ -2,8 +2,8 @@
 
 The edge [owns the arena](tutorial-multiplayer-world.md); the client shows a window
 onto it, centered on you, and does the two jobs that make a networked game feel good.
-**Prediction**: your own blob is simulated locally with the edge's exact rule, so it
-tracks your cursor with no waiting, and the camera follows it. **Interpolation**:
+Prediction: your own blob is simulated locally with the edge's exact rule, so it
+tracks your cursor with no waiting, and the camera follows it. Interpolation:
 everyone else is drawn a fraction of a second in the past, smoothly between the
 snapshots the edge sends, so twenty updates a second read as continuous motion. You
 keep the centered blob from [part one](tutorial-multiplayer.md#start-from-an-empty-arena);

@@ -23,11 +23,11 @@ browser --wss+session--> web edge --mesh mTLS--> database
 
 The tutorial's three "try it, then think" checks are kept as acceptance fixtures:
 
-1. **A lower bid is refused by the edge**: the owner's `placeBid` slot rejects any bid that
+1. A lower bid is refused by the edge: the owner's `placeBid` slot rejects any bid that
    does not beat the standing one. Proven in `tests/fix1-auction`.
-2. **`placeBid` from the console while signed out is refused**: the same slot rejects a
+2. `placeBid` from the console while signed out is refused: the same slot rejects a
    caller without the `user` scope, whatever the UI shows. Proven in `tests/fix1-auction`.
-3. **Adding the client as a consumer of the `ledger` connect point fails `synqt check`**:
+3. Adding the client as a consumer of the `ledger` connect point fails `synqt check`:
    a connect point the browser consumes must be owned by a web edge; the database is not.
    Proven in `tools/synqt/tests/test_examples.py`.
 

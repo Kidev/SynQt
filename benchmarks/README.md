@@ -15,7 +15,7 @@ later change that regresses one is visible in review; re-run on a fixed runner t
 A committed number is not a guard until something reads it. [`baselines.py`](baselines.py)
 is what reads them, and it draws one line down the middle of the problem.
 
-**Absolute numbers are facts about one machine.** A 23-microsecond p50 describes the
+Absolute numbers are facts about one machine. A 23-microsecond p50 describes the
 author's workstation. Held against a shared CI runner, which is a different CPU,
 virtualised, and sharing a host with strangers, it would fail constantly for reasons that
 have nothing to do with the commit under review. A gate that flaps gets switched off, and
@@ -28,8 +28,8 @@ benchmarks/transport/run-bench.sh                        # after
 python benchmarks/baselines.py compare old.json new.json --tolerance 0.25
 ```
 
-**The claims those numbers support are machine-independent, and those are enforced
-everywhere.** "Interest management holds the per-session payload flat." "Minting a session
+The claims those numbers support are machine-independent, and those are enforced
+everywhere. "Interest management holds the per-session payload flat." "Minting a session
 is amortized O(1)." "The contended SQLite writer stays far under the busy timeout." "Calls
 pipeline rather than serialising on the round trip." Each is a ratio, an ordering, or an
 invariant, each is a claim this file makes in prose below, and none of them cares how fast
@@ -41,8 +41,8 @@ python benchmarks/baselines.py check fresh.json --verbose
 python benchmarks/baselines.py show results/mesh-kidevPC_.json
 ```
 
-One rule decides what is asserted rather than merely printed: **a claim is enforced only
-where the committed baseline clears it by at least 2x.** Local-socket throughput beats
+One rule decides what is asserted rather than merely printed: a claim is enforced only
+where the committed baseline clears it by at least 2x. Local-socket throughput beats
 mutual TLS by 1.2x, which is real and is well inside a shared runner's noise, so it prints
 every run and fails none. Tail percentiles and the mean are diffed but never gated; `mean`
 is in that set because one outlier moves it and cannot move a median (the transport
@@ -80,11 +80,11 @@ What it reports:
 | `slot_throughput_<N>B` | pipelined returning-slot calls per second (the path's ceiling, not serialized RTT) |
 | `model_replication_<N>_rows` | owner publishes a model of N rows -> the replica's row count mirrors it |
 
-Reading the numbers: latency is loopback in one process, so absolute figures are a **floor**
+Reading the numbers: latency is loopback in one process, so absolute figures are a floor
 (a real network adds to them). Their value is the committed baseline (regression guard) and
 the internal ratios; one-way push/signal ~ half of RTT, RTT roughly flat from 64 B to 4 KB
 (QtRO framing dominates small payloads), throughput far above serialized `1/RTT` because
-calls pipeline. `model_replication` measures **row-count propagation**; the `QtRO`
+calls pipeline. `model_replication` measures row-count propagation; the `QtRO`
 `QAbstractItemModelReplica` prefetches asynchronously, so it is timed from a drained/empty
 replica to the new row count and is indicative of bulk-transfer cost, not a byte-exact fetch.
 
@@ -125,13 +125,13 @@ BENCH_MEASURE=3 BENCH_CONNECTIONS="64,256" ./benchmarks/edge/run-bench.sh
 
 Methodology mirrors TechEmpower/wrk: warm up, then hold `connections` parallel keep-alive
 request loops open for the measured window, sweeping the connection count (16 / 64 / 256), and
-report **requests/sec** and the latency distribution (p50/p90/p99). TechEmpower's own generator
+report requests/sec and the latency distribution (p50/p90/p99). TechEmpower's own generator
 is `wrk`; the driver here is a dependency-free Node keep-alive loader (Node builtins only, no
 autocannon/wrk to install) so it runs anywhere the edge builds; what makes the numbers
 comparable across frameworks is the test types and the methodology, not the generator. The
 result is written to `results/edge-http-<host>.json` in the same shape as `transport-*.json`.
 
-> **In-env note.** The endpoints are verified correct here (each returns the TechEmpower-shaped
+> In-env note. The endpoints are verified correct here (each returns the TechEmpower-shaped
 > payload, and `/fortunes` escapes the seeded `<script>` row). The committed numeric baseline
 > must be produced on a normal host, though: this build sandbox kills any sustained parallel
 > HTTP load (node *and* a burst of `curl` alike are terminated), so `run-bench.sh` completes
@@ -158,7 +158,7 @@ configure time, writes a baseline):
 ./benchmarks/mesh/run-bench.sh --samples 5000 --setup-samples 500 --throughput-calls 50000
 ```
 
-The point of the run is the **delta** between the two modes. The benchmarking plan is explicit that the
+The point of the run is the delta between the two modes. The benchmarking plan is explicit that the
 loopback-mTLS vs local-socket gap is "the number that justifies keeping `transport: local` as an
 explicit fast path; measure it, do not assume it." The harness prints that delta directly.
 
@@ -167,9 +167,9 @@ explicit fast path; measure it, do not assume it." The harness prints that delta
 `results/mesh-kidevPC_.json` (Qt 6.11.1, Arch Linux x86_64): steady-state per-message cost is
 close between the modes; slot RTT p50 ~ 26 us (mTLS) vs 15 us (local), property push p50 ~ 16 us
 vs 8 us, throughput ~ 2.8x10^5 vs 3.4x10^5 calls/s; so once a link is up, mutual TLS on loopback
-is cheap (a ~1.2-1.8x overhead on already-microsecond operations). The gap is in **connection
-setup**: the mutual-TLS handshake-plus-verify costs ~ **3.6 ms** p50 against ~ **0.03 ms** for the
-local socket; a **~113x difference**. That is the honest justification for the opt-in local
+is cheap (a ~1.2-1.8x overhead on already-microsecond operations). The gap is in connection
+setup: the mutual-TLS handshake-plus-verify costs ~ 3.6 ms p50 against ~ 0.03 ms for the
+local socket; a ~113x difference. That is the honest justification for the opt-in local
 fast path: it matters for connection-heavy or short-lived-link patterns, not for the steady state
 of a long-lived mesh link, where the mTLS default costs almost nothing. Cross-host mutual TLS
 cannot be stood up in one process; its cost is these loopback figures plus real network latency
@@ -199,16 +199,16 @@ work, from a large batch) swept over N, plus the full-table `snapshot()` cost pe
 | 10 000 | 39 ns | 46 ns | 42 ns | 52 ns | 595 ns | 3.0 ms |
 | 100 000 | 79 ns | 51 ns | 51 ns | 60 ns | 618 ns | 39 ms |
 
-The request-path operations are what matter, and they hold up: **lookup and `hasScope` stay in
-the tens of nanoseconds** across a 100x growth in live sessions (the mild rise at 100k is cache,
+The request-path operations are what matter, and they hold up: lookup and `hasScope` stay in
+the tens of nanoseconds across a 100x growth in live sessions (the mild rise at 100k is cache,
 not algorithm; the `QHash` is O(1)). Hierarchical scope checks cost ~ 9 ns more than set-based
-(the rank `indexOf` in the vocabulary). `createSession()` is now **flat at ~ 600 ns regardless of
-table size** (token mint + hash insert), and one operation remains **O(N) by design**:
+(the rank `indexOf` in the vocabulary). `createSession()` is now flat at ~ 600 ns regardless of
+table size (token mint + hash insert), and one operation remains O(N) by design:
 
 - `createSession()` used to call a full-table `purgeExpired()` on every create, making it
   O(live sessions); an earlier baseline measured ~ 306 us at 100k. It now keeps an
   insertion-ordered `{createdMs, id}` expiry queue and drains only the actually-expired front
-  (a fixed TTL means sessions expire in creation order), so minting is amortized **O(1)**;
+  (a fixed TTL means sessions expire in creation order), so minting is amortized O(1);
   ~ 618 ns at 100k, a ~500x improvement, holding flat across the sweep above. `lookup()` and
   `snapshot()` remain the correctness authority for expiry (they re-check the TTL), so the queue
   is a pure memory reclaimer that can safely lag but never returns or drops a live session. This
@@ -222,17 +222,18 @@ table size** (token mint + hash insert), and one operation remains **O(N) by des
 
 `fanout/` measures the arena's server-authoritative `publish()` as one owner change reaches N
 consumers, over the real QtRO-over-QtWebSockets path (one `QRemoteObjectHost`, N consumer nodes on
-loopback, the framework's `WebSocketTransport`). `docs/tutorial-multiplayer-world.md` warns the
+loopback, the framework's `WebSocketTransport`). The
+[arena world page](../docs/tutorial-multiplayer-world.md) warns the
 naive shape is O(N^2) (N sessions each published a slice of the whole N-entity world), and that an
 `instance: per_session` split with interest management cuts each slice to the k nearest entities.
 This sweeps N over three modes and reports the owner-side publish CPU (p50/p99) and the
 propagation latency to every consumer:
 
-- **shared**: one world Source; a single revision bump fans out to all N. Cheapest CPU, but every
+- shared: one world Source; a single revision bump fans out to all N. Cheapest CPU, but every
   session replicates the *same* model, so the per-session payload is the whole world (N): there is
   no way to give each player a filtered view.
-- **per_session_naive**: one Source per session, each publishing the full N-entity world.
-- **per_session_interest**: one Source per session, each publishing only its k nearest entities.
+- per_session_naive: one Source per session, each publishing the full N-entity world.
+- per_session_interest: one Source per session, each publishing only its k nearest entities.
 
 ```sh
 ./benchmarks/fanout/run-bench.sh
@@ -253,12 +254,12 @@ CPU is the load-bearing number; it is where the O(N^2) lives:
 | 100 | per_session_naive | 100 | 10 000 | **34.6 ms** | 38.9 ms |
 | 100 | per_session_interest | 16 | 1 600 | **5.62 ms** | 6.64 ms |
 
-The naive per-session CPU is **quadratic in N**; 0.37 -> 2.09 -> 8.34 -> 34.6 ms across N = 10 -> 25 ->
+The naive per-session CPU is quadratic in N; 0.37 -> 2.09 -> 8.34 -> 34.6 ms across N = 10 -> 25 ->
 50 -> 100 (a 10x N is a ~ 95x cost, i.e. N^2); exactly the O(N^2) the tutorial flags, because each
-of N sessions rebuilds a slice of all N entities. **Interest management flattens it**: capping each
+of N sessions rebuilds a slice of all N entities. Interest management flattens it: capping each
 slice at the k = 16 nearest holds the per-session payload constant, so total work is O(N*k) and the
-publish CPU grows *linearly* (0.36 -> 1.38 -> 2.66 -> 5.62 ms). At N = 100 that is a **6.2x cheaper
-publish and 6.25x less payload** (1 600 vs 10 000 rows/tick), and it keeps the tick inside a frame
+publish CPU grows *linearly* (0.36 -> 1.38 -> 2.66 -> 5.62 ms). At N = 100 that is a 6.2x cheaper
+publish and 6.25x less payload (1 600 vs 10 000 rows/tick), and it keeps the tick inside a frame
 budget the naive path (34.6 ms) blows past. This is where the arena saturates on a single edge, and
 the number that justifies the `per_session` + interest-management design. `shared` is cheapest of
 all (one model, 4.5 ms at N = 100) but cannot filter per player, so it is only viable when every
@@ -278,7 +279,7 @@ thread; the entity's serialized single-writer loop) and the `MemoryCacheProvider
 ```
 
 What it measures: autocommit vs single-transaction write throughput, indexed point-read latency,
-the single writer's tail latency **while a second connection contends on the same WAL file** (the
+the single writer's tail latency while a second connection contends on the same WAL file (the
 busy-timeout path, which must stay bounded and never deadlock), and the memory cache's
 hit/miss/set cost plus that its bounded LRU holds its bound under overfill.
 
@@ -298,8 +299,8 @@ hit/miss/set cost plus that its bounded LRU holds its bound under overfill.
 Reading it: WAL with the default `synchronous=NORMAL` does not fsync per commit, so autocommit
 writes are cheap (single-digit microseconds) and a single bulk transaction reaches ~ 412 k
 rows/s. The contended-writer clause is the important safety one; with a second connection
-hammering the same file, the single writer's median is unchanged (9 us) and its **worst case is a
-bounded 18 ms**, far under the 5 s busy timeout: the busy-timeout retry does its job and nothing
+hammering the same file, the single writer's median is unchanged (9 us) and its worst case is a
+bounded 18 ms, far under the 5 s busy timeout: the busy-timeout retry does its job and nothing
 deadlocks (the harness asserts this). The memory cache is ~90 ns/op on the hot path and holds its
 bound exactly under 2x overfill (oldest evicted, newest kept). `cache_set_under_eviction` is more
 expensive (~ 1.2 us) because the LRU recency list evicts from the front; O(bound) per evicting
@@ -378,15 +379,16 @@ Qt 6.11.1, Emscripten 4.0.7, the `wasm_singlethread` kit, recorded 2026-07-23:
 
 Read that as what those two small pages weigh in this one small demo, not as a figure for SynQt in
 general: the saving is a function of how much of an application is rarely visited, so it grows with
-every seldom-reached page an app keeps on the edge. `remote-pages/README.md` says the same at
+every seldom-reached page an app keeps on the edge.
+[The harness README](remote-pages/README.md) says the same at
 length, and says why the harness needs the WebAssembly kit and so belongs on a workstation.
 
 ## buildtime: the build itself (reported separately from runtime)
 
 `buildtime/` is the one part of the plan that is not a measurement harness. Nothing needed
 instrumenting; the build steps already exist and [`measure.py`](buildtime/measure.py) times
-around them. Per entity it reports a **clean** build (empty directory to linked artifact), a
-**no-op** build (`synqt build` again, nothing changed), and a **touched** build (one QML
+around them. Per entity it reports a clean build (empty directory to linked artifact), a
+no-op build (`synqt build` again, nothing changed), and a touched build (one QML
 file's timestamp moved), plus contract generation timed on its own as a subprocess, because
 that is how the build invokes it.
 
@@ -410,11 +412,11 @@ in this repository; the only thing that can see it is a clock.
 | web      | 14.6 s | 0.08 s | 0.08 s  | 93 ms for 3 contracts (p50) |
 | database | 13.3 s | 0.08 s | 0.08 s  | |
 
-**The first run of this harness found a real defect, and the fix took two rounds.** Codegen
+The first run of this harness found a real defect, and the fix took two rounds. Codegen
 runs at CMake configure time (`cmake/SynQtContracts.cmake`) and `synqt build` reconfigures
 on every invocation, so a generated header rewritten unconditionally moved its own timestamp
-and invalidated every translation unit that included it. A no-op build cost **72% of a clean
-one** (10.2 s against 14.1 s) while a bare `ninja` with the same tree was 17 ms. Both writers
+and invalidated every translation unit that included it. A no-op build cost 72% of a clean
+one (10.2 s against 14.1 s) while a bare `ninja` with the same tree was 17 ms. Both writers
 began writing only when the content differs (`synqtc`'s `_write`, and
 `_synqt_write_if_changed` in the CMake module), which took the no-op to 26-30%.
 
@@ -422,7 +424,7 @@ That left the same defect one level up, in the app generator: every `synqt build
 the root `CMakeLists.txt`, the presets, and every entity's `main.cpp`, identical content and
 all, so every one of them arrived at the compiler looking new. Routing those writes through
 `synqt.writer.write_if_changed` and skipping the explicit CMake configure when neither the
-command nor the preset changed took a no-op from **4.3 s to 0.08 s**, a 55x difference on
+command nor the preset changed took a no-op from 4.3 s to 0.08 s, a 55x difference on
 the same tree. A real change still rebuilds, which is the half worth checking: adding a
 `prop` to a contract relinks in 4.9 s and adding a scope to `synqt.yaml` in 3.2 s, both with
 a new binary timestamp, while a no-op leaves the binary alone.
@@ -436,14 +438,14 @@ loaded from disk at runtime rather than compiled in, so moving its timestamp cor
 rebuilds nothing. The number to watch on that row is the client's, which does compile its
 QML (`--include-client`).
 
-The client row is now measured, and it found the second no-op defect this harness exists
-for. A clean WebAssembly client build costs **68.4 s**, a touched `Main.qml` **52.9 s**, and
-a no-op **0.12 s** -- but that last number was **38.6 s** when it was first measured, with
+The client row found the second no-op defect this harness exists for. A clean
+WebAssembly client build costs 68.4 s, a touched `Main.qml` 52.9 s, and
+a no-op 0.12 s. That last number was 38.6 s when it was first measured, with
 the compiler doing nothing at all: `synqt build` recompressed the whole bundle on every
 invocation, and Brotli over a 30 MB `.wasm` is tens of seconds of one core. Precompression
 now skips an asset whose `.br` and `.gz` are already newer than it, which is what makes a
-client no-op 320x cheaper and takes 4.7 s off every edit-rebuild cycle. Nothing in the test
-suite could have caught that; only a clock could.
+client no-op 320x cheaper and takes 4.7 s off every edit-rebuild cycle. No test in the
+suite could have caught it.
 
 What remains in the client's 52.9 s is not a defect, and the gate says so in its own band.
 Timed step by step, a touched `Main.qml` costs 16.9 s to compile the one translation unit
@@ -455,16 +457,11 @@ strict for both.
 Contract generation is a rounding error at this size, 0.7% of a clean build, which is the
 useful thing to know about it: `.syn` lowering is not where build time goes.
 
-## Still to build (the rest of the benchmarking plan)
+## Coverage of the benchmarking plan
 
-Every path in the plan now has a harness: transport (BENCH-1), the edge HTTP path, the edge
+Every path in the plan has a harness: transport (BENCH-1), the edge HTTP path, the edge
 fan-out `publish()` growth, the mesh transports, the sessions hot path, the persistence/cache
 providers, the client (bundle weight and frame time), the capstone load test, and the
-build-time report above. The runtime numbers are all committed.
-
-Nothing is outstanding. The last gap was coverage rather than a missing harness: the
-build-time report had never been run with `--include-client`, so the WebAssembly client and
-qmlcachegen build times were absent from the baseline. They are in it now, and the run that
-put them there found the precompression defect described above. Every baseline carries the
-date it was measured. See `docs/browser-proofs.md` for where the display-dependent runs
-happen.
+build-time report above. The runtime numbers are committed, and every baseline carries the
+date it was measured. [Browser proofs](../docs/browser-proofs.md) covers where the runs that
+need a display happen.

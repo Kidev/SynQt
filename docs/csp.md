@@ -5,7 +5,7 @@
 
 The web edge is the only entity a browser reaches, so it is where the browser-hardening
 headers ship, on every page it serves. This page is the reference for what the edge sends,
-how it **computes** the `Content-Security-Policy` (it never emits your configured string
+how it computes the `Content-Security-Policy` (it never emits your configured string
 raw), and how to widen it safely. It is written from the edge's `stampResponse` and
 `computeCsp`, so it matches what actually goes on the wire. The security model those headers
 are part of is in [security](security.md); the config keys are in
@@ -55,14 +55,14 @@ The edge does not send `security.csp` verbatim. `computeCsp` walks your directiv
 adjusts three of them, so the policy stays correct as the deployment's origin, threading, and
 bundle change without you hand-editing the string:
 
-1. **`connect-src` gets the sync endpoint's explicit `wss://` origin appended.** Some
+1. `connect-src` gets the sync endpoint's explicit `wss://` origin appended. Some
    browsers do not treat `'self'` as covering the WebSocket scheme, so the live data path
    would be blocked under a bare `connect-src 'self'`. The edge appends its own
    `wss://host:port` (or `ws://` in plaintext dev) every time. If you omit `connect-src`
    entirely, the edge adds `connect-src 'self' <wss-origin>` for you. **Do not hardcode the
    wss origin or port yourself**; the edge knows its bound port and appends it.
 
-2. **`worker-src 'self' blob:` is added under cross-origin isolation.** When
+2. `worker-src 'self' blob:` is added under cross-origin isolation. When
    `cross_origin_isolation` is on (which `build.client_threads: multi` implies) the edge adds
    this directive if you did not write one, so the threaded client can start its pthread
    workers.
@@ -73,8 +73,8 @@ bundle change without you hand-editing the string:
     [multi threaded proof](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify-mt.mjs)
     serves its threaded bundle under this exact policy, `worker-src 'self'` with no
     `blob:`, on every run and in every engine it can launch, reporting each engine's
-    security-policy violations by directive. **All three engines version 1 targets have
-    now been measured under it and none needs `blob:`**: Chromium and Firefox since
+    security-policy violations by directive. All three engines version 1 targets have
+    now been measured under it and none needs `blob:`: Chromium and Firefox since
     2026-07-15, and WebKit, the last one open, on 2026-07-31 on macOS 15.7.8 (WebKit
     26.5). Each reached cross-origin isolation, got `SharedArrayBuffer`, started its whole
     pthread pool, and logged no CSP violation. So a future toolchain that starts needing
@@ -85,7 +85,7 @@ bundle change without you hand-editing the string:
     `script-src` governs. If you set your own `worker-src`, `'self'` alone is enough for
     this Qt and this emsdk, in every engine SynQt targets.
 
-3. **`script-src` gets the sha256 of each inline loader script.** The Qt WebAssembly loader
+3. `script-src` gets the sha256 of each inline loader script. The Qt WebAssembly loader
    the bundle ships has an inline bootstrap; rather than weaken the policy to
    `'unsafe-inline'`, the edge hashes each inline `<script>` in the served `index.html` and
    adds `'sha256-...'` to `script-src`, so the strict policy still runs the loader. (SynQt's own
@@ -107,11 +107,11 @@ pairing. In this mode every subresource must be same-origin or carry
 
 `origin_model` changes the anti-hijacking surface, and the CSP and cookie follow it:
 
-- **same origin** (what you get by declaring no `origin_model`): the client is served from,
+- same origin (what you get by declaring no `origin_model`): the client is served from,
   and connects back to, the edge origin. `allowed_origins` is `[self]` (the edge origin),
   `connect-src 'self'` plus the appended wss origin is enough, and the session cookie is
   `SameSite=Lax` (`Secure` under TLS).
-- **`split_origin`** (deprecated; written by hand, never scaffolded): the client is served from a
+- `split_origin` (deprecated; written by hand, never scaffolded): the client is served from a
   different origin than the sync endpoint (a CDN, say). `allowed_origins` must then list the
   client origin explicitly, and the session cookie is `SameSite=None; Secure`, which makes it
   a third-party cookie and therefore subject to a browser policy that is being withdrawn.
@@ -123,12 +123,12 @@ pairing. In this mode every subresource must be same-origin or carry
 ## Widening the policy safely
 
 When an app genuinely needs a third-party origin (a font host, an image CDN, an external API
-the *client* calls directly), edit `security.csp` and add the origin to the **specific**
+the *client* calls directly), edit `security.csp` and add the origin to the specific
 directive, never to `default-src`, and never by reaching for a wildcard:
 
 - Fonts -> `font-src`; images -> `img-src`; a directly-called API -> `connect-src` (it is
   merged with, not replaced by, the auto-appended wss origin).
-- **Never** add `'unsafe-eval'` or `'unsafe-inline'` to `script-src`. If a bundle needs an
+- Never add `'unsafe-eval'` or `'unsafe-inline'` to `script-src`. If a bundle needs an
   inline script, let the edge hash it (serve it inline in `index.html`); if it needs eval,
   reconsider; the SynQt client does not.
 - Keep `object-src 'none'`, `base-uri 'none'`, and `frame-ancestors 'none'`.

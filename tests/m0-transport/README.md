@@ -27,7 +27,7 @@ both plaintext `ws` and real `wss`.
 Verified both headed on a real display (`DISPLAY=:0`) and headless; the archived
 headless run is `build/m0-verify.log`.
 
-**Safari / WebKit.** Two different proofs, because WebKit is Safari's engine but not Safari.
+Safari / WebKit. Two different proofs, because WebKit is Safari's engine but not Safari.
 
 `verify.mjs` drives Playwright's headless WebKit as the in-env proxy: the browser list probes
 each engine for launchability and runs WebKit through the full four-direction + reconnect
@@ -35,7 +35,7 @@ matrix whenever its runtime is present. Where WebKit's system dependencies are m
 playwright install-deps` needs root and targets Debian) the probe drops it with a note and the
 gate still passes on Chromium + Firefox.
 
-`verify-safari.mjs` / `run-safari.sh` drives **real Safari.app** through `safaridriver`, which
+`verify-safari.mjs` / `run-safari.sh` drives real Safari.app through `safaridriver`, which
 is the last mile Playwright's WebKit cannot cover: Apple's own TLS stack and networking. It
 passed on 2026-08-02 on macOS 15.7.8 with Safari 26.6: all four QtRO paths and reconnect over
 `ws`. It is macOS-only and run by hand, never in CI: Safari has no headless mode, so it needs a
@@ -50,14 +50,14 @@ its own log: `console-tap.js`, injected by the harness ahead of the Qt loader, w
 `verify-safari.mjs` reads back over `execute/sync`. Both drivers reach their verdict through
 the one `analyze()` in `harness.mjs`, so "passing" means the same thing in each.
 
-**Multi-threaded WASM (`verify-mt.mjs` / `run-mt.sh`).** The matrix above is the
+Multi-threaded WASM (`verify-mt.mjs` / `run-mt.sh`). The matrix above is the
 single-threaded kit. The same client also builds with the `wasm_multithread` kit, which
 needs `SharedArrayBuffer`, and the browser only grants that under cross-origin isolation
 (`COOP: same-origin` + `COEP: require-corp`, exactly the headers the M5 edge emits when
 `security.cross_origin_isolation` is on). `run-mt.sh` builds the threaded client, serves it
-**with** those headers and asserts the page is `crossOriginIsolated`, has `SharedArrayBuffer`,
+with those headers and asserts the page is `crossOriginIsolated`, has `SharedArrayBuffer`,
 boots the threaded runtime, and still passes all four QtRO paths; then serves the identical
-bundle **without** the headers and asserts it is *not* isolated, proving the headers are
+bundle without the headers and asserts it is *not* isolated, proving the headers are
 load-bearing. Run in every engine Playwright can launch, the same way the single-threaded
 matrix is.
 
@@ -101,7 +101,7 @@ tests/m0-transport/verify/run-m0.sh
 
 This builds the edge (host Qt kit) and client (WASM kit), mints a throwaway
 self-signed localhost cert for the `wss` listener (a public-link TLS server cert;
-**not** a mesh CA; nothing under `synqt/mesh/` is created), installs Playwright, and
+not a mesh CA; nothing under `synqt/mesh/` is created), installs Playwright, and
 runs the matrix + reconnect. Exit code 0 means GO. Set `M0_HEADLESS=1` to force
 headless, `VERBOSE=1` to stream the sentinels.
 
@@ -121,27 +121,27 @@ cmake --build build/m0-client
 
 ## Findings (recorded per the M0 gate)
 
-1. **QtRemoteObjects is missing from the prebuilt Qt 6.11.1 WASM kits.** The
+1. QtRemoteObjects is missing from the prebuilt Qt 6.11.1 WASM kits. The
    `wasm_singlethread` / `wasm_multithread` kits ship QtWebSockets but not
    QtRemoteObjects (no CMake package, no `.a`, no QML plugin), and it is not available
    via aqt. It must be built from the pinned source (`/opt/Qt/6.11.1/Src/qtremoteobjects`)
    with each kit's `qt-cmake` and installed into the kit prefix. The kits'
    `qt-configure-module` is broken on Linux (Windows backslashes in its paths); use
    `qt-cmake` directly. This is a toolchain-provisioning step the M10 CLI must perform.
-2. **All four QtRO directions work over the WebSocket QIODevice in WASM**, in both
+2. All four QtRO directions work over the WebSocket QIODevice in WASM, in both
    Chromium and Firefox, over both `ws` and `wss`. No missing functionality was
    observed on any of the four paths. Property push, signal delivery, a slot with a
    return value resolving on the client (`QRemoteObjectPendingCallWatcher`), and model
    replication (row count + incremental inserts) all behaved.
-3. **Reconnect works** by tearing down and rebuilding the node, socket, and adapter on
+3. Reconnect works by tearing down and rebuilding the node, socket, and adapter on
    `disconnected`/`errorOccurred` with capped backoff; the replica re-initializes and
    fresh data resumes after the edge restarts. This is the shape the M6 `SynClient`
    will mirror. Same-`QIODevice` reopen was not relied upon; a clean rebuild is the
    robust path and avoids depending on unspecified reuse semantics.
-4. **`wss` with a self-signed cert requires the browser to accept the cert** (Playwright
+4. `wss` with a self-signed cert requires the browser to accept the cert (Playwright
    `ignoreHTTPSErrors` + Chromium `--ignore-certificate-errors`). This is expected for a
    throwaway dev cert and is not a QtRO limitation; production uses a real cert.
-5. **The QtRO heartbeat, not WebSocket ping/pong, carries liveness** (WASM QWebSocket
+5. The QtRO heartbeat, not WebSocket ping/pong, carries liveness (WASM QWebSocket
    cannot send ping frames). `setHeartbeatInterval(1000)` is set on the client node.
 
 ## Pinned versions used

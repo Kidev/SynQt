@@ -6,10 +6,10 @@
 `tools/synqt` generates a multi-binary CMake project and one `main.cpp` per entity from a
 `synqt.yaml` topology (the `synqt build` path). The generator has unit tests
 (`tools/synqt/tests/test_tool.py`) that assert the *content* of what it emits; the right
-includes, the right registrations, the right CMake wiring. Those tests cannot catch a **missing**
+includes, the right registrations, the right CMake wiring. Those tests cannot catch a missing
 include or a CMake target collision, because a string that is absent asserts nothing.
 
-This fixture closes that gap by **building** the generated code on the native host kit. Running
+This fixture closes that gap by building the generated code on the native host kit. Running
 appgen over the real three-entity gavel topology (client + web edge + persistence database, with
 connect points, `per_session`, identity, and a provider) and then compiling every entity is the
 only check that exercises the whole service/edge/provider main path as a compiler sees it.
@@ -35,7 +35,7 @@ backstop behind those unit assertions.
 ## The routed client
 
 Compiling proves a generator emits valid code; it does not prove the app works. URL routing
-is the case where the two come apart: every view a route names has to be **in** the client's
+is the case where the two come apart: every view a route names has to be in the client's
 QML module, because the route table carries a `qrc:/qt/qml/<Uri>/<view>.qml` URL and a file
 outside the module is outside the resource system. Leave one out and everything still builds,
 and the router reports `pageStatus: Error` at the moment a visitor navigates.
@@ -75,8 +75,8 @@ and none of it appears in any `synqt.yaml`: two mesh connect points (`identity` 
 and the authoritative session store and hands both to those Sources, and a `web/main.cpp`
 that adopts the two Replicas in C++ once they initialize.
 
-Compiling that says nothing about the claim, because the claim is about **where a secret
-lives**. So `promoted/` is generated, given a real project mesh CA and per-entity
+Compiling that says nothing about the claim, because the claim is about where a secret
+lives. So `promoted/` is generated, given a real project mesh CA and per-entity
 certificates, built, and then run: the auth entity and the edge come up as separate
 processes over mutual TLS, and the phase asks the edge for a login it has no way to answer
 by itself.

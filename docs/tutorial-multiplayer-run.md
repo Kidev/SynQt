@@ -7,7 +7,7 @@ four thousand unit map, so most of what arrives is never drawn. This last part s
 each player only what they can see. It plays exactly the same; the change is in what
 crosses the wire, and it is the difference between a demo and something that scales.
 
-This is **interest management**, and it needs one architectural change. Instead of a
+This is interest management, and it needs one architectural change. Instead of a
 single shared `Arena` Source that broadcasts to everyone, give each player their own
 Source that publishes their own slice. SynQt calls that `instance: per_session`, and
 you split `web/Arena.qml` in two to get there.
@@ -236,8 +236,8 @@ payoff of keeping the leaderboard in its own `board` model back in part two: swi
 per-player delivery touched only the edge.
 
 > [!NOTE]
-> Notice the division of labour. The **singleton** simulates once, so there is exactly
-> one authoritative arena no matter how many players connect. Each **per-session Source**
+> Notice the division of labour. The singleton simulates once, so there is exactly
+> one authoritative arena no matter how many players connect. Each per-session Source
 > is a cheap filter over it, computing one player's view. That is the shape of interest
 > management everywhere: one authority, many tailored views. For a real crowd you would
 > replace the linear "check every blob" scan with a spatial grid so each query touches
@@ -306,11 +306,11 @@ position from a client, and it shows each player only what they are entitled to 
 - The edge is the genuine authority over movement. It takes intent (an aim point) and
   integrates every blob's position itself at the speed that blob's mass allows, so there
   is no position for a client to forge.
-- The client makes it feel right without weakening that authority: it **predicts** your
+- The client makes it feel right without weakening that authority: it predicts your
   own blob with the edge's exact rule so it tracks your cursor and the camera follows,
-  and **interpolates** everyone else from a buffer of recent snapshots so motion is
+  and interpolates everyone else from a buffer of recent snapshots so motion is
   smooth, reconciling against the edge whenever it pushes an update.
-- **Interest management** with a `per_session` instance means the edge simulates once in a
+- Interest management with a `per_session` instance means the edge simulates once in a
   shared singleton and sends each player only their slice, so the payload stops growing
   with the whole arena, and a client is shown only what it can see.
 - Durable data lives in a database the browser can never reach; the edge authorizes the
@@ -327,15 +327,15 @@ client-side prediction, entity interpolation, and interest management, the three
 techniques that separate a demo from something playable. What remains are the harder,
 sharper versions of what you built:
 
-- **Input-replay reconciliation.** Your prediction eases away small drift against the
+- Input-replay reconciliation. Your prediction eases away small drift against the
   edge's copy. The stricter method tags each input with a sequence number, and on every
   authoritative update replays the inputs the server has not yet acknowledged, so a
   correction is exact and never even eases. It matters most when corrections are large or
   frequent.
-- **Lag compensation.** For anything you aim at and must hit, the server rewinds other
+- Lag compensation. For anything you aim at and must hit, the server rewinds other
   players to where the shooter saw them at the time they fired. A blob game does not need
   it; most shooters do, and it is a rabbit hole of its own.
-- **Interest management at scale.** The per-viewer scan here is linear. A large arena
+- Interest management at scale. The per-viewer scan here is linear. A large arena
   keeps blobs and pellets in a spatial grid or quadtree so each player's query touches
   only nearby cells, and sends deltas (the rows that changed) rather than a fresh slice
   each tick.

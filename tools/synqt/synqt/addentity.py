@@ -213,7 +213,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
         if chosen == "mysql":
             steps.append("  - The QMYSQL plugin must be built against MariaDB Connector/C "
                          "(LGPLv2.1), never Oracle's GPLv2-only libmysqlclient (see "
-                         "docs/licensing.md).")
+                         "https://synqt.org/licensing/).")
     steps.append("  - Add the connect point(s) this entity owns under 'connect_points' "
                  "with a consumers allowlist.")
     return "\n".join(steps)

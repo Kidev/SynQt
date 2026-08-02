@@ -6,7 +6,7 @@
 `synqt build --client desktop` does not deploy. That is deliberate and documented
 (docs/desktop.md): signing identities, entitlements, notarization and installer format are not a
 framework's to choose, and a half-deployed bundle that looks finished is worse than one that says
-what is missing. What the build guarantees is that the step *can* be run -- on macOS that is why
+what is missing. What the build guarantees is that the step *can* be run; on macOS that is why
 the client is built as an .app bundle at all, since macdeployqt accepts nothing else.
 
 `--deploy` is the opt-in that runs it anyway, for the case where the developer wants a
@@ -174,7 +174,7 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str]) -> s
         source = Path(target)
         # Both sides resolved before comparing. Resolving only the kit meant any symlink on
         # the way to it made every Qt library look like a system one, and the deployed tree
-        # came out with a launcher and no libraries at all -- a "success" that produces an
+        # came out with a launcher and no libraries at all: a "success" that produces an
         # app which cannot start. A symlinked /opt/Qt is enough to trigger it.
         try:
             real = source.resolve()

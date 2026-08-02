@@ -14,10 +14,10 @@ cert generated at configure time, then `ctest`).
 
 `tst_fix2.cpp` verifies:
 
-- **Hands-on check 1**: a console `steer(3999, 3999)` does not teleport: the edge stamps the
+- Hands-on check 1: a console `steer(3999, 3999)` does not teleport: the edge stamps the
   blob and walks it toward the corner at its size's speed (at most `speedFor(mass) * dt` per
   tick), so it only crawls. The client sends a goal, never a position.
-- **Hands-on check 2**: a signed-out / unapproved (scope `anonymous`) session never has the
+- Hands-on check 2: a signed-out / unapproved (scope `anonymous`) session never has the
   `scope: player` arena acquired for it, so `steer`, `ping`, and the roster are all out of
   reach. The gate is the connect point, not the UI.
 
