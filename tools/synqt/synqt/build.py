@@ -375,6 +375,38 @@ def desktop_platform() -> str:
     return toolchain.host_platform()
 
 
+def _deploy_note(root: Path, name: str, out: Path) -> str:
+    """The DEPLOY.txt body: the exact command to run against the artifact this build produced.
+
+    `synqt build` does not run the platform deploy step (docs/desktop.md: signing identities,
+    entitlements, notarization and installer format are not a framework's to choose, and a
+    half-deployed bundle that looks finished is worse than one that says what is missing). That
+    makes this note the whole hand-off, so it names the real path rather than the three tools
+    the developer might need, which is what it used to do: knowing that `macdeployqt` exists is
+    not the missing information, and the previous text did not even say which folder to run it in.
+    """
+    platform = desktop_platform()
+    header = ("The platform deploy step is not run by `synqt build` (docs/desktop.md); it is "
+              "where\nsigning and notarization live. Until it runs, what is here links Qt from "
+              "the kit it\nwas built against and runs only on a machine that has that kit.\n\n"
+              "For this build, on %s:\n\n" % platform)
+    if platform == "macos":
+        return header + (
+            '    macdeployqt "%s" -qmldir="%s"\n\n'
+            "Add -codesign=<identity> to sign, and see `macdeployqt -help` for dmg and\n"
+            "hardened-runtime options. The bundle identifier defaults to a placeholder; set\n"
+            "-DSYNQT_BUNDLE_ID=<reverse.dns.id> at configure time before you sign.\n"
+            % (out / f"{name}.app", root))
+    if platform == "windows":
+        return header + (
+            '    windeployqt --qmldir "%s" "%s"\n' % (root, out / f"{name}.exe"))
+    return header + (
+        "    Linux has no single official tool. Copy the Qt libraries and the QML module\n"
+        "    directories beside the binary and launch through a wrapper that sets\n"
+        "    LD_LIBRARY_PATH and QML2_IMPORT_PATH, or package with linuxdeploy/AppImage.\n"
+        "    The binary is %s.\n" % (out / name))
+
+
 def _install_binary(build_dir: Path, entity_name: str, dest: Path) -> bool:
     """Copy a compiled host binary into its deploy directory so `synqt serve` finds it
     alongside its THIRD-PARTY-LICENSES. Returns True when a binary was installed.
@@ -382,12 +414,22 @@ def _install_binary(build_dir: Path, entity_name: str, dest: Path) -> bool:
     The suffix is resolved rather than assumed (run.host_binary): Windows links `<name>.exe`, so
     looking only for the bare name there finds nothing, and this returns False for a binary that
     built perfectly well: a deploy directory that is silently missing its executable.
+
+    On macOS the desktop client is an .app bundle, so what gets installed is a directory tree
+    and not a file. Copying it with copy2 raised IsADirectoryError; copying only the executable
+    inside it would have been worse, silently producing a deploy folder holding something that
+    is no longer an app.
     """
-    compiled = run.host_binary(build_dir.parent, entity_name)
+    compiled = run.host_artifact(build_dir.parent, entity_name)
     if compiled is None:
         return False
     dest.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(compiled, dest / compiled.name)
+    target = dest / compiled.name
+    if compiled.is_dir():
+        shutil.rmtree(target, ignore_errors=True)  # a stale bundle would otherwise merge
+        shutil.copytree(compiled, target, symlinks=True)
+    else:
+        shutil.copy2(compiled, target)
     return True
 
 
@@ -525,15 +567,14 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
                     # host's; the others come from that platform's own run of the same command.
                     out = out / desktop_platform()
                 out.mkdir(parents=True, exist_ok=True)
-                if target == "desktop":
-                    (out.parent / "DEPLOY.txt").write_text(
-                        "Run the platform deploy step: windeployqt / macdeployqt, or the "
-                        "portable Linux layout here (binary + Qt libs).\n")
                 (out / "THIRD-PARTY-LICENSES").write_text(
                     licenses.generate(entity, target=target, qt_license_mode=qt_license_mode))
                 # The desktop client compiles on the host; place it beside its licenses.
+                # Installed before the note is written, so the note can name the artifact that
+                # is actually there rather than the one this build expected to produce.
                 if target == "desktop":
                     _install_binary(build_dir, name, out)
+                    (out.parent / "DEPLOY.txt").write_text(_deploy_note(root, name, out))
                 produced.append(f"build/{folder}/ ({target})")
         else:
             out = build_dir / name

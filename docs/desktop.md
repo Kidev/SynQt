@@ -144,7 +144,7 @@ build/
   client-desktop/
     DEPLOY.txt            # the deployment step to run, for the platforms built here
     windows/              # the .exe, plus its Qt runtime once deployed
-    macos/                # the binary, plus its Qt runtime once deployed
+    macos/                # <client>.app, plus its Qt runtime once deployed
     linux/                # the binary, plus its Qt runtime once deployed
   web/                    # the web edge, unchanged
   ...
@@ -156,12 +156,29 @@ across a CI matrix. Only the host's own folder is filled by a given run. The WAS
 bundle, by contrast, builds anywhere.
 
 **The platform deployment step is yours to run.** `synqt build` produces the binary
-and its `THIRD-PARTY-LICENSES`, and writes a `DEPLOY.txt` naming what to run
-(`windeployqt`, `macdeployqt`, or a portable layout of binary plus Qt libraries on
-Linux). It is left out of the build because it is where signing identities, entitlements,
-notarization, and installer format live, none of which a framework can pick for you,
-and a half-deployed bundle that looks finished is worse than one that says what is
-missing.
+and its `THIRD-PARTY-LICENSES`, and writes a `DEPLOY.txt` naming the exact command to
+run against the artifact that build produced (`windeployqt`, `macdeployqt`, or a
+portable layout of binary plus Qt libraries on Linux). It is left out of the build
+because it is where signing identities, entitlements, notarization, and installer
+format live, none of which a framework can pick for you, and a half-deployed bundle
+that looks finished is worse than one that says what is missing.
+
+What the build *does* guarantee is that the step can be performed. On macOS the client
+is built as a `.app` bundle, because `macdeployqt` operates on nothing else: a bare
+executable would leave you rewriting the generated CMake before you could run the
+command `DEPLOY.txt` tells you to run. The bundle identifier defaults to a placeholder
+(`com.example.<project>.<client>`) and is a CMake cache entry rather than a
+`synqt.yaml` key, since it belongs with signing. Set it on the generated `host`
+preset once; the cache keeps it for later builds:
+
+```cli
+cmake --preset host -DSYNQT_BUNDLE_ID=com.acme.gavel
+```
+
+Until the deploy step runs, the app finds Qt through the kit it was built against and
+runs only on a machine that has that kit. After `macdeployqt`, Qt travels inside the
+bundle. This is asserted end to end by `tests/desktop-client/`, which on macOS deploys
+a copy of the built app and checks that nothing in it still points at the build kit.
 
 ## Developing against a desktop client
 

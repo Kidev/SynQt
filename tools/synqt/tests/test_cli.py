@@ -426,6 +426,35 @@ class HostBinaryTest(unittest.TestCase):
         # Distinct from "found something": serve/dev rely on this to report what to build.
         self.assertIsNone(run.host_binary(self.root, "web"))
 
+    def test_finds_the_executable_inside_a_macos_app_bundle(self):
+        # The macOS desktop client is a .app (cmakegen sets MACOSX_BUNDLE so the macdeployqt
+        # hand-off in docs/desktop.md is possible at all), and what runs is the executable
+        # inside it. Resolving only the bare name found a directory, not a file, and reported
+        # a client that had built and installed correctly as never built.
+        bundle = self.root / "build" / "host" / "client.app" / "Contents" / "MacOS"
+        bundle.mkdir(parents=True)
+        (bundle / "client").write_bytes(b"\xcf\xfa\xed\xfe")
+        resolved = run.host_binary(self.root, "client")
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.name, "client")
+        self.assertIn("client.app", resolved.parts)
+
+    def test_artifact_is_the_bundle_while_binary_is_the_executable(self):
+        # The two answers differ on exactly one platform, and conflating them loses the app:
+        # a deploy that copies only Contents/MacOS/client produces something that cannot be
+        # launched, cannot be signed, and is not what macdeployqt operates on.
+        bundle = self.root / "build" / "host" / "client.app" / "Contents" / "MacOS"
+        bundle.mkdir(parents=True)
+        (bundle / "client").write_bytes(b"\xcf\xfa\xed\xfe")
+        self.assertEqual(run.host_artifact(self.root, "client").name, "client.app")
+        self.assertTrue(run.host_artifact(self.root, "client").is_dir())
+        self.assertEqual(run.host_binary(self.root, "client").name, "client")
+
+    def test_artifact_falls_back_to_the_plain_binary(self):
+        # Everywhere but macOS there is no bundle, and the artifact is the executable itself.
+        (self.root / "build" / "host" / "web").write_bytes(b"\x7fELF")
+        self.assertEqual(run.host_artifact(self.root, "web").name, "web")
+
 
 class DevLaunchTest(unittest.TestCase):
     """`synqt dev`: which processes it starts, in what order, and with which arguments.

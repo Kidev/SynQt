@@ -26,7 +26,14 @@
 
 set -euo pipefail
 
-QT_HOST="${QT_HOST:-/opt/Qt/6.11.1/gcc_64}"
+# The kit directory is named for the host, not the target, so a single Linux default makes this
+# script fail on macOS with "native host kit not found" for a kit that is installed and correct.
+case "$(uname -s)" in
+Darwin) QT_HOST_DEFAULT=/opt/Qt/6.11.1/macos ;;
+*)      QT_HOST_DEFAULT=/opt/Qt/6.11.1/gcc_64 ;;
+esac
+
+QT_HOST="${QT_HOST:-$QT_HOST_DEFAULT}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -106,6 +113,71 @@ assert_native_exe "$SRC/build/client-desktop/$PLATFORM/client" "installed" || rc
 if [ "$rc" -ne 0 ]; then
     echo "DESKTOP-CLIENT GATE: NO-GO (the client did not compile or install)"
     exit 1
+fi
+
+if [ "$PLATFORM" = "macos" ]; then
+    echo "== [2b/4] macOS: assert an .app bundle, and that macdeployqt can finish it =="
+    # A bare Mach-O is not an app on macOS, and macdeployqt accepts nothing else, so a build
+    # that emits one makes the deploy step docs/desktop.md hands to the developer impossible
+    # to perform without rewriting the generated CMake. That is what this asserts: not that
+    # the build deploys (it deliberately does not), but that what it produces is something the
+    # documented command can be run against.
+    APP="$SRC/build/client-desktop/macos/client.app"
+    if [ -d "$APP" ] && [ -f "$APP/Contents/Info.plist" ]; then
+        BUNDLE_ID="$(defaults read "$APP/Contents/Info" CFBundleIdentifier 2>/dev/null || echo "")"
+        echo "  bundle   : OK (.app with Info.plist, CFBundleIdentifier=$BUNDLE_ID)"
+    else
+        echo "  bundle   : FAIL (no .app bundle at $APP; macdeployqt cannot be run)"; rc=1
+    fi
+
+    # Before deploying, Qt is reached through an LC_RPATH pointing into the build kit, so the
+    # app runs only on a machine that has that kit at that path. Recorded so the after-state
+    # below reads as a change rather than as an assertion about an unknown starting point.
+    #
+    # Read with `otool -l`, not `otool -L`: the kit path is an LC_RPATH load command, while the
+    # Qt entries `otool -L` prints are all `@rpath/...` and name no kit at all. Grepping the -L
+    # output for the kit therefore matches nothing whether or not the bundle is deployed, which
+    # is a check that passes for the broken case as readily as for the fixed one.
+    CLIENT_BIN="$APP/Contents/MacOS/client"
+    before="$(otool -l "$CLIENT_BIN" 2>/dev/null | grep -c "$QT_HOST" || true)"
+    echo "  pre-deploy: $before LC_RPATH reference(s) into the build kit ($QT_HOST)"
+
+    if [ "$rc" -eq 0 ]; then
+        # Deployed on a COPY, for two reasons. `synqt build` does not deploy (docs/desktop.md),
+        # so the artifact it installs is the undeployed one and that is what step 4 must boot;
+        # deploying in place would mean the fixture asserts the boot of something the build never
+        # produces. And macdeployqt ships only the platform plugin a released app needs (cocoa),
+        # so a deployed bundle cannot be booted with QT_QPA_PLATFORM=offscreen at all -- it
+        # aborts with "Could not find the Qt platform plugin", which is correct behaviour for a
+        # deployed app and was, briefly, this fixture reporting a crash that was its own doing.
+        PROBE="$WORK/deploy-probe"
+        rm -rf "$PROBE"
+        mkdir -p "$PROBE"
+        cp -R "$APP" "$PROBE/client.app"
+        APP="$PROBE/client.app"
+        CLIENT_BIN="$APP/Contents/MacOS/client"
+        "$QT_HOST/bin/macdeployqt" "$APP" -qmldir="$SRC" >/dev/null 2>&1 || true
+        # Self-contained is asserted structurally rather than by the kit rpath disappearing:
+        # whether macdeployqt strips the original LC_RPATH or merely prepends its own has
+        # varied, and an app that carries its Qt and looks in its own bundle first is
+        # correct either way. So: the frameworks travel inside the bundle, and the binary
+        # has a bundle-relative rpath to find them by.
+        own_rpath="$(otool -l "$CLIENT_BIN" 2>/dev/null \
+            | grep -c "@executable_path/../Frameworks" || true)"
+        if [ -d "$APP/Contents/Frameworks/QtCore.framework" ] && [ "$own_rpath" -gt 0 ]; then
+            kit_left="$(otool -l "$CLIENT_BIN" 2>/dev/null | grep -c "$QT_HOST" || true)"
+            echo "  deployed : OK (Qt travels in the bundle, bundle-relative rpath present;" \
+                 "$kit_left kit rpath left)"
+            # Not asserted: that the deployed copy runs. It ships only the cocoa plugin, so it
+            # needs a real display, which a macOS CI runner does not have. What is asserted is
+            # that the hand-off docs/desktop.md documents can be performed and produces an app
+            # that carries its own Qt; running it is the developer's own signing-and-ship path.
+        else
+            echo "  deployed : FAIL (QtCore in bundle=$([ -d "$APP/Contents/Frameworks/QtCore.framework" ] && echo yes || echo no)," \
+                 "bundle-relative rpath=$own_rpath)"
+            rc=1
+        fi
+    fi
 fi
 
 echo "== [3/4] Assert build.desktop.edge_url was baked into the binary =="

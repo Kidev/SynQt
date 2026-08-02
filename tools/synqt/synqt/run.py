@@ -55,17 +55,41 @@ def _executable(directory: Path, name: str) -> Optional[Path]:
     """The executable called `name` in `directory`, or None. The suffix is resolved rather
     than assumed, because only Windows adds one (.exe). Looking for the bare name there finds
     nothing and reports every entity of a perfectly good build as missing, which reads like a
-    broken compile rather than a naming convention."""
+    broken compile rather than a naming convention.
+
+    The macOS desktop client is an .app bundle (cmakegen sets MACOSX_BUNDLE so the
+    macdeployqt hand-off in docs/desktop.md is possible at all), and the thing to *run* is the
+    executable inside it, not the directory. Resolving that here keeps every caller -- `synqt
+    serve`, `synqt dev --desktop`, the deploy install -- working off one answer.
+    """
     for suffix in ("", ".exe"):
         candidate = directory / f"{name}{suffix}"
-        if candidate.exists():
+        if candidate.is_file():
             return candidate
+    inner = directory / f"{name}.app" / "Contents" / "MacOS" / name
+    if inner.is_file():
+        return inner
     return None
 
 
 def host_binary(root: Path, name: str) -> Optional[Path]:
     """The compiled host executable for one entity, or None if it was never built."""
     return _executable(root / "build" / "host", name)
+
+
+def host_artifact(root: Path, name: str) -> Optional[Path]:
+    """What a deploy step should copy for one entity: the .app bundle on macOS, otherwise the
+    executable itself.
+
+    Distinct from host_binary() because the two answers differ on exactly one platform, and
+    conflating them there loses the bundle: copying only `client.app/Contents/MacOS/client`
+    produces a file that cannot be launched as an app, cannot be signed, and is not what
+    macdeployqt operates on.
+    """
+    bundle = root / "build" / "host" / f"{name}.app"
+    if bundle.is_dir():
+        return bundle
+    return host_binary(root, name)
 
 
 def _deployed_binary(root: Path, name: str) -> Optional[Path]:

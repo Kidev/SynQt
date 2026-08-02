@@ -128,7 +128,38 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
               "    # Emscripten runtime, so the edge's strict CSP (no 'unsafe-eval') holds.",
               f'    target_link_options({name} PRIVATE "-lembind" "-sDYNAMIC_EXECUTION=0")',
               "endif()"]
+    lines += _macos_bundle_cmake(config, name)
     return lines
+
+
+def _macos_bundle_cmake(config: Dict[str, Any], name: str) -> List[str]:
+    """Make the macOS desktop client an .app bundle rather than a bare executable.
+
+    Not cosmetic, and not the deployment step docs/desktop.md deliberately leaves to the
+    developer. `macdeployqt` takes an .app and nothing else, so a bare Mach-O makes that
+    documented hand-off impossible to perform at all: the developer would have to rewrite the
+    generated CMake before they could run the command DEPLOY.txt tells them to run. A bare
+    executable is also not an app in the sense macOS means it (no Info.plist, so no name in the
+    menu bar, no icon slot, and nothing to sign or notarize later).
+
+    The identifier is a cache variable rather than a config key on purpose. docs/desktop.md
+    places bundle identifiers with signing in the deployment step, so this stays out of
+    synqt.yaml; a CMake cache entry is the escape hatch for someone who needs to set it before
+    they sign, and it defaults to a placeholder that is obviously meant to be replaced.
+    """
+    project = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
+    app = project.get("name") or name
+    version = str(project.get("version") or "0.1.0")
+    return ["if(APPLE AND NOT IOS)",
+            f'    set(SYNQT_BUNDLE_ID "com.example.{app}.{name}" CACHE STRING',
+            '        "macOS bundle identifier for the desktop client")',
+            f"    set_target_properties({name} PROPERTIES",
+            "        MACOSX_BUNDLE TRUE",
+            f'        MACOSX_BUNDLE_BUNDLE_NAME "{name}"',
+            '        MACOSX_BUNDLE_GUI_IDENTIFIER "${SYNQT_BUNDLE_ID}"',
+            f'        MACOSX_BUNDLE_BUNDLE_VERSION "{version}"',
+            f'        MACOSX_BUNDLE_SHORT_VERSION_STRING "{version}")',
+            "endif()"]
 
 
 def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
