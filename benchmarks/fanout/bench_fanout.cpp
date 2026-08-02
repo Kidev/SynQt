@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The edge fan-out baseline (M5): how the arena's server-authoritative publish() scales as one
+// The edge fan-out baseline: how the arena's server-authoritative publish() scales as one
 // owner change reaches N consumers, and whether interest management keeps the per-session payload
 // and CPU flat. docs/tutorial-multiplayer-world.md notes the naive shape is O(N^2); N sessions
 // each published a slice of the whole N-entity world, and that an `instance: per_session` split
@@ -106,9 +106,9 @@ protected:
             delete socket;
             return;
         }
-        // What the edge does to every socket it accepts. Left on, Nagle holds a small frame
-        // until the last one is acknowledged, and a delayed ACK makes that 40 ms: the
-        // propagation this measured was the TCP stack's, on a socket the edge never ships.
+        // What the edge does to every socket it accepts. With Nagle on, a small frame waits
+        // for the previous one's ACK, and a delayed ACK makes that 40 ms of TCP stack
+        // latency.
         SynQt::disableNagle(socket);
         m_accepted.insert(peerKey(socket->peerAddress(), socket->peerPort()), socket);
         m_webSockets->handleConnection(socket);
@@ -234,19 +234,18 @@ QStandardItemModel *makeSliceModel(QObject *parent)
     return model;
 }
 
-// Rebuild a session's visible slice to `rows` entities. The per-tick work of turning the world
-// into what one player can see. This is the O(slice) cost that, summed over sessions, is the
-// publish() growth the benchmark characterizes.
+// Rebuild a session's visible slice to `rows` entities: the per-tick work of turning the
+// world into what one player can see. Summed over sessions, this is the publish() growth
+// the benchmark characterizes.
 //
-// Shaped exactly like the generated `set<Model>(rows)` an owner calls: build the items
-// first, reset the model, then append them. The obvious alternative, removeRows() followed by
-// insertRows() and a setData() per cell, is not what the framework does and is not safe to do
-// either. QtRO's model replica keeps its vertical header cache as a flat list grown by
-// onRowsInserted and cut by onRowsRemoved, while the initial size arrives asynchronously in
-// handleModelResetDone and overwrites it (Qt 6.11.1,
-// qremoteobjectabstractitemmodelreplica.cpp:293). Under a fast remove/insert cycle across many
-// consumers the two disagree, the next removal erases past the end of that list, and the
-// process dies in the CacheEntry destructor: reliably, on two cores, within a few seconds.
+// Shaped like the generated `set<Model>(rows)` an owner calls: build the items, reset the
+// model, then append them. removeRows() then insertRows() and a setData() per cell is not
+// what the framework does and is unsafe: QtRO's replica keeps its vertical header cache as
+// a flat list grown by onRowsInserted and cut by onRowsRemoved, while the initial size
+// arrives asynchronously in handleModelResetDone and overwrites it
+// (qremoteobjectabstractitemmodelreplica.cpp:293). Under a fast remove/insert cycle across
+// many consumers the two disagree, a removal erases past the end of the list, and the
+// process dies in the CacheEntry destructor.
 void rebuildSlice(QStandardItemModel *model, int rows, quint64 revision)
 {
     QList<QStandardItem *> items;
@@ -269,7 +268,8 @@ void rebuildSlice(QStandardItemModel *model, int rows, quint64 revision)
 }
 
 // One consumer. A QWebSocket wrapped in the framework transport, feeding a QtRO node that
-// acquires this session's per-session view and (once) the shared view.
+// acquires this session's per-session view, and the shared view while it is one of the n the
+// shared mode is measuring (see shareWith).
 struct Consumer
 {
     QWebSocket *socket{nullptr};
@@ -278,6 +278,36 @@ struct Consumer
     SessionViewReplica *perSession{nullptr};
     SessionViewReplica *shared{nullptr};
 };
+
+// Make exactly the first `n` consumers hold the shared view, and wait until each has it. A
+// shared publish goes to every node holding the view while this harness waits for the first
+// n, so extra holders would leave part of every tick queued and the backlog would spill
+// into the next mode.
+bool shareWith(QList<Consumer> &consumers, int n)
+{
+    for (int i{0}; i < consumers.size(); ++i) {
+        Consumer &consumer{consumers[i]};
+        if (i < n && consumer.shared == nullptr) {
+            consumer.shared =
+                consumer.node->acquire<SessionViewReplica>(QStringLiteral("SharedView"));
+        } else if (i >= n && consumer.shared != nullptr) {
+            delete consumer.shared;
+            consumer.shared = nullptr;
+        }
+    }
+    // Let a released view's last deliveries land before anything is timed.
+    static_cast<void>(spinUntil([]() { return false; }, 100));
+    return spinUntil(
+        [&consumers, n]() {
+            for (int i{0}; i < n; ++i) {
+                if (!consumers.at(i).shared->isInitialized()) {
+                    return false;
+                }
+            }
+            return true;
+        },
+        60000);
+}
 
 // The rows one session is published in a given mode, at world size n.
 int sliceRows(Mode mode, int n, int interestCap)
@@ -407,8 +437,8 @@ int main(int argc, char *argv[])
     }
     const quint16 port{listener.serverPort()};
 
-    // The edge's `threads:` key, as the host side of this harness. Null at 1, which is the
-    // unthreaded shape every earlier baseline in this file was taken with.
+    // The edge's `threads:` key, as the host side of this harness. Null at 1, the
+    // unthreaded shape.
     QScopedPointer<IoThreadPool> ioThreads;
     if (ioThreadCount > 1) {
         ioThreads.reset(new IoThreadPool{ioThreadCount});
@@ -475,7 +505,6 @@ int main(int argc, char *argv[])
         consumer.node->setHeartbeatInterval(2000);
         consumer.perSession = consumer.node->acquire<SessionViewReplica>(
             QStringLiteral("SessionView_%1").arg(i));
-        consumer.shared = consumer.node->acquire<SessionViewReplica>(QStringLiteral("SharedView"));
         consumers.append(consumer);
     }
 
@@ -484,8 +513,7 @@ int main(int argc, char *argv[])
     const bool ready{spinUntil(
         [&]() {
             for (const Consumer &consumer : consumers) {
-                if (!consumer.perSession->isInitialized()
-                    || !consumer.shared->isInitialized()) {
+                if (!consumer.perSession->isInitialized()) {
                     return false;
                 }
             }
@@ -513,6 +541,10 @@ int main(int argc, char *argv[])
     for (const Mode mode : {Mode::Shared, Mode::PerSessionNaive, Mode::PerSessionInterest}) {
         Distribution warmCpu;
         Distribution warmProp;
+        if (mode == Mode::Shared && !shareWith(consumers, maxN)) {
+            qCritical("bench-fanout: the shared view never initialized");
+            return 1;
+        }
         measure(mode, maxN, warmup, interestCap, perSessionSources, perSessionModels,
                 &sharedSource, sharedModel, consumers, revision, warmCpu, warmProp);
     }
@@ -524,6 +556,10 @@ int main(int argc, char *argv[])
             cpu.name = QStringLiteral("publish_cpu");
             Distribution propagation;
             propagation.name = QStringLiteral("propagation");
+            if (mode == Mode::Shared && !shareWith(consumers, n)) {
+                qCritical("bench-fanout: the shared view never initialized at %d", n);
+                return 1;
+            }
             measure(mode, n, ticks, interestCap, perSessionSources, perSessionModels,
                     &sharedSource, sharedModel, consumers, revision, cpu, propagation);
 
