@@ -31,6 +31,7 @@
 #include "iothreadpool.h"
 #include "pollingdispatcher.h"
 #include "socketchannel.h"
+#include "socketoptions.h"
 #include "websockettransport.h"
 
 #include <QCommandLineOption>
@@ -105,6 +106,10 @@ protected:
             delete socket;
             return;
         }
+        // What the edge does to every socket it accepts. Left on, Nagle holds a small frame
+        // until the last one is acknowledged, and a delayed ACK makes that 40 ms: the
+        // propagation this measured was the TCP stack's, on a socket the edge never ships.
+        SynQt::disableNagle(socket);
         m_accepted.insert(peerKey(socket->peerAddress(), socket->peerPort()), socket);
         m_webSockets->handleConnection(socket);
     }

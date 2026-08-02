@@ -32,6 +32,7 @@
 #include "rep_capstone_replica.h"
 
 #include "pollingdispatcher.h"
+#include "socketoptions.h"
 #include "websockettransport.h"
 
 #include <QCommandLineOption>
@@ -58,6 +59,8 @@
 #include <QTextStream>
 #include <QUrl>
 #include <QWebSocket>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QWebSocketServer>
 
 #include <algorithm>
@@ -71,6 +74,37 @@
 using SynQt::WebSocketTransport;
 
 namespace {
+
+/// Accepts for the QWebSocketServer, so each socket can be given what the edge gives every
+/// socket it accepts before the handshake runs on it. QWebSocketServer::listen never hands
+/// the TCP socket out, and with Nagle left on a small frame waits for the last one's ACK,
+/// which a delayed ACK makes 40 ms: a latency of the TCP stack, not of the framework.
+class CapstoneListener : public QTcpServer
+{
+    Q_OBJECT
+
+public:
+    explicit CapstoneListener(QWebSocketServer *webSockets, QObject *parent = nullptr)
+        : QTcpServer{parent}
+        , m_webSockets{webSockets}
+    {
+    }
+
+protected:
+    void incomingConnection(qintptr socketDescriptor) override
+    {
+        QTcpSocket *socket{new QTcpSocket{this}};
+        if (!socket->setSocketDescriptor(socketDescriptor)) {
+            delete socket;
+            return;
+        }
+        SynQt::disableNagle(socket);
+        m_webSockets->handleConnection(socket);
+    }
+
+private:
+    QWebSocketServer *m_webSockets{nullptr};
+};
 
 // One measured distribution, in milliseconds. Percentiles are linearly interpolated over the
 // sorted samples, the standard p50/p95/p99 summary the plan asks every result to report.
@@ -273,19 +307,16 @@ QStandardItemModel *makeViewModel(QObject *parent)
     return model;
 }
 
-// Fill a player's view model with the blobs in `visible`, reading their live position from the
-// arena. The row count here is the per-session payload the plan tracks against N.
+// Fill a player's view model with the blobs in `visible`, reading their live position from
+// the arena. The row count here is the per-session payload the plan tracks against N.
 //
-// Shaped exactly like the generated `set<Model>(rows)` an owner calls. Build the items
-// first, reset the model, then append them. That is what is being measured, and it is also
-// the only shape that survives. The obvious alternative, removeRows() then insertRows() and a
-// setData() per cell, walks off the end of QtRO's vertical header cache: the replica keeps it
-// as a flat list appended to by onRowsInserted and cut by onRowsRemoved, the initial size
-// arrives asynchronously in handleModelResetDone and overwrites it, and the erase in
-// onRowsRemoved is bounded by nothing (Qt 6.12.0,
-// qremoteobjectabstractitemmodelreplica.cpp:293). A harness that does exactly that
-// dies in the CacheEntry destructor on roughly half its runs. benchmarks/fanout carries the
-// same note.
+// Shaped like the generated `set<Model>(rows)` an owner calls: build the items, reset the
+// model, then append them. removeRows() then insertRows() and a setData() per cell is
+// unsafe: QtRO's replica keeps its vertical header cache as a flat list appended to by
+// onRowsInserted and cut by onRowsRemoved, the initial size arrives asynchronously in
+// handleModelResetDone and overwrites it, and the erase in onRowsRemoved is unbounded
+// (qremoteobjectabstractitemmodelreplica.cpp:293). The process then dies in the CacheEntry
+// destructor. benchmarks/fanout carries the same note.
 void publishSlice(QStandardItemModel *model, const Arena &arena, const QList<int> &visible)
 {
     QList<QStandardItem *> items;
@@ -316,18 +347,14 @@ struct Player
     QRemoteObjectNode *node{nullptr};
     PlayerViewReplica *view{nullptr};
 
-    // Snapshots this player has been handed, counted by the replica's own change
-    // signal. Shared, because the sweep hands run() a mid() slice of the player list and a
-    // counter living in the struct would be incremented on the original while the copy is
-    // the one measured.
+    // Snapshots this player has been handed, counted by the replica's own change signal.
+    // Shared, because the sweep hands run() a mid() slice of the player list, and a counter
+    // in the struct would be incremented on the original while the copy is read.
     //
-    // It has to be a count of deliveries, not the distance the published tick moved. The
-    // tick is the run's cumulative counter and QtRO coalesces property pushes, so a
-    // backed-up link that delivers one update carrying a value 400 ticks newer looks
-    // identical, by subtraction, to 400 delivered snapshots. That is not a rounding error:
-    // it made the saturated end of the sweep report 84.9 snapshots/s from a 30 Hz tick,
-    // draining the previous window's backlog and calling it throughput, so the one metric
-    // meant to expose the ceiling was the one hiding it.
+    // A count of deliveries, not the distance the published tick moved. The tick is
+    // cumulative and QtRO coalesces property pushes, so a backed-up link delivering one
+    // update 400 ticks newer would read, by subtraction, as 400 delivered snapshots, and
+    // the saturated end of the sweep would report the backlog as throughput.
     std::shared_ptr<quint64> received{std::make_shared<quint64>(0)};
     quint64 snapshots{0};
     // Whether this player's replica was live when the window opened.
@@ -411,7 +438,7 @@ void run(Arena &arena, int hz, double seconds, int interestK,
     // Count only players whose replica was live for the whole window. One that was still
     // acquiring at the start had nothing to receive for part of it, and averaging it in
     // reports the shortfall as a lower rate for everyone instead of as the connection
-    // problem it is. Those players are the finding, so they are reported, not dropped.
+    // problem it is. Those players are the finding, so the report lists them on their own.
     quint64 delivered{0};
     int counted{0};
     for (const Player &player : players) {
@@ -508,11 +535,12 @@ int main(int argc, char *argv[])
     const int maxN{*std::max_element(sizes.constBegin(), sizes.constEnd())};
 
     QWebSocketServer server{QStringLiteral("synqt-capstone"), QWebSocketServer::NonSecureMode};
-    if (!server.listen(QHostAddress::LocalHost)) {
+    CapstoneListener listener{&server};
+    if (!listener.listen(QHostAddress::LocalHost)) {
         qCritical("bench-capstone: cannot listen");
         return 1;
     }
-    const quint16 port{server.serverPort()};
+    const quint16 port{listener.serverPort()};
 
     QRemoteObjectHost host;
     host.setHostUrl(QUrl{QStringLiteral("synqt-capstone:///host")},
@@ -696,3 +724,5 @@ int main(int argc, char *argv[])
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     return 0;
 }
+
+#include "bench_capstone.moc"
