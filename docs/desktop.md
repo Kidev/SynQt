@@ -166,7 +166,23 @@ that looks finished is worse than one that says what is missing.
 What the build *does* guarantee is that the step can be performed. On macOS the client
 is built as a `.app` bundle, because `macdeployqt` operates on nothing else: a bare
 executable would leave you rewriting the generated CMake before you could run the
-command `DEPLOY.txt` tells you to run. The bundle identifier defaults to a placeholder
+command `DEPLOY.txt` tells you to run.
+
+If you want the deployed tree out of the one command anyway, ask for it:
+
+```cli
+synqt build --client desktop --deploy
+```
+
+`--deploy` runs `macdeployqt`, `windeployqt`, or the portable Linux layout (Qt's
+libraries, QML modules and plugins beside the binary, plus a launcher that points Qt at
+them), and `DEPLOY.txt` then names what is still outstanding. It **never signs**: an
+unsigned `.app` is refused by Gatekeeper on every machine but the one that built it, so
+signing stays an explicit act with your own identity. The flag is off by default for
+the reason above; it exists because "deploy it, I will sign it myself" is a legitimate
+thing to want from one command.
+
+The bundle identifier defaults to a placeholder
 (`com.example.<project>.<client>`) and is a CMake cache entry rather than a
 `synqt.yaml` key, since it belongs with signing. Set it on the generated `host`
 preset once; the cache keeps it for later builds:

@@ -22,8 +22,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import (appgen, clientbuild, clientcache, clientshell, config as configmod,
-               licenses, manifest, presets, run, toolchain, topologywriter,
-               writer)
+               deploy as deploymod, licenses, manifest, presets, run, toolchain,
+               topologywriter, writer)
 
 
 class BuildError(Exception):
@@ -375,6 +375,23 @@ def desktop_platform() -> str:
     return toolchain.host_platform()
 
 
+def _deployed_note(root: Path, name: str, out: Path) -> str:
+    """The DEPLOY.txt body after `--deploy` has run: what is left, which is the signing."""
+    platform = desktop_platform()
+    signing = {
+        "macos": ("    codesign --deep --force --options runtime \\\n"
+                  "        --sign \"Developer ID Application: <you>\" \"%s\"\n\n"
+                  "then notarize with `xcrun notarytool submit`. Until it is signed, Gatekeeper\n"
+                  "refuses it on any machine but this one.\n" % (out / f"{name}.app")),
+        "windows": ("    signtool sign /fd sha256 /a \"%s\"\n" % (out / f"{name}.exe")),
+    }.get(platform,
+          "    Nothing further is required to run it; package with linuxdeploy or an\n"
+          "    AppImage recipe to ship a single file.\n")
+    return ("This tree was deployed by `synqt build --deploy`: Qt travels with the app and it\n"
+            "no longer depends on the kit it was built against.\n\n"
+            "What is left is signing, which SynQt does not do for you:\n\n" + signing)
+
+
 def _deploy_note(root: Path, name: str, out: Path) -> str:
     """The DEPLOY.txt body: the exact command to run against the artifact this build produced.
 
@@ -523,7 +540,8 @@ def _selected_entities(config: Dict[str, Any], entity: Optional[str]) -> List[Di
 def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
           client: str = "wasm", qt_license_mode: str = "open_source",
           entity: Optional[str] = None, threads: Optional[str] = None,
-          verbose: bool = False, profile: Optional[str] = None) -> str:
+          verbose: bool = False, profile: Optional[str] = None,
+          deploy: bool = False) -> str:
     # Resolve to an absolute path: the cmake invocations below run with cwd set to the
     # project dir, so a relative --project-dir would otherwise be joined against itself.
     root = Path(project_dir).resolve()
@@ -555,6 +573,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
                                 config=config, edge_url=edge_url, verbose=verbose)
 
     produced: List[str] = []
+    deploy_notes: List[str] = []
     for entity in selected:
         name = entity.get("name")
         if entity.get("kind") == "client":
@@ -574,7 +593,18 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
                 # is actually there rather than the one this build expected to produce.
                 if target == "desktop":
                     _install_binary(build_dir, name, out)
-                    (out.parent / "DEPLOY.txt").write_text(_deploy_note(root, name, out))
+                    if deploy:
+                        # Asked for explicitly, so a failure here is a failed build rather than
+                        # a warning: the developer said they wanted a deployed tree, and one
+                        # that silently is not deployed is the "looks finished" outcome the
+                        # default position exists to avoid.
+                        deploy_notes.append(
+                            deploymod.deploy_client(root, name, out, resolved,
+                                                    desktop_platform()))
+                        (out.parent / "DEPLOY.txt").write_text(
+                            _deployed_note(root, name, out))
+                    else:
+                        (out.parent / "DEPLOY.txt").write_text(_deploy_note(root, name, out))
                 produced.append(f"build/{folder}/ ({target})")
         else:
             out = build_dir / name
@@ -598,6 +628,7 @@ def build(project_dir: os.PathLike[str] | str, *, release: bool = True,
     elif built_wasm_client:
         summary.append("  bundle already precompressed; nothing changed to redo.")
     summary.append("  wrote build/process-manifest.json (owners start before consumers).")
+    summary += [f"  {note}" for note in deploy_notes]
 
     # Each licence reminder belongs to an artifact this build actually produced. With
     # --entity database, warning about a client that was not built teaches the reader to

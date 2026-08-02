@@ -156,7 +156,18 @@ if [ "$PLATFORM" = "macos" ]; then
         cp -R "$APP" "$PROBE/client.app"
         APP="$PROBE/client.app"
         CLIENT_BIN="$APP/Contents/MacOS/client"
-        "$QT_HOST/bin/macdeployqt" "$APP" -qmldir="$SRC" >/dev/null 2>&1 || true
+        # Through the tooling's own deploy module, not by calling macdeployqt here: the point
+        # is to test the code path `synqt build --deploy` takes, and a fixture that ran the
+        # command itself would keep passing after that path broke.
+        PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$SRC" "$PROBE" "$QT_HOST" <<'PY'
+import sys
+from pathlib import Path
+
+from synqt import deploy
+
+root, out, kit = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+print("   ", deploy.deploy_client(root, "client", out, {"host_qt": kit}, "macos"))
+PY
         # Self-contained is asserted structurally rather than by the kit rpath disappearing:
         # whether macdeployqt strips the original LC_RPATH or merely prepends its own has
         # varied, and an app that carries its Qt and looks in its own bundle first is

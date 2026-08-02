@@ -40,6 +40,9 @@ cmake -S tests/m0-transport -B build/m0-edge -G Ninja \
 cmake --build build/m0-edge
 
 echo "== [2/4] Build client (WASM multi-threaded) =="
+# shellcheck source=../../lib/emsdk.sh
+. "$REPO_ROOT/tests/lib/emsdk.sh"
+synqt_activate_emsdk
 "$QT_WASM_MT/bin/qt-cmake" -S tests/m0-transport -B build/m0-client-mt -G Ninja \
     -DSYNQT_M0_ENTITY=client \
     -DCMAKE_BUILD_TYPE=Release
