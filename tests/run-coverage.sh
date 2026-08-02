@@ -109,8 +109,13 @@ fi
     cd tools/synqt
     python3 -m coverage erase
     python3 -m coverage run -m pytest tests -q
-    python3 -m coverage report --fail-under="$py_floor"
+    # The JSON report is written before the floor is checked, because a subshell exits with
+    # the status of its last command: with these two the other way round, `coverage json`
+    # succeeding overwrote the `--fail-under` failure and $py_ok was 0 no matter what the
+    # number was. The floor printed "Coverage failure: ..." and the run still said PASS, so
+    # the Python floor was not enforced at all, here or in CI.
     python3 -m coverage json -o "$REPO_ROOT/$BUILD_DIR/coverage-py.json"
+    python3 -m coverage report --fail-under="$py_floor"
 ) || py_ok=$?
 
 fi  # do_py
