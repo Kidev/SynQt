@@ -27,15 +27,28 @@ both plaintext `ws` and real `wss`.
 Verified both headed on a real display (`DISPLAY=:0`) and headless; the archived
 headless run is `build/m0-verify.log`.
 
-**Safari / WebKit.** Safari itself is macOS-only, but Safari's *engine* is WebKit, and
-`verify.mjs` now drives Playwright's headless WebKit as the in-env proxy for it: the browser
-list probes each engine for launchability and runs WebKit through the full four-direction +
-reconnect matrix whenever its runtime is present. On this Arch Linux build host WebKit's system
-dependencies are not installed (`npx playwright install-deps` needs root and targets Debian), so
-the probe drops WebKit with a note and the gate still passes on Chromium + Firefox; WebKit's run
-is a `sudo npx playwright install-deps` away on a Debian/Ubuntu CI runner. M0 is not declared
-*fully* passed until the matrix runs against WebKit (any host) and, ideally, real Safari on
-macOS; Chromium and Firefox are green. See `docs/browser-proofs.md` for the whole matrix.
+**Safari / WebKit.** Two different proofs, because WebKit is Safari's engine but not Safari.
+
+`verify.mjs` drives Playwright's headless WebKit as the in-env proxy: the browser list probes
+each engine for launchability and runs WebKit through the full four-direction + reconnect
+matrix whenever its runtime is present. Where WebKit's system dependencies are missing (`npx
+playwright install-deps` needs root and targets Debian) the probe drops it with a note and the
+gate still passes on Chromium + Firefox.
+
+`verify-safari.mjs` / `run-safari.sh` drives **real Safari.app** through `safaridriver`, which
+is the last mile Playwright's WebKit cannot cover: Apple's own TLS stack and networking. It
+passed on 2026-08-02 on macOS 15.7.8 with Safari 26.6 — all four QtRO paths and reconnect over
+`ws`. It is macOS-only and run by hand, never in CI: Safari has no headless mode, so it needs a
+logged-in GUI session, and `safaridriver --enable` is a one-time sudo. Its `wss` case is a
+further opt-in (`SAFARI_WSS=1`), because Safari is the one engine here that cannot be told to
+accept a self-signed certificate — no `acceptInsecureCerts`, no command-line switch — so that
+case runs only where the harness cert has been trusted in the system keychain.
+
+Safari's WebDriver implements no logging endpoint (the W3C spec has none and Apple adds none),
+so the console the other engines are judged by does not exist there. The page therefore keeps
+its own log: `console-tap.js`, injected by the harness ahead of the Qt loader, which
+`verify-safari.mjs` reads back over `execute/sync`. Both drivers reach their verdict through
+the one `analyze()` in `harness.mjs`, so "passing" means the same thing in each.
 
 **Multi-threaded WASM (`verify-mt.mjs` / `run-mt.sh`).** The matrix above is the
 single-threaded kit. The same client also builds with the `wasm_multithread` kit, which
@@ -135,3 +148,6 @@ cmake --build build/m0-client
 
 Qt 6.11.1, Emscripten 4.0.7, Playwright 1.61.1 (Chromium 1228, Firefox 1532),
 CMake 4.3.4, Ninja 1.13.2.
+
+The 2026-08-02 macOS run: Chromium 149.0.7827.55, Firefox 151.0, WebKit 26.5 through
+Playwright, and Safari 26.6 through `safaridriver`, on macOS 15.7.8.

@@ -31,7 +31,8 @@ scheduled run of [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main
 
 WebKit is Safari's engine, and the closest stand in for Safari on a Linux or CI host.
 It answers the engine question; the last mile (Safari's own TLS stack and WebGL
-behavior) needs a run on macOS.
+behavior) needs a run on macOS, which is what
+[`verify-safari.mjs`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify-safari.mjs) is for.
 
 ## Running the harnesses
 
@@ -45,6 +46,11 @@ tests/m0-transport/verify/run-m0.sh
 # Transport on the multi threaded kit (SharedArrayBuffer under COOP and COEP)
 tests/m0-transport/verify/run-mt.sh
 MT_BROWSERS=chromium tests/m0-transport/verify/run-mt.sh   # narrow the engine set
+
+# Transport in real Safari.app (macOS only, needs a GUI session)
+sudo safaridriver --enable                     # once per machine
+tests/m0-transport/verify/run-safari.sh
+SAFARI_WSS=1 tests/m0-transport/verify/run-safari.sh   # after trusting the harness cert
 
 # The client runtime: the native functional half, then two tab sync in every engine
 tests/m6-client/run-m6.sh
@@ -83,9 +89,14 @@ WebAssembly kit, which ships no QtRemoteObjects, so neither runs on every push.
 
 ## Known limits
 
-- Safari itself is not driven anywhere. The weekly matrix runs WebKit on macOS, which
-  covers the engine on Safari's own platform, but Safari.app has its own TLS stack and
-  WebGL behavior and would need `safaridriver --enable` on a macOS runner to drive.
+- Safari.app is driven only by hand, on macOS. `run-safari.sh` covers the four QtRO
+  paths and reconnect in Safari itself, and it passed on 2026-08-02 on macOS 15.7.8
+  with Safari 26.6. It is not in either workflow: Safari has no headless mode, so it
+  needs a logged in GUI session, and `safaridriver --enable` needs sudo once per
+  machine. Its `wss` case is a further opt in (`SAFARI_WSS=1`), because Safari cannot
+  be told to accept the harness's self signed certificate the way every other engine
+  can, so that case only runs where the certificate has been trusted in the system
+  keychain.
 - Sustained load and interactive sessions (the multi player capstone load test and the
   client frame time benchmark) need a normal host with a display, not a headless CI
   runner. [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) marks which harnesses those are.
