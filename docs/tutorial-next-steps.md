@@ -213,4 +213,6 @@ at a time, into a three entity system:
 That progression, simple by default and expandable when you need it, is the core of
 SynQt. From here, the reference documents go deeper on every piece you used. A good
 next read is [the programming model](programming-model.md), which formalizes
-everything you just did by hand.
+everything you just did by hand. When the question becomes how to put the thing on a
+server rather than what to build next, it is [deploying a SynQt
+system](deploying.md).

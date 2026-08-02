@@ -108,6 +108,8 @@ Rules the tooling enforces:
 synqt new <name>        # Scaffold a new project.
 synqt dev               # Build the entities, start them locally, watch and hot reload.
 synqt build             # Production build of every entity artifact.
+synqt build --deploy --sign <identity>   # ... and run the platform deploy step on a
+synqt build --deploy --unsigned          #     desktop client, signed or knowingly not.
 synqt serve             # Run the built entities, the edge serving the built client.
 synqt check [--release] # Validate config and topology, lint QML and contracts.
                         # Every command below that reads a project also takes
@@ -200,13 +202,30 @@ back door are in
 [configuration resolution order](project-layout-and-config.md#configuration-resolution-order).
 Every command that applies a layer says so in its output.
 
-`synqt build` takes two more: `--entity <name>` builds one entity rather than the whole
-system (an unknown name is an error, not an empty build), and `--threads single|multi`
-overrides `build.client_threads` for that one build. `--threads` is deliberately absent
-from `synqt dev`: dev re-reads `synqt.yaml` on every hot reload, so an override living
+`synqt build` takes three more. `--entity <name>` builds one entity rather than the whole
+system (an unknown name is an error, not an empty build). `--threads single|multi`
+overrides `build.client_threads` for that one build; it is deliberately absent from
+`synqt dev`, because dev re-reads `synqt.yaml` on every hot reload, so an override living
 only in the command line would be dropped mid session, and a threaded client served
 without cross origin isolation gets no SharedArrayBuffer and silently runs on one
 thread. For dev, set `build.client_threads` in `synqt.yaml`.
+
+`--deploy` is the third. A desktop client build produces a binary that finds Qt through
+the kit it was built against; the platform step that makes it carry its own Qt
+(`macdeployqt`, `windeployqt`, or, on Linux, a portable layout SynQt assembles itself) is
+not run by default, because signing identities, entitlements, notarization and installer
+format are not a framework's to choose. `--deploy` runs it anyway, and requires you to
+say what you mean about signing, with either `--sign <identity>` or `--unsigned`:
+
+```cli
+synqt build --client desktop --deploy --sign "Developer ID Application: Acme (AB12CD34)"
+synqt build --client desktop --deploy --unsigned
+```
+
+Neither flag has a default, because what an unsigned binary costs differs per platform
+and only one of the three answers is "it will not run". The full table, what each
+platform's step does, and what `DEPLOY.txt` still leaves you to do are in
+[desktop clients](desktop.md#building-for-desktop).
 
 The intent is the npm shaped path: `synqt new app`, `cd app`, `synqt dev`, and the
 app runs in a browser with its edge and any service entities attached, without
@@ -402,9 +421,12 @@ build/
   ...                     # one per service entity
 ```
 
-Deploy each service binary behind your process manager. The CLI can emit a process
-manifest so an orchestrator starts entities in dependency order (owners before
-consumers, consumers retrying until owners are ready), wires the mesh certificates,
-and binds only the edge to a public interface. If the edge serves the client (the
-default), point it at `build/client/`. For a split origin deployment, copy
-`build/client/` to the CDN and follow the cross origin notes in [security](security.md).
+Alongside them the build writes `build/process-manifest.json`, the start plan for
+whatever runs these binaries in production: the entities in dependency order (owners
+before consumers, so a consumer's owner is up before it tries to acquire it), the
+certificate and key each one expects, and which single entity binds to a public
+interface. `synqt serve` follows the same order itself, so a local run and an
+orchestrated one agree on it.
+
+Taking that from a build directory to a running system, on hosts that are not this one,
+is [deploying a SynQt system](deploying.md).
