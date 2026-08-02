@@ -176,10 +176,29 @@ synqt build --client desktop --deploy --sign "Developer ID Application: Acme (AB
 synqt build --client desktop --deploy --unsigned
 ```
 
-`--deploy` runs `macdeployqt`, `windeployqt`, or the portable Linux layout (Qt's
-libraries, QML modules and plugins beside the binary, plus a launcher that points Qt at
-them). `DEPLOY.txt` then names what is still outstanding, which is not the same thing in
-the two cases.
+`--deploy` runs `macdeployqt` on macOS, `windeployqt` on Windows, and the portable layout
+on Linux. `DEPLOY.txt` then names what is still outstanding, which is not the same thing
+in the two cases.
+
+Linux has no official Qt deployment tool, so SynQt does that one itself, along the same
+lines `windeployqt` follows:
+
+- `qmlimportscanner` (from your kit) reports which QML modules the client imports, and
+  only those are copied. It resolves every Controls style, not just the one you set,
+  because the style is chosen at run time.
+- The plugin directories the client can load follow from the Qt modules it links: a
+  client that links Qt Gui gets `platforms/`, `imageformats/` and the rest; one that
+  links no Qt Sql gets no `sqldrivers/`.
+- The transitive library closure of all of it is then copied to `lib/`. Transitive is the
+  operative word: a platform plugin and a QML module are opened at run time, so what
+  *they* link appears nowhere in the binary's own dependency list.
+- A `<client>.sh` launcher sets `LD_LIBRARY_PATH`, `QML_IMPORT_PATH` and `QT_PLUGIN_PATH`
+  to point at the three. The binary also carries an `$ORIGIN/lib` rpath, so it works when
+  run directly too.
+
+Only system libraries are left to the host: the C runtime and the display server's client
+libraries, exactly as any other native application on the platform expects. For a single
+distributable file, wrap the tree with `linuxdeploy` or an AppImage recipe.
 
 Why the second flag is mandatory. What an unsigned build costs is different on each
 platform, and only one of the three answers is "it will not run":
@@ -191,8 +210,9 @@ platform, and only one of the three answers is "it will not run":
 | Linux | runs normally; there is no binary code signing | **not applicable**, sign the *package* |
 
 So `--deploy` alone is refused, and the refusal states which of those three applies to
-the host you are on. `--unsigned` is an acknowledgement, not a workaround: on Linux it
-is simply the normal state, on macOS it means local use only.
+the host you are on, and offers only the flags that host accepts. `--unsigned` is an
+acknowledgement, not a workaround: on Linux it is simply the normal state, on macOS it
+means local use only.
 
 `--sign` takes a codesign identity on macOS (passed to `macdeployqt -codesign`, which
 signs the frameworks and plugins inside the bundle before the bundle itself) and a
@@ -211,9 +231,14 @@ cmake --preset host -DSYNQT_BUNDLE_ID=com.acme.gavel
 ```
 
 Until the deploy step runs, the app finds Qt through the kit it was built against and
-runs only on a machine that has that kit. After `macdeployqt`, Qt travels inside the
-bundle. This is asserted end to end by `tests/desktop-client/`, which on macOS deploys
-a copy of the built app and checks that nothing in it still points at the build kit.
+runs only on a machine that has that kit. Afterwards Qt travels with the app. This is
+asserted end to end by [`tests/desktop-client/`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client),
+which deploys a copy of the built app on whichever platform it runs on and checks that
+the result carries its own Qt. On Linux it goes further and reads `/proc/<pid>/maps` of
+the running client: every Qt library, QML module and plugin the process mapped has to
+come from inside the deployed tree. That check exists because "it ran" proves nothing on
+a developer machine, where a tree missing a library still starts, quietly answered by the
+distribution's own Qt.
 
 ## Developing against a desktop client
 

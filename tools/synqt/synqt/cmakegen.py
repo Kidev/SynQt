@@ -129,7 +129,29 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
               f'    target_link_options({name} PRIVATE "-lembind" "-sDYNAMIC_EXECUTION=0")',
               "endif()"]
     lines += _macos_bundle_cmake(config, name)
+    lines += _linux_rpath_cmake(name)
     return lines
+
+
+def _linux_rpath_cmake(name: str) -> List[str]:
+    """Let the Linux desktop client find the Qt that `--deploy` puts beside it.
+
+    Without this the only rpath is the absolute path of the kit it was built against, so the
+    deployed binary run directly (rather than through the generated launcher, which sets
+    LD_LIBRARY_PATH and therefore wins over any rpath) silently loads the build machine's Qt
+    and looks fine there, while on any other machine it finds nothing at all.
+
+    BUILD_RPATH rather than INSTALL_RPATH, because nothing here runs `cmake --install`: the
+    build copies the binary out of the build tree (build.py `_install_binary`), so the install
+    rpath would never be applied and this would be a setting that reads correct and does
+    nothing. CMake appends this after the kit path it derives from the link line, which is the
+    right order either way: on the build machine the kit answers first and is the same Qt, and
+    everywhere else it does not exist and `$ORIGIN/lib` does.
+    """
+    return ["if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)",
+            f"    set_target_properties({name} PROPERTIES",
+            '        BUILD_RPATH "$ORIGIN/lib")',
+            "endif()"]
 
 
 def _macos_bundle_cmake(config: Dict[str, Any], name: str) -> List[str]:

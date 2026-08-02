@@ -384,7 +384,9 @@ def _deployed_note(root: Path, name: str, out: Path, sign: Optional[str]) -> str
     """
     platform = desktop_platform()
     header = ("This tree was deployed by `synqt build --deploy`: Qt travels with the app and\n"
-              "it no longer depends on the kit it was built against.\n\n")
+              "it no longer depends on the kit it was built against. It still expects the\n"
+              "host's own system libraries (the C runtime, and the display server's client\n"
+              "libraries), which is what every native application on the platform expects.\n\n")
     if sign:
         if platform == "macos":
             return header + (
@@ -427,10 +429,13 @@ def _deploy_note(root: Path, name: str, out: Path) -> str:
         return header + (
             '    windeployqt --qmldir "%s" "%s"\n' % (root, out / f"{name}.exe"))
     return header + (
-        "    Linux has no single official tool. Copy the Qt libraries and the QML module\n"
-        "    directories beside the binary and launch through a wrapper that sets\n"
-        "    LD_LIBRARY_PATH and QML2_IMPORT_PATH, or package with linuxdeploy/AppImage.\n"
-        "    The binary is %s.\n" % (out / name))
+        "    synqt build --client desktop --deploy --unsigned\n\n"
+        "Linux has no single official tool, so SynQt does this part itself: the QML modules\n"
+        "the client imports, the plugin directories it can load, and the transitive closure\n"
+        "of Qt libraries all of that needs, beside the binary, with a launcher that sets\n"
+        "LD_LIBRARY_PATH, QML_IMPORT_PATH and QT_PLUGIN_PATH. There is nothing to sign; on\n"
+        "Linux --unsigned is the normal state. For one distributable file, wrap the result\n"
+        "with linuxdeploy or an AppImage recipe. The binary is %s.\n" % (out / name))
 
 
 def _install_binary(build_dir: Path, entity_name: str, dest: Path) -> bool:

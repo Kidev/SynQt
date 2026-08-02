@@ -115,8 +115,42 @@ if [ "$rc" -ne 0 ]; then
     exit 1
 fi
 
+echo "== [2b/4] Deploy on a copy, and assert the result carries its own Qt =="
+# Deployed on a COPY. `synqt build` does not deploy (docs/desktop.md), so the artifact it
+# installs is the undeployed one and that is what step 4 must boot; deploying in place would
+# mean the fixture asserts the boot of something the build never produces.
+#
+# This used to run on macOS only, which left the two deploy paths that are SynQt's own code
+# (the Linux portable layout is written here; macdeployqt and windeployqt are Qt's) never
+# executed by any test. The Linux one was broken the whole time: it shipped the client
+# binary's own libraries and not those of the plugins and QML modules it loads at run time,
+# so the tree started on a machine that already had Qt and on no other. The unit tests could
+# not catch it because they mock the dependency reader, and CI could not because it never
+# deployed. It runs everywhere now.
+PROBE="$WORK/deploy-probe"
+rm -rf "$PROBE"
+mkdir -p "$PROBE"
+
+# Through the tooling's own deploy module, not by calling macdeployqt/windeployqt here: the
+# point is to test the code path `synqt build --deploy` takes, and a fixture that ran the
+# command itself would keep passing after that path broke.
+deploy_probe() {
+    PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$SRC" "$PROBE" "$QT_HOST" "$PLATFORM" <<'PY'
+import sys
+from pathlib import Path
+
+from synqt import deploy
+
+root, out, kit, platform = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+# --unsigned is the fixture's choice, stated the way the CLI makes a caller state it. There is
+# no signing identity on a build machine, and a fixture that signed would be testing the
+# developer's keychain rather than SynQt.
+deploy.check_signing_choice(platform, None, True)
+print("   ", deploy.deploy_client(root, "client", out, {"host_qt": kit}, platform, sign=None))
+PY
+}
+
 if [ "$PLATFORM" = "macos" ]; then
-    echo "== [2b/4] macOS: assert an .app bundle, and that macdeployqt can finish it =="
     # A bare Mach-O is not an app on macOS, and macdeployqt accepts nothing else, so a build
     # that emits one makes the deploy step docs/desktop.md hands to the developer impossible
     # to perform without rewriting the generated CMake. That is what this asserts: not that
@@ -143,35 +177,14 @@ if [ "$PLATFORM" = "macos" ]; then
     echo "  pre-deploy: $before LC_RPATH reference(s) into the build kit ($QT_HOST)"
 
     if [ "$rc" -eq 0 ]; then
-        # Deployed on a COPY, for two reasons. `synqt build` does not deploy (docs/desktop.md),
-        # so the artifact it installs is the undeployed one and that is what step 4 must boot;
-        # deploying in place would mean the fixture asserts the boot of something the build never
-        # produces. And macdeployqt ships only the platform plugin a released app needs (cocoa),
-        # so a deployed bundle cannot be booted with QT_QPA_PLATFORM=offscreen at all; it
-        # aborts with "Could not find the Qt platform plugin", which is correct behaviour for a
+        # macdeployqt ships only the platform plugin a released app needs (cocoa), so a
+        # deployed bundle cannot be booted with QT_QPA_PLATFORM=offscreen at all; it aborts
+        # with "Could not find the Qt platform plugin", which is correct behaviour for a
         # deployed app and was, briefly, this fixture reporting a crash that was its own doing.
-        PROBE="$WORK/deploy-probe"
-        rm -rf "$PROBE"
-        mkdir -p "$PROBE"
         cp -R "$APP" "$PROBE/client.app"
         APP="$PROBE/client.app"
         CLIENT_BIN="$APP/Contents/MacOS/client"
-        # Through the tooling's own deploy module, not by calling macdeployqt here: the point
-        # is to test the code path `synqt build --deploy` takes, and a fixture that ran the
-        # command itself would keep passing after that path broke.
-        PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$SRC" "$PROBE" "$QT_HOST" <<'PY'
-import sys
-from pathlib import Path
-
-from synqt import deploy
-
-root, out, kit = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
-# --unsigned is the fixture's choice, stated the way the CLI makes a caller state it. There is
-# no signing identity on a build machine, and a fixture that signed would be testing the
-# developer's keychain rather than SynQt.
-deploy.check_signing_choice("macos", None, True)
-print("   ", deploy.deploy_client(root, "client", out, {"host_qt": kit}, "macos", sign=None))
-PY
+        deploy_probe || rc=1
         # Self-contained is asserted structurally rather than by the kit rpath disappearing:
         # whether macdeployqt strips the original LC_RPATH or merely prepends its own has
         # varied, and an app that carries its Qt and looks in its own bundle first is
@@ -191,6 +204,107 @@ PY
             echo "  deployed : FAIL (QtCore in bundle=$([ -d "$APP/Contents/Frameworks/QtCore.framework" ] && echo yes || echo no)," \
                  "bundle-relative rpath=$own_rpath)"
             rc=1
+        fi
+    fi
+elif [ "$PLATFORM" = "windows" ]; then
+    # $INSTALLED rather than a path spelled out again: only Windows adds a suffix, and
+    # native_exe_path already knows that (tests/lib/native-binary.sh).
+    cp "$INSTALLED" "$PROBE/$(basename "$INSTALLED")"
+    deploy_probe || rc=1
+    # windeployqt puts the DLLs beside the exe (Windows resolves a DLL through the
+    # executable's own directory first, so there is no launcher and no rpath here) and the
+    # plugin directories under it. The platform plugin is the one whose absence stops the
+    # app before it can say anything.
+    windows_missing=""
+    for needed in Qt6Core.dll Qt6Qml.dll Qt6Quick.dll platforms/qwindows.dll; do
+        [ -e "$PROBE/$needed" ] || windows_missing="$windows_missing $needed"
+    done
+    if [ -n "$windows_missing" ]; then
+        echo "  deployed : FAIL (missing from the deployed tree:$windows_missing)"; rc=1
+    else
+        echo "  deployed : OK (Qt DLLs and the Windows platform plugin beside the exe)"
+    fi
+else
+    cp "$INSTALLED" "$PROBE/$(basename "$INSTALLED")"
+    deploy_probe || rc=1
+
+    if [ "$rc" -eq 0 ]; then
+        # Named explicitly, not derived. Both are reached only through something loaded at run
+        # time (the X11 platform plugin, and the Controls style), so both were missing from
+        # every tree the previous implementation produced, and naming them here states the
+        # property rather than restating whatever the implementation happens to compute.
+        linux_missing=""
+        for needed in lib/libQt6XcbQpa.so.6 lib/libQt6QuickControls2Impl.so.6 \
+                      plugins/platforms/libqxcb.so qml/QtQuick/Controls/Basic/qmldir client.sh; do
+            [ -e "$PROBE/$needed" ] || linux_missing="$linux_missing $needed"
+        done
+        # The other half of correct: scoped. Shipping the kit's whole qml/ and plugins/ trees
+        # would satisfy every check above and cost 931 MB, three times what this needs. The
+        # client links no Qt Sql and imports no virtual keyboard, so neither may appear.
+        for absent in qml/QtQuick/VirtualKeyboard plugins/sqldrivers; do
+            [ ! -e "$PROBE/$absent" ] || linux_missing="$linux_missing (unwanted:$absent)"
+        done
+        if [ -n "$linux_missing" ]; then
+            echo "  layout   : FAIL$linux_missing"; rc=1
+        else
+            echo "  layout   : OK ($(du -sm "$PROBE" | cut -f1) MB: the modules it imports," \
+                 "the plugins it can load, and the libraries all of that links)"
+        fi
+    fi
+
+    if [ "$rc" -eq 0 ]; then
+        # The runtime half. A tree that is missing a library still starts on any machine that
+        # has Qt installed, because the loader quietly answers from /usr/lib instead, so
+        # "it ran" proves nothing on its own. What is asserted is where the running process
+        # actually mapped its Qt from, read out of /proc/<pid>/maps: every Qt library, QML
+        # module and plugin has to come from inside the deployed tree.
+        set +e
+        SYNQT_PROBE="$PROBE" python3 - <<'PY'
+import os
+import subprocess
+import sys
+
+probe = os.environ["SYNQT_PROBE"]
+process = subprocess.Popen([os.path.join(probe, "client.sh")],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
+try:
+    code = process.wait(timeout=4)
+    sys.exit(f"the deployed client exited ({code}) instead of staying up; a library or a "
+             "QML module it needs is not in the tree")
+except subprocess.TimeoutExpired:
+    pass  # still running at the deadline: it booted and stayed up
+
+try:
+    with open(f"/proc/{process.pid}/maps", encoding="utf-8") as handle:
+        maps = handle.read()
+finally:
+    process.kill()
+    process.wait()
+
+outside = set()
+for line in maps.splitlines():
+    fields = line.split()
+    if len(fields) < 6:
+        continue  # an anonymous mapping has no pathname column
+    path = fields[5]
+    if not path.startswith("/"):
+        continue
+    interesting = (os.path.basename(path).startswith("libQt6")
+                   or "/qml/" in path or "/plugins/" in path)
+    if interesting and not path.startswith(probe):
+        outside.add(path)
+if outside:
+    sys.exit("the running client mapped Qt from outside the deployed tree: "
+             + ", ".join(sorted(outside)))
+print("   every Qt library the running client mapped came from the deployed tree")
+PY
+        deployed_rc=$?
+        set -e
+        if [ "$deployed_rc" -eq 0 ]; then
+            echo "  self-contained: OK (boots, and loads no Qt from the host)"
+        else
+            echo "  self-contained: FAIL (see above)"; rc=1
         fi
     fi
 fi
