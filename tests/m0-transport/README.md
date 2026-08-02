@@ -37,11 +37,11 @@ gate still passes on Chromium + Firefox.
 
 `verify-safari.mjs` / `run-safari.sh` drives **real Safari.app** through `safaridriver`, which
 is the last mile Playwright's WebKit cannot cover: Apple's own TLS stack and networking. It
-passed on 2026-08-02 on macOS 15.7.8 with Safari 26.6 — all four QtRO paths and reconnect over
+passed on 2026-08-02 on macOS 15.7.8 with Safari 26.6: all four QtRO paths and reconnect over
 `ws`. It is macOS-only and run by hand, never in CI: Safari has no headless mode, so it needs a
 logged-in GUI session, and `safaridriver --enable` is a one-time sudo. Its `wss` case is a
 further opt-in (`SAFARI_WSS=1`), because Safari is the one engine here that cannot be told to
-accept a self-signed certificate — no `acceptInsecureCerts`, no command-line switch — so that
+accept a self-signed certificate. It has no `acceptInsecureCerts`, no command-line switch: so that
 case runs only where the harness cert has been trusted in the system keychain.
 
 Safari's WebDriver implements no logging endpoint (the W3C spec has none and Apple adds none),

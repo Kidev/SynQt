@@ -168,19 +168,38 @@ is built as a `.app` bundle, because `macdeployqt` operates on nothing else: a b
 executable would leave you rewriting the generated CMake before you could run the
 command `DEPLOY.txt` tells you to run.
 
-If you want the deployed tree out of the one command anyway, ask for it:
+If you want the deployed tree out of the one command anyway, ask for it, and say what
+you mean about signing, because `--deploy` will not guess:
 
 ```cli
-synqt build --client desktop --deploy
+synqt build --client desktop --deploy --sign "Developer ID Application: Acme (AB12CD34)"
+synqt build --client desktop --deploy --unsigned
 ```
 
 `--deploy` runs `macdeployqt`, `windeployqt`, or the portable Linux layout (Qt's
 libraries, QML modules and plugins beside the binary, plus a launcher that points Qt at
-them), and `DEPLOY.txt` then names what is still outstanding. It **never signs**: an
-unsigned `.app` is refused by Gatekeeper on every machine but the one that built it, so
-signing stays an explicit act with your own identity. The flag is off by default for
-the reason above; it exists because "deploy it, I will sign it myself" is a legitimate
-thing to want from one command.
+them). `DEPLOY.txt` then names what is still outstanding, which is not the same thing in
+the two cases.
+
+**Why the second flag is mandatory.** What an unsigned build costs is different on each
+platform, and only one of the three answers is "it will not run":
+
+| Platform | Unsigned binary | Signing is |
+|----------|-----------------|------------|
+| macOS | Gatekeeper refuses it anywhere but the machine that built it | **required** to distribute |
+| Windows | runs, but SmartScreen warns every downloader about an unrecognised publisher | **strongly advised** |
+| Linux | runs normally; there is no binary code signing | **not applicable**, sign the *package* |
+
+So `--deploy` alone is refused, and the refusal states which of those three applies to
+the host you are on. `--unsigned` is an acknowledgement, not a workaround: on Linux it
+is simply the normal state, on macOS it means local use only.
+
+`--sign` takes a codesign identity on macOS (passed to `macdeployqt -codesign`, which
+signs the frameworks and plugins inside the bundle before the bundle itself) and a
+certificate subject name on Windows (`signtool /n`, timestamped so the signature
+outlives the certificate). On Linux it is refused, with the reason. SynQt never
+notarizes: that needs your credentials and a network round trip, so `DEPLOY.txt` gives
+you the `notarytool` command instead.
 
 The bundle identifier defaults to a placeholder
 (`com.example.<project>.<client>`) and is a CMake cache entry rather than a

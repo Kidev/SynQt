@@ -46,7 +46,8 @@ class DeployCommandTest(unittest.TestCase):
         # -qmldir is what lets macdeployqt find the QML the app imports; without it the
         # deployed bundle loads and then fails at the first import.
         self.assertIn(f"-qmldir={self.root}", command)
-        self.assertIn("unsigned", note)
+        self.assertNotIn("-codesign", " ".join(command))
+        self.assertIn("UNSIGNED", note)
 
     def test_macos_refuses_when_there_is_no_bundle(self):
         # The failure a bare Mach-O produced before cmakegen set MACOSX_BUNDLE: macdeployqt
@@ -98,6 +99,71 @@ class DeployCommandTest(unittest.TestCase):
         with self.assertRaises(deploy.DeployError) as caught:
             deploy.deploy_client(self.root, "client", self.out, {}, "macos")
         self.assertIn("host Qt kit", str(caught.exception))
+
+    def test_macos_signs_through_macdeployqt(self):
+        (self.out / "client.app").mkdir()
+        self._tool("macdeployqt")
+        with mock.patch.object(deploy, "_run", return_value="") as run:
+            note = deploy.deploy_client(self.root, "client", self.out, self.resolved, "macos",
+                                        sign="Developer ID Application: Acme (AB12CD34)")
+        # -codesign, not a separate codesign call: the frameworks and plugins inside the
+        # bundle each have to be signed before the bundle, and macdeployqt walks that tree.
+        self.assertIn("-codesign=Developer ID Application: Acme (AB12CD34)", run.call_args[0][0])
+        self.assertIn("notarize", note)
+
+    def test_windows_signs_with_a_timestamp(self):
+        (self.out / "client.exe").write_bytes(b"MZ")
+        self._tool("windeployqt")
+        with mock.patch.object(deploy, "_run", return_value="") as run:
+            deploy.deploy_client(self.root, "client", self.out, self.resolved, "windows",
+                                 sign="Acme Ltd")
+        command = run.call_args[0][0]
+        self.assertEqual(command[0], "signtool")
+        self.assertIn("Acme Ltd", command)
+        # Without a timestamp the signature dies with the certificate instead of outliving it.
+        self.assertIn("/tr", command)
+
+
+class SigningChoiceTest(unittest.TestCase):
+    """`--deploy` refuses to guess what you meant about signing."""
+
+    def test_deploy_alone_is_refused_on_every_platform(self):
+        for platform in ("macos", "windows", "linux"):
+            with self.subTest(platform=platform):
+                with self.assertRaises(deploy.DeployError) as caught:
+                    deploy.check_signing_choice(platform, None, False)
+                message = str(caught.exception)
+                self.assertIn("--sign", message)
+                self.assertIn("--unsigned", message)
+
+    def test_the_refusal_says_what_unsigned_costs_here(self):
+        # The three platforms differ, and a single "unsigned is bad" would be wrong on two:
+        # a Windows build runs unsigned, and Linux has no binary signing at all.
+        with self.assertRaises(deploy.DeployError) as mac:
+            deploy.check_signing_choice("macos", None, False)
+        self.assertIn("Gatekeeper", str(mac.exception))
+        with self.assertRaises(deploy.DeployError) as win:
+            deploy.check_signing_choice("windows", None, False)
+        self.assertIn("SmartScreen", str(win.exception))
+        with self.assertRaises(deploy.DeployError) as lin:
+            deploy.check_signing_choice("linux", None, False)
+        self.assertIn("no binary code signing", str(lin.exception))
+
+    def test_both_flags_together_is_refused(self):
+        with self.assertRaises(deploy.DeployError) as caught:
+            deploy.check_signing_choice("macos", "Some Identity", True)
+        self.assertIn("contradict", str(caught.exception))
+
+    def test_signing_on_linux_is_refused_with_the_reason(self):
+        with self.assertRaises(deploy.DeployError) as caught:
+            deploy.check_signing_choice("linux", "Some Identity", False)
+        self.assertIn("nothing to do on Linux", str(caught.exception))
+
+    def test_a_stated_choice_is_accepted(self):
+        deploy.check_signing_choice("macos", "Developer ID Application: Acme", False)
+        deploy.check_signing_choice("macos", None, True)
+        deploy.check_signing_choice("linux", None, True)
+        deploy.check_signing_choice("windows", "Acme Ltd", False)
 
 
 if __name__ == "__main__":

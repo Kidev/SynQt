@@ -166,7 +166,11 @@ from pathlib import Path
 from synqt import deploy
 
 root, out, kit = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
-print("   ", deploy.deploy_client(root, "client", out, {"host_qt": kit}, "macos"))
+# --unsigned is the fixture's choice, stated the way the CLI makes a caller state it. There is
+# no signing identity on a build machine, and a fixture that signed would be testing the
+# developer's keychain rather than SynQt.
+deploy.check_signing_choice("macos", None, True)
+print("   ", deploy.deploy_client(root, "client", out, {"host_qt": kit}, "macos", sign=None))
 PY
         # Self-contained is asserted structurally rather than by the kit rpath disappearing:
         # whether macdeployqt strips the original LC_RPATH or merely prepends its own has
