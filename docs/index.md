@@ -534,7 +534,7 @@ AccessSource {
     id: access
 
     function allows(sub) {
-        if (!Caller.isEntityVerified || Caller.entity !== "web") {
+        if (Caller.entity !== "web") {
             return false;
         }
         const rows = Db.query(
@@ -546,7 +546,7 @@ AccessSource {
 
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="AccessSource" data-href="entities/">The database owns this connect point, so it owns the rules for it too.</li>
-<li data-code="Caller.isEntityVerified" data-href="api/?p=classSynQt_1_1Caller.html">An entity, not a person, named by the certificate its link presented. Only the edge gets here, and the slot checks again.</li>
+<li data-code="Caller.entity" data-href="api/?p=classSynQt_1_1Caller.html">An entity, not a person, named by the certificate its link presented. Only the edge gets here, and the slot checks again.</li>
 <li data-code="Db.query" data-href="api/?p=classSynQt_1_1Db.html">Parameterized, always. The value goes in as a parameter, so it can never become SQL. The grants table itself comes from database/schema.sql, the next file.</li>
 </ul>
 
@@ -586,7 +586,7 @@ UpstreamSource {
     property var cached: []
 
     function fetch() {
-        if (!Caller.isEntityVerified || Caller.entity !== "web") {
+        if (Caller.entity !== "web") {
             return [];
         }
         return upstream.cached;
