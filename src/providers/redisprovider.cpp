@@ -96,8 +96,13 @@ bool RedisCacheProvider::startTls(QString *error)
     }
     const bool ok{redisInitiateSSLWithContext(m_context, context) == REDIS_OK};
     if (!ok && error != nullptr) {
-        *error = QStringLiteral("Redis TLS handshake failed: %1")
-                     .arg(QString::fromUtf8(m_context->errstr));
+        // Naming the way out matters here: the ordinary cause is a server that speaks no
+        // TLS at all, which for a development engine on this machine is answered by
+        // saying so in the config rather than by turning the check off in the code.
+        *error = QStringLiteral(
+            "Redis TLS handshake with %1 failed: %2. A server that offers no TLS needs "
+            "tls: false, and only a development engine on this machine may have it")
+                     .arg(m_config.host, QString::fromUtf8(m_context->errstr));
     }
     // The context is per connection here (one provider holds one connection), and the
     // connection keeps what it needs from it, so it is freed as soon as the handshake is
@@ -108,8 +113,9 @@ bool RedisCacheProvider::startTls(QString *error)
     if (error != nullptr) {
         *error = QStringLiteral(
             "this build has no Redis TLS: SynQt was compiled without hiredis_ssl, so a "
-            "connection to %1 could only be plaintext (see https://synqt.org/providers/)")
-                     .arg(m_config.host);
+            "connection to %1 could only be plaintext. Install hiredis_ssl, or write "
+            "tls: false for a development engine on this machine (see "
+            "https://synqt.org/providers/)").arg(m_config.host);
     }
     return false;
 #endif
