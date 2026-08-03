@@ -18,6 +18,7 @@
 #include "widget_replica.h"        // synqtRegisterWidgetReplicas()
 
 #include "consumerbase.h"
+#include "promise.h"
 #include "serveraccessor.h"
 #include "websockettransport.h"
 
@@ -146,6 +147,25 @@ private slots:
         // 5) `Widget.onPinged` attached handler fires when the owner emits (via ping()).
         QVERIFY(QMetaObject::invokeMethod(root.data(), "callPing", Q_ARG(int, 7)));
         QTRY_COMPARE(root->property("lastPing").toInt(), 7);
+
+        // 6) A settled promise is retired, so calling a returning slot repeatedly does not
+        //    pile promises onto a facade that lives as long as the connection. The facade
+        //    is where they are parented, so counting its children counts them; the answer
+        //    has to stay flat, not grow with the number of calls.
+        const auto promisesHeld{[facadeObject]() {
+            int held{0};
+            for (const QObject *child : facadeObject->children()) {
+                if (qobject_cast<const SynQt::Promise *>(child) != nullptr) {
+                    ++held;
+                }
+            }
+            return held;
+        }};
+        for (int call{0}; call < 20; ++call) {
+            QVERIFY(QMetaObject::invokeMethod(root.data(), "requestCompute", Q_ARG(int, call)));
+        }
+        QTRY_COMPARE(root->property("computed").toInt(), 38);  // the last one, 19 * 2
+        QTRY_COMPARE_WITH_TIMEOUT(promisesHeld(), 0, 5000);
     }
 };
 

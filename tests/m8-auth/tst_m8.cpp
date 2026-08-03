@@ -109,6 +109,22 @@ IdentityProviderConfig stubOidcProvider(const QString &base, const QString &name
     return provider;
 }
 
+// A provider whose endpoints are plaintext and off-host: the shape of a copied config
+// where someone changed https to http, or a provider reached through an internal proxy.
+// Nothing about it may be spoken to.
+IdentityProviderConfig plaintextProvider()
+{
+    IdentityProviderConfig provider;
+    provider.name = QStringLiteral("plaintext");
+    provider.devStub = true;  // so only the endpoint check can be what refuses it
+    provider.authorizeUrl = QUrl{QStringLiteral("http://provider.example/authorize")};
+    provider.tokenUrl = QUrl{QStringLiteral("http://provider.example/token")};
+    provider.userinfoUrl = QUrl{QStringLiteral("http://provider.example/userinfo")};
+    provider.clientId = QStringLiteral("stub-client");
+    provider.clientSecret = QStringLiteral("stub-secret");
+    return provider;
+}
+
 } // namespace
 
 class TestM8 : public QObject
@@ -265,7 +281,8 @@ private slots:
             stubProvider(m_stub->baseUrl()),
             stubOidcProvider(m_stub->baseUrl(), QStringLiteral("stub-oidc"), m_stub->baseUrl()),
             stubOidcProvider(m_stub->baseUrl(), QStringLiteral("stub-oidc-badiss"),
-                             QStringLiteral("https://evil.example"))};
+                             QStringLiteral("https://evil.example")),
+            plaintextProvider()};
 
         m_edge = std::make_unique<WebEdge>(config, m_engine.get());
         QVERIFY2(m_edge->start(), qPrintable(m_edge->errorString()));
@@ -382,6 +399,20 @@ private slots:
         QCOMPARE(after->scope, QStringLiteral("moderator"));
         QCOMPARE(after->identity.value(QStringLiteral("login")).toString(),
                  QStringLiteral("octocat"));
+    }
+
+    // The client secret goes to the token endpoint, the authorization code comes back
+    // through the browser, and the JWKS decides which signatures are trusted. Over http
+    // all three are readable and the last is forgeable, so a login through a plaintext
+    // provider is refused before the browser is sent anywhere.
+    void plaintextProviderRefusedBeforeSendingTheBrowser()
+    {
+        const Response login{get(QUrl{edgeUrl(QStringLiteral("/auth/login?provider=plaintext"))})};
+        QCOMPARE(login.status, 500);
+        QVERIFY2(login.location.isEmpty(),
+                 "the browser must not be sent to a provider reached over http");
+        QVERIFY2(!login.setCookie.contains("synqt_oauth_state="),
+                 "no login is pending, so nothing binds one to this browser");
     }
 
     void oidcWrongIssuerRejected()

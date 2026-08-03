@@ -35,10 +35,23 @@ public:
                        const QString &expectedNonce, QString *error);
 
 private:
-    bool ensureJwks(const QUrl &jwksUrl, QString *error);
+    /// Fetch the key set unless it is already held. `force` fetches anyway, which is what
+    /// a token signed by a key the cached set does not contain asks for.
+    bool ensureJwks(const QUrl &jwksUrl, QString *error, bool force = false);
+
+    /// One provider's key set and when it was fetched.
+    struct CachedJwks
+    {
+        QByteArray json;
+        qint64 fetchedMs{0};
+    };
 
     QNetworkAccessManager *m_network;
-    QHash<QString, QByteArray> m_jwksCache; ///< jwksUrl -> raw JWKS JSON
+    /// jwksUrl -> the key set. Providers rotate their signing keys (some weekly), and the
+    /// first token signed by a new one names a kid this set does not have. Cached forever
+    /// with no way to refetch, that is every login failing until the process restarts, so
+    /// an unknown kid refetches once, no more often than kMinRefetchMs.
+    QHash<QString, CachedJwks> m_jwksCache;
 };
 
 } // namespace SynQt

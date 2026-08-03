@@ -240,6 +240,27 @@ class IdentityTest(unittest.TestCase):
         found = errors(self.identity(client_id=""))
         self.assertTrue(any("no client_id" in m for m in found), found)
 
+    def test_a_plaintext_token_endpoint_is_rejected(self):
+        found = errors(self.identity(token_url="http://provider.example/token"))
+        self.assertTrue(any("non-https token_url" in m for m in found), found)
+
+    def test_a_plaintext_jwks_endpoint_is_rejected(self):
+        found = errors(self.identity(jwks_url="http://provider.example/jwks"))
+        self.assertTrue(any("non-https jwks_url" in m for m in found), found)
+
+    def test_https_endpoints_pass(self):
+        config = self.identity(authorize_url="https://provider.example/authorize",
+                               token_url="https://provider.example/token",
+                               jwks_url="https://provider.example/jwks")
+        self.assertEqual(errors(config), [])
+
+    def test_a_loopback_provider_is_the_dev_stub_and_passes(self):
+        # `synqt dev` issues a stub provider on localhost; nothing off this machine can
+        # reach it, so requiring https there would only make the dev path unrunnable.
+        config = self.identity(authorize_url="http://127.0.0.1:8123/authorize",
+                               token_url="http://localhost:8123/token")
+        self.assertEqual(errors(config), [])
+
 
 class ProviderSecretTest(unittest.TestCase):
     def with_provider(self, provider):

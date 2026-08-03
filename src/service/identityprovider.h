@@ -82,6 +82,13 @@ public:
     /// refresh sweep and for tests.
     OAuthBackend *backend() const;
 
+    /// Drop everything held for a session that no longer exists, wherever it is held (on
+    /// this edge, or on the auth entity). Logging out already does this; this is the same
+    /// release for the session nobody logs out of, which is most of them: without it an
+    /// edge keeps a visitor's access and refresh tokens for as long as the process lives,
+    /// long after the session they belong to expired.
+    void forgetSession(const QByteArray &sessionId);
+
 signals:
     /// Internal: a delegated begin/exchange result for the given request has arrived from the
     /// auth entity, so the waiting route handler can resume.

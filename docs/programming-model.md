@@ -50,7 +50,10 @@ Mapping to the QtRO semantics the generated rep encodes:
   consumer to owner.
 - A slot with a return type becomes an asynchronous call on the consumer (a
   pending call that resolves later), because the work happens on the owner. A slot
-  with no return type is a one way request.
+  with no return type is a one way request. On the consumer it reads as
+  `Server.todo.clear().then(ok => ...)`; attach the handler to the call, as there,
+  rather than storing the promise and coming back to it in a later frame, because a
+  promise is retired once it has settled and delivered.
 
 Contracts may declare plain data records for use in signatures, which compile to
 QtRO POD types passed by value:

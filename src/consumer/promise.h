@@ -24,6 +24,17 @@ namespace SynQt {
 /// settled); `catchError(onRejected)` runs its callback with a reason string if the call
 /// failed or the connect point was not live. Both return a new Promise resolved with the
 /// callback's return value, so `.then(...).catchError(...)` chains in the usual way.
+///
+/// A promise lives until the turn after it settles, and no longer. It is created as a
+/// child of the facade, which lives as long as the connection does, so without a
+/// disposal rule every returning-slot call an app ever makes would still be on that
+/// facade at shutdown: a page polling a slot leaks one object per call, forever. Settling
+/// is the end of what a promise can do (it delivers to the handlers attached to it, then
+/// there is nothing left to deliver), so it is disposed one event-loop turn later, which
+/// is after every handler chained onto it in the ordinary way -- `slot().then(...)`,
+/// `.then(...).catchError(...)` -- has been attached and run. What that rules out is
+/// storing a promise and attaching to it later, in a different turn: attach where the
+/// call is made, not to a promise kept in a property.
 class Promise : public QObject
 {
     Q_OBJECT
@@ -59,12 +70,15 @@ private:
     void addHandler(const QJSValue &callback, Promise *next, bool onRejected);
     void flush();
     void dispatch(const Handler &handler);
+    /// Retire this promise (and the chain parented to it) after the current turn.
+    void scheduleDisposal();
 
     QJSEngine *m_engine{nullptr};
     State m_state{State::Pending};
     QVariant m_value;
     QString m_reason;
     QList<Handler> m_handlers;
+    bool m_disposalScheduled{false};
 };
 
 } // namespace SynQt

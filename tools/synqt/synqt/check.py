@@ -344,6 +344,39 @@ def _identity_messages(config: Dict[str, Any]) -> List[str]:
                 "be an env: reference so the value stays out of synqt.yaml")
         if not str(provider.get("client_id") or "").strip():
             messages.append(f"error: identity provider '{name}' has no client_id")
+        messages += _insecure_endpoint_messages(name, provider)
+    return messages
+
+
+# The identity endpoints, and what each one would leak over http.
+_IDENTITY_ENDPOINTS = (
+    ("authorize_url", "the browser is sent there to sign in"),
+    ("token_url", "the client secret and the tokens travel over it"),
+    ("userinfo_url", "the access token is sent as a bearer header"),
+    ("emails_url", "the access token is sent as a bearer header"),
+    ("jwks_url", "every ID token is trusted against the keys it returns"),
+)
+
+
+def _insecure_endpoint_messages(name: str, provider: Dict[str, Any]) -> List[str]:
+    """Identity endpoints are https, except a loopback host (the dev stub).
+
+    The runtime refuses these too (identityconfig.h, isSecureIdentityEndpoint), which is
+    the check that actually protects a login. This one exists so the answer arrives while
+    the config is being written rather than at the first sign-in attempt, which is the
+    one moment nobody is watching a log.
+    """
+    messages: List[str] = []
+    for key, why in _IDENTITY_ENDPOINTS:
+        url = str(provider.get(key) or "").strip()
+        if not url or url.startswith("https://"):
+            continue
+        host = url.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+        if url.startswith("http://") and host in ("localhost", "127.0.0.1", "[::1]"):
+            continue  # a loopback provider is the dev stub, unreachable from anywhere else
+        messages.append(
+            f"error: identity provider '{name}' has a non-https {key} ({url}): {why}, so "
+            "the edge refuses to use it (see https://synqt.org/authentication/)")
     return messages
 
 

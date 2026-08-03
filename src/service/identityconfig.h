@@ -11,6 +11,26 @@
 
 namespace SynQt {
 
+/// Whether an identity endpoint may be spoken to at all.
+///
+/// Every one of these URLs carries something that must not be readable in transit or
+/// forgeable on the way back: the token endpoint carries the client secret and returns
+/// the tokens, the JWKS endpoint returns the keys every ID token is then trusted against
+/// (fetch those over http and anyone on the path chooses who your users are), and the
+/// authorize endpoint is where the browser is sent. So https is required, with one
+/// exception: a loopback host, which is the dev stub provider and cannot be reached from
+/// another machine. `synqt check` reports the same rule before anything runs.
+inline bool isSecureIdentityEndpoint(const QUrl &url)
+{
+    if (url.scheme() == QLatin1String("https")) {
+        return true;
+    }
+    const QString host{url.host()};
+    return url.scheme() == QLatin1String("http")
+        && (host == QLatin1String("localhost") || host == QLatin1String("127.0.0.1")
+            || host == QLatin1String("::1") || host == QLatin1String("[::1]"));
+}
+
 /// One configured OAuth2 / OpenID Connect provider. The client_secret is resolved from
 /// the edge environment only (never a literal in synqt.yaml, never in a client target).
 /// A template owns how raw provider fields normalize into the identity object; here that

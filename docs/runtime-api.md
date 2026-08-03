@@ -472,13 +472,19 @@ eviction belongs in a persistence entity, not here.
 | `Http.get(url)` | promise | issue a GET. |
 | `Http.post(url, body?)` | promise | issue a POST. |
 | `Http.del(url)` | promise | issue a DELETE. |
-| `promise.then(onOk, onError?)` | - | `onOk({ status, body })` on success, `onError(message)` on failure. Settles once; a handler attached after it settled fires immediately. |
+| `promise.then(onOk, onError?)` | - | `onOk({ status, body })` on success, `onError(message)` on failure. Settles once; a handler attached in the same statement fires as soon as it settles. |
 
 ```qml
 Http.get("https://api.example.com/rates")
     .then(response => { rates.value = response.body.usd },
           message => { rates.error = message })
 ```
+
+Attach the handler where the call is made, as above. A promise is retired once it has
+settled and delivered, so it is not an object to store in a property and come back to
+later: keeping one across an event loop turn and calling `then` on it then is the one
+use this does not support. The reason is that the promise belongs to the entity, which
+outlives every call, so a promise nobody retires is a call nobody can ever free.
 
 `Http` is outbound only and verifies TLS. In a release build it refuses a plaintext
 URL rather than downgrading, so a gateway cannot quietly stop encrypting.

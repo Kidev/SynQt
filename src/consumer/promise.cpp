@@ -129,6 +129,22 @@ void Promise::flush()
     for (const Handler &handler : handlers) {
         dispatch(handler);
     }
+    scheduleDisposal();
+}
+
+void Promise::scheduleDisposal()
+{
+    // After the current turn, so everything chained onto this promise where the call was
+    // made still runs first, and so a handler that is running right now cannot be freed
+    // underneath itself. A chained promise is a child of the one it was chained from, so
+    // retiring the root retires the chain with it; a child that scheduled its own
+    // disposal first is simply deleted by its parent, and Qt drops the pending deletion
+    // with the object.
+    if (m_disposalScheduled) {
+        return;
+    }
+    m_disposalScheduled = true;
+    deleteSoon(this);
 }
 
 void Promise::dispatch(const Handler &handler)

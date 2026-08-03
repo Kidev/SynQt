@@ -50,12 +50,16 @@ void HttpPromise::deliver()
     if (m_ok && m_onFulfilled.isCallable()) {
         m_handled = true;
         m_onFulfilled.call(QJSValueList{m_engine->toScriptValue(m_response)});
-        deleteLater();
     } else if (!m_ok && m_onRejected.isCallable()) {
         m_handled = true;
         m_onRejected.call(QJSValueList{m_engine->toScriptValue(m_error)});
-        deleteLater();
     }
+    // Settled either way, so this promise has nothing left to do, and it is a child of
+    // the Http helper, which lives as long as the entity does. Retired after the current
+    // turn, which is after `Http.get(url).then(...)` has attached its handler, and
+    // whether or not one was ever attached: a call whose result nobody reads (a fire and
+    // forget POST is the ordinary case) must not be the one that accumulates.
+    deleteLater();
 }
 
 Http::Http(QNetworkAccessManager *network, QJSEngine *engine, bool release, QObject *parent)

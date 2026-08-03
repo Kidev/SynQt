@@ -36,6 +36,24 @@ QString randomToken()
     return QString::fromLatin1(raw.toHex());
 }
 
+// The name of the first endpoint of this provider that may not be spoken to over the
+// network as configured, or empty when every one of them is safe.
+QString insecureEndpoint(const IdentityProviderConfig &provider)
+{
+    const std::pair<const char *, QUrl> endpoints[]{
+        {"authorization", provider.authorizeUrl},
+        {"token", provider.tokenUrl},
+        {"userinfo", provider.userinfoUrl},
+        {"emails", provider.emailsUrl},
+        {"JWKS", provider.jwksUrl}};
+    for (const auto &[name, url] : endpoints) {
+        if (!url.isEmpty() && !isSecureIdentityEndpoint(url)) {
+            return QString::fromUtf8(name);
+        }
+    }
+    return QString{};
+}
+
 } // namespace
 
 OAuthBackend::OAuthBackend(IdentityConfig config, QObject *parent)
@@ -95,6 +113,15 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
     }
     if (provider->devStub && !m_config.allowDevStub) {
         result.error = QStringLiteral("dev stub provider is disabled");
+        return result;
+    }
+    // Refused here, at the last moment before a browser is sent anywhere, because this is
+    // the one place every login must pass through however the config was assembled.
+    if (const QString endpoint{insecureEndpoint(*provider)}; !endpoint.isEmpty()) {
+        qWarning("SynQt: identity provider '%s' has a plaintext %s endpoint; refusing the "
+                 "login rather than sending the secret, the code or the signing keys over "
+                 "http", qUtf8Printable(providerName), qUtf8Printable(endpoint));
+        result.error = QStringLiteral("insecure provider endpoint");
         return result;
     }
 
