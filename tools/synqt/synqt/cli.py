@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
-               config as configmod, deploy as deploymod, doctor, mesh, newproject,
+               config as configmod, create, deploy as deploymod, doctor, mesh, newproject,
                run as runmod, version as versionmod)
 
 
@@ -64,6 +64,15 @@ def build_parser() -> argparse.ArgumentParser:
     new.add_argument("--blueprint", action="append", dest="blueprints", default=[],
                      help="a starting blueprint entity (repeatable)")
     new.add_argument("--parent-dir", default=".")
+
+    # The interactive twin of `new`, as its own command rather than a mode of that one.
+    # A command that prompts only when it happens to have a terminal behaves differently
+    # in CI than in a shell under one name; these two say which you are getting, and
+    # `create` refuses to run without a terminal rather than silently taking defaults.
+    create_cmd = sub.add_parser("create", help="scaffold a new project, asking first")
+    create_cmd.add_argument("name", nargs="?", default=None,
+                            help="project name (asked for when omitted)")
+    create_cmd.add_argument("--parent-dir", default=".")
 
     for name, helptext in [("dev", "build, start locally, watch and hot reload"),
                            ("build", "production build of every entity artifact"),
@@ -247,6 +256,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.command == "new":
             print(newproject.scaffold(args.parent_dir, args.name, auth=args.auth,
                                       blueprints=args.blueprints))
+        elif args.command == "create":
+            print(create.create(args.parent_dir, name=args.name))
         elif args.command == "providers":
             print(addentity.list_providers())
         elif args.command == "doctor":
@@ -323,7 +334,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _run_add(args)
         else:
             parser.error("unknown command")
-    except (newproject.NewProjectError, addauth.AddAuthError, addentity.AddEntityError,
+    except (newproject.NewProjectError, create.CreateError, addauth.AddAuthError,
+            addentity.AddEntityError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
             appmodel.AppGenError, buildmod.BuildError, configmod.ConfigError,
             FileNotFoundError) as error:

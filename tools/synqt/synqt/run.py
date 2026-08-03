@@ -482,6 +482,17 @@ def test(project_dir: os.PathLike[str] | str) -> int:
     if not shutil.which("ctest"):
         print("synqt test: ctest not found (install CMake).")
         return 1
+
+    # A project with no tests is the ordinary state of a new one, and it is not a failure.
+    # It used to reach ctest and report a passing run over zero tests, which reads exactly
+    # like a suite that ran, so say what is actually true and where to start.
+    if not appmodel.test_qml_files(root):
+        print("synqt test: this project has no tests yet.\n"
+              "  A test is a QML file at tests/tst_<Something>.qml driving one connect\n"
+              "  point's Source through the SynQt.Test harness. See "
+              "https://synqt.org/testing/.")
+        return 0
+
     host_build = root / "build" / "host"
     if not (host_build / "CTestTestfile.cmake").exists():
         print("synqt test: no configured test build. Run 'synqt build' first "

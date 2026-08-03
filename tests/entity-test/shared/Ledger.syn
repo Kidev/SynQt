@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The contract the harness suite drives: enough of one to exercise every direction a
+// QML test needs to assert on. A prop the slot writes, a model it replaces, a signal it
+// sends back to the one caller, and both slot shapes.
+contract Ledger {
+    prop int highBid
+    model winners(item, winner, amount)
+    slot placeBid(int amount, string bidder)
+    slot bool recordWinner(string item, string winner, int amount)
+    signal bidRejected(string reason)
+}

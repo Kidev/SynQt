@@ -105,7 +105,8 @@ Rules the tooling enforces:
 ## The `synqt` command line tool
 
 ```cli
-synqt new <name>        # Scaffold a new project.
+synqt new <name>        # Scaffold a new project, every answer a flag.
+synqt create            # Scaffold a new project, asking the questions instead.
 synqt dev               # Build the entities, start them locally, watch and hot reload.
 synqt build             # Production build of every entity artifact.
 synqt build --deploy --sign <identity>   # ... and run the platform deploy step on a
@@ -114,7 +115,7 @@ synqt serve             # Run the built entities, the edge serving the built cli
 synqt check [--release] # Validate config and topology, lint QML and contracts.
                         # Every command below that reads a project also takes
                         # --profile <name> (layer synqt.<name>.yaml over synqt.yaml).
-synqt test              # Build and run the project's test suite.
+synqt test              # Build and run the project's own QML tests (see testing.md).
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
 synqt --version         # Print the CLI version and the pinned toolchain (also -V).
@@ -231,19 +232,35 @@ The intent is the npm shaped path: `synqt new app`, `cd app`, `synqt dev`, and t
 app runs in a browser with its edge and any service entities attached, without
 reading a build manual.
 
-## The scaffold questions
+## Scaffolding a project: `synqt new` and `synqt create`
 
-`synqt new` asks a short, security relevant set of questions and writes the answers
-into `synqt.yaml`:
+One scaffolder, two front ends, and the name says which you get.
 
-1. Do you want authentication now (you can add it later with `synqt add auth`)? If
-   yes, it runs the auth scaffold for a chosen provider.
-2. Which starting entities beyond the client and edge (none, a database, a cache)?
-   Selected entities are scaffolded from their blueprints.
+`synqt new <name>` takes every answer as a flag and reads nothing from the terminal,
+so it behaves identically in a shell, in a Makefile and in CI:
+
+```cli
+synqt new shop                                          # client and web edge only
+synqt new shop --auth github --blueprint persistence    # and an identity provider
+synqt new shop --blueprint persistence --blueprint cache  # --blueprint repeats
+```
+
+`synqt create` asks the same things out loud and then calls it:
+
+1. What is the project called? (Also accepted as an argument: `synqt create shop`.)
+2. Authentication now, or later with `synqt add auth`? None is the default.
+3. Starting entities beyond the client and edge, from the blueprints, or later with
+   `synqt add entity`? None is the default.
 
 The questions exist because the secure choice should be made consciously at the
 start, not discovered later. No insecure auth state is the default, and the questions
 make the alternatives explicit and reviewed.
+
+They are two commands rather than one command with a `--interactive` flag on purpose.
+A single command that prompts when it finds a terminal and picks defaults when it does
+not is two behaviors under one name: the CI run takes a path nobody watched it take,
+and the difference only shows up later, in the generated project. So `synqt create`
+refuses to run without a terminal, and names `synqt new` when it does.
 
 There is no question about the origin model, and no `--origin-model` flag. A
 scaffolded project serves the client and the web edge from one origin, which is the
@@ -389,9 +406,13 @@ matrix also runs weekly, because a browser engine can break it without anything 
 changing.
 
 The suites run locally exactly as CI runs them, through each test's `run-*.sh` with
-`QT_HOST` pointing at your host kit (see the [developer guide](development.md)); the
-`synqt check` and `synqt test` commands are the developer facing entry points to the
-same validation.
+`QT_HOST` pointing at your host kit (see the [developer guide](development.md)).
+
+Those are SynQt's own tests. Your application's are a separate thing with a separate
+command: `synqt test` builds and runs the QML tests under your project's `tests/`, and
+[testing your app](testing.md) is how to write one. `synqt check` is its counterpart on
+the configuration side, and the two answer different questions: `check` reads the
+topology, `test` runs your slots.
 
 ## Releasing
 
