@@ -214,7 +214,7 @@ global object. The caller is one of two things.
   on one host (over loopback) and across hosts alike. (On an opt in local socket
   link the name is trusted by colocation instead, and `Caller.isEntityVerified` is
   false; see [security](security.md).) The owner authorizes by entity: for example a
-  database slot can require `Caller.isEntityVerified && Caller.entity === "web"`.
+  database slot can require `Caller.entity === "web"`.
 
 `Client` remains available on web edge connect points as a convenience alias for
 `Caller` when the caller is a browser user, so existing edge code reads
@@ -267,9 +267,8 @@ ItemsSource {
     id: items
 
     function insert(row) {
-        // The database authorizes the calling entity, not a user, and only a
-        // certificate may name it.
-        if (!Caller.isEntityVerified || Caller.entity !== "web") {
+        // The database authorizes the calling entity, not a user.
+        if (Caller.entity !== "web") {
             return   // refuse calls from any entity other than the edge
         }
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?,?,?)",
