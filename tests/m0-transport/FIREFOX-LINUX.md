@@ -142,6 +142,45 @@ conclusion could not drift to fit the result.
    and leaves the native timer alone; on a stock kit both Chromium and Firefox then show this
    report's signature exactly, locally, every run.
 
+## Why Firefox, and why that one runner
+
+The natural reading of "only Firefox, only that runner, and all three of its cases, run after
+run" is that something in that combination behaves differently, systematically. It does not
+have to, and the measurement that settles it is this: **one lost callback is permanent.**
+
+`node verify-pump.mjs stall once` drops exactly one wakeup arm and then gets out of the way.
+Both Chromium and Firefox then spend the rest of the session wedged, with property pushes
+still arriving and the watcher never firing again. The reason is in `QWasmTimer::setTimeout`:
+the arm that was dropped still returned a live timer id, `hasTimeout()` reads true from then
+on, and `wakeUp()`'s `if (!hasTimeout()) setTimeout(0ms)` never arms another. Nothing clears
+it, because the only thing that clears it is the callback that never came.
+
+So the trigger does not need to be systematic, or even common. It needs to happen once, in
+one session, and the failure that follows is total and looks perfectly reproducible. That is
+the shape of the original report.
+
+Which leaves susceptibility rather than mechanism as the question, and on that the honest
+answer is that we measured, ruled things out, and did not catch it in the act:
+
+- **Not requestAnimationFrame.** `emscripten_async_call(fn, arg, 0)` takes the
+  `millis >= 0` branch and uses `setTimeout` (emsdk 4.0.7, `src/lib/libeventloop.js`), so both
+  hops of the chain are ordinary zero-delay timeouts.
+- **Not CPU starvation, as far as we can model it.** Pinned to two saturated cores, both
+  engines still delivered every wakeup: Chromium zero-delay p95 4.1 ms, Firefox 4 ms, and the
+  reply resolved in both.
+- **Not timer deprioritisation under load.** With the main thread kept busy by a
+  `MessageChannel` loop spinning 8 ms a turn, both engines delivered wakeups at exactly one
+  spin quantum, p50 8 ms.
+- **Firefox does schedule timers more loosely than Chromium**, which is the one measured
+  difference and the reason it is the likeliest of the three to lose one: idle, its zero-delay
+  arms ran at p95 10 ms against Chromium's 0.7 ms, and its interval timers at p99 24 ms
+  against Chromium's 0.3 ms.
+
+A hosted runner is the slowest, most contended, GPU-less machine in the matrix, and Firefox
+is the engine with the loosest timer scheduling on it. That is a plausible place for a
+one-in-a-session event, and it is as far as the evidence goes. The patch below is what makes
+the question stop mattering.
+
 ## Ruled out
 
 - **The call being made before the replica is initialised.** The call is issued from the
@@ -213,12 +252,22 @@ reproduction above, on Qt 6.11.1 with Emscripten 4.0.7: on a stock kit the watch
 fires in either Chromium or Firefox, on a patched kit it fires in both, and the full M0 gate
 stays green, reconnect included.
 
-That last clause is the reason the fix belongs in the dispatcher rather than in a timer of
-our own. See the failed workaround above: a 16 ms `sendPostedEvents(nullptr,
-QEvent::MetaCall)` pump in application code also made the watcher fire, and it broke
-reconnect on Firefox, because force-draining every posted meta-call on an unrelated timer
-reorders delivery. Draining from the dispatcher's own timer callback, in the order
-`sendAllEvents()` already uses, does not.
+**Doing the same thing from application code does not work**, which is worth stating plainly
+because it is the obvious thing to try instead of patching Qt, and it was tried twice. The
+first attempt, above, pumped `sendPostedEvents(nullptr, QEvent::MetaCall)` every 16 ms and
+broke reconnect on Firefox; the natural theory was that the event-type filter was at fault,
+since draining one type out of a queue holding several reorders them. It is not the filter.
+Build the M0 client with `-DM0_POSTED_EVENT_PUMP=ON` (`client/main.cpp`) and it sweeps the
+queue with the plain, unfiltered `QCoreApplication::sendPostedEvents()`, the same call the
+dispatcher makes, on a 50 ms `QTimer`. It fixes the stall in both engines. It also failed
+`firefox-reconnect` in one run out of four, with the same `disconnect=true reconnect=false`
+signature as the first attempt.
+
+So the difference is not what is drained but where from. Sweeping the queue from inside a
+`QTimer` handler runs it nested inside the dispatcher's own `sendAllEvents()` pass, which is
+not a place Qt expects a sweep. `onTimer()` runs before that pass begins, in the same order
+`sendAllEvents()` uses. That is why the fix belongs in the dispatcher, and why the option
+above is left off by default: it is kept as the measurement, not as a recommendation.
 
 Two things would still help, and one question is still open.
 

@@ -20,11 +20,14 @@
 //
 // Run it with the expectation you are testing:
 //
-//   node verify-pump.mjs stall     # stock Qt: the watcher must never fire
-//   node verify-pump.mjs recover   # patched Qt: the watcher must fire anyway
+//   node verify-pump.mjs stall          # stock Qt: the watcher must never fire
+//   node verify-pump.mjs recover        # patched Qt: the watcher must fire anyway
+//   node verify-pump.mjs stall once     # ONE dropped wakeup, and it never recovers
 //
 // Both directions matter. "stall" is what proves the reproduction is real rather than a
-// harness that always passes, and it is the failing test a fix has to turn green.
+// harness that always passes, and it is the failing test a fix has to turn green. The "once"
+// mode is what explains the shape of the original report: a single lost callback wedges the
+// client for good, so the trigger does not have to be systematic for the failure to be.
 
 import { chromium, firefox, webkit } from "playwright";
 import {
@@ -35,8 +38,14 @@ import {
 const headless = process.env.M0_HEADLESS === "1" ? true : !process.env.DISPLAY;
 
 const expectation = process.argv[2] || "stall";
-if (expectation !== "stall" && expectation !== "recover") {
-    console.error(`usage: node verify-pump.mjs [stall|recover]`);
+// "load" starves every wakeup for the whole run. "once" drops exactly one and then gets out
+// of the way, which is the sharper measurement: it shows that a single lost browser callback
+// is not a hiccup but a permanent wedge, because the dropped arm still returned a live timer
+// id and QWasmTimer::hasTimeout() reads true forever after. That is why this failure needs no
+// systematic cause to look perfectly systematic.
+const starveMode = process.argv[3] || "load";
+if (!["stall", "recover"].includes(expectation) || !["load", "once"].includes(starveMode)) {
+    console.error(`usage: node verify-pump.mjs [stall|recover] [load|once]`);
     process.exit(2);
 }
 
@@ -101,7 +110,7 @@ async function runCase(browserType, name) {
         // Armed before Qt boots, from the page's own query string, so every posted event the
         // client ever makes is starved. The client still has to connect, and it does, because
         // nothing on the socket path depends on the posted-event queue.
-        await page.goto(`${pageUrl("ws", WS_PORT)}&starve=load`,
+        await page.goto(`${pageUrl("ws", WS_PORT)}&starve=${starveMode}`,
                         { waitUntil: "load", timeout: 60000 });
 
         const settled = await waitFor(() => {
@@ -152,7 +161,7 @@ function verdict(result) {
 }
 
 async function main() {
-    console.log(`M0 pump-starvation repro: expecting "${expectation}", headless=${headless}`);
+    console.log(`M0 pump-starvation repro: expecting "${expectation}", starve=${starveMode}, headless=${headless}`);
     renderShell();
     const staticServer = await startStaticServer({
         port: STATIC_PORT,

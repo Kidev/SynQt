@@ -9,6 +9,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QtGlobal>
 
@@ -115,6 +116,27 @@ int main(int argc, char *argv[])
     const QUrl edgeUrl{resolveEdgeUrl()};
     qInfo().noquote()
         << QStringLiteral("M0 client starting url=%1").arg(edgeUrl.toString());
+
+#if defined(M0_POSTED_EVENT_PUMP)
+    // The application-side answer to the same defect the Qt patch in qt-patches/ addresses, for
+    // measuring the two against each other. Qt for WebAssembly delivers posted events from one
+    // chain of zero-delay browser callbacks, armed by wakeUp() at the moment an event is posted
+    // and never re-armed while it waits, so a callback the browser drops takes the event with
+    // it, permanently. A QTimer is delivered by a different mechanism entirely
+    // (QTimerInfoList::activateTimers uses sendEvent), so it still arrives, and sweeping the
+    // posted queue from one gives the delivery a second way to happen.
+    //
+    // Unfiltered on purpose. The earlier attempt at this, which broke reconnect on Firefox,
+    // passed QEvent::MetaCall: draining one event type out of a queue that holds several
+    // reorders them against each other, and DeferredDelete in particular has to stay where it
+    // is. Without the filter this is the same sweep QEventDispatcherWasm itself performs.
+    QTimer *postedEventPump{new QTimer{&app}};
+    postedEventPump->setInterval(50);
+    QObject::connect(postedEventPump, &QTimer::timeout, &app, []() {
+        QCoreApplication::sendPostedEvents();
+    });
+    postedEventPump->start();
+#endif
 
     M0Controller *controller{new M0Controller{edgeUrl, &app}};
 

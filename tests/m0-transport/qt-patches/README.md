@@ -67,12 +67,36 @@ here on 2026-08-03, Qt 6.11.1, Emscripten 4.0.7, Chromium 149 and Firefox 151:
 | stock kit | pass, both engines | fail, both engines |
 | patched kit | fail, both engines | pass, both engines |
 
-The full M0 gate (`node verify.mjs`) stays green on the patched kit, reconnect included. That
-case is the one to watch: an earlier attempt at this, a 16 ms
-`QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall)` pump in application code,
-made the watcher fire and broke reconnect on Firefox, because force-draining every posted
-meta-call on a timer reorders event delivery. Draining from the dispatcher's own timer
-callback, in the same order `sendAllEvents()` already uses, does not.
+A third mode is worth running once for what it shows rather than as a gate:
+
+```sh
+node verify-pump.mjs stall once   # drop ONE wakeup, then leave the page alone
+```
+
+Both engines stay wedged for the rest of the session. The arm that was dropped still returned
+a live timer id, so `QWasmTimer::hasTimeout()` reads true from then on and `wakeUp()` never
+arms another. One lost callback, ever, is enough, which is why a failure with no systematic
+cause can look completely systematic.
+
+## The version that does not patch Qt, and why it is not the answer
+
+The obvious alternative is to sweep the queue from application code. The M0 client can:
+build it with `-DM0_POSTED_EVENT_PUMP=ON` and `client/main.cpp` runs a 50 ms `QTimer` calling
+the plain, unfiltered `QCoreApplication::sendPostedEvents()`, the same call the dispatcher
+makes. It fixes the stall in both engines, and it fails `firefox-reconnect` about one run in
+four, `disconnect=true reconnect=false`.
+
+That is the same regression an earlier 16 ms `sendPostedEvents(nullptr, QEvent::MetaCall)`
+attempt produced. The tempting explanation was the event-type filter, since draining one type
+out of a queue holding several reorders them against each other. It is not the filter: the
+unfiltered version regresses too. What differs is where the sweep runs from. A `QTimer`
+handler is itself running inside the dispatcher's `sendAllEvents()` pass, so the sweep is
+nested inside another one; `onTimer()` runs before that pass begins, in the order
+`sendAllEvents()` already uses. The option is left off by default and kept as the
+measurement, not as a recommendation.
+
+The full M0 gate (`node verify.mjs`) stays green on the patched kit, reconnect included,
+which is the comparison that matters.
 
 ## Status
 
