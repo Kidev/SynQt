@@ -192,7 +192,11 @@ Service runtime (native, used by every service entity):
 - `MeshTransport`: the QtRO transport for service links: QSslServer and QSslSocket
   with mutual verification against the project CA by default (bound to loopback
   when the link stays on one host), and QLocalServer and QLocalSocket for opt in
-  local links.
+  local links. The consumer side keeps its link up: an owner that is not there yet,
+  and one that goes away later, are retried with a capped exponential backoff, and
+  each time the link comes back the consumer re-acquires the connect point by
+  itself. So entities may start in any order, and one service can be restarted
+  under a deploy without restarting the entities that consume it.
 - `Provider` (on blueprint entities): the backend behind the entity's connect
   points, selected by config. The default is an embedded engine (SQLite for
   persistence, in memory for cache); a third party engine is masked behind the same

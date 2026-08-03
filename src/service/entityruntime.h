@@ -17,6 +17,7 @@ QT_BEGIN_NAMESPACE
 class QNetworkAccessManager;
 class QQmlEngine;
 class QQmlPropertyMap;
+class QRemoteObjectNode;
 QT_END_NAMESPACE
 
 namespace SynQt {
@@ -99,6 +100,9 @@ private:
     QList<ConnectPointHost *> m_ownedHosts;
     QHash<QString, QQmlPropertyMap *> m_accessors;
     QHash<QString, QObject *> m_consumedReplicas;
+    /// The node currently carrying each consumed connect point, so a link that comes back
+    /// up replaces what it had rather than adding to it. Keyed like m_consumedReplicas.
+    QHash<QString, QRemoteObjectNode *> m_consumedNodes;
     QHash<QString, ConsumerBase *> m_consumerFacades;
 
     /// Accessors the entity itself contributed through setContextObject(), kept separate

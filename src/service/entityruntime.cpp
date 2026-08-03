@@ -8,6 +8,7 @@
 
 #include "consumerbase.h"
 #include "consumerfactory.h"
+#include "deletesoon.h"
 
 #include "cache.h"
 #include "cachefactory.h"
@@ -250,12 +251,25 @@ void EntityRuntime::openConsumerLink(const ConnectPointConfig &connectPoint)
 
     connect(client, &MeshClient::connected, this,
             [this, connectPoint](QIODevice *device) {
+                const QString key{connectPoint.owner + QLatin1Char('/') + connectPoint.name};
                 QRemoteObjectNode *node{new QRemoteObjectNode{this}};
+                // The node owns the transport it was handed, so retiring the node below
+                // takes the socket with it, in that order (a node tears down its own
+                // connections before its children are destroyed). MeshClient hands
+                // ownership to whoever takes the device, and this is where it is taken.
+                device->setParent(node);
                 node->addClientSideConnection(device);
                 node->setHeartbeatInterval(1000);
                 QRemoteObjectDynamicReplica *replica{node->acquireDynamic(connectPoint.name)};
                 replica->setParent(node);
-                const QString key{connectPoint.owner + QLatin1Char('/') + connectPoint.name};
+                // A reconnect is a new node, a new replica and a new transport; the one
+                // this link used before is finished with. Retired after this turn, so the
+                // facade below has already been pointed at the fresh Replica and nothing
+                // still on the stack is reading the old one.
+                if (QRemoteObjectNode *previous{m_consumedNodes.value(key)}) {
+                    deleteSoon(previous);
+                }
+                m_consumedNodes.insert(key, node);
                 m_consumedReplicas.insert(key, replica);
                 QQmlPropertyMap *map{accessorFor(accessorName(connectPoint.owner))};
 
