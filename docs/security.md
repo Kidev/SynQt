@@ -166,6 +166,14 @@ local link, and a connect point that authorizes by `Caller.entity` should stay o
 the default mutual TLS transport unless every process running as that user on that
 host is trusted as much as the entities themselves.
 
+The difference is readable from inside a slot rather than only from the config, so a
+privileged action can refuse it rather than inherit it. [`Caller.isEntityVerified`](runtime-api.md#service-caller)
+is true when the name came from a verified certificate and false when it came from
+colocation, which is why the framework's own examples spell the check
+`if (!Caller.isEntityVerified || Caller.entity !== "web")`. Authorizing on
+`Caller.entity` alone is a link the deployment can weaken later without the slot
+noticing; authorizing on both is not.
+
 Authorization by entity. Once the calling entity is known (by verified
 certificate on the default mutual TLS links; by colocation only on an opt in
 local socket link), the owner authorizes per

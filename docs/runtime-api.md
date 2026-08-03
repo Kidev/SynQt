@@ -22,6 +22,7 @@ in an owned connect point's implementation.
 | `Caller` | any owner slot (any entity) | who invoked this slot: a browser user, or a calling entity |
 | `Client` | web edge owner slots | alias for `Caller` when the caller is a browser user |
 | generated Source | an owned connect point's implementation | the owner-side write surface (`set<Model>`, property setters, signals) |
+| `Db`, `Docs`, `Cache`, `Http`, `Jobs` | a blueprint entity's QML | the helper that blueprint provides, one per entity (see [the blueprint helpers](#service-the-blueprint-helpers)) |
 
 `<Contract>.on<Signal>` attached handlers (for reacting to a connect point's
 signals) are covered in [Handling a connect point's signals](programming-model.md#handling-a-connect-points-signals);
@@ -305,7 +306,8 @@ without any ambient global.
 | `Caller.setScope(scope)` | `isUser` | action | set the session's scope. Used by the identity flow after login; rotates the session id on privilege change. |
 | `Caller.emit<Signal>(...)` | `isUser` | action | emit a contract signal back to **this one caller** (see [targeting](#emitting-a-signal-to-one-caller-versus-all)). |
 | `Caller.id` | `isUser` | string | the session id (also `Client.id`). |
-| `Caller.entity` | `isEntity` | string | the calling entity's authenticated name, taken from the certificate its mutual-TLS link verified. |
+| `Caller.entity` | `isEntity` | string | the calling entity's name. On the default mutual-TLS links it is taken from the certificate the handshake verified. On an opt-in `transport: local` link there is no certificate and the name is trusted by colocation instead, so check `isEntityVerified` before authorizing on it. |
+| `Caller.isEntityVerified` | `isEntity` | bool | whether `Caller.entity` was proven by a certificate. True on every mutual-TLS link, false on a `transport: local` link, where the OS identifies the connecting *user* and any process running as that user can present itself as any entity. Authorize a privileged action on this, never on `isEntity` alone. |
 
 Two authorizations at two boundaries, from the [end-to-end
 example](programming-model.md#a-connect-point-implementation-end-to-end): the edge
@@ -320,7 +322,8 @@ function add(text) {
 
 // database/Items.qml: the database authorizes the calling entity
 function insert(row) {
-    if (Caller.entity !== "web") return    // only the edge may write
+    // Only the edge may write, and only a certificate may say so.
+    if (!Caller.isEntityVerified || Caller.entity !== "web") return
     Db.exec("INSERT INTO items(text, owner_sub) VALUES(?,?)", [row.text, row.ownerSub])
 }
 ```
@@ -328,8 +331,10 @@ function insert(row) {
 !!! warning "Two identity systems, never conflated"
     `Caller.isUser` (a browser session, identified by login and scope) and
     `Caller.isEntity` (a service, identified by certificate) are separate systems.
-    `Caller.entity` is certificate-authenticated on every mesh link by default. A
-    user-supplied value is never an entity identity. See
+    `Caller.entity` is certificate-authenticated on every mesh link by default, and
+    `Caller.isEntityVerified` is how a slot asks whether it really was: the one
+    transport that answers no is the opt-in local socket, where the name is trusted
+    by colocation. A user-supplied value is never an entity identity. See
     [security](security.md).
 
 Outside a call that originated from a consumer (for example an owner-side timer
@@ -390,6 +395,106 @@ There are two ways to emit a contract signal, and the difference is the audience
 For a `per_session` or `per_peer` connect point the two coincide, because the
 instance has a single consumer; `Caller.emit<Signal>` is the habit to keep because
 it stays correct if the instance later becomes `shared`.
+
+---
+
+## Service: the blueprint helpers
+
+A [blueprint entity](entities.md) gets one more injected object, named for what it
+does: the helper its blueprint provides, available in every connect point Source that
+entity owns. A helper is a thin, engine-agnostic front for the
+[provider](providers.md) the config selected, which is why the same Source keeps
+working when the provider changes. Which helper exists is decided by the entity's
+blueprint, not by an import; an entity with no blueprint has none of them.
+
+| Helper | Injected into | Backed by |
+|--------|---------------|-----------|
+| `Db` | a `persistence` entity | the selected `IPersistenceProvider` (`sqlite`, `postgres`, `mysql`, ...) |
+| `Docs` | a `document` entity | the selected `IDocumentProvider` (`memory`, `mongodb`, ...) |
+| `Cache` | a `cache` entity | the selected `ICacheProvider` (`memory`, `redis`, ...) |
+| `Http` | a `gateway` entity | `QNetworkAccessManager`, outbound only |
+| `Jobs` | a `jobs` entity | Qt timers and a bounded work queue |
+
+Errors are reported, never thrown across the QML boundary: a failed call returns an
+empty result and, for `Db`, sets `Db.lastError` and emits `Db.errorOccurred`. No
+helper ever logs the credentials it was configured with; those stay inside the
+provider.
+
+### `Db`: relational persistence
+
+| Member | Returns | Description |
+|--------|---------|-------------|
+| `Db.query(sql, params?)` | list of objects | run a SELECT. One object per row, keyed by column name. Empty on error. |
+| `Db.exec(sql, params?)` | object | run an INSERT, UPDATE, DELETE or DDL statement. Returns `{ affected, insertId }`, an empty object on error. |
+| `Db.lastError` | string | the message from the most recent failed statement. |
+| `Db.errorOccurred(message)` | signal | emitted when a statement fails. |
+
+`params` is an array bound to the `?` placeholders in `sql`, and it is the only way
+to get a value into a statement. There is no overload that takes a finished SQL
+string, so a value can never become SQL:
+
+```qml
+// Correct: the value is a parameter.
+Db.query("SELECT id, text FROM items WHERE owner_sub = ? LIMIT ?", [sub, 20])
+
+// There is no API for this. Concatenation is how injection happens.
+Db.query("SELECT id, text FROM items WHERE owner_sub = '" + sub + "'")
+```
+
+### `Docs`: schemaless documents
+
+| Member | Returns | Description |
+|--------|---------|-------------|
+| `Docs.insert(collection, document)` | id \| null | insert one document, returning its new id. `null` on failure. |
+| `Docs.find(collection, filter?, options?)` | list of objects | every document matching `filter`, in storage order. Empty when nothing matches and when the call fails, so treat empty as "nothing to show", not as "it worked". |
+| `Docs.update(collection, filter, change)` | int | apply `change` to every document matching `filter`, returning how many changed. |
+| `Docs.remove(collection, filter)` | int | remove every document matching `filter`, returning how many went. |
+
+`filter`, `change` and `options` are plain objects, never an engine query string.
+That is what keeps one Source working across `memory` and `mongodb`.
+
+### `Cache`: ephemeral key-value
+
+| Member | Returns | Description |
+|--------|---------|-------------|
+| `Cache.get(key)` | value \| undefined | the stored value, or nothing when the key is missing or expired. A miss is normal, not an error. |
+| `Cache.set(key, value, ttlSeconds?)` | - | store `value`. `ttlSeconds` omitted or `0` means no expiry. |
+| `Cache.del(key)` | - | drop the key. |
+| `Cache.incr(key, by?)` | int | add `by` (default `1`) atomically and return the new value. The rate-limit counter primitive. |
+| `Cache.expire(key, ttlSeconds)` | - | set or replace the TTL on an existing key. |
+
+The cache is bounded and evicts. Anything that has to survive a restart or an
+eviction belongs in a persistence entity, not here.
+
+### `Http`: outbound calls from a gateway
+
+| Member | Returns | Description |
+|--------|---------|-------------|
+| `Http.get(url)` | promise | issue a GET. |
+| `Http.post(url, body?)` | promise | issue a POST. |
+| `Http.del(url)` | promise | issue a DELETE. |
+| `promise.then(onOk, onError?)` | - | `onOk({ status, body })` on success, `onError(message)` on failure. Settles once; a handler attached after it settled fires immediately. |
+
+```qml
+Http.get("https://api.example.com/rates")
+    .then(response => { rates.value = response.body.usd },
+          message => { rates.error = message })
+```
+
+`Http` is outbound only and verifies TLS. In a release build it refuses a plaintext
+URL rather than downgrading, so a gateway cannot quietly stop encrypting.
+
+### `Jobs`: timers and a bounded queue
+
+| Member | Returns | Description |
+|--------|---------|-------------|
+| `Jobs.every(intervalMs, callback)` | int | run `callback` every `intervalMs`, returning a handle. |
+| `Jobs.cancel(handle)` | - | stop the repeating job that `every` returned. |
+| `Jobs.enqueue(job)` | bool | queue a one-shot job off the request path. **Returns `false` when the queue is full**, and the work is dropped rather than buffered without bound. Check it. |
+| `Jobs.queued` | int | how many jobs are pending, for backpressure decisions. |
+
+Work runs on the entity's own event loop, so a job that blocks blocks that entity.
+A jobs entity is internal only: nothing on it is ever reachable from a browser.
 
 ---
 
