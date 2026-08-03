@@ -110,9 +110,15 @@ async function waitFor(predicate, timeoutMs, label) {
     throw new Error("timed out waiting for: " + label);
 }
 
+// The whole log up to a limit, and the limit said out loud when it bites. A tail alone hid
+// the line that mattered once already: the starved case reports on what the shim did during
+// startup, and 25 lines of counter telemetry is enough to push that off the top.
 function dumpEvidence(name, logs) {
-    console.log(`    --- last lines seen by ${name} ---`);
-    for (const line of logs.slice(-25)) {
+    const limit = 120;
+    const shown = logs.slice(0, limit);
+    console.log(`    --- ${logs.length} line(s) seen by ${name}` +
+                (logs.length > limit ? `, first ${limit} shown` : "") + " ---");
+    for (const line of shown) {
         console.log(`      ${line}`);
     }
     if (logs.length === 0) {
@@ -144,6 +150,14 @@ async function runCase(browserType, name) {
         await waitFor(() => connectedAt(logsA, 0), 60000, "tab A connected, counter=0");
         await waitFor(() => connectedAt(logsB, 0), 60000, "tab B connected, counter=0");
         console.log("  both tabs connected, counter=0");
+
+        // The client posts one event at startup and says so when it is delivered (see
+        // Main.qml). Asserting it here is what makes its absence mean something in the
+        // starved case below: without a healthy run to compare against, "the message never
+        // came" would be as consistent with a broken client as with a starved pump.
+        await waitFor(() => logsA.some((l) => l.includes("posted-event pump alive")), 20000,
+                      "tab A delivered its posted event");
+        console.log("  the posted-event pump delivered");
 
         // Drive the "+" button on tab A's canvas. The window is 320x220, content centred,
         // so the "+" (right button in the row) sits right of centre, below the label.
@@ -214,29 +228,39 @@ async function runStarvedCase(browserType, name) {
                       "the starved client connected");
         console.log("  connected with the posted-event wakeup starved");
 
-        // Click "+" until the client has navigated AND the shim has actually dropped a
-        // wakeup. Both conditions matter and neither implies the other: without the drop
-        // the page is simply healthy and the case proves nothing, and the drop has to be
-        // in the past before Back is pressed or Back would be tested against a working
-        // pump. Clicking is what keeps the client posting events for the shim to catch.
+        // The page is starved from load, and the client posts one event as it comes up, so
+        // the shim has something to drop before anything else happens here. Wait for the
+        // drop rather than trying to provoke it: it is the shim's own record that the
+        // wakeup was armed and taken away, and without it the rest of this case would be
+        // measuring a perfectly healthy page.
+        const wedged = () => logs.some((l) => l.includes("M0PUMP dropped"));
+        await waitFor(wedged, 30000, "the shim to drop the posted-event wakeup");
+        console.log("  the wakeup was dropped");
+
+        // And the pump really is dead, not merely interfered with: the message the client
+        // logs when its posted event is delivered never arrives. This is the assertion the
+        // case is named for; the drop above is only how the state was reached.
+        if (logs.some((l) => l.includes("posted-event pump alive"))) {
+            throw new Error("the posted event was delivered anyway: the page was not starved");
+        }
+
+        // Click "+" until the client navigates. Clicks are delivered directly (window
+        // system events are synchronous on WebAssembly), so this exercises the router
+        // through a path that does not depend on the queue that has just been taken away.
         const canvas = tab.locator("canvas").first();
         const box = await canvas.boundingBox();
         if (!box || box.width === 0 || box.height === 0) {
             throw new Error("the client canvas has no box: nothing rendered");
         }
         const navigated = () => logs.some((l) => l.includes("route=/about"));
-        const wedged = () => logs.some((l) => l.includes("M0PUMP dropped"));
-        for (let click = 0; click < 20 && !(navigated() && wedged()); ++click) {
+        for (let click = 0; click < 20 && !navigated(); ++click) {
             await tab.mouse.click(box.x + box.width / 2 + 24, box.y + box.height / 2 + 34);
             await sleep(500);
-        }
-        if (!wedged()) {
-            throw new Error("the wakeup was never dropped, so the page was never starved");
         }
         if (!navigated()) {
             throw new Error("the starved client never navigated to /about");
         }
-        console.log("  the wakeup was dropped and the client pushed /about");
+        console.log("  the client pushed /about with its pump wedged");
         const beforeBack = logs.length;
         await tab.goBack();
         await waitFor(() => logs.slice(beforeBack).some((l) => l.includes("route=/")

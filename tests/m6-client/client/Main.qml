@@ -8,10 +8,28 @@ import QtQuick.Layouts
 ApplicationWindow {
     id: window
 
+    // Reports that Qt's posted-event queue was delivered at least once.
+    //
+    // Qt.callLater() posts a QEvent to the QML engine, which is the only thing the browser
+    // proof's starved case can starve. A client this small otherwise runs a whole session
+    // without posting anything: what it reacts to (socket messages, clicks, property
+    // pushes) is all delivered directly on WebAssembly, where window system events are
+    // synchronous. Without one deliberate post, the starved case cannot tell a page whose
+    // pump is wedged from a page that never had anything in its queue, and it reports the
+    // second as the first.
+    //
+    // This message is the proof in both directions: it appears in every ordinary run, and
+    // its absence is what says the pump really is dead in the starved one.
+    function reportPumpAlive(): void {
+        console.log("M6 posted-event pump alive");
+    }
+
     visible: true
     width: 320
     height: 220
     title: "SynQt Counter"
+
+    Component.onCompleted: Qt.callLater(window.reportPumpAlive)
 
     // Telemetry for the end-to-end browser test: surfaces connection state and the
     // counter value to the browser console. Invisible; harmless in the shipped app.
