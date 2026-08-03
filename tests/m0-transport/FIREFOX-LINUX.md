@@ -281,6 +281,38 @@ not a place Qt expects a sweep. `onTimer()` runs before that pass begins, in the
 `sendAllEvents()` uses. That is why the fix belongs in the dispatcher, and why the option
 above is left off by default: it is kept as the measurement, not as a recommendation.
 
+## What a wedged pump actually costs an application
+
+Measured or read off the source, not guessed. What keeps working is most of the client:
+QtRemoteObjects property, signal and model updates (activated directly from the socket read
+callback), every `QTimer` (`QTimerInfoList::activateTimers()` delivers with `sendEvent()`),
+the socket including reconnect, and `QNetworkReply::finished` (on WebAssembly
+`qnetworkreplywasmimpl.cpp` emits it directly from the fetch callback, so login and the
+session fetch still complete). Nothing errors, nothing logs, and the connection stays up.
+
+What stops:
+
+- **Returning slots never resolve.** `QRemoteObjectPendingCallWatcher::finished` is QtRO's
+  only non-blocking completion path and it is queued. This is the original report.
+- **The browser's back and forward buttons**, for any client that hands `popstate` to Qt
+  with a queued invocation.
+- **`Qt.callLater()` in QML**, which schedules its tick with a `Qt::QueuedConnection`
+  (`qqmldelayedcallqueue.cpp`).
+- **Every QML `Timer`, animation, `Behavior` and transition that has not already started.**
+  `QUnifiedTimer` registers an animation with
+  `QMetaObject::invokeMethod(inst, "startTimers", Qt::QueuedConnection)`
+  (`qabstractanimation.cpp`), so starting one needs the queue. This is the widest
+  consequence and the least obvious: it was found by writing the regression test, when a
+  QML `Timer` that should have fired 800 ms after connecting never fired at all.
+- **Every `deleteLater()`**, which posts a `QEvent::DeferredDelete`. The objects are not
+  merely unreclaimed, they stay live and connected.
+
+SynQt's client runtime does not rely on any of these: replies settle from the call's own
+state, `popstate` is delivered directly, and deferred deletion goes through
+`SynQt::deleteSoon`, which uses a zero-delay timer. The `-starved` cases in
+`tests/m6-client/verify/verify.mjs` hold that. An application's own queued connections and
+QML animations are still exposed, which is what `build.client_asyncify` is for.
+
 Two things would still help, and one question is still open.
 
 1. **Do not make a queued signal the only completion path.** A caller that holds a

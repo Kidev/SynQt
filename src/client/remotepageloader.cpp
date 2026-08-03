@@ -3,6 +3,8 @@
 
 #include "remotepageloader.h"
 
+#include "deletesoon.h"
+
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QUrl>
@@ -49,14 +51,14 @@ RemotePageLoader::Outcome RemotePageLoader::deliver(const QString &route,
         if (reason) {
             *reason = component->errorString();
         }
-        component->deleteLater();
+        deleteSoon(component);
         return Outcome::Failed;
     }
 
     QQmlComponent *previous{cached != m_pages.constEnd() ? cached->component : nullptr};
     m_pages.insert(route, CachedPage{hash, component});
     if (previous) {
-        previous->deleteLater();
+        deleteSoon(previous);
     }
     return Outcome::Ready;
 }
@@ -78,7 +80,7 @@ void RemotePageLoader::invalidate(const QString &route)
         return;
     }
     if (cached->component) {
-        cached->component->deleteLater();
+        deleteSoon(cached->component);
     }
     m_pages.remove(route);
 }
@@ -87,7 +89,7 @@ void RemotePageLoader::clear()
 {
     for (const CachedPage &page : std::as_const(m_pages)) {
         if (page.component) {
-            page.component->deleteLater();
+            deleteSoon(page.component);
         }
     }
     m_pages.clear();

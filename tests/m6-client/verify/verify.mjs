@@ -22,6 +22,10 @@ const repoRoot = path.resolve(here, "../../..");
 const edgeBin = path.join(repoRoot, "build/m6-app-desktop/counter-edge");
 const bundleDir = path.join(repoRoot, "build/m6-app-wasm");
 const counterQml = path.join(repoRoot, "tests/m6-client/web/Counter.qml");
+// Shared with the M0 spike, not copied: one definition of what a starved posted-event
+// pump is, so the client runtime and the transport spike are measured against the same
+// thing. See runStarvedCase below.
+const pumpStarveShim = path.join(repoRoot, "tests/m0-transport/verify/pump-starve.js");
 
 const headless = process.env.M6_HEADLESS === "1" ? true : !process.env.DISPLAY;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -84,7 +88,10 @@ function openTab(context, name, logs) {
     return context.newPage().then((page) => {
         page.on("console", (msg) => {
             const text = msg.text();
-            if (text.includes("M6 ")) {  // Qt prefixes QML console.log with "qml: "
+            // Qt prefixes QML console.log with "qml: ". M0PUMP lines come from the
+            // starvation shim below, and are kept so a starved case can prove it really
+            // was starved rather than pass because nothing was ever dropped.
+            if (text.includes("M6 ") || text.includes("M0PUMP")) {
                 logs.push(text);
                 if (process.env.VERBOSE) console.log(`  [${name}] ${text}`);
             }
@@ -154,9 +161,91 @@ async function runCase(browserType, name) {
         await waitFor(() => logsB.some((l) => l.includes("counter=1")), 20000,
                       "tab B counter=1 (sync)");
         console.log("  both tabs show counter=1; two tabs stay in sync");
+
+        // Browser back, through the real popstate listener. The client pushed /about onto
+        // the session history shortly after connecting (see Main.qml), so this is a genuine
+        // history entry and not a document navigation: the page is not reloaded and the
+        // client is the same instance, which is what makes the assertion about the listener
+        // and not about a fresh boot. This path is WebAssembly-only, so no native test can
+        // reach it.
+        await waitFor(() => logsA.some((l) => l.includes("route=/about")), 20000,
+                      "tab A navigated to /about");
+        console.log("  tab A pushed /about; pressing the browser back button");
+        const beforeBack = logsA.length;
+        await tabA.goBack();
+        await waitFor(() => logsA.slice(beforeBack).some((l) => l.includes("route=/")
+                                                          && !l.includes("route=/about")),
+                      20000, "tab A back on / after the browser back button");
+        console.log("  back returned the client to /");
         return { name, pass: true, logsA, logsB };
     } catch (err) {
         return { name, pass: false, error: err.message, logsA, logsB };
+    } finally {
+        await browser.close();
+        edge.kill("SIGKILL");
+    }
+}
+
+// The same run with Qt's posted-event pump starved, which is what the client's back button
+// and its deferred deletions were made not to depend on.
+//
+// Qt for WebAssembly delivers posted events (QEvent::MetaCall behind a queued connection,
+// QEvent::DeferredDelete behind deleteLater) through one chain of two zero-delay browser
+// callbacks, and does not re-arm it while one is pending, so a single lost callback stops
+// that delivery for the life of the page while timers, sockets and property updates go on
+// working. tests/m0-transport/FIREFOX-LINUX.md is the investigation; the shim reproduces it
+// deterministically in any engine by dropping exactly the timeout the wakeup arms.
+//
+// The shim is shared with the M0 spike rather than copied, so there is one definition of
+// what "starved" means. It is injected before Qt boots and reads its mode from the query
+// string, which is why it is both an init script and a URL parameter.
+async function runStarvedCase(browserType, name) {
+    const logs = [];
+    const { proc: edge, port } = await startEdge();
+    const browser = await browserType.launch(launchOptions(browserType));
+    try {
+        const context = await browser.newContext();
+        const tab = await openTab(context, name, logs);
+        await tab.addInitScript({ path: pumpStarveShim });
+        await tab.goto(`http://127.0.0.1:${port}/?starve=load`,
+                       { waitUntil: "load", timeout: 60000 });
+
+        await waitFor(() => logs.some((l) => l.includes("state=connected")), 60000,
+                      "the starved client connected");
+        console.log("  connected with the posted-event wakeup starved");
+
+        // Click "+" until the client has navigated AND the shim has actually dropped a
+        // wakeup. Both conditions matter and neither implies the other: without the drop
+        // the page is simply healthy and the case proves nothing, and the drop has to be
+        // in the past before Back is pressed or Back would be tested against a working
+        // pump. Clicking is what keeps the client posting events for the shim to catch.
+        const canvas = tab.locator("canvas").first();
+        const box = await canvas.boundingBox();
+        if (!box || box.width === 0 || box.height === 0) {
+            throw new Error("the client canvas has no box: nothing rendered");
+        }
+        const navigated = () => logs.some((l) => l.includes("route=/about"));
+        const wedged = () => logs.some((l) => l.includes("M0PUMP dropped"));
+        for (let click = 0; click < 20 && !(navigated() && wedged()); ++click) {
+            await tab.mouse.click(box.x + box.width / 2 + 24, box.y + box.height / 2 + 34);
+            await sleep(500);
+        }
+        if (!wedged()) {
+            throw new Error("the wakeup was never dropped, so the page was never starved");
+        }
+        if (!navigated()) {
+            throw new Error("the starved client never navigated to /about");
+        }
+        console.log("  the wakeup was dropped and the client pushed /about");
+        const beforeBack = logs.length;
+        await tab.goBack();
+        await waitFor(() => logs.slice(beforeBack).some((l) => l.includes("route=/")
+                                                        && !l.includes("route=/about")),
+                      20000, "the starved client went back to /");
+        console.log("  the back button still reached the router");
+        return { name, pass: true, logsA: logs, logsB: [] };
+    } catch (err) {
+        return { name, pass: false, error: err.message, logsA: logs, logsB: [] };
     } finally {
         await browser.close();
         edge.kill("SIGKILL");
@@ -194,14 +283,17 @@ async function main() {
 
     const results = [];
     for (const [browserType, browserName] of engines) {
-        console.log(`\n=== case ${browserName} ===`);
-        const result = await runCase(browserType, browserName);
-        results.push(result);
-        console.log(`    ${result.pass ? "PASS" : "FAIL"} ${result.name}` +
-                    (result.error ? ` -- ${result.error}` : ""));
-        if (!result.pass) {
-            dumpEvidence("tabA", result.logsA);
-            dumpEvidence("tabB", result.logsB);
+        for (const [suffix, run] of [["", runCase], ["-starved", runStarvedCase]]) {
+            const caseName = `${browserName}${suffix}`;
+            console.log(`\n=== case ${caseName} ===`);
+            const result = await run(browserType, caseName);
+            results.push(result);
+            console.log(`    ${result.pass ? "PASS" : "FAIL"} ${result.name}` +
+                        (result.error ? ` -- ${result.error}` : ""));
+            if (!result.pass) {
+                dumpEvidence("tabA", result.logsA);
+                dumpEvidence("tabB", result.logsB);
+            }
         }
     }
 

@@ -16,11 +16,18 @@
 // Telling the two QWasmTimers apart from JavaScript, given that they share one handler body
 // and differ only in which C++ object owns them: a Qt suspend/resume handler is recognisable
 // by its source (it pushes onto the control object's pendingEvents queue), and among those,
-// the wakeup timer is the one that is only ever armed with a zero delay, while the native
-// timer carries the interval of the shortest live QTimer. So the shim watches every arm,
-// remembers per handler whether it has ever seen a nonzero delay, and starves only handlers
-// that have not. Emscripten's own zero-delay timeouts, DOM events, and the WebSocket's
-// message callback are all untouched.
+// the wakeup timer is the one that arms first and with a zero delay. QEventDispatcherWasm
+// creates it before the native timer, and it is armed by the first postEvent(), which in
+// every Qt application happens before any QTimer exists for the native timer to be armed
+// from. The native timer then carries the interval of the shortest live QTimer.
+//
+// Picking on first-arm rather than on "has never been armed with a nonzero delay" matters:
+// in a client that posts events only during startup, the wakeup is armed exactly once, so a
+// rule that has to see the native timer's interval first can never fire in time. The guess
+// is checked rather than trusted: if the handler taken for the wakeup is ever armed with a
+// real interval it was the native timer, which the shim says out loud and then stops
+// starving, so a wrong guess is a visible result and not a silent pass. Emscripten's own
+// zero-delay timeouts, DOM events, and the WebSocket's message callback are all untouched.
 //
 // A starved arm still returns a real, live timer id, because QWasmTimer stores it and reads
 // a nonzero id as "a wakeup is already pending", which is what makes the starvation stick
@@ -38,7 +45,7 @@
     const once = mode === "once";
     let starving = false;
     let dropped = 0;
-    let sawIntervalTimer = false;
+    let wakeupHandler = null;
 
     function isQtHandler(fn) {
         let profile = profiles.get(fn);
@@ -64,24 +71,29 @@
         const isZeroDelay = !delay || delay <= 0;
         if (isZeroDelay) {
             profile.zero += 1;
+            if (!wakeupHandler) {
+                wakeupHandler = fn;
+                console.log("M0PUMP taking Qt timer handler #" + profile.id +
+                            " for the posted-event wakeup");
+            }
         } else {
             profile.nonzero += 1;
-            sawIntervalTimer = true;
+            if (wakeupHandler === fn) {
+                // Armed with a real interval, so it was the native Qt timer all along.
+                // Starving that one would stop the clock instead of the pump, and the case
+                // would then report a client that never got anywhere rather than one whose
+                // posted events were lost. Say so and stop, rather than measure the wrong
+                // thing quietly.
+                wakeupHandler = null;
+                console.log("M0PUMP handler #" + profile.id + " was armed with delay=" +
+                            delay + ", so it is the native timer, not the wakeup; not starving");
+            }
         }
         if (observe) {
             console.log("M0PUMP arm handler #" + profile.id + " delay=" + (delay || 0) +
                         " zero=" + profile.zero + " nonzero=" + profile.nonzero);
         }
-        // Only ever armed with zero: this is the wakeup timer, not the native Qt timer. The
-        // native timer is armed with the shortest live QTimer's remaining wait, which is
-        // occasionally 0 for an overdue timer, so its zero arms are not on their own a tell;
-        // what settles it is that some handler has already been armed with a real interval,
-        // which identifies the native timer as a different function from this one. Starving
-        // the native timer by mistake would stop the clock rather than the pump, and the case
-        // would report "never reached a state worth measuring" rather than pass for the wrong
-        // reason.
-        if (starving && isZeroDelay && profile.nonzero === 0 && sawIntervalTimer
-                && !(once && dropped > 0)) {
+        if (starving && isZeroDelay && wakeupHandler === fn && !(once && dropped > 0)) {
             dropped += 1;
             if (dropped <= 3 || dropped % 50 === 0) {
                 console.log("M0PUMP dropped Qt wakeup timeout, total=" + dropped);

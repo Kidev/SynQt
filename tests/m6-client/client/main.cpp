@@ -66,6 +66,11 @@ int main(int argc, char *argv[])
                          QStringLiteral("moderator"), QStringLiteral("admin")};
     config.routerFallback = QStringLiteral("/");
     config.routes = {RouteConfig{QStringLiteral("/"), QStringLiteral("Main"), QString{}},
+                     // Unscoped, so the browser test can navigate to it and press Back.
+                     // It reuses the Main view: Main.qml is the window and does not render
+                     // Router.pageComponent, so what the route names is unobservable here
+                     // and only the path matters.
+                     RouteConfig{QStringLiteral("/about"), QStringLiteral("Main"), QString{}},
                      RouteConfig{QStringLiteral("/admin"), QStringLiteral("Admin"),
                                  QStringLiteral("admin")}};
 

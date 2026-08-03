@@ -3,7 +3,6 @@
 
 #include "browserhistory.h"
 
-#include <QMetaObject>
 #include <QPointer>
 
 #include <utility>
@@ -42,12 +41,17 @@ QString normalizedBase(QString base)
 extern "C" EMSCRIPTEN_KEEPALIVE void synqt_browserhistory_popped(const char *path)
 {
     if (s_instance) {
-        // QMetaObject::invokeMethod is a static member; call it on the class,
-        // not through an instance pointer, even though invoking it via
-        // s_instance->metaObject()->invokeMethod(...) would also compile.
-        QMetaObject::invokeMethod(
-            s_instance, "handlePopped", Qt::QueuedConnection,
-            Q_ARG(QString, QString::fromUtf8(path)));
+        // Called straight through, not queued. A queued invocation would post a
+        // QEvent::MetaCall, and on this platform the posted-event queue has a
+        // single delivery path that one lost browser callback disables for the
+        // life of the page (see tests/m0-transport/FIREFOX-LINUX.md). Back and
+        // forward would then silently stop working while the rest of the client
+        // looked healthy. Running here instead matches how every other Qt event
+        // reaches the application on a non-asyncify WebAssembly build, where
+        // Module.qtSendPendingEvents() calls the C++ handlers directly from the
+        // browser callback. QString::fromUtf8 copies, so the caller is free to
+        // release the buffer as soon as this returns.
+        s_instance->handlePopped(QString::fromUtf8(path));
     }
 }
 
