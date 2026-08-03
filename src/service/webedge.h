@@ -113,9 +113,6 @@ private:
     /// The session cookie for a token, with this project's origin-model attributes.
     QByteArray cookieFor(const QByteArray &token);
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;
-    /// Whether this request already carries a session this edge holds. What decides
-    /// whether a page load is given a credential or left with the one it has.
-    bool presentsLiveSession(const QHttpServerRequest &request) const;
     /// Hand the verified session id for this peer to hostConnection(), and drop any
     /// entry whose socket never arrived, so a refused or abandoned upgrade cannot make
     /// the map grow without bound.
