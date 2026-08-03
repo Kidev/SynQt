@@ -6,6 +6,7 @@
 // points, rejects a disallowed origin before a socket exists, closes a connection that
 // stalls its upgrade past the handshake timeout, and rejects an oversized frame.
 
+#include "sessionmanager.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
 #include "websockettransport.h"
@@ -71,10 +72,26 @@ class TestM5 : public QObject
 private:
     QNetworkAccessManager m_nam;
 
+    /// Every request carries exactly the cookies the test names, and stores none.
+    ///
+    /// QNetworkAccessManager keeps a cookie jar of its own, so without this a reply's
+    /// Set-Cookie would ride the next request and quietly override a Cookie header set
+    /// here. That matters now that the edge answers a request presenting a live session
+    /// without minting another: a test asking "what does a browser holding X get" has to
+    /// be the one deciding what X is.
+    static void useOnlyTheCookiesNamedHere(QNetworkRequest &request)
+    {
+        request.setAttribute(QNetworkRequest::CookieLoadControlAttribute,
+                             QNetworkRequest::Manual);
+        request.setAttribute(QNetworkRequest::CookieSaveControlAttribute,
+                             QNetworkRequest::Manual);
+    }
+
     QNetworkReply *httpGet(const QString &url)
     {
         QNetworkRequest request{QUrl{url}};
         request.setSslConfiguration(insecureClientConfig());
+        useOnlyTheCookiesNamedHere(request);
         QNetworkReply *reply{m_nam.get(request)};
         QSignalSpy finished{reply, &QNetworkReply::finished};
         if (!finished.wait(5000)) {
@@ -88,6 +105,7 @@ private:
     {
         QNetworkRequest request{QUrl{url}};
         request.setSslConfiguration(insecureClientConfig());
+        useOnlyTheCookiesNamedHere(request);
         request.setRawHeader(header, value);
         QNetworkReply *reply{m_nam.get(request)};
         QSignalSpy finished{reply, &QNetworkReply::finished};
@@ -248,6 +266,62 @@ private slots:
         QScopedPointer<QRemoteObjectDynamicReplica> replica{node.acquireDynamic(QStringLiteral("greeting"))};
         QVERIFY2(replica->waitForSource(5000), "authorized upgrade did not expose the connect point");
         QCOMPARE(replica->property("value").toInt(), 7);
+    }
+
+    // A page load is not a new visitor. The client route mints a session for a browser
+    // that arrives without one, and leaves the one it arrives with alone: re-issuing on
+    // every load would replace the credential the visitor signed in with (the OAuth
+    // callback redirects onto this very route), and would let one browser mint sessions
+    // as fast as it can reload.
+    void aLiveSessionSurvivesTheNextPageLoad()
+    {
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *first{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(first != nullptr);
+        const QByteArray cookie{sessionCookie(first)};
+        first->deleteLater();
+        QVERIFY2(!cookie.isEmpty(), "a browser with no session must be given one");
+        const QByteArray token{cookie.mid(cookie.indexOf('=') + 1)};
+        QVERIFY(edge.sessionManager()->isLive(token));
+
+        // A reload carrying that session is answered without a new one...
+        QNetworkReply *reload{httpGet(edge.httpOrigin() + QStringLiteral("/"),
+                                      "Cookie", cookie)};
+        QVERIFY(reload != nullptr);
+        QVERIFY2(reload->rawHeader("Set-Cookie").isEmpty(),
+                 "a reload must not replace the session the browser already holds");
+        reload->deleteLater();
+        QVERIFY2(edge.sessionManager()->isLive(token),
+                 "the session the browser holds must still be the live one");
+
+        // ...and so is a deep link, which lands on the same shell through the fallback.
+        QNetworkReply *deepLink{httpGet(edge.httpOrigin() + QStringLiteral("/some/route"),
+                                        "Cookie", cookie)};
+        QVERIFY(deepLink != nullptr);
+        QVERIFY2(deepLink->rawHeader("Set-Cookie").isEmpty(),
+                 "a deep link must not replace a session either");
+        deepLink->deleteLater();
+        QVERIFY(edge.sessionManager()->isLive(token));
+
+        // A cookie naming a session this edge does not hold (expired, revoked, forged) is
+        // not a session: that browser is given a fresh one, or it could never connect.
+        QNetworkReply *stale{httpGet(edge.httpOrigin() + QStringLiteral("/"),
+                                     "Cookie", "synqt_session=0123456789abcdef")};
+        QVERIFY(stale != nullptr);
+        const QByteArray reissued{sessionCookie(stale)};
+        stale->deleteLater();
+        QVERIFY2(!reissued.isEmpty(), "an unknown session must be replaced by a live one");
+        QVERIFY(reissued != cookie);
+
+        // The deep-link shell mints one for a browser arriving cold, the same way "/" does.
+        QNetworkReply *coldDeepLink{httpGet(edge.httpOrigin() + QStringLiteral("/some/route"))};
+        QVERIFY(coldDeepLink != nullptr);
+        QVERIFY2(!sessionCookie(coldDeepLink).isEmpty(),
+                 "a cold deep link is a first page load and must carry a credential");
+        coldDeepLink->deleteLater();
     }
 
     // `public.serve_client: false`: a CDN delivers the bundle, so this edge delivers the

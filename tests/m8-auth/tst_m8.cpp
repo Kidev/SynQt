@@ -355,6 +355,35 @@ private slots:
         QCOMPARE(record->scope, QStringLiteral("moderator"));
     }
 
+    // Signing in ends with a redirect to the app, so the very next thing the browser does
+    // is load the client route with the session cookie it was just given. That load must
+    // leave the session alone: an edge that mints one per page load signs the visitor out
+    // one redirect after signing them in, and the app looks like it never logged in at all.
+    void signingInSurvivesTheLandingPageLoad()
+    {
+        const Response callback{completeLogin(QStringLiteral("?provider=stub"))};
+        QCOMPARE(callback.status, 302);
+        QCOMPARE(callback.location, QStringLiteral("/"));
+        const QByteArray token{sessionToken(callback.setCookie)};
+        QVERIFY(!token.isEmpty());
+        const SessionRecord *before{m_edge->sessionManager()->lookup(token)};
+        QVERIFY(before != nullptr);
+        QCOMPARE(before->scope, QStringLiteral("moderator"));
+
+        // The browser follows the redirect (m_browser holds the cookie jar, so the session
+        // cookie rides along exactly as a real browser's would).
+        const Response landing{get(QUrl{edgeUrl(QStringLiteral("/"))})};
+        QCOMPARE(landing.status, 200);
+        QVERIFY2(landing.setCookie.isEmpty(),
+                 "landing on the app must not replace the session the login just created");
+
+        const SessionRecord *after{m_edge->sessionManager()->lookup(token)};
+        QVERIFY2(after != nullptr, "the signed-in session must survive the landing load");
+        QCOMPARE(after->scope, QStringLiteral("moderator"));
+        QCOMPARE(after->identity.value(QStringLiteral("login")).toString(),
+                 QStringLiteral("octocat"));
+    }
+
     void oidcWrongIssuerRejected()
     {
         // The ID token's iss will not match this provider's configured issuer, so

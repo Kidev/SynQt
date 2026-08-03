@@ -95,7 +95,7 @@ private:
                                         const QHttpServerRequest &request);
     /// The bundle-document headers the shell shares with the client route: the session
     /// cookie the client presents at the wss upgrade, and index.html's cache terms.
-    void stampShell(QHttpServerResponse &response);
+    void stampShell(QHttpServerResponse &response, const QHttpServerRequest &request);
     /// Register everything that delivers the client bundle: the asset route and the
     /// application-shell fallback. Called only when this edge is the app's origin
     /// (`public.serve_client`), so a CDN-delivered app leaves the edge serving no files.
@@ -107,6 +107,13 @@ private:
     QStringList expandedAllowedOrigins() const;
     QByteArray issueSessionCookie();
     QByteArray sessionIdFromCookie(const QByteArray &cookieHeader) const;
+    /// Whether this request already carries a session this edge holds. What decides
+    /// whether a page load is given a credential or left with the one it has.
+    bool presentsLiveSession(const QHttpServerRequest &request) const;
+    /// Hand the verified session id for this peer to hostConnection(), and drop any
+    /// entry whose socket never arrived, so a refused or abandoned upgrade cannot make
+    /// the map grow without bound.
+    void rememberVerifiedSession(const QString &peer, const QByteArray &sessionId);
     QObject *createSource(const WebEdgeConnectPoint &connectPoint, QObject *caller,
                           QObject *parent, QString *error);
     /// Build each configured page's seed hook once and install the one provider that
@@ -163,9 +170,17 @@ private:
 
     /// Pending upgrades, for the framework-enforced handshake timeout.
     QHash<QString, QTimer *> m_pendingTimers;
-    /// The verified session id per pending upgrade (keyed by peer), carried from the
+    /// The verified session id per accepted upgrade (keyed by peer), carried from the
     /// verifier to the accepted socket (whose handshake headers are not re-readable).
-    QHash<QString, QByteArray> m_pendingSessions;
+    /// hostConnection() takes the entry in the same turn the upgrade is accepted, so an
+    /// entry that outlives the handshake timeout belongs to a socket that never arrived
+    /// and is dropped: nothing else removes it, and a peer can retry as often as it likes.
+    struct VerifiedSession
+    {
+        QByteArray id;
+        qint64 verifiedMs{0};
+    };
+    QHash<QString, VerifiedSession> m_pendingSessions;
 
     /// Connection caps.
     int m_activeGlobal{0};

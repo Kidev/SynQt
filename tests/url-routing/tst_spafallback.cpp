@@ -85,7 +85,14 @@ void tst_SpaFallback::initTestCase()
 QNetworkReply *tst_SpaFallback::get(const QString &path)
 {
     const QUrl url{QStringLiteral("http://127.0.0.1:%1%2").arg(m_port).arg(path)};
-    QNetworkReply *reply{m_network.get(QNetworkRequest{url})};
+    QNetworkRequest request{url};
+    // Each request here is a cold visitor's first load, so it must arrive with no session
+    // and store none: the manager's own cookie jar would otherwise carry the session
+    // minted by an earlier case into every later one, and the edge answers a request that
+    // already holds a live session without minting another (webedge.cpp, stampShell).
+    request.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
+    request.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
+    QNetworkReply *reply{m_network.get(request)};
     QSignalSpy finished{reply, &QNetworkReply::finished};
     finished.wait(5000);
     return reply;
