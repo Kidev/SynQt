@@ -98,8 +98,37 @@ measurement, not as a recommendation.
 The full M0 gate (`node verify.mjs`) stays green on the patched kit, reconnect included,
 which is the comparison that matters.
 
+## The version that does not patch Qt and does work: asyncify
+
+`QEventDispatcherWasm` already has a shape with a second delivery path. Whether it is used is
+decided by `qstdweb::haveAsyncify()`, a runtime probe of the Emscripten runtime rather than a
+Qt build option, so an application selects it by adding `-sASYNCIFY` to its own link line
+against the same prebuilt kit. Without asyncify the main thread cannot block, `exec()` returns
+to the browser, and `processEvents()` runs only when the wakeup timer fires. With asyncify the
+main thread suspends inside `processEvents()` and any registered handler resumes it, after
+which `sendAllEvents()` sweeps the posted queue as its first step. Any DOM event, socket
+callback or Qt timer is then enough.
+
+```sh
+qt-cmake -S tests/m0-transport -B build/m0-client-asyncify -DSYNQT_M0_ENTITY=client -DM0_ASYNCIFY=ON
+cd tests/m0-transport/verify
+M0_CLIENT_DIR=$PWD/../../../build/m0-client-asyncify node verify-pump.mjs stall    # must FAIL
+M0_CLIENT_DIR=$PWD/../../../build/m0-client-asyncify node verify-pump.mjs recover  # must pass
+```
+
+Measured on a stock kit, Chromium 149 and Firefox 151: `stall` fails and `recover` passes in
+both engines, the watcher firing on the first echo with `pollReply=false`, so the poll fallback
+was never needed. The full `verify.mjs` gate also passes on that build, reconnect included.
+
+The cost is size. This spike went from 25.8 MB of wasm to 39.2 MB, and from 8.7 MB to 11.6 MB
+gzipped, comparing the shipped `-O2` build against `-Os` plus asyncify. Asyncify also
+instruments every function that can sit on a suspend stack, which costs run time and was not
+measured here. JSPI avoids both costs and only Chromium ships it.
+
 ## Status
 
-Not upstream. This is a local patch on a local kit, and CI builds against a stock Qt, so the
-SynQt workaround it would replace (the `Q_OS_WASM` poll in `src/consumer/promise.cpp`) stays
-where it is until the fix ships in a Qt release.
+Not upstream, and not fixed on `dev` either: `qeventdispatcher_wasm.cpp` at
+`v6.12.0-beta1-1287` is identical to 6.11.1 apart from an unrelated startup-task removal. This
+is a local patch on a local kit, and CI builds against a stock Qt, so the SynQt workaround it
+would replace (the `Q_OS_WASM` poll in `src/consumer/promise.cpp`) stays where it is until
+either the fix ships in a Qt release or SynQt links its client with asyncify.

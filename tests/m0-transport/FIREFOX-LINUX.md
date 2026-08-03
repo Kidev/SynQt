@@ -39,6 +39,18 @@ reproducible anywhere, it has a fix, and both are in
 [qt-patches/](qt-patches/README.md). What remains specific to Firefox on that runner is what
 dropped the callback in the first place.
 
+All of that describes the dispatcher's non-asyncify shape, which is the default and the only
+one that works in every browser. Linking the client with `-sASYNCIFY` selects the other shape,
+where any browser event at all drives a posted-event sweep, and that is immune. It needs no
+change to Qt and it is measured below.
+
+The code above is `qtbase` 6.11.1, and it is unchanged on `dev` as of `v6.12.0-beta1-1287`
+(`59b2fd0a4fa`): `diff` of `qeventdispatcher_wasm.cpp` between the two shows only an unrelated
+removal of the `qtLoaded` startup-task helpers. `wakeUp()` still guards on
+`m_wakeupTimer->hasTimeout()`, `QWasmTimer::hasTimeout()` is still `m_timerId > 0` cleared
+only by the callback that runs, and `onTimer()` still sends timer events only. So this is not
+a fixed-in-a-later-release problem.
+
 ## Environment
 
 | | |
@@ -283,6 +295,48 @@ Two things would still help, and one question is still open.
    lose a zero-delay timeout that Chromium and WebKit on the same runner, and Firefox
    everywhere else, deliver. We could not reproduce that off the host. The patch means we no
    longer have to.
+
+## Asyncify already has the second path, and needs no change to Qt
+
+`QEventDispatcherWasm` has two shapes, and the one described above is only the non-asyncify
+one. Which shape is used is decided by `qstdweb::haveAsyncify()`, which is a runtime probe of
+the Emscripten runtime (`EM_JS(bool, jsHaveAsyncify, (), { return typeof Asyncify !==
+"undefined"; })`, `qstdweb.cpp:97`) and not a Qt build option, so an application can select
+the other shape by adding `-sASYNCIFY` to its own link line. The prebuilt Qt kit does not have
+to be rebuilt or patched.
+
+The two shapes differ in exactly the way this defect is about. Without asyncify the main
+thread cannot block, so `QCoreApplication::exec()` hands control back to the browser
+(`handleNonAsyncifyErrorCases()`) and `processEvents()` afterwards runs only when the wakeup
+timer fires. With asyncify the main thread suspends inside `processEvents()`
+(`processEventsWait()` -> `asyncifyWait(std::nullopt)` -> `QWasmSuspendResumeControl::suspend()`),
+and every handler registered with that control resumes it: every DOM event, every socket
+callback, every Qt timer. On resume, `processEvents()` calls `sendAllEvents()`, whose first
+step is `sendPostedEvents()`. So the posted queue is swept by anything the page does, and no
+single dropped callback can take that away.
+
+Measured on the same stock 6.11.1 kit, same edge, same shim, Chromium 149 and Firefox 151:
+
+| client link | `stall` | `recover` |
+|---|---|---|
+| as shipped | pass, both engines | (not run) |
+| `-sASYNCIFY` | fail, both engines | pass, both engines |
+
+`stall` failing is the result being looked for: the watcher fired even with every wakeup
+starved. It fired on the first echo, with `pollReply=false`, so the poll fallback never had to
+run at all. The full M0 gate (`node verify.mjs`) also passes on the asyncify build in both
+engines over `ws` and `wss`, reconnect included, which is where the application-side pump
+failed.
+
+Build it with `-DM0_ASYNCIFY=ON` and drive it with `M0_CLIENT_DIR` pointing at that build.
+
+The cost is the bundle. This spike, `-O2` as shipped against `-Os` plus asyncify (Emscripten's
+own recommended pairing), grew from 25.8 MB to 39.2 MB of wasm, and from 8.7 MB to 11.6 MB
+gzipped: about a third more over the wire. Asyncify also instruments every function that can
+be on a suspend stack, which costs run time; that was not measured here. JSPI
+(`-sJSPI`, what Qt calls asyncify 2) avoids both costs, but only Chromium ships it, so it
+cannot be the portable answer. Asyncify also widens what the client may do, since
+`QEventLoop::exec()` on the main thread starts working instead of calling `qFatal()`.
 
 ## Status
 
