@@ -77,15 +77,22 @@ export function renderShell() {
 // written into the build directory so the bundle under test stays exactly what the build
 // produced, and served from the verify directory as a same-origin file rather than inlined so
 // that a strict `script-src 'self'` accepts it.
-function injectTap(html) {
-    const tag = '<script src="/__synqt-console-tap.js"></script>';
+function injectTap(html, extraScripts) {
+    const routes = ["/__synqt-console-tap.js", ...extraScripts.map((s) => s.route)];
+    const tag = routes.map((route) => `<script src="${route}"></script>`).join("\n");
     if (html.includes("<head>")) {
         return html.replace("<head>", `<head>\n${tag}`);
     }
     return tag + html;
 }
 
-export function startStaticServer({ port = STATIC_PORT, headers = {} } = {}) {
+/**
+ * `extraScripts` is a list of `{ route, file }` served same-origin and injected into the
+ * page's head after the console tap, for a driver that needs to instrument the page before
+ * Qt boots. The gate (verify.mjs) passes none, so the page it measures stays exactly what
+ * the build produced.
+ */
+export function startStaticServer({ port = STATIC_PORT, headers = {}, extraScripts = [] } = {}) {
     const server = http.createServer(async (req, res) => {
         try {
             const parsed = new URL(req.url, "http://127.0.0.1");
@@ -94,6 +101,13 @@ export function startStaticServer({ port = STATIC_PORT, headers = {} } = {}) {
                 const tap = await fsp.readFile(path.join(here, "console-tap.js"));
                 res.writeHead(200, { ...headers, "Content-Type": "text/javascript" });
                 res.end(tap);
+                return;
+            }
+            const extra = extraScripts.find((script) => script.route === rel);
+            if (extra) {
+                const body = await fsp.readFile(path.join(here, extra.file));
+                res.writeHead(200, { ...headers, "Content-Type": "text/javascript" });
+                res.end(body);
                 return;
             }
             if (rel === "/") {
@@ -108,7 +122,7 @@ export function startStaticServer({ port = STATIC_PORT, headers = {} } = {}) {
             const data = await fsp.readFile(file);
             const ext = path.extname(file).toLowerCase();
             if (ext === ".html") {
-                const html = injectTap(data.toString("utf8"));
+                const html = injectTap(data.toString("utf8"), extraScripts);
                 res.writeHead(200, { ...headers, "Content-Type": "text/html" });
                 res.end(html);
                 return;

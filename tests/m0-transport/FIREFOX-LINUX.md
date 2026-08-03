@@ -27,6 +27,18 @@ The same client passes in Chromium and WebKit on that runner, in Firefox on the 
 in Playwright's Firefox on a developer machine, and in a stock Firefox driven over WebDriver
 BiDi. The failure is specific to Firefox plus that runner environment.
 
+Why an undelivered meta-call is permanent rather than late is a property of
+`QEventDispatcherWasm`, and it is the same in every engine. `QCoreApplication::postEvent()`
+reaches `wakeUp()`, which on the main thread arms a zero-delay `QWasmTimer` from inside an
+`emscripten_async_call()` that is itself a zero-delay browser callback. That chain of two
+callbacks is the only thing that ever calls `QCoreApplication::sendPostedEvents()`, and
+`wakeUp()` runs when an event is posted, not again while it waits. `onTimer()`, the other
+callback that keeps arriving, sends timer events and only timer events. So dropping either
+hop once loses the event for good, in an application that goes on looking healthy. That is
+reproducible anywhere, it has a fix, and both are in
+[qt-patches/](qt-patches/README.md). What remains specific to Firefox on that runner is what
+dropped the callback in the first place.
+
 ## Environment
 
 | | |
@@ -115,6 +127,21 @@ conclusion could not drift to fit the result.
    after the failure rather than before it, so it reads as teardown of a page holding an
    unresolved pending call, not as the cause.
 
+9. **The queued hop, reproduced off the runner.** Everything above says what is not
+   delivered. This says why nothing recovers, and it needs no special environment.
+   `QEventDispatcherWasm::wakeUp()`
+   (`qtbase/src/corelib/kernel/qeventdispatcher_wasm.cpp:363-382`) arms a zero-delay
+   `QWasmTimer`, from inside `qwasmglobal::runOnMainThreadAsync()`, which is an
+   `emscripten_async_call()` with a zero timeout: two browser callbacks in a chain, and the
+   only path to `QCoreApplication::sendPostedEvents()` on the main thread. `onTimer()`
+   (line 468) calls `sendTimerEvents()` and nothing else, and
+   `QTimerInfoList::activateTimers()` delivers with `sendEvent()`, so timers never touch the
+   posted queue and cannot stand in for it. Since `wakeUp()` is called when an event is
+   posted and not again while it waits, losing either callback loses the event permanently.
+   [verify/verify-pump.mjs](verify/verify-pump.mjs) drops exactly the timeout `wakeUp()` arms
+   and leaves the native timer alone; on a stock kit both Chromium and Firefox then show this
+   report's signature exactly, locally, every run.
+
 ## Ruled out
 
 - **The call being made before the replica is initialised.** The call is issued from the
@@ -139,13 +166,25 @@ repository as a regression guard:
 tests/m0-transport/verify/run-m0.sh
 ```
 
-It passes on every machine we have. Reproducing the failure needs the GitHub hosted Ubuntu
-runner: the workflow is `.github/workflows/browser-matrix.yml`, and the failing cases were
-`firefox-ws`, `firefox-wss` and `firefox-reconnect` in the `webkit-linux` job, which runs the
-full matrix.
+It passes on every machine we have. Reproducing the *environment* needs the GitHub hosted
+Ubuntu runner: the workflow is `.github/workflows/browser-matrix.yml`, and the failing cases
+were `firefox-ws`, `firefox-wss` and `firefox-reconnect` in the `webkit-linux` job, which
+runs the full matrix. Note that the failure is masked there by the workaround below; to see
+it again, take the poll fallback out of `M0Controller` and of `src/consumer/promise.cpp`.
 
-Note that the failure is currently masked by the workaround below. To see it again, take the
-poll fallback out of `M0Controller` and of `src/consumer/promise.cpp`.
+Reproducing the *mechanism* needs nothing but a browser, and this is the one to run:
+
+```sh
+cd tests/m0-transport/verify
+node verify-pump.mjs stall      # stock Qt: the watcher must never fire
+node verify-pump.mjs recover    # patched Qt: the watcher must fire anyway
+```
+
+It starves the one browser timeout `wakeUp()` arms, leaving the native Qt timer, the socket
+and everything else alone, and then reports the same booleans this document opens with. It
+also distinguishes the two ways the echo can resolve, which is the measurement that matters:
+the poll fallback resolving it proves the reply arrived and decoded, and the watcher not
+resolving it proves the caller was never told.
 
 ## Workaround shipped, and one that failed
 
@@ -163,25 +202,43 @@ completed), while Chromium survived it: force-draining every posted meta-call on
 reorders Qt's event delivery. A global pump is too invasive. Resolve the specific call from
 its own state instead.
 
-## What would help from Qt
+## The fix, and what is still open
+
+**Give posted events a second way to be delivered.** The patch in
+[qt-patches/](qt-patches/README.md) makes `QEventDispatcherWasm::onTimer()` send posted
+events as well as timer events. It is four lines. It does not make the browser stop dropping
+callbacks; it stops one dropped callback from being fatal, turning an event that is never
+delivered into one delivered at most a timer interval late. Measured against the
+reproduction above, on Qt 6.11.1 with Emscripten 4.0.7: on a stock kit the watcher never
+fires in either Chromium or Firefox, on a patched kit it fires in both, and the full M0 gate
+stays green, reconnect included.
+
+That last clause is the reason the fix belongs in the dispatcher rather than in a timer of
+our own. See the failed workaround above: a 16 ms `sendPostedEvents(nullptr,
+QEvent::MetaCall)` pump in application code also made the watcher fire, and it broke
+reconnect on Firefox, because force-draining every posted meta-call on an unrelated timer
+reorders delivery. Draining from the dispatcher's own timer callback, in the order
+`sendAllEvents()` already uses, does not.
+
+Two things would still help, and one question is still open.
 
 1. **Do not make a queued signal the only completion path.** A caller that holds a
    `QRemoteObjectPendingCall` cannot ask "are you finished" without either blocking
    (`waitForFinished`) or attaching a watcher whose delivery depends on the posted-event
-   queue. When that queue is starved, a fully decoded reply is unreachable. A direct
-   completion callback, or a documented non-blocking way to observe completion, would make
-   this class of environment failure survivable.
+   queue. The dispatcher patch makes that queue recoverable, but a direct completion
+   callback would mean QtRO did not depend on it at all.
 2. **`QRemoteObjectPendingCall::d` is protected**, so an application cannot even null-check it
    from outside while diagnosing. A read-only accessor for the call's state would have saved
    most of the probing above.
-3. **An explanation of the pump starvation** would be the real fix: why an Emscripten
-   `QEvent::MetaCall` posted for one object is not drained under Firefox on that runner while
-   timers keep firing, and while Chromium and WebKit on the same runner drain it. We could not
-   reproduce it off that host, so we could not chase it further.
+3. **Why the callback was dropped** is still unanswered: what makes Firefox on that runner
+   lose a zero-delay timeout that Chromium and WebKit on the same runner, and Firefox
+   everywhere else, deliver. We could not reproduce that off the host. The patch means we no
+   longer have to.
 
 ## Status
 
-Masked, not fixed. SynQt ships the poll fallback and its CI is green, so the condition is
-invisible unless it is looked for. The M0 spike logs `M0 slot reply=<value> (via poll fallback)`
+Fixed in a local Qt, masked in the shipped one. The patch is not upstream and CI builds
+against a stock Qt, so SynQt keeps the poll fallback in `src/consumer/promise.cpp` until the
+fix lands in a Qt release. The M0 spike logs `M0 slot reply=<value> (via poll fallback)`
 whenever the fallback is what resolved the call, which is the marker to grep for in a run log
 to tell whether the underlying behaviour is still present.

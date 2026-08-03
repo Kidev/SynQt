@@ -1,0 +1,56 @@
+From: SynQt <https://synqt.org/>
+Subject: [PATCH] wasm: send posted events from the native timer callback too
+
+QCoreApplication::postEvent() reaches QEventDispatcherWasm::wakeUp(), which on the
+main thread schedules delivery by arming a zero-delay QWasmTimer, from inside an
+emscripten_async_call() which is itself a zero-delay browser callback. That two-hop
+chain is the only thing that ever calls QCoreApplication::sendPostedEvents() on the
+main thread, and wakeUp() runs when an event is posted, not again while it waits. So
+if the browser drops or starves either hop, nothing re-arms the delivery and the
+posted event is never sent again - not late, never.
+
+The application does not look dead while that happens. Qt timers ride a different
+QWasmTimer, armed with a real interval, and QTimerInfoList::activateTimers() delivers
+with sendEvent(), so they keep firing. Sockets keep reading, because their callbacks
+are DOM events. Anything whose only completion path is a queued signal, though, is
+lost, and the caller is never told: the case that surfaced this is a returning
+QtRemoteObjects slot, whose reply arrives, decodes, and sets error and returnValue on
+the call synchronously, while QRemoteObjectPendingCallWatcher::finished - a
+Qt::QueuedConnection, so a posted QEvent::MetaCall - never arrives. Observed in
+Firefox on GitHub's hosted Ubuntu runner, with Chromium and WebKit passing on the same
+runner and Firefox passing everywhere else.
+
+Sending posted events from onTimer() as well gives that delivery a second, independent
+way to happen. It costs one sendPostedEvents() sweep per native timer callback, and it
+turns a permanently undelivered event into one delayed by at most a timer interval.
+
+Reproducing it does not need the runner. Drop the zero-delay browser timeout that
+wakeUp() arms - and only that one, leaving the native Qt timer alone - and every
+engine shows the same stall; with this patch every engine recovers. The harness is
+tests/m0-transport/verify/verify-pump.mjs in the SynQt repository.
+
+--- a/src/corelib/kernel/qeventdispatcher_wasm.cpp
++++ b/src/corelib/kernel/qeventdispatcher_wasm.cpp
+@@ -476,6 +476,22 @@
+     if (useAsyncify())
+         return;
+ 
++    // Send posted events as well, not just timer events. wakeUp() is the only code path
++    // which schedules posted event delivery, and it does so by arming a zero-delay native
++    // timer, via an emscripten_async_call() which is itself a zero-delay callback. wakeUp()
++    // is called when an event is posted and not again while that event waits, so if either
++    // of those two callbacks is dropped or starved by the browser, nothing re-arms the
++    // delivery and the posted event is never sent - permanently, even though the
++    // application is otherwise healthy and its timers keep firing, since
++    // QTimerInfoList::activateTimers() delivers with sendEvent() and does not need the
++    // posted event queue. Sending posted events here costs one sweep per timer callback
++    // and bounds that failure to a single timer interval instead of forever.
++    g_mainThreadEventDispatcher->sendPostedEvents();
++
++    // sendPostedEvents() runs application code, which may have deleted the event dispatcher.
++    if (!g_mainThreadEventDispatcher)
++        return;
++
+     g_mainThreadEventDispatcher->sendTimerEvents();
+ }
+ 

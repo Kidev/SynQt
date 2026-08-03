@@ -37,6 +37,15 @@ silent: grep a run log for that string to see whether it is still happening. The
 investigation, written up for upstream, with the environment, the evidence trail and the
 ruled-out set, is in [`FIREFOX-LINUX.md`](FIREFOX-LINUX.md).
 
+That caveat now has a reproduction and a fix, both off the runner.
+[`verify/verify-pump.mjs`](verify/verify-pump.mjs) starves the single browser timeout Qt's
+WASM event dispatcher arms to deliver posted events, which is enough to produce the same
+failure in every engine on any machine, and
+[`qt-patches/`](qt-patches/README.md) holds a four-line change to
+`QEventDispatcherWasm::onTimer()` that makes it recoverable, with a script that puts it on an
+installed kit and a before-and-after measurement. The poll fallback stays until that lands in
+a Qt release, because CI builds against a stock Qt.
+
 Safari / WebKit. Two different proofs, because WebKit is Safari's engine but not Safari.
 
 `verify.mjs` drives Playwright's headless WebKit as the in-env proxy: the browser list probes
