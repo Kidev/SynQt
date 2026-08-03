@@ -4,47 +4,47 @@
   "dir": "examples/arena/build/client",
   "host": "Arch Linux",
   "arch": "x86_64",
-  "qt_version": "6.11.1",
-  "recorded": "2026-09-07T10:48:48Z",
+  "qt_version": "6.12.0",
+  "recorded": "2026-09-25T08:01:10Z",
   "files": [
     {
       "name": "app.js",
-      "raw": 264183,
-      "gzip": 60634,
-      "brotli": 52557
+      "raw": 242863,
+      "gzip": 55486,
+      "brotli": 48173
     },
     {
       "name": "app.wasm",
-      "raw": 25574243,
-      "gzip": 9501025,
-      "brotli": 6694648
+      "raw": 29196625,
+      "gzip": 10441460,
+      "brotli": 7536607
     },
     {
       "name": "index.html",
-      "raw": 9387,
-      "gzip": 3859,
-      "brotli": 3166
+      "raw": 9350,
+      "gzip": 3833,
+      "brotli": 3144
     },
     {
       "name": "qtloader.js",
-      "raw": 12445,
-      "gzip": 4053,
-      "brotli": 3412
+      "raw": 13775,
+      "gzip": 4538,
+      "brotli": 3819
     },
     {
       "name": "synqt-boot.js",
       "raw": 7184,
       "gzip": 2573,
-      "brotli": 2101
+      "brotli": 2088
     },
     {
       "name": "synqt-sw.js",
-      "raw": 6124,
-      "gzip": 2215,
-      "brotli": 1790
+      "raw": 6103,
+      "gzip": 2201,
+      "brotli": 1783
     }
   ],
-  "total_raw": 25873566,
-  "total_gzip": 9574359,
-  "total_brotli": 6757674
+  "total_raw": 29475900,
+  "total_gzip": 10510091,
+  "total_brotli": 7595614
 }

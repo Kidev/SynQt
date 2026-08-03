@@ -4,104 +4,104 @@
   "example": "examples/stall",
   "host": "kidevPC_",
   "arch": "x86_64",
-  "qt_version": "6.11.1",
-  "emscripten_version": "4.0.7",
+  "qt_version": "6.12.0",
+  "emscripten_version": "5.0.5",
   "kit": "wasm_singlethread",
-  "recorded": "2026-09-07T10:52:40Z",
+  "recorded": "2026-09-25T06:31:14Z",
   "remote": {
     "label": "stall-remote",
-    "total_raw": 25817226,
-    "total_gzip": 9560209,
-    "total_brotli": 6745802,
+    "total_raw": 29420754,
+    "total_gzip": 10494173,
+    "total_brotli": 7584002,
     "file_count": 6,
     "files": [
       {
         "name": "app.js",
-        "raw": 264183,
-        "gzip": 60634,
-        "brotli": 52574
+        "raw": 242863,
+        "gzip": 55486,
+        "brotli": 48149
       },
       {
         "name": "app.wasm",
-        "raw": 25517903,
-        "gzip": 9486875,
-        "brotli": 6682759
+        "raw": 29141479,
+        "gzip": 10425542,
+        "brotli": 7525019
       },
       {
         "name": "index.html",
-        "raw": 9387,
-        "gzip": 3859,
-        "brotli": 3166
+        "raw": 9350,
+        "gzip": 3833,
+        "brotli": 3144
       },
       {
         "name": "qtloader.js",
-        "raw": 12445,
-        "gzip": 4053,
-        "brotli": 3412
+        "raw": 13775,
+        "gzip": 4538,
+        "brotli": 3819
       },
       {
         "name": "synqt-boot.js",
         "raw": 7184,
         "gzip": 2573,
-        "brotli": 2101
+        "brotli": 2088
       },
       {
         "name": "synqt-sw.js",
-        "raw": 6124,
-        "gzip": 2215,
-        "brotli": 1790
+        "raw": 6103,
+        "gzip": 2201,
+        "brotli": 1783
       }
     ]
   },
   "compiled_in": {
     "label": "stall-compiled-in",
-    "total_raw": 25832260,
-    "total_gzip": 9560410,
-    "total_brotli": 6749099,
+    "total_raw": 29439339,
+    "total_gzip": 10497183,
+    "total_brotli": 7587279,
     "file_count": 6,
     "files": [
       {
         "name": "app.js",
-        "raw": 264183,
-        "gzip": 60635,
-        "brotli": 52548
+        "raw": 242863,
+        "gzip": 55484,
+        "brotli": 48138
       },
       {
         "name": "app.wasm",
-        "raw": 25532937,
-        "gzip": 9487075,
-        "brotli": 6686082
+        "raw": 29160064,
+        "gzip": 10428554,
+        "brotli": 7528307
       },
       {
         "name": "index.html",
-        "raw": 9387,
-        "gzip": 3859,
-        "brotli": 3166
+        "raw": 9350,
+        "gzip": 3833,
+        "brotli": 3144
       },
       {
         "name": "qtloader.js",
-        "raw": 12445,
-        "gzip": 4053,
-        "brotli": 3412
+        "raw": 13775,
+        "gzip": 4538,
+        "brotli": 3819
       },
       {
         "name": "synqt-boot.js",
         "raw": 7184,
         "gzip": 2573,
-        "brotli": 2101
+        "brotli": 2088
       },
       {
         "name": "synqt-sw.js",
-        "raw": 6124,
-        "gzip": 2215,
-        "brotli": 1790
+        "raw": 6103,
+        "gzip": 2201,
+        "brotli": 1783
       }
     ]
   },
   "saving": {
-    "raw_bytes": 15034,
-    "gzip_bytes": 201,
-    "brotli_bytes": 3297,
+    "raw_bytes": 18585,
+    "gzip_bytes": 3010,
+    "brotli_bytes": 3277,
     "file_count_delta": 0
   }
 }

@@ -13,8 +13,8 @@ It uses the [stall](../../examples/stall) storefront, whose two campaign pages
 the real `synqt build` path and weighs each client bundle with the shared
 [measure-bundle.sh](../client/measure-bundle.sh) (raw, gzip, and Brotli):
 
-- remote, the example as written, where the campaign pages are edge-delivered, so they are
-  not in the first-load bundle.
+- remote, the example as written, where the campaign pages are edge-delivered, so they stay
+  out of the first-load bundle.
 - compiled-in, the same example with those two routes rewritten to compiled-in `view:`
   routes, so qmlcachegen compiles the pages into the client module and they ship on first
   load.
@@ -32,9 +32,9 @@ that run:
 
 | variant      | raw bytes  | gzip bytes | Brotli bytes |
 | ------------ | ---------- | ---------- | ------------ |
-| remote       | 26137545   | 9597540    | 6755645      |
-| compiled-in  | 26153020   | 9603525    | 6758900      |
-| saving       | 15475      | 5985       | 3255         |
+| remote       | 29420754   | 10494173   | 7584002      |
+| compiled-in  | 29439339   | 10497183   | 7587279      |
+| saving       | 18585      | 3010       | 3277         |
 
 ## What this number does and does not say
 

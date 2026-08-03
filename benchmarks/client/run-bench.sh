@@ -61,6 +61,18 @@ build_measure_drive() {
     qt_version="$(kit_qt_version "$qtcmake")"
 
     echo "== build scene (${kit}) =="
+    # A tree configured with another kit keeps that kit's toolchain file in its cache, and
+    # qt-cmake from this one then fails on a Qt6 it can never find there.
+    local kit_dir cached
+    kit_dir="$(cd "$(dirname "$qtcmake")/.." && pwd -P)"
+    cached="$(sed -n 's/^CMAKE_TOOLCHAIN_FILE:[A-Z]*=//p' "$build_dir/CMakeCache.txt" 2>/dev/null)"
+    case "$(realpath -m "${cached:-$kit_dir/none}")" in
+        "$kit_dir"/*) ;;
+        *)
+            echo "  $build_dir was configured with $cached; reconfiguring from scratch"
+            rm -rf "$build_dir/CMakeCache.txt" "$build_dir/CMakeFiles"
+            ;;
+    esac
     "$qtcmake" -S benchmarks/client/scene -B "$build_dir" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DSYNQT_BENCH_BLOBS="$BLOBS" \

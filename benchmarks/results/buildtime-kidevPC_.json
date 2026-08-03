@@ -1,51 +1,52 @@
 {
   "arch": "x86_64",
   "benchmark": "buildtime",
+  "compiler_cache": "bypassed",
   "configuration": "release",
   "cpus": 32,
   "host": "Arch Linux",
   "latency": [
     {
       "contracts": 2,
-      "max": 65.93036398408003,
-      "mean": 62.144357699435204,
-      "min": 60.25558500550687,
+      "max": 63.47214900597464,
+      "mean": 61.31056460289983,
+      "min": 58.043176992214285,
       "name": "contract_generation",
-      "p50": 61.98801298160106,
-      "p95": 65.93036398408003,
-      "p99": 65.93036398408003,
+      "p50": 61.36976400739513,
+      "p95": 63.47214900597464,
+      "p99": 63.47214900597464,
       "samples": 10,
       "unit": "ms"
     }
   ],
   "path": "contract-generation-and-per-entity-build",
   "project": "examples/gavel",
-  "qt_version": "6.11.1",
-  "recorded": "2026-09-07T10:54:34Z",
+  "qt_version": "6.12.0",
+  "recorded": "2026-09-25T06:51:57Z",
   "sweep": [
     {
-      "clean_s": 55.17,
+      "clean_s": 65.645,
       "kind": "client",
-      "noop_s": 0.137,
+      "noop_s": 0.14,
       "target": "app",
       "touched_file": "Main.qml",
-      "touched_s": 48.852
+      "touched_s": 55.426
     },
     {
-      "clean_s": 4.485,
+      "clean_s": 25.626,
       "kind": "web_edge",
-      "noop_s": 0.108,
+      "noop_s": 0.114,
       "target": "edge",
       "touched_file": "Edge.qml",
-      "touched_s": 0.102
+      "touched_s": 0.115
     },
     {
-      "clean_s": 3.686,
+      "clean_s": 13.311,
       "kind": "relational",
-      "noop_s": 0.102,
+      "noop_s": 0.119,
       "target": "books",
       "touched_file": "Books.qml",
-      "touched_s": 0.102
+      "touched_s": 0.116
     }
   ]
 }

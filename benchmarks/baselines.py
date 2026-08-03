@@ -52,6 +52,9 @@ RESULTS_DIR = BENCHMARKS_DIR / "results"
 # See the module docstring. Anything tighter is reported instead.
 ASSERT_MARGIN = 2.0
 
+# Fewer frames than this in a frame-time bucket and its p95 and p99 are one frame each.
+MIN_FRAMES_PER_BUCKET = 30
+
 # Units where a smaller number is the better one. Anything else (calls/s, rows/s,
 # requests/s, fps) reads the other way, and `compare` needs to know which.
 LOWER_IS_BETTER_UNITS = {"ms", "ns", "ns/op", "us", "s", "bytes", "mb"}
@@ -536,6 +539,20 @@ def _check_sessions(document: Mapping[str, Any], checks: List[Check]) -> None:
     smallest, largest = sweep[0], sweep[-1]
     span = _ratio(largest["sessions"], smallest["sessions"])
 
+    # At the largest size a lookup costs what main memory costs at the moment, so one table
+    # measured once moved between 70 and 170 ns on one machine in one day. A figure the
+    # comparison can hold a change to is a median over several tables.
+    rounds = document.get("rounds", 1)
+    checks.append(
+        Check(
+            "sessions.measured_over_several_tables",
+            isinstance(rounds, int) and rounds >= 3,
+            f"every figure is the median of {rounds} fresh tables"
+            if isinstance(rounds, int) and rounds >= 3
+            else "each figure is one table measured once; re-run benchmarks/sessions/run-bench.sh",
+        )
+    )
+
     for name, label in (("lookup_hit_ns", "lookup"), ("hasscope_set_ns", "hasScope")):
         growth = _ratio(largest[name], smallest[name])
         checks.append(
@@ -657,7 +674,19 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
     latency = document.get("latency", [])
     contended = _by_name(latency, "sqlite_write_contended")
     plain = _by_name(latency, "sqlite_write_autocommit")
+    rival = _by_name(scalars, "sqlite_contended_competitor_writes")
     if contended:
+        # The contention claims below are about writes made while another connection was
+        # writing. A run in which the rival wrote nothing during the measured window measured
+        # uncontended writes under a contended name.
+        checks.append(
+            Check(
+                "persistence.the_rival_was_writing",
+                rival is not None and rival["value"] > 0,
+                f"the rival wrote {rival['value']:.0f} rows during the measured writes"
+                if rival is not None else "the rival's writes were not recorded",
+            )
+        )
         # What QSQLITE_BUSY_TIMEOUT buys, from the harness's arranged experiment rather than
         # from a race. A third connection holds the WAL write lock for a known interval, and
         # during it one writer carrying the timeout and one without it both ask for the lock.
@@ -976,6 +1005,22 @@ def _check_client_frame_time(document: Mapping[str, Any], checks: List[Check]) -
             f"{len(buckets)} buckets from {blobs[0]} to {blobs[-1]} blobs",
         )
     )
+    # A percentile is a statement about many frames. The scene once reported one average per
+    # sixty frames, which left each bucket a single number whose p50, p95 and p99 were the same
+    # value, and an average of sixty frames besides, which is exactly what hides a stutter.
+    thin = [row["blobs"] for row in buckets if row.get("count", 0) < MIN_FRAMES_PER_BUCKET]
+    per_frame = document.get("samples_are") == "frames"
+    checks.append(
+        Check(
+            "client-frame-time.each_bucket_is_a_distribution",
+            per_frame and not thin,
+            f"every bucket holds at least {MIN_FRAMES_PER_BUCKET} single frames"
+            if per_frame and not thin
+            else "the samples are batch averages, not frames; re-run benchmarks/client/run-bench.sh"
+            if not per_frame
+            else f"buckets at {thin} blobs hold fewer than {MIN_FRAMES_PER_BUCKET} frames",
+        )
+    )
     cold = document.get("cold_start_ms", 0)
     checks.append(
         Check(
@@ -1034,6 +1079,20 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
     if not sweep:
         checks.append(Check("buildtime.sweep", False, "no entities were built"))
         return
+
+    # A clean build timed through a warm compiler cache is a cache lookup. The same edge
+    # measured 4.5 s through one and 22 s without, so a baseline that does not say the cache
+    # sat out cannot be compared with anything, including the next run of itself.
+    checks.append(
+        Check(
+            "buildtime.clean_means_no_compiler_cache",
+            document.get("compiler_cache") == "bypassed",
+            "the compiler cache was bypassed for every build"
+            if document.get("compiler_cache") == "bypassed"
+            else "this baseline does not record that the compiler cache was bypassed; re-run "
+                 "benchmarks/buildtime/run-bench.sh",
+        )
+    )
 
     for row in sweep:
         # The claim. Building nothing costs a fraction of building everything. It is the

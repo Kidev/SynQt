@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The persistence and cache baseline (M9), the default providers exactly as an entity uses
+// The persistence and cache baseline, the default providers exactly as an entity uses
 // them. The SqliteProvider is the embedded QSQLITE engine opened with WAL + QSQLITE_BUSY_TIMEOUT
 // and driven from one thread (the entity's serialized single-writer loop). The
 // MemoryCacheProvider is the bounded-LRU in-process cache. This harness measures:
@@ -201,7 +201,8 @@ int main(int argc, char *argv[])
 
     // Contended writes. A second connection hammers the same WAL file while the benchmark
     // measures the single writer's per-INSERT latency. WAL allows one writer at a time, so
-    // the competitor forces the busy-timeout retry path, which must stay bounded and never deadlock.
+    // the competitor forces the busy-timeout retry path, which must stay bounded and never
+    // deadlock.
     {
         std::atomic<bool> stop{false};
         std::atomic<long> competitorWrites{0};
@@ -216,15 +217,23 @@ int main(int argc, char *argv[])
                 rival.exec(QStringLiteral("INSERT INTO bench (k, v) VALUES (?, ?)"),
                            {QStringLiteral("rival-%1").arg(n), static_cast<int>(n)});
                 ++n;
+                competitorWrites.store(n, std::memory_order_relaxed);
             }
-            competitorWrites.store(n, std::memory_order_relaxed);
             rival.disconnect();
         }};
+
+        // The measured writes start once the rival is writing, not once its thread has
+        // started: it has a database to open first, and without this wait part of the
+        // contended run would have nobody to contend with.
+        while (competitorWrites.load(std::memory_order_relaxed) == 0) {
+            std::this_thread::yield();
+        }
+        const long rivalBefore{competitorWrites.load(std::memory_order_relaxed)};
 
         Distribution contended;
         contended.name = QStringLiteral("sqlite_write_contended");
         contended.samples.reserve(contendedRows);
-        // How often a write comes back refused here is a reading, not a claim: whether the
+        // How often a write comes back refused here is recorded and never asserted: whether the
         // rival happens to be holding the lock at the moment this writer asks is up to the
         // scheduler, and SQLite's busy handler is not a queue, so on a loaded machine a
         // rival writing in a tight loop can hold this one off past any timeout. That is
@@ -242,14 +251,16 @@ int main(int argc, char *argv[])
                 ++abandoned;
             }
         }
+        const long rivalDuring{competitorWrites.load(std::memory_order_relaxed) - rivalBefore};
         stop.store(true, std::memory_order_relaxed);
         competitor.join();
         distributions.append(contended);
 
+        // What the rival wrote while the measured writes ran, and only then.
         Scalar rivalCount;
         rivalCount.name = QStringLiteral("sqlite_contended_competitor_writes");
         rivalCount.unit = QStringLiteral("rows");
-        rivalCount.value = static_cast<double>(competitorWrites.load());
+        rivalCount.value = static_cast<double>(rivalDuring);
         scalars.append(rivalCount);
 
         Scalar givenUp;

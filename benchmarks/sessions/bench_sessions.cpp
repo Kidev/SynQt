@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The sessions baseline (M7), the cost of the edge's session hot path as the number of live
+// The sessions baseline, the cost of the edge's session hot path as the number of live
 // sessions grows. Every browser WebSocket upgrade looks a session up by its credential in the
 // verifier, and every scoped slot re-checks the caller's scope, so these two operations sit on
 // the request path and must stay flat as the edge fills with sessions. This harness stands up
@@ -11,12 +11,19 @@
 //   * lookup_miss: lookup() of an unknown credential (the rejection path);
 //   * hasScope_set: Caller::hasScope() with a set-based vocabulary (exact-match);
 //   * hasScope_hier: Caller::hasScope() with a hierarchical vocabulary (rank compare);
-//   * createSession. Minting a session (random token + insert);
-//   * snapshot. The full-table snapshot the edge replays to a late-joining consumer.
+//   * createSession: minting a session (random token + insert);
+//   * snapshot: the full-table snapshot the edge replays to a late-joining consumer.
 //
-// The first five are sub-microsecond, so they are reported as throughput (ns/op from a large
-// batch, the reliable way to time ns-scale operations), swept over N to show O(1) behaviour.
+// The first four are sub-microsecond and createSession is about one microsecond, so all five
+// are reported as ns/op from a large batch (the reliable way to time ns-scale operations),
+// swept over N to show O(1) behaviour.
 // snapshot grows with N and is reported per call. Results are written as a committed baseline.
+//
+// Each size is measured over several fresh tables and every figure is the median of them.
+// At 100k sessions a lookup misses the CPU caches and costs what main memory costs at that
+// moment, so a single table varies too much to gate on. A table of the largest size is
+// built and thrown away first, because the first table a process builds also pays for its
+// heap growing.
 
 #include "caller.h"
 #include "sessionmanager.h"
@@ -37,6 +44,7 @@
 #include <QTextStream>
 #include <QVariantList>
 
+#include <algorithm>
 #include <limits>
 
 using SynQt::Caller;
@@ -52,7 +60,7 @@ const QStringList kScopeOrder{QStringLiteral("anonymous"), QStringLiteral("viewe
 
 // A pseudo-random stride over the token table that hits varied hash buckets (rather than
 // re-probing one hot bucket), without needing a RNG. 100003 is prime, so for any table size
-// this visits every index before repeating.
+// that is not a multiple of it this visits every index before repeating.
 constexpr qsizetype kStride{100003};
 
 struct Scalar
@@ -157,6 +165,52 @@ double hasScopeNsPerOp(const QList<Caller *> &pool, int iterations)
     return ns;
 }
 
+struct Round
+{
+    double lookupHit{0.0};
+    double lookupMiss{0.0};
+    double scopeSet{0.0};
+    double scopeHier{0.0};
+    double create{0.0};
+    double snapshotMs{0.0};
+};
+
+// One fresh table of `count` sessions, measured once.
+Round measureRound(int count, int iterations, int poolSize)
+{
+    SessionManager manager{QStringLiteral("anonymous"), 60};
+    Round round;
+    const QList<QByteArray> tokens{populate(manager, count, round.create)};
+
+    // A fresh owner for the caller pools, destroyed with the round.
+    QObject callerOwner;
+    const QList<Caller *> setPool{buildCallerPool(manager, tokens, poolSize, false, &callerOwner)};
+    const QList<Caller *> hierPool{buildCallerPool(manager, tokens, poolSize, true, &callerOwner)};
+
+    round.lookupHit = lookupNsPerOp(manager, tokens, iterations);
+    round.lookupMiss = lookupMissNsPerOp(manager, iterations);
+    round.scopeSet = hasScopeNsPerOp(setPool, iterations);
+    round.scopeHier = hasScopeNsPerOp(hierPool, iterations);
+
+    QElapsedTimer snapClock;
+    snapClock.start();
+    const QVariantList snap = manager.snapshot();  // '=' not '{}': brace-init would wrap
+    round.snapshotMs = static_cast<double>(snapClock.nsecsElapsed()) / 1.0e6;
+    if (snap.size() != count) {
+        qWarning("bench-sessions: snapshot size %lld != %d",
+                 static_cast<qint64>(snap.size()), count);
+    }
+    return round;
+}
+
+double medianOf(QList<double> values)
+{
+    std::sort(values.begin(), values.end());
+    const qsizetype middle{values.size() / 2};
+    return values.size() % 2 == 1 ? values.at(middle)
+                                  : (values.at(middle - 1) + values.at(middle)) / 2.0;
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -176,11 +230,15 @@ int main(int argc, char *argv[])
         QStringLiteral("2000")};
     const QCommandLineOption outOption{QStringLiteral("out"),
         QStringLiteral("JSON baseline output path."), QStringLiteral("file")};
-    parser.addOptions({iterationsOption, sizesOption, poolOption, outOption});
+    const QCommandLineOption roundsOption{QStringLiteral("rounds"),
+        QStringLiteral("Fresh tables per size; each figure is their median."),
+        QStringLiteral("n"), QStringLiteral("5")};
+    parser.addOptions({iterationsOption, sizesOption, poolOption, roundsOption, outOption});
     parser.process(app);
 
     const int iterations{parser.value(iterationsOption).toInt()};
     const int poolSize{parser.value(poolOption).toInt()};
+    const int rounds{qMax(1, parser.value(roundsOption).toInt())};
     QList<int> sizes;
     const QStringList sizeTokens{parser.value(sizesOption).split(QLatin1Char(','),
                                                                  Qt::SkipEmptyParts)};
@@ -192,7 +250,8 @@ int main(int argc, char *argv[])
     out << "SynQt sessions baseline (SynQt::SessionManager + Caller.hasScope)" << Qt::endl;
     out << "Qt " << qVersion() << " on " << QSysInfo::prettyProductName() << " ("
         << QSysInfo::currentCpuArchitecture() << ")" << Qt::endl;
-    out << "iterations/measurement=" << iterations << " caller-pool=" << poolSize << Qt::endl
+    out << "iterations/measurement=" << iterations << " caller-pool=" << poolSize
+        << " rounds=" << rounds << Qt::endl
         << Qt::endl;
     out << qSetFieldWidth(12) << Qt::left << "sessions" << qSetFieldWidth(0)
         << "  lookup_hit  lookup_miss  hasScope_set  hasScope_hier  create   snapshot"
@@ -200,30 +259,33 @@ int main(int argc, char *argv[])
     out << "            (all ns/op except snapshot in ms)" << Qt::endl;
 
     QJsonArray sweepJson;
+    if (!sizes.isEmpty()) {
+        // Thrown away. See the header.
+        static_cast<void>(measureRound(*std::max_element(sizes.cbegin(), sizes.cend()),
+                                       iterations, poolSize));
+    }
     for (const int count : sizes) {
-        SessionManager manager{QStringLiteral("anonymous"), 60};
-        double createNs{0.0};
-        const QList<QByteArray> tokens{populate(manager, count, createNs)};
-
-        // A fresh owner for the caller pools, destroyed with each sweep step.
-        QObject callerOwner;
-        const QList<Caller *> setPool{
-            buildCallerPool(manager, tokens, poolSize, false, &callerOwner)};
-        const QList<Caller *> hierPool{
-            buildCallerPool(manager, tokens, poolSize, true, &callerOwner)};
-
-        const double lookupHit{lookupNsPerOp(manager, tokens, iterations)};
-        const double lookupMiss{lookupMissNsPerOp(manager, iterations)};
-        const double scopeSet{hasScopeNsPerOp(setPool, iterations)};
-        const double scopeHier{hasScopeNsPerOp(hierPool, iterations)};
-
-        QElapsedTimer snapClock;
-        snapClock.start();
-        const QVariantList snap = manager.snapshot();  // '=' not '{}': brace-init would wrap
-        const double snapshotMs{static_cast<double>(snapClock.nsecsElapsed()) / 1.0e6};
-        if (snap.size() != count) {
-            qWarning("bench-sessions: snapshot size %lld != %d", static_cast<qint64>(snap.size()), count);
+        QList<double> hits;
+        QList<double> misses;
+        QList<double> sets;
+        QList<double> hiers;
+        QList<double> creates;
+        QList<double> snapshots;
+        for (int round{0}; round < rounds; ++round) {
+            const Round measured{measureRound(count, iterations, poolSize)};
+            hits.append(measured.lookupHit);
+            misses.append(measured.lookupMiss);
+            sets.append(measured.scopeSet);
+            hiers.append(measured.scopeHier);
+            creates.append(measured.create);
+            snapshots.append(measured.snapshotMs);
         }
+        const double lookupHit{medianOf(hits)};
+        const double lookupMiss{medianOf(misses)};
+        const double scopeSet{medianOf(sets)};
+        const double scopeHier{medianOf(hiers)};
+        const double createNs{medianOf(creates)};
+        const double snapshotMs{medianOf(snapshots)};
 
         out << qSetFieldWidth(12) << Qt::left << count << qSetFieldWidth(0) << Qt::right
             << "  " << qSetFieldWidth(9) << QString::number(lookupHit, 'f', 1)
@@ -253,6 +315,7 @@ int main(int argc, char *argv[])
     root.insert(QStringLiteral("arch"), QSysInfo::currentCpuArchitecture());
     root.insert(QStringLiteral("recorded"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
     root.insert(QStringLiteral("iterations"), iterations);
+    root.insert(QStringLiteral("rounds"), rounds);
     root.insert(QStringLiteral("sweep"), sweepJson);
 
     const QString outPath{parser.value(outOption)};

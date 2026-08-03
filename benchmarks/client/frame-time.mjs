@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// Drive a built WebAssembly client scene in a real browser and measure two things the plan asks
-// for. Cold start (time from navigation to the first rendered frame) and frame time as the number
-// of entities in view grows. The scene ramps its blob count and prints "BENCH blobs=N frameMs=X"
-// per batch through qWarning (QML console.log is not reliable in a WASM release build). This
-// harness collects those lines, buckets them by blob count, and reports p50/p95/p99 per bucket so
+// Drive a built WebAssembly client scene in a real browser and measure two things: cold start
+// (time from navigation to the first rendered frame) and frame time as the number of entities
+// in view grows. The scene ramps its blob count and prints "BENCH blobs=N frames=a,b,.." with
+// every frame interval of a batch through qWarning (QML console.log is not reliable in a WASM
+// release build). This harness collects those lines, buckets them by blob count, and reports p50/p95/p99 per bucket so
 // the render-cost curve is explicit. The page is served under COOP/COEP so the multi-threaded kit
 // gets its SharedArrayBuffer. The headers are harmless for the single-threaded kit.
 //
@@ -175,12 +175,14 @@ async function main() {
         const page = await context.newPage();
         page.on("console", (msg) => {
             const text = msg.text();
-            const match = text.match(/BENCH blobs=(\d+) frameMs=([\d.]+)/);
+            const match = text.match(/BENCH blobs=(\d+) frames=([\d.,]+)/);
             if (match) {
                 if (firstFrameAt === null) {
                     firstFrameAt = Date.now();
                 }
-                samples.push({ blobs: Number(match[1]), frameMs: Number(match[2]) });
+                for (const frame of match[2].split(",")) {
+                    samples.push({ blobs: Number(match[1]), frameMs: Number(frame) });
+                }
                 return;
             }
             if (/BENCH done/.test(text)) {
@@ -215,6 +217,7 @@ async function main() {
             cross_origin_isolated: isolated,
             cold_start_ms: coldStartMs,
             frame_samples: samples.length,
+            samples_are: "frames",
             buckets
         };
 

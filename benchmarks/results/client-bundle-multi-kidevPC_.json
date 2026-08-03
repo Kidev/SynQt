@@ -4,8 +4,8 @@
   "dir": "build/bench-client-wasm-multi",
   "host": "Arch Linux",
   "arch": "x86_64",
-  "qt_version": "6.11.1",
-  "recorded": "2026-09-07T10:47:57Z",
+  "qt_version": "6.12.0",
+  "recorded": "2026-09-25T06:48:18Z",
   "files": [
     {
       "name": "clientbench.html",
@@ -15,33 +15,21 @@
     },
     {
       "name": "clientbench.js",
-      "raw": 287792,
-      "gzip": 65119,
-      "brotli": 56236
+      "raw": 269215,
+      "gzip": 60491,
+      "brotli": 52141
     },
     {
       "name": "clientbench.wasm",
-      "raw": 21028399,
-      "gzip": 7444208,
-      "brotli": 5249179
-    },
-    {
-      "name": "a.out.js",
-      "raw": 50812,
-      "gzip": 16083,
-      "brotli": 13982
-    },
-    {
-      "name": "a.out.wasm",
-      "raw": 1791,
-      "gzip": 1113,
-      "brotli": 947
+      "raw": 25242187,
+      "gzip": 8685271,
+      "brotli": 6121106
     },
     {
       "name": "qtloader.js",
-      "raw": 12135,
-      "gzip": 4037,
-      "brotli": 3389
+      "raw": 13437,
+      "gzip": 4517,
+      "brotli": 3801
     },
     {
       "name": "qtlogo.svg",
@@ -50,7 +38,7 @@
       "brotli": 775
     }
   ],
-  "total_raw": 21385624,
-  "total_gzip": 7532696,
-  "total_brotli": 5325392
+  "total_raw": 25529534,
+  "total_gzip": 8752415,
+  "total_brotli": 6178707
 }

@@ -719,3 +719,38 @@ def test_events_vanishing_without_being_counted_is_caught():
     document = load_kind("monitor")
     document["dropped_under_pressure"] = 0
     assert_fails(document, "monitor.a_gap_is_reported_as_a_gap")
+
+
+def test_a_buildtime_baseline_taken_through_the_compiler_cache_is_caught():
+    """A clean build timed through a warm ccache is a cache lookup, not a build."""
+    document = load_kind("buildtime")
+    document.pop("compiler_cache", None)
+    assert_fails(document, "buildtime.clean_means_no_compiler_cache")
+
+
+def test_a_contended_run_whose_rival_wrote_nothing_is_caught():
+    """The measured writes finishing before the rival wrote a row measured no contention."""
+    document = load_kind("persistence")
+    baselines._by_name(document["scalars"], "sqlite_contended_competitor_writes")["value"] = 0
+    assert_fails(document, "persistence.the_rival_was_writing")
+
+
+def test_a_frame_time_run_of_batch_averages_is_caught():
+    """One averaged number per bucket has a p50, a p95 and a p99 that are the same value."""
+    document = load_kind("client-frame-time")
+    document.pop("samples_are", None)
+    assert_fails(document, "client-frame-time.each_bucket_is_a_distribution")
+
+
+def test_a_frame_time_bucket_of_a_few_frames_is_caught():
+    document = load_kind("client-frame-time")
+    document["samples_are"] = "frames"
+    document["buckets"][-1]["count"] = 3
+    assert_fails(document, "client-frame-time.each_bucket_is_a_distribution")
+
+
+def test_a_sessions_run_of_one_table_per_size_is_caught():
+    """One table measured once is a reading of the memory system at that moment."""
+    document = load_kind("sessions")
+    document.pop("rounds", None)
+    assert_fails(document, "sessions.measured_over_several_tables")

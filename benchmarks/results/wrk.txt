@@ -4,67 +4,67 @@
 # TechEmpower-style HTTP benchmark of the SynQt web edge (QHttpServer + QSQLITE).
 # Load generator: wrk -t4 -c256 -d15s (the industry-standard driver, for cross-framework
 # comparison). Routes named as TechEmpower test types. See benchmarks/edge/.
-# Host: Arch Linux, x86_64, 32 CPUs. Qt 6.12.0. Date: 2026-09-10.
-# Summary (req/s): plaintext 103.6k, json 92.2k, single-query 64.9k,
-#                  20-queries 20.7k, 20-updates 14.1k, fortunes 49.4k; avg
-#                  latency 2.5-18.0ms, tight tails.
+# Host: Arch Linux, x86_64, 32 CPUs. Qt 6.12.0. Date: 2026-09-25.
+# Summary (req/s): plaintext 101.9k, json 94.7k, single-query 63.9k,
+#                  20-queries 20.8k, 20-updates 14.5k, fortunes 47.6k; avg
+#                  latency 2.5-17.5ms, tight tails.
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/json"
 Running 15s test @ http://127.0.0.1:8480/json
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     2.77ms  143.08us   5.91ms   89.45%
-    Req/Sec    23.23k   522.26    27.17k    81.00%
-  1386778 requests in 15.05s, 193.09MB read
-Requests/sec: 92170.45
-Transfer/sec: 12.83MB
+    Latency     2.69ms   80.47us   4.44ms   98.26%
+    Req/Sec    23.87k   529.20    34.66k    97.50%
+  1424851 requests in 15.05s, 198.39MB read
+Requests/sec: 94658.20
+Transfer/sec: 13.18MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/plaintext"
 Running 15s test @ http://127.0.0.1:8480/plaintext
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     2.46ms  109.81us   5.00ms   95.19%
-    Req/Sec    26.09k   496.00    29.37k    88.33%
-  1558664 requests in 15.05s, 187.29MB read
-Requests/sec: 103553.89
-Transfer/sec: 12.44MB
+    Latency     2.50ms   66.96us   4.49ms   96.18%
+    Req/Sec    25.66k   403.50    29.20k    91.17%
+  1531986 requests in 15.04s, 184.09MB read
+Requests/sec: 101855.43
+Transfer/sec: 12.24MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/db"
 Running 15s test @ http://127.0.0.1:8480/db
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     3.93ms  149.69us   7.38ms   93.59%
-    Req/Sec    16.38k   346.85    20.04k    84.17%
-  977849 requests in 15.06s, 139.68MB read
-Requests/sec: 64910.26
-Transfer/sec: 9.27MB
+    Latency     3.99ms  150.53us   7.36ms   95.90%
+    Req/Sec    16.10k   397.52    17.91k    91.00%
+  961082 requests in 15.03s, 137.28MB read
+Requests/sec: 63922.98
+Transfer/sec: 9.13MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/queries?queries=20"
 Running 15s test @ http://127.0.0.1:8480/queries?queries=20
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    12.32ms  301.30us  22.88ms   85.61%
-    Req/Sec     5.21k   162.94     5.73k    78.50%
-  311223 requests in 15.05s, 224.57MB read
-Requests/sec: 20680.45
-Transfer/sec: 14.92MB
+    Latency    12.26ms  323.07us  18.61ms   97.84%
+    Req/Sec     5.25k   132.36     6.10k    84.00%
+  313301 requests in 15.05s, 226.08MB read
+Requests/sec: 20817.55
+Transfer/sec: 15.02MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/updates?queries=20"
 Running 15s test @ http://127.0.0.1:8480/updates?queries=20
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    18.04ms  405.51us  34.55ms   90.18%
-    Req/Sec     3.56k   210.03     3.92k    54.83%
-  212561 requests in 15.04s, 153.37MB read
-Requests/sec: 14134.65
-Transfer/sec: 10.20MB
+    Latency    17.51ms  427.03us  31.68ms   86.19%
+    Req/Sec     3.66k   201.06     3.89k    68.00%
+  218270 requests in 15.04s, 157.49MB read
+Requests/sec: 14516.59
+Transfer/sec: 10.47MB
 
 $ wrk -t4 -c256 -d15s "http://127.0.0.1:8480/fortunes"
 Running 15s test @ http://127.0.0.1:8480/fortunes
   4 threads and 256 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     5.16ms  173.85us   8.98ms   95.30%
-    Req/Sec    12.46k   332.63    15.21k    77.83%
-  743675 requests in 15.04s, 0.94GB read
-Requests/sec: 49448.74
-Transfer/sec: 63.85MB
+    Latency     5.37ms  157.46us   8.97ms   93.63%
+    Req/Sec    11.97k   257.53    14.93k    75.17%
+  714842 requests in 15.03s, 0.90GB read
+Requests/sec: 47554.43
+Transfer/sec: 61.41MB

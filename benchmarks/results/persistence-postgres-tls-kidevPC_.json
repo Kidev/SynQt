@@ -1,0 +1,52 @@
+{
+    "arch": "x86_64",
+    "benchmark": "persistence-postgres",
+    "host": "Arch Linux",
+    "latency": [
+        {
+            "max": 606.497486,
+            "mean": 9.681054317000015,
+            "min": 6.837245,
+            "name": "postgres_write_autocommit",
+            "p50": 8.050611,
+            "p95": 15.035391449999999,
+            "p99": 16.01044889,
+            "samples": 1000,
+            "unit": "ms"
+        },
+        {
+            "max": 0.569046,
+            "mean": 0.12578145299999977,
+            "min": 0.0994,
+            "name": "postgres_read_point",
+            "p50": 0.1230395,
+            "p95": 0.16166,
+            "p99": 0.17781949000000002,
+            "samples": 5000,
+            "unit": "ms"
+        }
+    ],
+    "path": "postgresprovider-pool",
+    "pool_size": 4,
+    "postgres_server": "16.14 (Debian 16.14-1.pgdg13+1)",
+    "qt_version": "6.12.0",
+    "recorded": "2026-09-25T07:03:57Z",
+    "scalars": [
+        {
+            "name": "postgres_write_autocommit_rate",
+            "unit": "rows/s",
+            "value": 103.2945345884478
+        },
+        {
+            "name": "postgres_write_batched_rate",
+            "unit": "rows/s",
+            "value": 6431.4233437958665
+        },
+        {
+            "name": "postgres_session_encrypted",
+            "unit": "bool",
+            "value": 1
+        }
+    ],
+    "sslmode": "verify-full"
+}

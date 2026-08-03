@@ -5,8 +5,10 @@
 // frame, exactly the per-frame binding and scene-graph work the real client pays. The count of
 // blobs on screen ramps from a handful up to `maxBlobs` over the run, so one build sweeps frame
 // cost across "how many entities are in view" without rebuilding. A FrameAnimation samples the
-// real frame interval and hands batches to C++ (Bench.report), because qWarning reaches the WASM
-// browser console reliably where QML console.log does not in a release build.
+// real frame interval and hands every one of them to C++ in batches (Bench.report), because
+// qWarning reaches the WASM browser console reliably where QML console.log does not in a release
+// build. Every frame, not a batch average: an average of sixty frames hides exactly the stutter a
+// p95 exists to show.
 
 import QtQuick
 
@@ -19,8 +21,7 @@ Window {
 
     property int activeBlobs: 1
     property real phase: 0
-    property int sampledFrames: 0
-    property real sampledMs: 0
+    property list<real> batch: []
 
     width: 960
     height: 720
@@ -65,12 +66,10 @@ Window {
                 1 + Math.floor((elapsedTime / root.rampSeconds) * root.maxBlobs));
             root.activeBlobs = Math.max(root.activeBlobs, target);
 
-            root.sampledFrames += 1;
-            root.sampledMs += frameTime * 1000;
-            if (root.sampledFrames >= 60) {
-                Bench.report(root.activeBlobs, root.sampledMs / root.sampledFrames);
-                root.sampledFrames = 0;
-                root.sampledMs = 0;
+            root.batch.push(frameTime * 1000);
+            if (root.batch.length >= 60) {
+                Bench.report(root.activeBlobs, root.batch);
+                root.batch = [];
             }
             if (elapsedTime > root.rampSeconds + 1 && root.activeBlobs >= root.maxBlobs) {
                 Bench.finish();

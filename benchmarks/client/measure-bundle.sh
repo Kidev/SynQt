@@ -24,6 +24,12 @@ while [ $# -gt 0 ]; do
         *) echo "measure-bundle: unknown arg $1" >&2; exit 2 ;;
     esac
 done
+# A weight written to a baseline says which Qt it was built with, and only the caller knows.
+if [ -n "$OUT" ] && [ "$QT_VERSION" = "unknown" ]; then
+    echo "measure-bundle: --qt-version is required with --out (the kit's version, read from" >&2
+    echo "  <kit>/lib/cmake/Qt6/Qt6ConfigVersionImpl.cmake)" >&2
+    exit 2
+fi
 
 # The same attribution every other harness records. A weight with no machine, no Qt, and no
 # date behind it cannot be compared against a later one, which is the only thing a baseline

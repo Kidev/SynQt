@@ -1,30 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Time the build itself. Contract generation, and clean and incremental builds per entity.
+"""Time the build: contract generation, and clean and incremental builds per entity.
 
-This is the one part of the benchmarking plan that is not a measurement harness. There is
-nothing to instrument. The build steps already exist and this times around them. What it
-reports, per entity:
+* **clean**: an empty build directory to a linked artifact.
+* **no-op**: `synqt build` again with nothing changed. Should be nearly free.
+* **touched**: one QML file edited (a comment line appended, then reverted), then built
+  again. A real edit, because generated copies are rewritten only on a content change.
 
-* **clean**: an empty build directory to a linked artifact. The number a new contributor
-  or a cold CI runner waits for.
-* **no-op**: `synqt build` again with nothing changed. This should be nearly free, and
-  it is the number that says whether the build is incremental at all.
-* **touched**: one QML file edited (a comment line appended, then reverted), then build
-  again. The edit-rebuild cycle, and what `synqt dev` pays on every hot reload. It has to
-  be a real edit. The generated copy of an entity's QML is written only when the content
-  differs, so a timestamp alone changes nothing downstream.
-
-The no-op is the reason this exists. A build system that quietly
-rebuilds everything when nothing changed still passes every correctness test in the
-repository, and the only thing that catches it is a clock. Codegen runs at CMake configure
-time (`cmake/SynQtContracts.cmake`), so anything that rewrites a generated header on every
-configure invalidates every translation unit that includes it, and the cost lands on every
-edit of every day.
-
-Contract generation is timed separately, as a subprocess, because that is how the build
-invokes it. Interpreter startup included, since the build pays that too.
+Contract generation is timed separately as a subprocess, interpreter startup included, as
+the build runs it.
 
     python benchmarks/buildtime/measure.py --project examples/gavel --out results/...json
 """
@@ -46,9 +31,8 @@ from typing import Any, Dict, List, Optional
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_QT_HOST = "/opt/Qt/6.12.0/gcc_64"
 
-# This module reads the topology through `synqt.appmodel`, so it needs the CLI on the path
-# whether or not the caller put it there. `build_env()` below sets it for the subprocesses;
-# this is for the import in this process.
+# Put the CLI on the import path for `synqt.appmodel`; `build_env()` does it for the
+# subprocesses.
 sys.path.insert(0, str(REPO_ROOT / "tools" / "synqt"))
 
 
@@ -100,9 +84,24 @@ def run(command: List[str], cwd: Path, env: Dict[str, str]) -> float:
     return elapsed
 
 
+def kit_version(qt_host: str) -> str:
+    """The Qt version of the kit the builds ran on, read from the kit, never from the pin."""
+    config = Path(qt_host) / "lib" / "cmake" / "Qt6" / "Qt6ConfigVersionImpl.cmake"
+    try:
+        for line in config.read_text(encoding="utf-8").splitlines():
+            if line.startswith("set(PACKAGE_VERSION "):
+                return line.split('"')[1]
+    except (OSError, IndexError):
+        pass
+    raise SystemExit(f"cannot tell which Qt the kit at {qt_host} is (no {config})")
+
+
 def build_env(qt_host: str) -> Dict[str, str]:
     env = dict(os.environ)
     env["QT_HOST"] = qt_host
+    # The compiler cache is off for the clean build, which would otherwise measure the
+    # cache.
+    env["CCACHE_DISABLE"] = "1"
     tools = f"{REPO_ROOT / 'tools' / 'synqt'}{os.pathsep}{REPO_ROOT / 'tools' / 'synqtc'}"
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = f"{tools}{os.pathsep}{existing}" if existing else tools
@@ -110,13 +109,7 @@ def build_env(qt_host: str) -> Dict[str, str]:
 
 
 def written_contracts(project: Path, env: Dict[str, str]) -> List[Path]:
-    """Write the project's contracts the way the build does, and return the files.
-
-    A contract is not a file the author keeps: the connect point's ``export:`` block in
-    ``synqt.yaml`` is the contract, and the build writes it out under ``generated/``
-    before the compiler ever sees it. So the files are produced here first, into the
-    project itself, exactly where a build puts them.
-    """
+    """Write the project contracts under ``generated/`` as the build does, and return the files."""
     script = (
         "import json, sys, yaml\n"
         "from synqt import contractgen\n"
@@ -185,14 +178,8 @@ def first_qml(project: Path, entity: Dict[str, str]) -> Optional[Path]:
 
 
 def time_one_edit(qml: Path, command: List[str], env: Dict[str, str]) -> float:
-    """Append a comment line to `qml`, time the rebuild, and put the file back.
-
-    It has to be a real edit. `synqt build` copies an entity's QML into ``generated/``
-    through `synqt.writer.write_if_changed`, which compares content, so moving a
-    timestamp alone leaves the generated copy untouched and correctly rebuilds nothing;
-    a `touch()` here measured 0.1 s and would have reported it as the edit-rebuild cycle.
-    The file is restored byte for byte afterwards, and the generated copy follows on the
-    next build.
+    """Append a comment line to `qml`, time the rebuild, and restore the file byte for byte. A
+    timestamp alone would not change the generated copy.
     """
     original = qml.read_bytes()
     try:
@@ -246,9 +233,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         action="store_true",
         help="also build the WebAssembly client (needs the Emscripten kit; several minutes)",
     )
-    # `synqt build` defaults to --release (cli.py), so the report says release unless
-    # asked otherwise. Recording the wrong configuration would make two baselines look
-    # comparable when they measured different builds.
+    # Record the configuration that was built.
     parser.add_argument("--debug", action="store_true", help="build debug rather than release")
     parser.add_argument(
         "--qt-host", default=os.environ.get("QT_HOST", DEFAULT_QT_HOST), help="Qt kit path"
@@ -285,8 +270,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         "project": args.project,
         "host": host_label(),
         "arch": platform.machine(),
-        "qt_version": "6.12.0",
+        "qt_version": kit_version(args.qt_host),
         "cpus": os.cpu_count(),
+        "compiler_cache": "bypassed",
         "configuration": "debug" if args.debug else "release",
         "recorded": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "latency": [generation],
