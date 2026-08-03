@@ -109,6 +109,14 @@ a time, and each idea is explained as you use it rather than up front.
 
     [:octicons-arrow-right-24: Start this tutorial](tutorial-remote-pages.md)
 
+-   :material-rocket-launch: __Shipping it__
+
+    Take a finished project off your machine: a pipeline that refuses a bad push, the
+    private authority your entities trust, where every file goes on a host, and what a
+    release, a rollback and a signed desktop app actually involve.
+
+    [:octicons-arrow-right-24: Start this tutorial](tutorial-ship.md)
+
 </div>
 
 Writing a provider for an engine SynQt has no support for is its own track:

@@ -182,6 +182,12 @@ nav:
           - Build it: tutorial-remote-pages-build.md
           - Lighter and live: tutorial-remote-pages-live.md
           - Links that work: tutorial-remote-pages-urls.md
+      - Shipping it:
+          - Overview: tutorial-ship.md
+          - The pipeline that says no: tutorial-ship-pipeline.md
+          - Two authorities: tutorial-ship-certificates.md
+          - Where the binaries go: tutorial-ship-hosts.md
+          - Cutting a release: tutorial-ship-release.md
       - Advanced:
           - Overview: tutorial-advanced.md
           - A database of your own: tutorial-advanced-database.md
