@@ -15,8 +15,10 @@
 #include "websockettransport.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -93,9 +95,39 @@ void tst_PageStore::contractLowersToAUsablePod()
 
 namespace {
 
+// Make a write to path a change QFileSystemWatcher is able to report.
+//
+// The Windows engine compares neither content nor size. It keeps the QFileInfo it stat'ed
+// when the path was added, re-stats on every notification, and reports a change only when
+// the owner, the group, the permissions or the modification time moved
+// (qfilesystemwatcher_win_p.h, PathInfo::operator!=). A modification time comes from the
+// system clock, whose granularity is one timer tick, around 15 ms. A test that writes a
+// page, builds a store around it and rewrites it inside one tick leaves both stamps equal,
+// so Qt delivers nothing however many notifications the operating system produced, and the
+// wait that follows can only time out. That is a fixture problem rather than a store one:
+// nobody editing a file in an editor saves twice inside one tick.
+//
+// So move the stamp on when the write itself did not. A second is far past any clock
+// granularity and still well inside the store's quiet window.
+void moveTheModificationStamp(const QString &path, const QDateTime &before)
+{
+    if (!before.isValid() || QFileInfo{path}.lastModified() != before) {
+        return;
+    }
+    QFile file{path};
+    if (!file.open(QIODevice::ReadWrite)) {
+        qWarning("could not restamp %s: %s", qPrintable(path), qPrintable(file.errorString()));
+        return;
+    }
+    file.setFileTime(before.addSecs(1), QFileDevice::FileModificationTime);
+    file.close();
+}
+
 QString writePage(const QDir &dir, const QString &name, const QByteArray &body)
 {
-    QFile file{dir.filePath(name)};
+    const QString path{dir.filePath(name)};
+    const QDateTime before{QFileInfo{path}.lastModified()};
+    QFile file{path};
     if (!file.open(QIODevice::WriteOnly)) {
         // Silence here buys a five-second wait for a change that was never written, and
         // a failure that names the wait rather than the cause.
@@ -105,6 +137,7 @@ QString writePage(const QDir &dir, const QString &name, const QByteArray &body)
     }
     file.write(body);
     file.close();
+    moveTheModificationStamp(path, before);
     return name;
 }
 
@@ -120,12 +153,17 @@ QString writePage(const QDir &dir, const QString &name, const QByteArray &body)
 // does too, and say so rather than pretend the replace happened.
 bool replacePage(const QDir &dir, const QString &name, const QByteArray &body)
 {
+    const QString target{dir.filePath(name)};
+    const QDateTime before{QFileInfo{target}.lastModified()};
     const QString temporaryName{name + QStringLiteral(".tmp")};
     if (writePage(dir, temporaryName, body).isEmpty()) {
         return false;
     }
-    const QString target{dir.filePath(name)};
     const QString temporary{dir.filePath(temporaryName)};
+    // A rename carries the sibling's modification time onto the watched path, so the
+    // one-tick collision above applies here too: stamp the sibling before it takes the
+    // name, while it is still a file of its own.
+    moveTheModificationStamp(temporary, before);
     constexpr int attempts{40};
     for (int attempt{0}; attempt < attempts; ++attempt) {
         // Split rather than chained: a remove that succeeded must not be retried, or the
