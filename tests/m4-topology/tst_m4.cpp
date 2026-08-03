@@ -223,6 +223,15 @@ private slots:
                                                         QStringLiteral("thing"))) != nullptr);
         QTRY_COMPARE(replica->property("value").toInt(), 42);
 
+        // A receiver attached to the Replica by name, which is how C++ that adopts one
+        // has to do it (a dynamic Replica builds its metaobject at runtime, so
+        // SessionManager and IdentityProvider both connect through SIGNAL()). Kept alive
+        // across the reconnect on purpose: retiring the link destroys that metaobject
+        // under a receiver still holding a connection to it, and that ordering is the
+        // thing to prove safe, not something to find out in an edge at three in the
+        // morning.
+        auto watcher{std::make_unique<QSignalSpy>(replica, SIGNAL(valueChanged(int)))};
+
         // The owner goes away, taking the link with it.
         QSignalSpy readySpy{&runtimeB, &EntityRuntime::consumedReplicaReady};
         QObject *const before{replica};
