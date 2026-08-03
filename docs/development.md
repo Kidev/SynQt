@@ -156,6 +156,15 @@ five commits without ever running.
 | [`remote-pages`](https://github.com/Kidev/SynQt/tree/main/tests/remote-pages)           | The framework's own `Pages` connect point and its page store. |
 | [`entity-test`](https://github.com/Kidev/SynQt/tree/main/tests/entity-test)            | The `SynQt.Test` harness an application's own QML tests use, driven against a Source written the way an application writes one. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
+| [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which is what makes `split_origin` a measurement rather than folklore. No Qt at all: two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
+
+One directory there is not a suite.
+[`tests/local-network`](https://github.com/Kidev/SynQt/tree/main/tests/local-network) is the
+rig the browser policy suites need: two names, a loopback address each, and a development
+web CA, because a browser answers a cross site question only when it believes it is talking
+to two different sites. `local-network.sh up` puts it in place and `down` takes it back out.
+[`tests/lib`](https://github.com/Kidev/SynQt/tree/main/tests/lib) is likewise shared shell
+helpers rather than a suite.
 
 To run everything, point `QT_HOST` at your Qt 6.11.1 host kit and run the tree:
 

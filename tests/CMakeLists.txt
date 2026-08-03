@@ -80,6 +80,29 @@ if(_synqt_unlisted)
         "SYNQT_SUITES_ELSEWHERE with the reason it is out.")
 endif()
 
+# The same argument, one level out. docs/development.md catalogues these suites for whoever
+# is about to work on one, and that table is a second hand-maintained list, so it drifts the
+# same way: split-origin ran in CI for weeks while the page it should have been on had never
+# heard of it. A registered suite has to be findable by a reader, not only by ctest.
+set(_synqt_dev_docs "${CMAKE_CURRENT_SOURCE_DIR}/../docs/development.md")
+if(EXISTS "${_synqt_dev_docs}")
+    file(READ "${_synqt_dev_docs}" _synqt_dev_docs_text)
+    set(_synqt_undocumented "")
+    foreach(_synqt_suite IN LISTS SYNQT_HOST_SUITES SYNQT_SCRIPT_SUITES SYNQT_SUITES_ELSEWHERE)
+        string(FIND "${_synqt_dev_docs_text}" "tests/${_synqt_suite})" _synqt_found)
+        if(_synqt_found EQUAL -1)
+            list(APPEND _synqt_undocumented "${_synqt_suite}")
+        endif()
+    endforeach()
+    if(_synqt_undocumented)
+        list(JOIN _synqt_undocumented " " _synqt_undocumented_text)
+        message(FATAL_ERROR
+            "suites this tree runs that docs/development.md never mentions: "
+            "${_synqt_undocumented_text}\n"
+            "Add a row to its test suite table saying what each one proves.")
+    endif()
+endif()
+
 # Publish the script suites for whoever runs the tree, so a workflow does not keep a second
 # copy of this list and drift from it. The guard above is what makes this file the registry;
 # this line is what lets CI read the registry instead of restating it.
