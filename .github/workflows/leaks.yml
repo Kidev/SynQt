@@ -1,0 +1,172 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Ask every suite in the tree what it left behind.
+#
+# The cheap half of the memory story already runs on every push: tests/memory is an ordinary
+# ctest suite in ctest.yml, and it is the gate that matters, because it measures the leak
+# class this framework actually has. Every leak found here so far was *reachable* at exit (a
+# promise still on a facade, a retired node still parented, a map never pruned), which is
+# precisely what a leak checker does not report. So that suite takes one long-lived object,
+# repeats a cycle against it, and requires the heap to come back where it started.
+#
+# This workflow is the expensive half, and it covers the rest of the tree rather than the
+# four paths tst_memory was written for:
+#
+#   soak      every suite run at two repeat counts, comparing peak resident set. This sees
+#             memory the process is still holding on purpose, which is what a leak in a
+#             long-running entity looks like from outside.
+#   sanitize  the same suites rebuilt with AddressSanitizer, with every leak LeakSanitizer
+#             reports charged to whoever allocated it. This sees memory nothing points at
+#             any more, and it fails the run when a record belongs to src/.
+#
+# Both are tests/memory/run-leakcheck.sh, the same command a developer runs locally, so this
+# workflow holds no copy of the rules; see docs/development.md.
+#
+# It is not on every push because the sanitize pass rebuilds the whole tree instrumented and
+# then runs every suite two to three times slower. Weekly, on demand, and whenever the
+# runtime libraries or the harness itself change.
+
+name: "[TEST] Look for what the suites leak"
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday 05:00 UTC, an hour after the benchmark run so the two do not contend for
+    # whatever capacity a shared runner has.
+    - cron: "0 5 * * 0"
+  push:
+    paths:
+      - "src/**"
+      - "tests/memory/**"
+      - ".github/workflows/leaks.yml"
+
+concurrency:
+  group: leaks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep this SHA in step with ctest.yml, benchmarks.yml and browser-matrix.yml; the note in
+  # browser-matrix.yml explains why aqtinstall comes from the repository at a pinned commit.
+  AQT_COMMIT: "9e49c82edc6d946db376dec907cca5b4b486eec5"
+
+jobs:
+  leaks:
+    name: leaks (linux)
+    runs-on: ubuntu-latest
+    # An instrumented rebuild of the whole tree plus three passes over every suite. This is
+    # the blast radius of a hang, not the expected cost.
+    timeout-minutes: 90
+    env:
+      QT_VERSION: "6.11.1"
+      QT_ROOT: ${{ github.workspace }}/Qt
+      QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree"
+      JWT_CPP_VERSION: "v0.7.2"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install the CLI's Python dependencies
+        run: python -m pip install --upgrade pip && python -m pip install pyyaml
+
+      - name: Install build tools (CMake + Ninja)
+        uses: lukka/get-cmake@latest
+
+      - name: Install the native dependencies Qt needs to configure
+        # The same set the Linux ctest column installs, for the same reasons given there:
+        # OpenSSL for the mesh transport, libgl1-mesa-dev because Qt6GuiConfig hard-requires
+        # WrapOpenGL, and the three optional engine clients that decide whether the redis,
+        # mongodb and postgres providers are compiled in at all. They are installed here so
+        # this pass covers the same code the ctest column does.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libgl1-mesa-dev \
+              libhiredis-dev libmongoc-dev libpq-dev
+
+      - name: Provide jwt-cpp headers
+        run: |
+          set -eu
+          git clone --depth 1 --branch "$JWT_CPP_VERSION" \
+            https://github.com/Thalhammer/jwt-cpp "$RUNNER_TEMP/jwt-cpp"
+          echo "JWT_CPP_INCLUDE_DIR=$RUNNER_TEMP/jwt-cpp/include" >> "$GITHUB_ENV"
+
+      - name: Cache the Qt kit
+        id: qt-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-leaks-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/leaks.yml') }}
+
+      - name: Install aqtinstall
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install \
+            "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@${{ env.AQT_COMMIT }}"
+
+      - name: Install the Qt host kit and its add-on modules
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          kit="$QT_ROOT/$QT_VERSION/gcc_64"
+          python -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 --outputdir "$QT_ROOT"
+          for m in $QT_MODULES; do
+            python -m aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+              -m "$m" --outputdir "$QT_ROOT" \
+              || echo "prebuilt $m unavailable; will try a source build"
+          done
+
+          pkg_for() {
+            case "$1" in
+              qtwebsockets)    echo Qt6WebSockets ;;
+              qtremoteobjects) echo Qt6RemoteObjects ;;
+              qthttpserver)    echo Qt6HttpServer ;;
+              qtnetworkauth)   echo Qt6NetworkAuth ;;
+              qttasktree)      echo Qt6TaskTree ;;
+            esac
+          }
+          for m in $QT_MODULES; do
+            pkg="$(pkg_for "$m")"
+            if [ -z "$pkg" ]; then
+              echo "::error::QT_MODULES lists '$m' but pkg_for() has no package name for it"
+              exit 1
+            fi
+            if [ -f "$kit/lib/cmake/$pkg/${pkg}Config.cmake" ]; then
+              echo "$m present ($pkg)"
+              continue
+            fi
+            echo "$m missing; building it from source into the kit"
+            python -m aqt install-src linux "$QT_VERSION" --archives "$m" --outputdir "$QT_ROOT"
+            "$kit/bin/qt-cmake" -S "$QT_ROOT/$QT_VERSION/Src/$m" -B "$RUNNER_TEMP/$m-build" \
+              -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$kit"
+            cmake --build "$RUNNER_TEMP/$m-build"
+            cmake --install "$RUNNER_TEMP/$m-build"
+          done
+
+      - name: Configure the tree the soak pass measures
+        # run-leakcheck.sh builds what is already configured rather than choosing a
+        # configuration of its own, so that the numbers it reports are about the same binaries
+        # a developer just ran. Configuring here keeps that true on a fresh runner.
+        env:
+          QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/gcc_64
+        run: |
+          cmake -S . -B build/all -G Ninja \
+            -DCMAKE_PREFIX_PATH="$QT_HOST" -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Soak, then sanitize
+        env:
+          QT_HOST: ${{ env.QT_ROOT }}/${{ env.QT_VERSION }}/gcc_64
+        run: bash tests/memory/run-leakcheck.sh
+
+      - name: Keep the sanitizer logs
+        # The classifier prints a summary; these are the records behind it, and they are the
+        # only way to read a failure after the runner is gone.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: leakcheck-logs
+          path: build/leakcheck/leaks/
+          if-no-files-found: warn

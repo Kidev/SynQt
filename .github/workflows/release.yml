@@ -29,7 +29,7 @@
 # registry) in the environment it was built in, so the Linux artifact is exercised ON its glibc
 # floor, which is the point of building it there.
 
-name: Publish a release of the synqt CLI
+name: "[RELEASE] Publish a release of the synqt CLI"
 
 on:
   workflow_dispatch:

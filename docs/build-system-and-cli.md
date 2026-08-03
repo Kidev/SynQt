@@ -367,7 +367,13 @@ Each library and each test suite is its own CMake project that finds Qt through
 ## Continuous integration
 
 The GitHub Actions workflows under [`.github/workflows/`](https://github.com/Kidev/SynQt/tree/main/.github/workflows) cover the framework across the
-operating systems it supports. Each is scoped to what it can prove on a hosted runner:
+operating systems it supports. Each is scoped to what it can prove on a hosted runner.
+
+Every workflow name begins with a tag, so the checks list on a pull request groups by what
+the run is for rather than by whoever named the file: `[TEST]` for anything that asserts
+correctness, `[BENCH]` for the performance harnesses, `[DOCS]` for this site, `[RELEASE]`
+for the published CLI and its installer, and `[CONTRIB]` for the contributor bookkeeping
+(the CLA check and the AUTHORS regeneration).
 
 - [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) runs the pure Python suites (the `synqt` CLI and the `synqtc` generator)
   on Linux, macOS, and Windows on every push and pull request. They assert on the
@@ -396,6 +402,16 @@ operating systems it supports. Each is scoped to what it can prove on a hosted r
   bundle. That last one is the only job that drives the CLI through an Emscripten client
   build, so it asserts the artifacts rather than the exit code: a build that skips
   compilation still succeeds and says so in its summary.
+- [`leaks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/leaks.yml) asks every suite in the tree what it left behind, in the two ways a
+  leak shows itself: a soak pass that runs each suite at two repeat counts and compares the
+  peak resident set, and an AddressSanitizer pass that charges every leak LeakSanitizer
+  reports to whoever allocated it and fails when a record belongs to `src/`. The cheap half
+  of that story is not here: `tests/memory` is an ordinary ctest suite and runs on every
+  push, and it is the gate that matters, because it measures the leak class this framework
+  actually has (memory still reachable at exit, which a leak checker never reports).
+- [`benchmarks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/benchmarks.yml) runs the performance harnesses weekly and holds their output to
+  the ratios and orderings [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) claims, never to absolute numbers
+  measured on another machine.
 - [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) builds and publishes this documentation site on a push to `main`;
   [`check-get-installer.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/check-get-installer.yml) guards that the get.synqt.org installer and its index copy
   stay identical.

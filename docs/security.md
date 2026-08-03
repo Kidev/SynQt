@@ -504,7 +504,7 @@ page protects the page's markup, never the data the page later reads.
   issue entity certs (on a developer machine or in a CI secret store), never shipped
   to a running entity, and never committed. A running entity holds only its own
   cert and key plus the CA certificate to verify peers. Entity private keys live in
-  `synqt/mesh/<entity>/` with restrictive permissions and are git ignored.
+  `synqt/mesh/` as `<entity>.key`, with restrictive permissions, and are git ignored.
 - Secrets are never logged. The logging layer redacts known secret keys and never
   logs authorization headers, cookies, tokens, or certificate private material.
 

@@ -56,7 +56,7 @@
 # compile path is now real evidence and the run path is not. Treat the first green Windows
 # column as the first evidence that these suites run on Windows at all.
 
-name: Build and test the C++ runtime
+name: "[TEST] Build and test the C++ runtime"
 
 on:
   workflow_dispatch:
