@@ -16,7 +16,8 @@ from pathlib import Path
 
 import yaml
 
-from synqt import check, clientbuild, doctor, maingen, newproject, presets, toolchain
+from synqt import (check, clientbuild, cmakegen, doctor, maingen, newproject, presets,
+                   toolchain)
 
 
 def _single():
@@ -139,6 +140,74 @@ class ValidationTest(unittest.TestCase):
         ok, messages = check.validate(config)
         self.assertTrue(ok, messages)
         self.assertFalse(any("cross-origin" in m for m in messages))
+
+
+class AsyncifyTest(unittest.TestCase):
+    """``build.client_asyncify``: the opt-in that gives the WebAssembly client's posted
+    events a second delivery path, at the cost of about a third more bundle.
+
+    It is off and unwritten by default, which is exactly why it needs pinning: an option
+    nothing scaffolds is an option nothing exercises, and a link flag that silently stops
+    being emitted looks identical to one that works.
+    """
+
+    def _client_cmake(self, config):
+        root = Path(tempfile.mkdtemp())
+        (root / "client").mkdir()
+        (root / "client" / "Main.qml").write_text("import QtQuick\nWindow { }\n")
+        return cmakegen.render_root_cmakelists(config, "/synqt", root)
+
+    def test_off_by_default(self):
+        self.assertFalse(clientbuild.client_asyncify(_single()))
+        self.assertNotIn("ASYNCIFY", self._client_cmake(_single()))
+
+    def test_on_emits_the_link_options(self):
+        config = _single()
+        config["build"] = {"client_asyncify": True}
+        self.assertTrue(clientbuild.client_asyncify(config))
+        text = self._client_cmake(config)
+        self.assertIn("-sASYNCIFY", text)
+        # Emscripten's recommended pairing, and a stack deep enough for Qt's dispatch
+        # stack to sit above the suspend point.
+        self.assertIn("-sASYNCIFY_STACK_SIZE=131072", text)
+        self.assertIn("-Os", text)
+
+    def test_the_flags_stay_inside_the_emscripten_branch(self):
+        # A desktop client build must not see them: asyncify is an Emscripten link-time
+        # transform and the native kit has no such option.
+        config = _single()
+        config["build"] = {"client_asyncify": True}
+        text = self._client_cmake(config)
+        emscripten = text.index("if(EMSCRIPTEN)")
+        self.assertGreater(text.index("-sASYNCIFY"), emscripten)
+        self.assertGreater(text.index("endif()", emscripten), text.index("-sASYNCIFY"))
+
+    def test_a_non_boolean_is_an_error(self):
+        # "false" is truthy in Python, so a string here would quietly link the expensive
+        # build. Catch it rather than let the bundle grow by a third in silence.
+        config = _single()
+        config["build"] = {"client_asyncify": "false"}
+        ok, messages = check.validate(config)
+        self.assertFalse(ok)
+        self.assertTrue(any("client_asyncify must be" in m for m in messages))
+
+    def test_on_warns_about_the_cost_without_failing(self):
+        config = _single()
+        config["build"] = {"client_asyncify": True}
+        ok, messages = check.validate(config)
+        self.assertTrue(ok, messages)
+        self.assertTrue(any(m.startswith("warn:") and "client_asyncify" in m
+                            for m in messages))
+
+    def test_doctor_reports_it_only_when_on(self):
+        parent = Path(tempfile.mkdtemp())
+        newproject.scaffold(parent, "app")
+        root = parent / "app"
+        self.assertNotIn("asyncify", doctor.report(root))
+        config = yaml.safe_load((root / "synqt.yaml").read_text())
+        config.setdefault("build", {})["client_asyncify"] = True
+        (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+        self.assertIn("asyncify is on", doctor.report(root))
 
 
 class ToolchainAndDoctorTest(unittest.TestCase):

@@ -60,6 +60,31 @@ def cross_origin_isolation(config: Dict[str, Any]) -> bool:
     return bool((config.get("security") or {}).get("cross_origin_isolation", False))
 
 
+def client_asyncify(config: Dict[str, Any]) -> bool:
+    """Whether the WebAssembly client links with Emscripten's asyncify (``build.client_asyncify``).
+
+    Off by default, and it should stay off for most projects: it costs about a third more
+    bundle over the wire, plus a run-time cost on every instrumented call.
+
+    What it buys is a second delivery path for posted events. ``QEventDispatcherWasm`` has
+    two shapes and picks between them at run time from ``qstdweb::haveAsyncify()``, which
+    probes the Emscripten runtime rather than reading a Qt build option, so this is a link
+    flag on the application and needs no change to the Qt kit. Without asyncify the main
+    thread cannot block: ``exec()`` returns to the browser and ``processEvents()`` afterwards
+    runs only when the zero-delay wakeup timer fires, which makes that one browser callback a
+    single point of failure for every ``deleteLater()`` and every queued connection in the
+    page. With asyncify the main thread suspends inside ``processEvents()`` and any handler
+    at all resumes it, after which the posted queue is swept again.
+
+    SynQt does not need this to be correct: the framework resolves returning-slot replies
+    from the call's own state (``src/consumer/promise.cpp``) and defers deletion through a
+    timer rather than a posted event (``SynQt::deleteSoon``). It is here for an application
+    that puts its own queued connections on that path and wants the platform to be sound
+    underneath them. See tests/m0-transport/FIREFOX-LINUX.md for the measurement.
+    """
+    return bool((config.get("build") or {}).get("client_asyncify", False))
+
+
 def wasm_kit(config: Dict[str, Any]) -> str:
     """The Qt for WebAssembly kit the client links: the multithread kit provides the
     ``-pthread`` runtime and SharedArrayBuffer heap; the singlethread kit does not."""

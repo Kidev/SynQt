@@ -126,6 +126,19 @@ def validate(config: Dict[str, Any], *, release: bool = False,
             "warn: build.client_threads is 'multi', which forces cross-origin isolation on; "
             "security.cross_origin_isolation: false is overridden to true")
 
+    # Asyncify is a link-time choice with a real download cost, so say so rather than let it
+    # be turned on and forgotten. It is a boolean; a string is the mistake worth catching,
+    # because "false" is truthy in Python and would silently link the expensive build.
+    asyncify = (config.get("build") or {}).get("client_asyncify")
+    if asyncify is not None and not isinstance(asyncify, bool):
+        messages.append(
+            f"error: build.client_asyncify must be true or false, not '{asyncify}'")
+    elif asyncify:
+        messages.append(
+            "warn: build.client_asyncify is on; the client links with asyncify, which costs "
+            "roughly a third more bundle over the wire and instruments every call that can "
+            "suspend. SynQt does not need it (see docs/project-layout-and-config.md)")
+
     # Where the client sends diagnostic output (build.client_logging). Unset is fine: the
     # client defaults to console in a debug build and drops debug output in a release build.
     logging_mode = (config.get("build") or {}).get("client_logging")

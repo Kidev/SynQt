@@ -20,7 +20,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import appmodel
+from . import appmodel, clientbuild
 
 _HEADER_CMAKE = ("# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                  "# SPDX-License-Identifier: Apache-2.0\n")
@@ -205,8 +205,18 @@ def _client_cmake(config: Dict[str, Any], client: Dict[str, Any], uri: str,
               "if(EMSCRIPTEN)",
               "    # Read window.location through Embind (no eval) and drop the eval-based",
               "    # Emscripten runtime, so the edge's strict CSP (no 'unsafe-eval') holds.",
-              f'    target_link_options({name} PRIVATE "-lembind" "-sDYNAMIC_EXECUTION=0")',
-              "endif()"]
+              f'    target_link_options({name} PRIVATE "-lembind" "-sDYNAMIC_EXECUTION=0")']
+    if clientbuild.client_asyncify(config):
+        lines += [
+            "    # build.client_asyncify: link with asyncify, so the main thread suspends",
+            "    # inside processEvents() and any browser event drives a posted-event sweep,",
+            "    # instead of the single zero-delay wakeup callback being the only one that",
+            "    # can. -Os is Emscripten's own recommendation for asyncify, and the stack is",
+            "    # raised from the 4 KB default because the suspend point sits under the whole",
+            "    # Qt event-dispatch stack.",
+            f'    target_link_options({name} PRIVATE',
+            '        "-sASYNCIFY" "-sASYNCIFY_STACK_SIZE=131072" "-Os")']
+    lines += ["endif()"]
     lines += _macos_bundle_cmake(config, name)
     lines += _linux_rpath_cmake(name)
     return lines

@@ -772,6 +772,7 @@ native entity binaries take their settings from the CMake build type alone.
 ```yaml
 build:
   client_threads: single    # single (default) or multi
+  client_asyncify: false    # default; see below before turning it on
   client_logging: console   # console | qt | none (see below; default is build-type driven)
   client_cache: service_worker  # service_worker (default) | http (see below)
   loading:                  # the page shown while the client loads (see below)
@@ -792,6 +793,32 @@ debug and info; keep warnings and above, so nothing debug-level ships to end
 users). When the key is unset the client defaults to `console` in a debug build
 and `none` in a release build, so logging works in `synqt dev` and is stripped
 from the shipped bundle automatically.
+
+`client_asyncify` (default `false`, not written into a scaffolded project) links
+the WebAssembly client with Emscripten's asyncify. Most projects should leave it
+alone, because it costs roughly a third more bundle over the wire and instruments
+every call that can suspend.
+
+What it changes is the platform underneath your code. Qt's WebAssembly event
+dispatcher has two shapes and picks one at run time by probing the Emscripten
+runtime, so this is a link flag on your client and needs no change to the Qt kit.
+Without asyncify the main thread cannot block: `exec()` hands control back to the
+browser, and the queue behind `deleteLater()` and every `Qt::QueuedConnection` is
+drained only when one zero-delay browser callback fires. If that callback is ever
+lost, nothing re-arms it and the queue stays undrained for the life of the page,
+in an application whose timers, sockets and property updates all go on working.
+With asyncify the main thread suspends inside `processEvents()` and any browser
+event at all resumes it and sweeps the queue, so no single callback is load
+bearing. Asyncify also lets `QEventLoop::exec()` run on the main thread, which
+otherwise calls `qFatal()`.
+
+SynQt does not need it to be correct. The framework resolves a returning-slot
+reply from the call's own state rather than from a queued signal, and defers
+object deletion through a timer rather than a posted event, so nothing the
+framework does depends on that one callback. Turn it on if your own client C++
+puts queued connections on that path and you would rather pay the bundle than
+audit them. The measurement, in both engines, is in
+[`tests/m0-transport/FIREFOX-LINUX.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/FIREFOX-LINUX.md).
 
 ### `check`
 
