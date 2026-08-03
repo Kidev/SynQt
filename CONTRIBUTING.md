@@ -77,6 +77,16 @@ everywhere, without exception:
 Also: no exceptions and no RTTI (`dynamic_cast`/`typeid`); `Q_OBJECT` in every QObject
 subclass; `override` (not `virtual`) when reimplementing; keep lines under 100 columns.
 
+The language is C++20, and **warnings are errors**: `-Wall -Wextra -Werror` for GCC and
+Clang, `/W4 /WX /permissive-` for MSVC and `clang-cl`. Both come from
+[cmake/SynQtBuildFlags.cmake](cmake/SynQtBuildFlags.cmake), which every `CMakeLists.txt`
+here includes and which `synqt build` writes into the CMake it generates for an
+application. Rule 2 above matters more than it looks because of this: a narrowing
+conversion inside brace initialization is a hard error under Clang and MSVC and only a
+warning under GCC, so `int index{string.indexOf(...)}` compiles on Linux and breaks the
+macOS and Windows columns. Building the tree once with `-DCMAKE_CXX_COMPILER=clang++`
+catches that whole class locally.
+
 Document a class or a member with a `///` block directly above its declaration, or a
 member with a `///<` comment after it: those reach the
 [generated C++ reference](https://synqt.org/api/), whose conventions and local build are
