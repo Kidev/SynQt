@@ -49,11 +49,11 @@ SessionManager::SessionManager(QString defaultScope, int ttlMinutes, QObject *pa
     , m_defaultScope{std::move(defaultScope)}
     , m_ttlMs{static_cast<qint64>(ttlMinutes) * 60 * 1000}
 {
-    if (m_ttlMs > 0) {
-        m_sweepTimer = new QTimer{this};
-        connect(m_sweepTimer, &QTimer::timeout, this, [this]() { purgeExpired(); });
-        m_sweepTimer->start(kSweepIntervalMs);
-    }
+    // Unconditional: with no TTL there are no sessions to reclaim, but there are still
+    // rotations, which expire on a clock of their own.
+    m_sweepTimer = new QTimer{this};
+    connect(m_sweepTimer, &QTimer::timeout, this, [this]() { purgeExpired(); });
+    m_sweepTimer->start(kSweepIntervalMs);
 }
 
 void SessionManager::emitUpsert(const SessionRecord &record)
@@ -119,6 +119,10 @@ QByteArray SessionManager::setScope(const QByteArray &id, const QString &scope,
     record.createdMs = QDateTime::currentMSecsSinceEpoch();
     m_sessions.insert(record.id, record);
     trackExpiry(record);
+    // The browser is still holding the id this one replaced, in a cookie nothing on the
+    // live connection can rewrite. Remember what it became, so the next page load hands
+    // the visitor their new credential instead of a fresh anonymous session.
+    m_rotations.insert(id, Rotation{record.id, record.createdMs});
     emitUpsert(record);
     emit sessionRemoved(QString::fromLatin1(id));
     if (m_remote) {
@@ -131,6 +135,18 @@ QByteArray SessionManager::setScope(const QByteArray &id, const QString &scope,
                                   Q_ARG(QString, QString::fromLatin1(id)));
     }
     return record.id;
+}
+
+QByteArray SessionManager::rotationOf(const QByteArray &id) const
+{
+    const auto entry{m_rotations.constFind(id)};
+    if (entry == m_rotations.constEnd()
+        || QDateTime::currentMSecsSinceEpoch() - entry->atMs > RotationGraceMs) {
+        return QByteArray{};
+    }
+    // Only while the session it points at is still there: a rotation to a session that
+    // has since expired or been revoked is not a credential to hand anyone.
+    return isLive(entry->to) ? entry->to : QByteArray{};
 }
 
 void SessionManager::revoke(const QByteArray &id)
@@ -214,10 +230,20 @@ void SessionManager::trackExpiry(const SessionRecord &record)
 
 void SessionManager::purgeExpired()
 {
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+    // Rotations expire on their own clock, whether or not sessions have a TTL: they are a
+    // hand-off for one page load, not a session, and each one is a few dozen bytes kept
+    // for a visitor who may never come back.
+    for (auto it{m_rotations.begin()}; it != m_rotations.end();) {
+        if (now - it->atMs > RotationGraceMs) {
+            it = m_rotations.erase(it);
+        } else {
+            ++it;
+        }
+    }
     if (m_ttlMs <= 0) {
         return;
     }
-    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
     // Drain only the front of the insertion-ordered queue while it is past the TTL. Locally
     // created records are appended in non-decreasing createdMs order, so the first entry that
     // is still live means the rest are too and we stop; amortized O(1) per create instead of

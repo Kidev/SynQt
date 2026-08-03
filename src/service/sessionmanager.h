@@ -56,6 +56,21 @@ public:
     QByteArray setScope(const QByteArray &id, const QString &scope,
                         const QVariantMap &identity = QVariantMap());
 
+    /// The id a rotated-away credential became, while that is still worth knowing.
+    ///
+    /// Rotating on elevation is only half an exchange: the new id reaches the connection
+    /// that asked for it, and the browser goes on holding the old one in a cookie no
+    /// slot call can rewrite (it is httpOnly, and a WebSocket sets no headers). Without
+    /// this, `Caller.setScope()` in a slot would sign the visitor out on their next page
+    /// load, losing the elevation and the sign-in with it.
+    ///
+    /// What is returned is a redirection, never an authorization: the old id is gone from
+    /// the table, isLive() is false for it, and no upgrade, call or lookup accepts it.
+    /// The only thing it can still do is tell the edge which cookie to put in its place,
+    /// which is exactly what the browser that was holding it needs. Kept for
+    /// RotationGraceMs, since a page load is the event that consumes it.
+    QByteArray rotationOf(const QByteArray &id) const;
+
     void revoke(const QByteArray &id);
 
     QString defaultScope() const;
@@ -96,6 +111,12 @@ signals:
     void sessionExpired(const QString &token);
 
 private:
+    /// How long a rotated-away id can still name its replacement. Long enough that a
+    /// visitor whose scope changed mid-session gets the new cookie on their next page
+    /// load or refresh, short enough that it is not a second credential anyone can hold
+    /// on to. It authorizes nothing on its own either way (see rotationOf).
+    static constexpr qint64 RotationGraceMs{10 * 60 * 1000};
+
     QByteArray newToken() const;
     void trackExpiry(const SessionRecord &record);
     void purgeExpired();
@@ -120,6 +141,15 @@ private:
     /// arrives. lookup() never returns an expired session either way; this is about the
     /// memory, and about the tokens released with the record.
     QTimer *m_sweepTimer{nullptr};
+    /// Rotated-away id -> what it became, and when. Not sessions: entries here are
+    /// consulted only to re-cookie the browser still holding the old id (see rotationOf),
+    /// and are dropped by the same sweep that reclaims expired sessions.
+    struct Rotation
+    {
+        QByteArray to;
+        qint64 atMs{0};
+    };
+    QHash<QByteArray, Rotation> m_rotations;
     QString m_defaultScope;
     qint64 m_ttlMs;
     QPointer<QObject> m_remote; ///< the Session Replica when this is an edge cache

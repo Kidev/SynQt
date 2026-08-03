@@ -303,7 +303,7 @@ without any ambient global.
 | `Caller.identity` | `isUser` | object \| null | the caller's normalized identity (same fields as [`Session.identity`](#client-session)), or `null` if anonymous. |
 | `Caller.scope` | `isUser` | string \| list | the caller's scope. |
 | `Caller.hasScope(name)` | `isUser` | bool | whether the caller holds `name` (hierarchical where configured). |
-| `Caller.setScope(scope)` | `isUser` | action | set the session's scope. Used by the identity flow after login; rotates the session id on privilege change. |
+| `Caller.setScope(scope)` | `isUser` | action | set the session's scope. Used by the identity flow after login; rotates the session id on privilege change. The live connection carries on with the new id, and the browser is handed it on its next page load, so a refresh keeps the raised scope rather than starting over. |
 | `Caller.emit<Signal>(...)` | `isUser` | action | emit a contract signal back to **this one caller** (see [targeting](#emitting-a-signal-to-one-caller-versus-all)). |
 | `Caller.id` | `isUser` | string | the session id (also `Client.id`). |
 | `Caller.entity` | `isEntity` | string | the calling entity's authenticated name, taken from the certificate its mutual-TLS link verified. Authorizing on this alone is correct and complete on every mesh topology except one: see `isEntityVerified`. |

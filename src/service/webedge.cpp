@@ -460,8 +460,27 @@ QByteArray WebEdge::computeCsp() const
 
 QByteArray WebEdge::issueSessionCookie()
 {
-    const QByteArray token{m_sessionManager->createSession()};
+    return cookieFor(m_sessionManager->createSession());
+}
 
+QByteArray WebEdge::sessionCookieFor(const QHttpServerRequest &request)
+{
+    const QByteArray presented{sessionIdFromCookie(request.value("Cookie"))};
+    if (m_sessionManager->isLive(presented)) {
+        return QByteArray{};  // it holds a live session; leave the one it has alone
+    }
+    // The one case where a browser holding a dead id is not a browser starting over: its
+    // session was rotated under it by a scope change (Caller.setScope in a slot), which no
+    // slot call can put in a cookie. Hand it the id its session became, rather than a new
+    // anonymous session, which would sign a signed-in visitor out on their next reload.
+    if (const QByteArray rotated{m_sessionManager->rotationOf(presented)}; !rotated.isEmpty()) {
+        return cookieFor(rotated);
+    }
+    return issueSessionCookie();
+}
+
+QByteArray WebEdge::cookieFor(const QByteArray &token)
+{
     QByteArray cookie{m_config.cookieName.toUtf8() + "=" + token + "; HttpOnly; Path=/"};
     if (m_config.originModel == QLatin1String("split_origin")) {
         // No `Partitioned` (CHIPS), deliberately, and this is measured rather than assumed:
@@ -530,14 +549,17 @@ void WebEdge::stampResponse(const QHttpServerRequest &request, QHttpServerRespon
                        QByteArrayLiteral("no-cache"));
     }
 
-    // Issue an (anonymous) session on the page load, so the browser has a credential to
-    // present at the wss upgrade. Only for a browser that arrives without a live one: a
-    // page load is not a new visitor. Re-issuing unconditionally would replace the
-    // credential a visitor has just signed in with (the OAuth callback redirects onto
-    // this very route, so the landing load would sign them straight back out), and would
-    // let one browser mint an unbounded number of sessions by reloading.
-    if (request.url().path() == m_config.clientRoute && !presentsLiveSession(request)) {
-        headers.append(QHttpHeaders::WellKnownHeader::SetCookie, issueSessionCookie());
+    // Issue a session on the page load, so the browser has a credential to present at the
+    // wss upgrade. Only for a browser that arrives without a live one: a page load is not
+    // a new visitor. Re-issuing unconditionally would replace the credential a visitor
+    // has just signed in with (the OAuth callback redirects onto this very route, so the
+    // landing load would sign them straight back out), and would let one browser mint an
+    // unbounded number of sessions by reloading.
+    if (request.url().path() == m_config.clientRoute) {
+        const QByteArray cookie{sessionCookieFor(request)};
+        if (!cookie.isEmpty()) {
+            headers.append(QHttpHeaders::WellKnownHeader::SetCookie, cookie);
+        }
     }
     response.setHeaders(std::move(headers));
 }
@@ -635,8 +657,9 @@ void WebEdge::stampShell(QHttpServerResponse &response, const QHttpServerRequest
     // On the same terms as the client route (see stampResponse): only a browser arriving
     // without a live session is given one, so a refresh deep in the app never replaces
     // the credential the visitor signed in with.
-    if (!presentsLiveSession(request)) {
-        headers.append(QHttpHeaders::WellKnownHeader::SetCookie, issueSessionCookie());
+    const QByteArray cookie{sessionCookieFor(request)};
+    if (!cookie.isEmpty()) {
+        headers.append(QHttpHeaders::WellKnownHeader::SetCookie, cookie);
     }
     response.setHeaders(std::move(headers));
 }

@@ -324,6 +324,53 @@ private slots:
         coldDeepLink->deleteLater();
     }
 
+    // A scope change made from inside a slot re-keys the session (Caller.setScope, which
+    // rotates the credential), and the browser goes on holding the old id in a cookie no
+    // slot call can rewrite. The next page load is where that is settled: the visitor is
+    // handed the id their session became, not a new anonymous one, or elevating a scope
+    // would sign the visitor out at their next refresh, sign-in and all.
+    void aRotatedSessionIsHandedBackOnTheNextPageLoad()
+    {
+        QQmlEngine engine;
+        WebEdgeConfig config{makeConfig(false)};
+        config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
+                             QStringLiteral("moderator")};
+        WebEdge edge{config, &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+
+        QNetworkReply *first{httpGet(edge.httpOrigin() + QStringLiteral("/"))};
+        QVERIFY(first != nullptr);
+        const QByteArray cookie{sessionCookie(first)};
+        first->deleteLater();
+        const QByteArray token{cookie.mid(cookie.indexOf('=') + 1)};
+        QVERIFY(edge.sessionManager()->isLive(token));
+
+        // What Caller.setScope() does on a live connection.
+        const QByteArray rotated{edge.sessionManager()->setScope(
+            token, QStringLiteral("moderator"),
+            QVariantMap{{QStringLiteral("sub"), QStringLiteral("1001")}})};
+        QVERIFY(!rotated.isEmpty());
+        QVERIFY(rotated != token);
+        QVERIFY2(!edge.sessionManager()->isLive(token),
+                 "the rotated-away id must authorize nothing");
+
+        // The browser reloads, still presenting the old cookie.
+        QNetworkReply *reload{httpGet(edge.httpOrigin() + QStringLiteral("/"),
+                                      "Cookie", cookie)};
+        QVERIFY(reload != nullptr);
+        const QByteArray reissued{sessionCookie(reload)};
+        reload->deleteLater();
+        QVERIFY2(!reissued.isEmpty(), "a rotated session must be handed back");
+        QCOMPARE(reissued.mid(reissued.indexOf('=') + 1), rotated);
+
+        // And it is the elevated session, with its identity, not a fresh anonymous one.
+        const SynQt::SessionRecord *record{edge.sessionManager()->lookup(rotated)};
+        QVERIFY(record != nullptr);
+        QCOMPARE(record->scope, QStringLiteral("moderator"));
+        QCOMPARE(record->identity.value(QStringLiteral("sub")).toString(),
+                 QStringLiteral("1001"));
+    }
+
     // `public.serve_client: false`: a CDN delivers the bundle, so this edge delivers the
     // one thing only it can. Three claims, and the third is what makes the other two more
     // than a routing change: a browser that loaded the app elsewhere has no session, and
