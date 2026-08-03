@@ -266,26 +266,39 @@ body {
    the button out of the corner, give it the whole box, and let the image fill
    that box with `contain`, which is what keeps the wordmark's 284x150 ratio
    while it grows to whichever edge it meets first (the height, at every
-   drawer width down to about 9.1rem). */
-.md-nav--primary .md-nav__title[for="__drawer"] {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: .4rem .8rem;
-}
+   drawer width down to about 9.1rem).
 
-.md-nav--primary .md-nav__title[for="__drawer"] .md-logo {
-  position: static;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-}
+   Scoped to the drawer's own breakpoint, and it has to be. That bar exists only
+   in the mobile drawer; above 76.25em Material hides it with
+   `.md-nav--lifted > .md-nav__title { display: none }`, which an unscoped
+   `display: flex` here outweighed, so the desktop sidebar kept an invisible copy
+   of it: 17px tall with no room for the logo inside, but still `position: sticky`
+   with Material's .4rem spread box-shadow in the page background colour. That
+   halo landed directly on the pinned section name below it ("Framework",
+   "Tutorials"), which draws the same halo, and two of them stacked read as a
+   smear above the label. Material's own max-width value, one step below the
+   76.25em used elsewhere in this file, so the two never overlap. */
+@media screen and (max-width: 76.234375em) {
+  .md-nav--primary .md-nav__title[for="__drawer"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: .4rem .8rem;
+  }
 
-.md-nav--primary .md-nav__title[for="__drawer"] .md-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  .md-nav--primary .md-nav__title[for="__drawer"] .md-logo {
+    position: static;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  .md-nav--primary .md-nav__title[for="__drawer"] .md-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
 }
 
 /* Tabs to the right of the logo, on the header's own row, instead of stock's
