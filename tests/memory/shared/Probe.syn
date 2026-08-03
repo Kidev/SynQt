@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// One connect point, enough to make a connection do real work: a push property the
+// consumer reads once its link is up, and a slot it can call.
+contract Probe {
+    prop int value
+    slot poke(int n)
+}

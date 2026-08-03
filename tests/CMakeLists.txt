@@ -32,6 +32,7 @@ set(SYNQT_HOST_SUITES
     url-routing
     remote-pages
     entity-test
+    memory
 )
 
 # Suites that cannot join the tree because CMake is not their entry point: each one runs a

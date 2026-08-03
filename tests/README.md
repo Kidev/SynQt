@@ -86,6 +86,7 @@ Built and run by the tree, in milestone order:
 | [fix3-stall](fix3-stall) | Edge-delivered pages end to end, seeded by the production per-connection `Caller` |
 | [url-routing](url-routing) | The route table and the SPA fallback |
 | [remote-pages](remote-pages) | The `Pages` connect point and its page store |
+| [memory](memory) | What a repeated workload leaves behind: browser connections, page loads, sessions and mesh reconnects run many times over one long-lived object, with the heap required to come back to where it started. Its `run-leakcheck.sh` runs the rest of the tree under LeakSanitizer |
 
 Run by their own script, because a generator has to run before there is anything to
 compile. These are what catch a tool whose output stopped compiling, which no test of the
