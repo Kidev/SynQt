@@ -65,14 +65,16 @@ int main(int argc, char *argv[])
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
                          QStringLiteral("moderator"), QStringLiteral("admin")};
     config.routerFallback = QStringLiteral("/");
-    config.routes = {RouteConfig{QStringLiteral("/"), QStringLiteral("Main"), QString{}},
+    config.routes = {RouteConfig{QStringLiteral("/"), QStringLiteral("Main"), QString{},
+                                 QString{}},
                      // Unscoped, so the browser test can navigate to it and press Back.
                      // It reuses the Main view: Main.qml is the window and does not render
                      // Router.pageComponent, so what the route names is unobservable here
                      // and only the path matters.
-                     RouteConfig{QStringLiteral("/about"), QStringLiteral("Main"), QString{}},
+                     RouteConfig{QStringLiteral("/about"), QStringLiteral("Main"), QString{},
+                                 QString{}},
                      RouteConfig{QStringLiteral("/admin"), QStringLiteral("Admin"),
-                                 QStringLiteral("admin")}};
+                                 QStringLiteral("admin"), QString{}}};
 
     // The engine comes first: the Router builds each route's page component
     // with it.

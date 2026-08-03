@@ -23,6 +23,7 @@ namespace {
 void routeToConsole(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
     Q_UNUSED(context)
+    Q_UNUSED(type)  // the severity only picks a console function, and only in the browser
     const QByteArray text{message.toUtf8()};
 #ifdef Q_OS_WASM
     switch (type) {

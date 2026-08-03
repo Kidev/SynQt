@@ -151,7 +151,8 @@ void MemoryCacheProvider::expire(const QString &key, int ttlSeconds)
 
 int MemoryCacheProvider::size() const
 {
-    return m_entries.size();
+    // The cache holds at most its configured entry bound, which is an int itself.
+    return static_cast<int>(m_entries.size());
 }
 
 } // namespace SynQt

@@ -112,7 +112,9 @@ qt_add_library(SynQtService STATIC
 set_target_properties(SynQtService PROPERTIES AUTOMOC ON)
 
 target_include_directories(SynQtService PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_include_directories(SynQtService PRIVATE "${JWT_CPP_INCLUDE_DIR}")
+# SYSTEM: jwt-cpp and the picojson it vendors are not ours to keep warning-clean, and
+# this tree compiles with -Werror. Qt's own headers arrive the same way.
+target_include_directories(SynQtService SYSTEM PRIVATE "${JWT_CPP_INCLUDE_DIR}")
 
 # The framework's own Pages connect point (edge-delivered pages): PagesService's
 # fetchPageFor returns the generated PageResponse record, so the library needs the

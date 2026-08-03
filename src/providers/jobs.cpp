@@ -65,7 +65,10 @@ void Jobs::drain()
 
 int Jobs::queued() const
 {
-    return m_queue.size();
+    // int, not qsizetype: this is a QML-visible count of a queue the entity bounds, and
+    // QML has one integer type. The cast is written out because a 64-bit size silently
+    // becoming a 32-bit one is the kind of conversion this project spells.
+    return static_cast<int>(m_queue.size());
 }
 
 } // namespace SynQt

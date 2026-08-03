@@ -18,7 +18,7 @@ is, not why. For the generated class and member reference, see the
 |-----------|---------------|
 | [`src/`](https://github.com/Kidev/SynQt/tree/main/src) | The framework runtime, one library per trust boundary (see below). |
 | [`tools/`](https://github.com/Kidev/SynQt/tree/main/tools) | The command line tooling: the CLI, the contract generator, the docs lexer, the coverage reporter. |
-| [`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake) | [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake): the `.syn` to rep to repc and QML registration glue. |
+| [`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake) | [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake): the `.syn` to rep to repc and QML registration glue. [`SynQtBuildFlags.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtBuildFlags.cmake): the language version, the warnings, the release flags (see below). |
 | [`tests/`](https://github.com/Kidev/SynQt/tree/main/tests) | One self contained CMake project per milestone and per acceptance fixture, plus the tree that builds them all at once. |
 | [`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks) | The performance harnesses and their committed baselines. |
 | [`examples/`](https://github.com/Kidev/SynQt/tree/main/examples) | The materialized tutorial systems ([gavel](https://github.com/Kidev/SynQt/tree/main/examples/gavel), the auction; [arena](https://github.com/Kidev/SynQt/tree/main/examples/arena), the game). |
@@ -121,6 +121,31 @@ uses the merged header, which is only needed by a target that is at once owner a
 consumer; real entities are one or the other. The generator runs at configure time and the
 build re runs CMake when a contract or the generator changes, so generated output is never
 edited by hand and never committed.
+
+### How everything here is compiled
+
+[`cmake/SynQtBuildFlags.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtBuildFlags.cmake)
+is included by every `CMakeLists.txt` in this repository, and `synqt build` writes the same
+include into the CMake it generates for an application, so a project built with SynQt
+compiles under the rules SynQt compiles under.
+
+- **C++20**, the newest standard Qt 6.11 supports on all of its compilers.
+- **Warnings are errors.** `-Wall -Wextra -Werror` for GCC and Clang, `/W4 /WX
+  /permissive- /utf-8` for MSVC and for `clang-cl`. Qt's own headers and jwt-cpp arrive
+  through `SYSTEM` include paths, so nothing third party can fail the build.
+- **Release keeps only what is reachable.** CMake supplies the optimisation level;
+  this file adds `-ffunction-sections -fdata-sections` with `--gc-sections` (`-dead_strip`
+  on macOS, `/Gy /Gw` with `/OPT:REF /OPT:ICF` on MSVC). Emscripten is left out: `wasm-ld`
+  drops unreferenced functions already.
+- **Link time optimisation is off**, behind `-DSYNQT_LTO=ON`. It costs minutes a link, and
+  Qt's static plugin registration depends on constructors in translation units nothing
+  references, which is what an aggressive LTO pass exists to remove.
+
+Three compilers disagree about which mistakes are worth mentioning, which is the reason the
+stop is on: the narrowing conversion that broke the Windows and macOS columns compiled
+silently under GCC. `-DSYNQT_WARNINGS_AS_ERRORS=OFF` turns the stop off for a bisect, or for
+the week after a compiler release whose new warnings are not yet triaged. It is not meant to
+live in a preset.
 
 ## The test suites ([`tests/`](https://github.com/Kidev/SynQt/tree/main/tests))
 

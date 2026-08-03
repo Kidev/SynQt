@@ -60,7 +60,7 @@ SynClientConfig clientConfig(quint16 port)
                          QStringLiteral("moderator"), QStringLiteral("admin")};
     config.routerFallback = QStringLiteral("/");
     config.routes = {RouteConfig{QStringLiteral("/admin"), QStringLiteral("Admin.qml"),
-                                 QStringLiteral("admin")}};
+                                 QStringLiteral("admin"), QString{}}};
     config.reconnectBaseMs = 200;
     return config;
 }

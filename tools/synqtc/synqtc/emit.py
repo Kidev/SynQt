@@ -170,9 +170,17 @@ def _source_helper_class(contract: Contract, records, path) -> str:
         "    QQmlListProperty<QObject> data();",
         "",
     ]
-    for model in contract.models:
-        lines.append(f"    Q_INVOKABLE void set{_cap(model.name)}(const QVariantList &rows);")
     if contract.models:
+        # repc gives the Source a virtual set<Model>(QAbstractItemModel *) that the
+        # owner is not meant to call: the model it publishes is this class's own. The
+        # `using` keeps that overload visible all the same, because a name declared
+        # here would otherwise hide it, and a hidden virtual is a warning every
+        # translation unit that includes this header has to carry.
+        for model in contract.models:
+            lines.append(f"    using {name}SimpleSource::set{_cap(model.name)};")
+        for model in contract.models:
+            lines.append(
+                f"    Q_INVOKABLE void set{_cap(model.name)}(const QVariantList &rows);")
         lines.append("")
     if contract.slots:
         lines.append("    // Consumer -> owner requests. Each dispatches to the owner's QML")
@@ -280,7 +288,13 @@ def _source_helper_impl(contract: Contract, records, path) -> str:
     lines.append(f"    : {name}SimpleSource{{parent}}")
     lines.append("{")
     for model in contract.models:
-        lines.append(f"    set{_cap(model.name)}({{}});")
+        # An empty model, published now rather than on the owner's first set<Model>().
+        # It has to be published from the constructor: enableRemoting() reads the model
+        # off the Source as it registers it, and a Source that hands over a null model
+        # there never gets one afterwards. The argument is spelled out because the
+        # inherited set<Model>(QAbstractItemModel *) is an overload of this name too,
+        # and `{}` would be a null pointer to it.
+        lines.append(f"    set{_cap(model.name)}(QVariantList{{}});")
     lines.append("}")
     lines.append("")
 

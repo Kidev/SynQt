@@ -9,8 +9,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(synqt_m8_auth LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
 find_package(Qt6 6.11 REQUIRED COMPONENTS
     Core Gui Network NetworkAuth Qml RemoteObjects WebSockets HttpServer Test)
