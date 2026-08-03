@@ -9,5 +9,6 @@ contract Ledger {
     model winners(item, winner, amount)
     slot placeBid(int amount, string bidder)
     slot bool recordWinner(string item, string winner, int amount)
+    slot forwardToDatabase(string item)
     signal bidRejected(string reason)
 }

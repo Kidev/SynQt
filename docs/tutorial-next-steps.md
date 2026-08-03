@@ -1,7 +1,7 @@
 # Where to go next
 
 You have built a real time, authenticated, persistent application across three
-entities. Here are four ways to grow it, each a concrete recipe for the project you
+entities. Here are five ways to grow it, each a concrete recipe for the project you
 already have. They are independent of each other, and they skip things you have
 done several times already (creating a file, wiring a `connect_point`, running
 `synqt dev`); just the new pieces are shown.
@@ -198,6 +198,89 @@ shared object through which one user could ever see another's maximum. From here
 making `placeBid` automatically raise a user up to their stored maximum is an obvious
 next step, now that the value has a safe, private home.
 
+## Pin the rules you checked by hand
+
+Three times in this tutorial you opened the browser console to prove a rule held: the
+lower bid the edge refused, the `placeBid` that failed while signed out, the
+`closeLot` only the auctioneer may call. Those are the rules most worth keeping, and
+the console is the worst place to keep them, because nothing reruns it.
+
+Write them in `tests/tst_Auction.qml` instead:
+
+```qml
+import QtQuick
+import QtTest
+import SynQt.Test
+
+TestCase {
+    name: "Auction"
+
+    EntityTest {
+        id: harness
+
+        source: "../web/Auction.qml"
+    }
+
+    SignalSpy {
+        id: rejections
+
+        target: harness.subject
+        signalName: "bidRejected"
+    }
+
+    function init() {
+        verify(harness.load(), harness.errorString);
+        rejections.clear();
+    }
+
+    function test_a_signed_out_visitor_cannot_bid() {
+        harness.callerIsUser("anonymous");
+        harness.subject.placeBid(500);
+        compare(harness.subject.highBid, 0);
+        compare(rejections.signalArguments[0][0], "Please sign in to bid.");
+    }
+
+    function test_a_lower_bid_is_refused() {
+        harness.callerIsUser("user", { sub: "alice", name: "Alice" });
+        harness.subject.placeBid(40);
+        harness.subject.placeBid(30);
+        compare(harness.subject.highBid, 40);
+        compare(harness.subject.highBidder, "Alice");
+    }
+
+    function test_only_the_auctioneer_closes_a_lot() {
+        harness.callerIsUser("user", { sub: "alice", name: "Alice" });
+        harness.subject.closeLot("A jar of honey");
+        compare(harness.subject.itemName,
+                "A homemade lasagna, baked fresh this morning");
+
+        harness.callerIsUser("admin", { sub: "carol", name: "Carol" });
+        harness.subject.closeLot("A jar of honey");
+        compare(harness.subject.itemName, "A jar of honey");
+    }
+}
+```
+
+```cli
+synqt test
+```
+
+No browser, no certificates, no database to start, and no C++. The `Caller` those
+slots read is the real one, minted the way the web edge mints it, so a test cannot
+pass by stubbing the check it is meant to be testing. The database's own rule, that
+only the edge may call `recordWinner`, is tested the same way in a second file, with
+`harness.callerIsEntity("rogue")` in place of `callerIsUser`.
+
+One subtlety in that last test: `closeLot` records the winner in the database before
+resetting, and the harness loads one Source on its own, so there is no `Database` to
+record into. It passes because the lot has no bid on it yet and `closeLot` skips the
+write. Close a lot that does have a bid and the test stops, saying `Database is not
+defined`.
+
+[Testing your app](testing.md) covers the rest of `EntityTest`, that limit and what to
+do about it, and pointing `schema` at your `schema.sql` so a slot backed by `Db` has
+its tables.
+
 ## Recap
 
 You started with a single live value shared across browsers, and grew it, one idea
@@ -213,6 +296,7 @@ at a time, into a three entity system:
 That progression, simple by default and expandable when you need it, is the core of
 SynQt. From here, the reference documents go deeper on every piece you used. A good
 next read is [the programming model](programming-model.md), which formalizes
-everything you just did by hand. When the question becomes how to put the thing on a
-server rather than what to build next, it is [deploying a SynQt
-system](deploying.md).
+everything you just did by hand. Before the app grows much further, [testing your
+app](testing.md) is how the rules you checked by hand keep being checked. When the
+question becomes how to put the thing on a server rather than what to build next, it
+is [deploying a SynQt system](deploying.md).

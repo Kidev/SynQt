@@ -280,6 +280,10 @@ ItemsSource {
 Two authorizations at two boundaries: the edge checks the user, the database
 checks the calling entity. This is the mesh in microcosm.
 
+Both slots above are worth a test, and the cases worth testing are the ones no UI
+offers: the signed out visitor, the entity that is not the edge. [Testing your
+app](testing.md) is how, in QML, against the real `Caller`.
+
 ## Sessions and scopes (browser users)
 
 A session is the web edge's record of one authenticated or anonymous browser
