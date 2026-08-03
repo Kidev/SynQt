@@ -31,6 +31,10 @@ struct SessionRecord
     QString scope;
     QVariantMap identity; ///< sub/login/name/email; empty == anonymous
     qint64 createdMs{0};
+    /// The credential this record replaced, when a scope change rotated it (see
+    /// rotationOf). Kept so that reclaiming this record also reclaims the hand-off
+    /// pointing at it, which otherwise outlives by minutes the session it names.
+    QByteArray rotatedFrom;
 };
 
 /// Owns the live sessions on the edge: creation, cookie/token lookup, scope elevation
@@ -119,6 +123,11 @@ private:
 
     QByteArray newToken() const;
     void trackExpiry(const SessionRecord &record);
+    /// Drop the hand-off that pointed at this record, now that the record is going. A
+    /// rotation names a session; once that session is revoked or expired the entry can
+    /// never do anything again, so keeping it for the rest of its grace period is holding
+    /// memory on behalf of nobody.
+    void dropRotationTo(const SessionRecord &record);
     void purgeExpired();
     void emitUpsert(const SessionRecord &record);
 

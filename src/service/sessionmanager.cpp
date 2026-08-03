@@ -117,11 +117,13 @@ QByteArray SessionManager::setScope(const QByteArray &id, const QString &scope,
         record.identity = identity;
     }
     record.createdMs = QDateTime::currentMSecsSinceEpoch();
-    m_sessions.insert(record.id, record);
-    trackExpiry(record);
     // The browser is still holding the id this one replaced, in a cookie nothing on the
     // live connection can rewrite. Remember what it became, so the next page load hands
-    // the visitor their new credential instead of a fresh anonymous session.
+    // the visitor their new credential instead of a fresh anonymous session, and remember
+    // it on the record too so that reclaiming the record reclaims the hand-off with it.
+    record.rotatedFrom = id;
+    m_sessions.insert(record.id, record);
+    trackExpiry(record);
     m_rotations.insert(id, Rotation{record.id, record.createdMs});
     emitUpsert(record);
     emit sessionRemoved(QString::fromLatin1(id));
@@ -151,7 +153,10 @@ QByteArray SessionManager::rotationOf(const QByteArray &id) const
 
 void SessionManager::revoke(const QByteArray &id)
 {
-    if (m_sessions.remove(id)) {
+    const auto it{m_sessions.constFind(id)};
+    if (it != m_sessions.constEnd()) {
+        dropRotationTo(it.value());
+        m_sessions.erase(it);
         emit sessionRemoved(QString::fromLatin1(id));
     }
     if (m_remote) {
@@ -189,8 +194,18 @@ void SessionManager::applyUpsert(const QString &token, const QString &scope,
 
 void SessionManager::applyRemove(const QString &token)
 {
-    if (m_sessions.remove(token.toLatin1())) {
+    const auto it{m_sessions.constFind(token.toLatin1())};
+    if (it != m_sessions.constEnd()) {
+        dropRotationTo(it.value());
+        m_sessions.erase(it);
         emit sessionRemoved(token);
+    }
+}
+
+void SessionManager::dropRotationTo(const SessionRecord &record)
+{
+    if (!record.rotatedFrom.isEmpty()) {
+        m_rotations.remove(record.rotatedFrom);
     }
 }
 
@@ -233,9 +248,11 @@ void SessionManager::purgeExpired()
     const qint64 now{QDateTime::currentMSecsSinceEpoch()};
     // Rotations expire on their own clock, whether or not sessions have a TTL: they are a
     // hand-off for one page load, not a session, and each one is a few dozen bytes kept
-    // for a visitor who may never come back.
+    // for a visitor who may never come back. One whose target is gone is dropped whatever
+    // its age, which is what clears a chain: rotating twice before the visitor reloads
+    // leaves the first hand-off pointing at the id the second one replaced.
     for (auto it{m_rotations.begin()}; it != m_rotations.end();) {
-        if (now - it->atMs > RotationGraceMs) {
+        if (now - it->atMs > RotationGraceMs || !m_sessions.contains(it->to)) {
             it = m_rotations.erase(it);
         } else {
             ++it;
@@ -262,6 +279,7 @@ void SessionManager::purgeExpired()
         m_expiryQueue.pop_front();
         const auto it{m_sessions.find(id)};
         if (it != m_sessions.end() && it->createdMs == createdMs) {
+            dropRotationTo(it.value());
             m_sessions.erase(it);
             // Local only (see sessionExpired): what an expired session was still holding
             // here goes with it, and nothing is told about it anywhere else.
