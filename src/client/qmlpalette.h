@@ -24,6 +24,16 @@ namespace SynQt {
 /// honored in the header, so an import buried below the first real token
 /// cannot slip past a reader that stops early.
 ///
+/// A page is read the way the engine's lexer reads it, because anything
+/// less is a hiding place: comments and string literals are removed first,
+/// a statement ends at a semicolon as well as at a line terminator, every
+/// terminator the lexer honors counts (a lone "\r" ends a line, and a
+/// leading byte order mark is skipped), and finally the keyword itself may
+/// not appear anywhere the scan did not approve. That last rule is what
+/// makes the boundary hold rather than merely be well intentioned: an
+/// import this class cannot account for is refused, whatever trick put it
+/// there.
+///
 /// The palette limits which types a page may instantiate, not which
 /// accessors it may reach: a delivered page can still see Server, Session,
 /// Router, and App. That is accepted, because an edge that can send a

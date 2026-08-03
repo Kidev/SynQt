@@ -89,6 +89,15 @@ it is stricter than the build-time scan: it strips comments first and refuses an
 (path) import outright. A page the build-time scan misses is still refused by the client,
 just later than you would like.
 
+The client reads a page the way the QML engine's own lexer reads it, which is the point:
+a check that reads it any other way has a hiding place in the difference. Comments and
+string literals come out first, a statement ends at a semicolon as readily as at a line
+break, every line terminator the engine honors counts (a lone carriage return ends a line,
+and a leading byte order mark is skipped rather than mistaken for the start of the page
+body), and then the word `import` may not appear anywhere the check did not already
+approve. An import it cannot account for is refused whatever put it there, so the boundary
+does not depend on having thought of every way to write one.
+
 ## The page seed: painting the first frame
 
 A delivered page arrives, is parsed, and starts rendering before any connect point replica

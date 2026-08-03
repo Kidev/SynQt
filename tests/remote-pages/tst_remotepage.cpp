@@ -38,6 +38,16 @@ private slots:
     void paletteAcceptsATabSeparatedPragma();
     void paletteAllowsASlashSlashInsideAStringLiteral();
     void paletteRejectsAnImportHiddenByAFakeBlockComment();
+    void paletteRejectsAnImportHiddenByACarriageReturn();
+    void paletteRejectsAnImportOnAPageWrittenWithCarriageReturnsAlone();
+    void paletteAcceptsAPageWrittenWithWindowsLineEndings();
+    void paletteRejectsAnImportHiddenByAByteOrderMark();
+    void paletteAcceptsAByteOrderMarkBeforeADeclaredImport();
+    void paletteRejectsASecondImportAfterASemicolon();
+    void paletteAcceptsAnImportEndedWithASemicolon();
+    void paletteAllowsASemicolonAndTheWordImportInsideAStringLiteral();
+    void paletteAllowsATemplateLiteralSpanningLines();
+    void paletteAllowsAnIdentifierBeginningWithImport();
 
     void loaderBuildsAComponentFromDeliveredSource();
     void loaderRejectsAPageOutsideThePalette();
@@ -214,6 +224,104 @@ void tst_RemotePage::paletteRejectsAnImportHiddenByAFakeBlockComment()
         "*/\n"
         "Item { }\n")};
     QVERIFY(!palette.isAcceptable(source, nullptr));
+}
+
+void tst_RemotePage::paletteRejectsAnImportHiddenByACarriageReturn()
+{
+    // A bare "\r" ends a line for QML's lexer, so this page holds two imports and the
+    // engine honors both (measured: it builds the QtQuick type). A scan that splits on
+    // "\n" alone sees one line, reads "QtQuick" as the module of the first import, and
+    // never looks at the rest of it.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(!palette.isAcceptable(
+        QStringLiteral("import QtQuick\rimport Evil\nItem { }\n"), nullptr));
+}
+
+void tst_RemotePage::paletteRejectsAnImportOnAPageWrittenWithCarriageReturnsAlone()
+{
+    // The same page with no "\n" anywhere: to a line-based scan the whole file is one
+    // line, so nothing after the first import is ever read.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(!palette.isAcceptable(
+        QStringLiteral("import QtQuick\rimport Evil\rItem { }\r"), nullptr));
+}
+
+void tst_RemotePage::paletteAcceptsAPageWrittenWithWindowsLineEndings()
+{
+    // "\r\n" is one terminator, not two, so an ordinary page authored on Windows must
+    // not be refused for the empty statement a split on both would invent.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(palette.isAcceptable(
+        QStringLiteral("import QtQuick\r\nItem { }\r\n"), nullptr));
+}
+
+void tst_RemotePage::paletteRejectsAnImportHiddenByAByteOrderMark()
+{
+    // The lexer skips a leading U+FEFF and imports what follows it (measured), so the
+    // scan has to skip it too: a scan that does not sees a first line starting with no
+    // keyword it knows, calls the header over, and refuses nothing.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(!palette.isAcceptable(
+        QStringLiteral("\ufeffimport Evil\nItem { }\n"), nullptr));
+}
+
+void tst_RemotePage::paletteAcceptsAByteOrderMarkBeforeADeclaredImport()
+{
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(palette.isAcceptable(
+        QStringLiteral("\ufeffimport QtQuick\nItem { }\n"), nullptr));
+}
+
+void tst_RemotePage::paletteRejectsASecondImportAfterASemicolon()
+{
+    // A semicolon ends an import as surely as a newline does, so both imports here are
+    // real and the second one has to be checked.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(!palette.isAcceptable(
+        QStringLiteral("import QtQuick; import Evil\nItem { }\n"), nullptr));
+}
+
+void tst_RemotePage::paletteAcceptsAnImportEndedWithASemicolon()
+{
+    // The other half of the same rule: "import QtQuick;" is ordinary QML, and reading
+    // the line as the module name would refuse a page the engine is happy with.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(palette.isAcceptable(QStringLiteral("import QtQuick;\nItem { }\n"), nullptr));
+}
+
+void tst_RemotePage::paletteAllowsASemicolonAndTheWordImportInsideAStringLiteral()
+{
+    // What a string holds is data. Neither the semicolon nor the keyword inside one is
+    // a statement, so a page that mentions either must not be refused.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    const QString source{QStringLiteral(
+        "import QtQuick\n"
+        "Item {\n"
+        "    property string hint: \"end it; then import QtQuick.Controls\"\n"
+        "}\n")};
+    QVERIFY(palette.isAcceptable(source, nullptr));
+}
+
+void tst_RemotePage::paletteAllowsATemplateLiteralSpanningLines()
+{
+    // A backtick string may hold line terminators, so its contents must be read as one
+    // literal and not as the statements they would otherwise look like.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    const QString source{QStringLiteral(
+        "import QtQuick\n"
+        "Item {\n"
+        "    property string note: `one\n"
+        "import QtQuick.Controls`\n"
+        "}\n")};
+    QVERIFY(palette.isAcceptable(source, nullptr));
+}
+
+void tst_RemotePage::paletteAllowsAnIdentifierBeginningWithImport()
+{
+    // "importantValue" is a name, not the keyword with something after it.
+    const QmlPalette palette{{QStringLiteral("QtQuick")}};
+    QVERIFY(palette.isAcceptable(
+        QStringLiteral("import QtQuick\nItem { property int importantValue: 1 }\n"), nullptr));
 }
 
 void tst_RemotePage::loaderBuildsAComponentFromDeliveredSource()
