@@ -60,10 +60,12 @@ function startEdge() {
     });
 }
 
-// Only Chromium needs to be told how to get a GL context headless; Firefox and WebKit
-// bring their own software path. They are not given the flags anyway, so that a launch
-// failure means the runtime is missing and never that it choked on an argument meant
-// for another engine.
+// Chromium is the only engine that takes its rasteriser as a command line argument, and it
+// brings SwiftShader with it. Firefox and WebKit take whatever GL the machine offers, which
+// on a headless Linux runner means Mesa's llvmpipe and nothing at all if Mesa is not
+// installed; that is a machine to provision, not a flag to pass, and graphicsRenderer below
+// is what notices. They are given no arguments either way, so that a launch failure means
+// the runtime is missing and never that it choked on an argument meant for another engine.
 function launchOptions(browserType) {
     const options = { headless, args: [] };
     if (browserType === chromium) {
@@ -84,27 +86,75 @@ function firstLine(err) {
     return line || "the runtime would not launch and gave no reason";
 }
 
-function openTab(context, name, logs) {
+// What the engine will give Qt Quick to draw with, asked of the engine itself on a blank
+// page, and empty when it has nothing.
+//
+// Qt Quick has no software fallback on WebAssembly: with no WebGL context the scene graph
+// cannot be created, and QSGRenderLoop ends that with qFatal, which is emscripten's abort().
+// A client that aborts does not merely fail to draw. abort() sets emscripten's ABORT flag,
+// after which callUserCallback returns without running anything, so every callback queued
+// through emscripten_async_call is dropped from then on. That is the first of the two hops
+// in QEventDispatcherWasm::wakeUp(), so the page keeps its WebSocket, its timers and its
+// property pushes (all delivered outside that queue) and loses posted events for the rest
+// of its life. The visible result is a client that connects, updates and never delivers a
+// queued call, which reads exactly like a transport bug and is not one.
+//
+// So ask first. An engine with no context cannot run a Qt Quick client at all, and saying
+// that is worth more than measuring a client that will abort thirty seconds later. A
+// headless Linux runner needs Mesa's software rasteriser installed for this to answer; the
+// workflow installs it and pins LIBGL_ALWAYS_SOFTWARE so the answer does not depend on a
+// GPU probe.
+async function graphicsRenderer(browser) {
+    const page = await browser.newPage();
+    try {
+        await page.goto("about:blank");
+        return await page.evaluate(() => {
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("webgl2") || canvas.getContext("webgl");
+            return context ? String(context.getParameter(context.RENDERER)) : "";
+        });
+    } finally {
+        await page.close();
+    }
+}
+
+// Every line the page says, not only the sentinels this file matches on. The assertions
+// still key off "M6 ..." (Qt prefixes QML console.log with "qml: ") and off the starvation
+// shim's "M0PUMP ...", but what a dying client says is usually neither: this harness once
+// reported a twenty-second wait for a posted event while the reason stood one line above
+// it, in a qFatal that the sentinel filter dropped on the floor.
+//
+// `fatals` collects uncaught page errors separately, so a wait can end the moment the
+// client is gone instead of running out its clock against a runtime that has stopped.
+function openTab(context, name, logs, fatals) {
     return context.newPage().then((page) => {
         page.on("console", (msg) => {
             const text = msg.text();
-            // Qt prefixes QML console.log with "qml: ". M0PUMP lines come from the
-            // starvation shim below, and are kept so a starved case can prove it really
-            // was starved rather than pass because nothing was ever dropped.
-            if (text.includes("M6 ") || text.includes("M0PUMP")) {
-                logs.push(text);
-                if (process.env.VERBOSE) console.log(`  [${name}] ${text}`);
-            }
+            logs.push(text);
+            if (process.env.VERBOSE) console.log(`  [${name}] ${text}`);
         });
-        page.on("pageerror", (e) => logs.push("PAGEERROR " + e.message));
+        page.on("pageerror", (e) => {
+            logs.push("PAGEERROR " + e.message);
+            fatals.push(e.message);
+        });
         return page;
     });
 }
 
-async function waitFor(predicate, timeoutMs, label) {
+// An uncaught error in the client is never something to wait out. On WebAssembly it is
+// usually emscripten's abort(), which Qt reaches through qFatal, and it is worse than the
+// end of one operation: abort() sets emscripten's ABORT flag, after which callUserCallback
+// drops every callback queued through emscripten_async_call. That is the first hop of
+// QEventDispatcherWasm::wakeUp(), so from that moment the page keeps its socket, its timers
+// and its property pushes and silently loses its posted-event queue for good. Reporting the
+// wait that follows is reporting the second symptom of a client that died earlier.
+async function waitFor(predicate, timeoutMs, label, fatals = []) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         if (predicate()) return true;
+        if (fatals.length > 0) {
+            throw new Error(`the client died before "${label}": ${fatals[0]}`);
+        }
         await sleep(250);
     }
     throw new Error("timed out waiting for: " + label);
@@ -132,13 +182,15 @@ function dumpEvidence(name, logs) {
 async function runCase(browserType, name) {
     const logsA = [];
     const logsB = [];
+    const fatalsA = [];
+    const fatalsB = [];
     const { proc: edge, port } = await startEdge();
     const url = `http://127.0.0.1:${port}/`;
     const browser = await browserType.launch(launchOptions(browserType));
     try {
         const context = await browser.newContext();
-        const tabA = await openTab(context, `${name}/tabA`, logsA);
-        const tabB = await openTab(context, `${name}/tabB`, logsB);
+        const tabA = await openTab(context, `${name}/tabA`, logsA, fatalsA);
+        const tabB = await openTab(context, `${name}/tabB`, logsB, fatalsB);
 
         console.log("  loading two tabs against the real edge");
         await tabA.goto(url, { waitUntil: "load", timeout: 60000 });
@@ -147,8 +199,10 @@ async function runCase(browserType, name) {
         const connectedAt = (logs, value) =>
             logs.some((l) => l.includes("state=connected") && l.includes(`counter=${value}`));
 
-        await waitFor(() => connectedAt(logsA, 0), 60000, "tab A connected, counter=0");
-        await waitFor(() => connectedAt(logsB, 0), 60000, "tab B connected, counter=0");
+        await waitFor(() => connectedAt(logsA, 0), 60000, "tab A connected, counter=0",
+                      fatalsA);
+        await waitFor(() => connectedAt(logsB, 0), 60000, "tab B connected, counter=0",
+                      fatalsB);
         console.log("  both tabs connected, counter=0");
 
         // The client posts one event at startup and says so when it is delivered (see
@@ -156,7 +210,7 @@ async function runCase(browserType, name) {
         // starved case below: without a healthy run to compare against, "the message never
         // came" would be as consistent with a broken client as with a starved pump.
         await waitFor(() => logsA.some((l) => l.includes("posted-event pump alive")), 20000,
-                      "tab A delivered its posted event");
+                      "tab A delivered its posted event", fatalsA);
         console.log("  the posted-event pump delivered");
 
         // Drive the "+" button on tab A's canvas. The window is 320x220, content centred,
@@ -170,10 +224,10 @@ async function runCase(browserType, name) {
         await tabA.mouse.click(box.x + box.width / 2 + 24, box.y + box.height / 2 + 34);
 
         await waitFor(() => logsA.some((l) => l.includes("counter=1")), 20000,
-                      "tab A counter=1");
+                      "tab A counter=1", fatalsA);
         // The other tab shares the same edge-owned counter: it must see the new value.
         await waitFor(() => logsB.some((l) => l.includes("counter=1")), 20000,
-                      "tab B counter=1 (sync)");
+                      "tab B counter=1 (sync)", fatalsB);
         console.log("  both tabs show counter=1; two tabs stay in sync");
 
         // Browser back, through the real popstate listener. The client pushed /about onto
@@ -183,13 +237,13 @@ async function runCase(browserType, name) {
         // and not about a fresh boot. This path is WebAssembly-only, so no native test can
         // reach it.
         await waitFor(() => logsA.some((l) => l.includes("route=/about")), 20000,
-                      "tab A navigated to /about");
+                      "tab A navigated to /about", fatalsA);
         console.log("  tab A pushed /about; pressing the browser back button");
         const beforeBack = logsA.length;
         await tabA.goBack();
         await waitFor(() => logsA.slice(beforeBack).some((l) => l.includes("route=/")
                                                           && !l.includes("route=/about")),
-                      20000, "tab A back on / after the browser back button");
+                      20000, "tab A back on / after the browser back button", fatalsA);
         console.log("  back returned the client to /");
         return { name, pass: true, logsA, logsB };
     } catch (err) {
@@ -215,17 +269,18 @@ async function runCase(browserType, name) {
 // string, which is why it is both an init script and a URL parameter.
 async function runStarvedCase(browserType, name) {
     const logs = [];
+    const fatals = [];
     const { proc: edge, port } = await startEdge();
     const browser = await browserType.launch(launchOptions(browserType));
     try {
         const context = await browser.newContext();
-        const tab = await openTab(context, name, logs);
+        const tab = await openTab(context, name, logs, fatals);
         await tab.addInitScript({ path: pumpStarveShim });
         await tab.goto(`http://127.0.0.1:${port}/?starve=load`,
                        { waitUntil: "load", timeout: 60000 });
 
         await waitFor(() => logs.some((l) => l.includes("state=connected")), 60000,
-                      "the starved client connected");
+                      "the starved client connected", fatals);
         console.log("  connected with the posted-event wakeup starved");
 
         // The page is starved from load, and the client posts one event as it comes up, so
@@ -234,7 +289,7 @@ async function runStarvedCase(browserType, name) {
         // wakeup was armed and taken away, and without it the rest of this case would be
         // measuring a perfectly healthy page.
         const wedged = () => logs.some((l) => l.includes("M0PUMP dropped"));
-        await waitFor(wedged, 30000, "the shim to drop the posted-event wakeup");
+        await waitFor(wedged, 30000, "the shim to drop the posted-event wakeup", fatals);
         console.log("  the wakeup was dropped");
 
         // And the pump really is dead, not merely interfered with: the message the client
@@ -265,7 +320,7 @@ async function runStarvedCase(browserType, name) {
         await tab.goBack();
         await waitFor(() => logs.slice(beforeBack).some((l) => l.includes("route=/")
                                                         && !l.includes("route=/about")),
-                      20000, "the starved client went back to /");
+                      20000, "the starved client went back to /", fatals);
         console.log("  the back button still reached the router");
         return { name, pass: true, logsA: logs, logsB: [] };
     } catch (err) {
@@ -287,21 +342,39 @@ async function main() {
     ];
     const engines = [];
     const versions = {};
+    const unproven = [];
     for (const [browserType, browserName] of candidates) {
+        let probe = null;
         try {
-            const probe = await browserType.launch(launchOptions(browserType));
-            versions[browserName] = probe.version();
-            await probe.close();
-            engines.push([browserType, browserName]);
+            probe = await browserType.launch(launchOptions(browserType));
         } catch (err) {
             console.log(`  skipping ${browserName}: ${firstLine(err)}`);
+            continue;
+        }
+        try {
+            versions[browserName] = probe.version();
+            // A runtime that launches but cannot hand out a WebGL context runs no Qt Quick
+            // client, so there is nothing here to measure through it. Said out loud and
+            // carried into the summary rather than turned into a client failure thirty
+            // seconds later: the fix is in the machine, not in the client.
+            const renderer = await graphicsRenderer(probe);
+            if (!renderer) {
+                unproven.push([browserName, "no WebGL context, so Qt Quick cannot start"]);
+                console.log(`  skipping ${browserName}: no WebGL context, so the Qt Quick `
+                            + "client cannot start (install Mesa's software rasteriser)");
+                continue;
+            }
+            versions[browserName] += ` on ${renderer}`;
+            engines.push([browserType, browserName]);
+        } finally {
+            await probe.close();
         }
     }
     if (engines.length === 0) {
-        throw new Error("no browser engine could be launched");
+        throw new Error("no browser engine could run a Qt Quick client");
     }
-    // Which engine build ran, on every run and not only a failing one: a pass against an
-    // unnamed engine cannot be compared with the next one.
+    // Which engine build ran, and what it draws with, on every run and not only a failing
+    // one: a pass against an unnamed engine cannot be compared with the next one.
     const engineList = engines.map(([, n]) => `${n} ${versions[n]}`).join(", ");
     console.log(`M6 verify: headless=${headless}  engines: ${engineList}`);
 
@@ -325,6 +398,9 @@ async function main() {
     console.log(`  engines: ${engineList}`);
     for (const result of results) {
         console.log(`  ${result.pass ? "PASS" : "FAIL"}  ${result.name}`);
+    }
+    for (const [browserName, why] of unproven) {
+        console.log(`  UNPROVEN  ${browserName} (${why})`);
     }
     console.log("====================================================");
     const failed = results.filter((r) => !r.pass);

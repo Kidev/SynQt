@@ -36,8 +36,15 @@ callbacks is the only thing that ever calls `QCoreApplication::sendPostedEvents(
 callback that keeps arriving, sends timer events and only timer events. So dropping either
 hop once loses the event for good, in an application that goes on looking healthy. That is
 reproducible anywhere, it has a fix, and both are in
-[qt-patches/](qt-patches/README.md). What remains specific to Firefox on that runner is what
-dropped the callback in the first place.
+[qt-patches/](qt-patches/README.md).
+
+What was specific to Firefox on that runner is now answered, and it is not a dropped callback:
+the runner has no WebGL, Qt Quick cannot create its scene graph, `qFatal` calls `abort()`,
+and Emscripten's `callUserCallback` then refuses every callback queued through
+`emscripten_async_call` for the life of the page, which is the first hop of `wakeUp()`. See
+[Why Firefox, and why that one runner](#why-firefox-and-why-that-one-runner). That widens the
+report rather than closing it: any `abort()` in a Qt for WebAssembly client leaves the
+application running with its posted-event queue permanently dead.
 
 All of that describes the dispatcher's non-asyncify shape, which is the default and the only
 one that works in every browser. Linking the client with `-sASYNCIFY` selects the other shape,
@@ -156,9 +163,65 @@ conclusion could not drift to fit the result.
 
 ## Why Firefox, and why that one runner
 
-The natural reading of "only Firefox, only that runner, and all three of its cases, run after
-run" is that something in that combination behaves differently, systematically. It does not
-have to, and the measurement that settles it is this: **one lost callback is permanent.**
+**Answered, 2026-08-04, and the answer is not a lost callback.** Nothing on that runner drops
+a browser timeout. Emscripten stops running the callback on purpose, because the client
+already aborted, and it aborted because the machine has no WebGL.
+
+The chain, every link of it measured or read off the shipped glue code:
+
+1. Firefox on that runner gets no WebGL context. It is a GPU-less machine, only Chromium
+   carries a rasteriser of its own (SwiftShader, passed on its command line by the harness),
+   and nothing in the workflow installed Mesa's software rasteriser for the other two engines.
+2. Qt Quick has no software path on WebAssembly. `QSGRenderLoop` reports
+   `Failed to create RHI (backend 2)` and, with nothing connected to
+   `QQuickWindow::sceneGraphError`, ends the process with
+   `qFatal("Failed to initialize graphics backend for OpenGL.")`
+   (`qsgrenderloop.cpp:292`).
+3. `qFatal` is C `abort()`, which in Emscripten 4.0.7 is `__abort_js = () => abort("")`. That
+   is the bare `Aborted()` seen in the console, and `abort()` sets `ABORT = true`.
+4. `callUserCallback` is `func => { if (ABORT) { return } ... }`. Every callback queued
+   through `emscripten_async_call` is silently discarded from that moment on, because
+   `_emscripten_async_call` routes a `millis >= 0` arm through `safeSetTimeout`, which is
+   `(func, timeout) => setTimeout(() => { callUserCallback(func) }, timeout)`.
+5. `emscripten_async_call` is the **first** of the two hops in
+   `QEventDispatcherWasm::wakeUp()` (`qstdweb::runOnMainThreadAsync`). So the wakeup is not
+   dropped by the browser, it is refused by the runtime, and the second hop never arms its
+   `QWasmTimer` at all.
+
+Everything the original report describes follows from that, and matches it exactly: the
+socket, the timers and the property pushes go on working, because none of them is delivered
+through that queue; the returning slot is the one path that is, and it is the one that dies.
+It is fully deterministic rather than one-in-a-session, which is why it looked "systematic
+per engine per runner" from the outside.
+
+**Reproduced locally, in the M6 client-runtime proof, line for line.** Launch Playwright's
+Firefox with `firefoxUserPrefs: { "webgl.disabled": true }` on a workstation and the console
+transcript is the CI transcript: `state=connecting counter=0`, then `WebGL context creation
+failed`, `QRhiGles2: Context is lost.`, `Failed to create RHI (backend 2)`,
+`Failed to initialize graphics backend for OpenGL.`, `Aborted()`, then `state=connected
+counter=0` and no posted event ever delivered again. Undo the pref and the same client
+delivers it before it even reports `connected`.
+
+**The environment fix is one apt line**, and it is in `browser-matrix.yml` and
+`wasm-proofs.yml` now: install `libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0 libgbm1`
+and export `LIBGL_ALWAYS_SOFTWARE=1`. Measured on a workstation forced to llvmpipe that way,
+headless Firefox 151 hands out a WebGL 2.0 context with no preferences set, so the software
+rasteriser is all these browsers ever needed. Both harnesses now ask each engine for its
+renderer on a blank page before running anything, and drop an engine that has none with that
+reason, rather than measuring a client that is going to abort.
+
+**What this does not change.** The dispatcher analysis below stands on its own, and so does
+the patch: a posted event that misses its wakeup is still permanently lost, `onTimer()` still
+sends timer events only, and the four-line fix still bounds the loss to one timer interval.
+What changes is the standing of the trigger. It is no longer an unexplained browser hiccup on
+one runner. It is any `abort()` anywhere in a Qt for WebAssembly client, which is a far wider
+door: **on WebAssembly, `qFatal` does not end the application, it half-ends it**, leaving a
+page that still draws nothing, still holds its socket open, still answers its timers, and has
+lost its event queue for good. Qt has no way to know that has happened, and neither does the
+application.
+
+The measurement that made the trigger look accidental is still true and still worth keeping:
+**one lost callback is permanent.**
 
 `node verify-pump.mjs stall once` drops exactly one wakeup arm and then gets out of the way.
 Both Chromium and Firefox then spend the rest of the session wedged, with property pushes
@@ -189,9 +252,10 @@ answer is that we measured, ruled things out, and did not catch it in the act:
   against Chromium's 0.3 ms.
 
 A hosted runner is the slowest, most contended, GPU-less machine in the matrix, and Firefox
-is the engine with the loosest timer scheduling on it. That is a plausible place for a
-one-in-a-session event, and it is as far as the evidence goes. The patch below is what makes
-the question stop mattering.
+is the engine with the loosest timer scheduling on it. That was a plausible place for a
+one-in-a-session event, and it was wrong: of those three properties the one that mattered was
+GPU-less, and it does not lose a callback, it aborts the client. The section head above has
+the mechanism.
 
 ## Ruled out
 
@@ -372,8 +436,12 @@ cannot be the portable answer. Asyncify also widens what the client may do, sinc
 
 ## Status
 
-Fixed in a local Qt, masked in the shipped one. The patch is not upstream and CI builds
-against a stock Qt, so SynQt keeps the poll fallback in `src/consumer/promise.cpp` until the
-fix lands in a Qt release. The M0 spike logs `M0 slot reply=<value> (via poll fallback)`
-whenever the fallback is what resolved the call, which is the marker to grep for in a run log
-to tell whether the underlying behaviour is still present.
+Trigger found and fixed in the environment; the dispatcher behaviour behind it is fixed in a
+local Qt and masked in the shipped one. The runner now installs Mesa's software rasteriser and
+both harnesses refuse to measure an engine that cannot hand out a WebGL context, so the client
+no longer aborts and the queue is no longer wedged. The four-line dispatcher patch is still
+not upstream and CI still builds against a stock Qt, so SynQt keeps the poll fallback in
+`src/consumer/promise.cpp` until the fix lands in a Qt release. The M0 spike logs
+`M0 slot reply=<value> (via poll fallback)` whenever the fallback is what resolved the call,
+which is the marker to grep for in a run log to tell whether the underlying behaviour is still
+present.

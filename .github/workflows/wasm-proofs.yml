@@ -131,11 +131,23 @@ jobs:
         # the -dev package above is for linking and does not bring it). There is deliberately
         # no xvfb here any more: that phase used to render on a virtual X display, which
         # needed xvfb *and* xauth and reported nothing at all when it did not work.
+        #
+        # The GLX and EGL runtimes are for the browsers, and they are load bearing. Firefox
+        # and WebKit take the machine's GL rather than bringing a rasteriser of their own
+        # (only Chromium ships SwiftShader), and a WASM client with no WebGL context cannot
+        # start Qt Quick at all: QSGRenderLoop ends that with qFatal, which is emscripten's
+        # abort(), which sets ABORT, after which emscripten drops every callback queued
+        # through emscripten_async_call -- the first hop of QEventDispatcherWasm::wakeUp().
+        # The client then connects, pushes properties and never delivers a posted event
+        # again, which is what the client-runtime row spent a run reporting as a stalled
+        # queue. The -dev package brings the GLX loader for linking; EGL is what a modern
+        # Firefox actually asks for, and nothing else here installs it.
         shell: bash
         run: |
           set -eu
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libgl1-mesa-dri
+          sudo apt-get install -y libgl1-mesa-dev libgl1-mesa-dri \
+            libglx-mesa0 libegl1 libegl-mesa0 libgbm1
 
       - name: Cache the Qt kit
         # Kits plus the QtRemoteObjects built from source into the WASM kit below, in one tree:
@@ -267,6 +279,11 @@ jobs:
           QT_WASM_MT: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.kit }}
           # The run scripts drive the wasm kit's qt-cmake, which needs the host tools named.
           QT_HOST_PATH: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/gcc_64
+          # There is no GPU here, so tell Mesa that instead of letting each browser find out
+          # for itself. Measured on a workstation with LIBGL_ALWAYS_SOFTWARE=1: headless
+          # Firefox hands out a WebGL 2.0 context on llvmpipe with no preferences set, so
+          # the software rasteriser is enough and the browsers only ever needed it present.
+          LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
           source "$HOME/emsdk/emsdk_env.sh"
           ${{ matrix.script }}

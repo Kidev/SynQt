@@ -246,8 +246,13 @@ export function pageUrl(scheme, port) {
 // moment it became interesting. The console carries the client's own account (M0 slot error,
 // M0 socket error=..., PAGEERROR ...), so print it where it is needed.
 export function dumpEvidence(logs) {
-    const interesting = (logs || []).filter(
-        (line) => /^(M0|PAGEERROR|CSPVIOLATION)/.test(line));
+    // Every line, with nothing filtered. This used to keep only lines beginning with a
+    // sentinel, which threw away the ones that name a cause: Qt says why it is about to call
+    // qFatal in ordinary warnings ("Failed to create RHI", "Failed to initialize graphics
+    // backend for OpenGL"), and the abort that follows reaches the harness as a bare
+    // "PAGEERROR Aborted()" with nothing attached to it. Keeping only the sentinels turns a
+    // named cause into an unexplained abort, which is exactly how long this one lasted.
+    const interesting = logs || [];
     // The frame-size instrument (M0 rx frame bytes=N) emits ~1-2 lines/sec, so a 25-line tail
     // would scroll the early reply frame out of view. The whole session is what makes the
     // "did the reply frame reach the client" question answerable, so show all of it on failure.
