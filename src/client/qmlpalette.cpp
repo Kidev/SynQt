@@ -43,11 +43,11 @@ bool isIdentifierChar(QChar character)
 /// treats ";" as a statement boundary and refuses the "import" keyword wherever it
 /// did not approve it, and a page is entitled to write both inside a string. What
 /// a literal holds is data, never a statement, so it leaves as "".
-int consumeString(const QString &source, int index, QString *out)
+qsizetype consumeString(const QString &source, qsizetype index, QString *out)
 {
     const QChar quote{source.at(index)};
     out->append(quote);
-    for (int scan{index + 1}; scan < source.size(); ++scan) {
+    for (qsizetype scan{index + 1}; scan < source.size(); ++scan) {
         const QChar character{source.at(scan)};
         if (character == QLatin1Char('\\')) {
             ++scan;  // an escape hides the next character, including a quote
@@ -73,9 +73,9 @@ int consumeString(const QString &source, int index, QString *out)
 /// Consume the "/* ... */" comment opening at index, emitting one newline per line
 /// terminator inside it so the statements around it stay apart; returns the index of
 /// the last character consumed.
-int consumeBlockComment(const QString &source, int index, QString *out)
+qsizetype consumeBlockComment(const QString &source, qsizetype index, QString *out)
 {
-    for (int scan{index + 2}; scan < source.size(); ++scan) {
+    for (qsizetype scan{index + 2}; scan < source.size(); ++scan) {
         const QChar character{source.at(scan)};
         if (character == QLatin1Char('\r') || character == QLatin1Char('\n')) {
             if (character == QLatin1Char('\r') && scan + 1 < source.size()
@@ -108,7 +108,7 @@ QString stripped(const QString &source)
 {
     QString body;
     body.reserve(source.size());
-    for (int index{0}; index < source.size(); ++index) {
+    for (qsizetype index{0}; index < source.size(); ++index) {
         const QChar character{source.at(index)};
         const bool hasNext{index + 1 < source.size()};
         if (character == QChar{ByteOrderMark}) {
@@ -130,7 +130,7 @@ QString stripped(const QString &source)
             if (source.at(index + 1) == QLatin1Char('/')) {
                 // Up to, but not including, the terminator: the loop reads that next
                 // and turns it into the "\n" the statement split needs.
-                int scan{index + 2};
+                qsizetype scan{index + 2};
                 while (scan < source.size() && source.at(scan) != QLatin1Char('\n')
                        && source.at(scan) != QLatin1Char('\r')) {
                     ++scan;
@@ -152,7 +152,7 @@ QString stripped(const QString &source)
 /// surrounding whitespace removed.
 struct Statement
 {
-    int offset{0};
+    qsizetype offset{0};
     QString text;
 };
 
@@ -163,14 +163,14 @@ struct Statement
 QList<Statement> statementsOf(const QString &body)
 {
     QList<Statement> statements;
-    int begin{0};
-    for (int index{0}; index <= body.size(); ++index) {
+    qsizetype begin{0};
+    for (qsizetype index{0}; index <= body.size(); ++index) {
         if (index < body.size() && body.at(index) != QLatin1Char('\n')
             && body.at(index) != QLatin1Char(';')) {
             continue;
         }
-        int first{begin};
-        int last{index};
+        qsizetype first{begin};
+        qsizetype last{index};
         while (first < last && body.at(first).isSpace()) {
             ++first;
         }
@@ -221,7 +221,7 @@ QStringList QmlPalette::modules() const
 bool QmlPalette::isAcceptable(const QString &source, QString *reason) const
 {
     const QString body{stripped(source)};
-    QSet<int> approved;  // where each import this palette allowed begins
+    QSet<qsizetype> approved;  // where each import this palette allowed begins
     bool headerEnded{false};
 
     for (const Statement &statement : statementsOf(body)) {
@@ -246,7 +246,7 @@ bool QmlPalette::isAcceptable(const QString &source, QString *reason) const
                 }
                 return false;
             }
-            int end{0};
+            qsizetype end{0};
             while (end < rest.size() && !rest.at(end).isSpace()) {
                 ++end;
             }
@@ -271,12 +271,12 @@ bool QmlPalette::isAcceptable(const QString &source, QString *reason) const
     // the keyword appears nowhere this scan did not approve. An occurrence it cannot
     // account for is one the engine may still honor, which is the only outcome that
     // matters, so it is refused without reasoning about how it got there.
-    for (int index{body.indexOf(importKeyword())}; index >= 0;
+    for (qsizetype index{body.indexOf(importKeyword())}; index >= 0;
          index = body.indexOf(importKeyword(), index + 1)) {
         if (approved.contains(index)) {
             continue;
         }
-        const int after{index + static_cast<int>(importKeyword().size())};
+        const qsizetype after{index + importKeyword().size()};
         const bool startsToken{index == 0 || !isIdentifierChar(body.at(index - 1))};
         const bool endsToken{after >= body.size() || !isIdentifierChar(body.at(after))};
         if (startsToken && endsToken) {
