@@ -43,6 +43,12 @@ public:
     bool refusesInsecure() const;
 
 private:
+    /// Upgrade the open connection to TLS, verifying the server against `ca_cert` (or the
+    /// system trust store). False, with a reason, when the handshake fails or when this
+    /// build has no TLS to offer; the caller then closes the connection rather than
+    /// continuing in plaintext.
+    bool startTls(QString *error);
+
     ProviderConfig m_config;
     redisContext *m_context{nullptr};
 };

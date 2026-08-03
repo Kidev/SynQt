@@ -85,6 +85,37 @@ bool MongoDocumentProvider::connect(QString *error)
         }
         return false;
     }
+    // What the URI actually says, not what the config claims. `tls: true` next to a URI
+    // with no `tls=true` in it was a link that read as encrypted everywhere above and was
+    // plaintext on the wire; and `tlsInsecure`/`tlsAllowInvalidCertificates` turn the
+    // certificate check off inside a URI that still spells TLS, which is the same hole one
+    // option deeper. Both are refused here, where the string the driver was handed can be
+    // read, rather than trusted from the flag beside it.
+    if (m_config.tls && !mongoc_uri_get_tls(uri)) {
+        mongoc_uri_destroy(uri);
+        if (error != nullptr) {
+            *error = QStringLiteral(
+                "the MongoDB connection string does not enable TLS, but this provider is "
+                "configured for it: add tls=true to the uri (see "
+                "https://synqt.org/providers/)");
+        }
+        return false;
+    }
+    if (m_config.tls
+        && (mongoc_uri_get_option_as_bool(uri, MONGOC_URI_TLSINSECURE, false)
+            || mongoc_uri_get_option_as_bool(uri, MONGOC_URI_TLSALLOWINVALIDCERTIFICATES,
+                                             false)
+            || mongoc_uri_get_option_as_bool(uri, MONGOC_URI_TLSALLOWINVALIDHOSTNAMES,
+                                             false))) {
+        mongoc_uri_destroy(uri);
+        if (error != nullptr) {
+            *error = QStringLiteral(
+                "the MongoDB connection string disables certificate verification "
+                "(tlsInsecure / tlsAllowInvalidCertificates / tlsAllowInvalidHostnames); "
+                "an unverified TLS link is refused (see https://synqt.org/security/)");
+        }
+        return false;
+    }
     mongoc_client_t *client{mongoc_client_new_from_uri(uri)};
     mongoc_uri_destroy(uri);
     if (client == nullptr) {

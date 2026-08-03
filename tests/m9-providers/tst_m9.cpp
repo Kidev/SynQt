@@ -817,6 +817,36 @@ private slots:
         QVERIFY(!cache->isHealthy());
     }
 
+    // `tls: true` means TLS or nothing, on every link.
+    //
+    // The same live server, which speaks plaintext, must now refuse the connection instead
+    // of returning a healthy provider: before this, the flag was only ever read by the
+    // release guard, and a connection asked to be encrypted was opened in the clear, with
+    // the cache password as its first bytes.
+    void redisTlsAskedForIsTlsOrNothing()
+    {
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_REDIS_HOST")) {
+            QSKIP("no live redis (set SYNQT_TEST_REDIS_HOST/PORT/PASSWORD; see run-m9.sh)");
+        }
+        ProviderConfig redis;
+        redis.name = QStringLiteral("redis");
+        redis.host = qEnvironmentVariable("SYNQT_TEST_REDIS_HOST");
+        redis.port = qEnvironmentVariableIntValue("SYNQT_TEST_REDIS_PORT");
+        redis.password = qEnvironmentVariable("SYNQT_TEST_REDIS_PASSWORD");
+        redis.tls = true;       // the server offers none
+        redis.release = false;  // so the release guard is not what refuses this
+
+        QString error;
+        std::unique_ptr<ICacheProvider> cache{makeCacheProvider(redis, &error)};
+        if (cache == nullptr) {
+            QSKIP(qPrintable(QStringLiteral("redis provider not built: %1").arg(error)));
+        }
+        QVERIFY2(!cache->connect(&error),
+                 "a plaintext server must not satisfy a connection asked to use TLS");
+        QVERIFY2(error.contains(QStringLiteral("TLS")), qPrintable(error));
+        QVERIFY(!cache->isHealthy());
+    }
+
     void mongoLiveRoundTrip()
     {
         // The masking claim for the document family, in full: against a LIVE mongodb the same
