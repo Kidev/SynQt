@@ -66,8 +66,14 @@ function startEdge() {
 // installed; that is a machine to provision, not a flag to pass, and graphicsRenderer below
 // is what notices. They are given no arguments either way, so that a launch failure means
 // the runtime is missing and never that it choked on an argument meant for another engine.
-function launchOptions(browserType) {
+function launchOptions(browserType, withoutWebGl) {
     const options = { headless, args: [] };
+    if (withoutWebGl) {
+        // Firefox is the one engine that can be told to withhold WebGL through a
+        // preference, which is what makes this case possible without a second machine.
+        options.firefoxUserPrefs = { "webgl.disabled": true };
+        return options;
+    }
     if (browserType === chromium) {
         options.args.push("--use-gl=angle", "--use-angle=swiftshader",
                           "--enable-unsafe-swiftshader");
@@ -331,6 +337,69 @@ async function runStarvedCase(browserType, name) {
     }
 }
 
+// The whole point of the fallback, in the one place it can be measured: an engine that
+// hands out no WebGL context at all.
+//
+// Without it the client does not merely fail to draw. Qt Quick cannot create its scene
+// graph, QSGRenderLoop calls qFatal, that is emscripten's abort(), and abort() sets ABORT,
+// after which every callback queued through emscripten_async_call is dropped: the first
+// hop of QEventDispatcherWasm::wakeUp(). The client keeps its socket and its timers and
+// loses its posted-event queue for the rest of the page. This case asserts the opposite of
+// all of that: it connects, it draws, it stays responsive, and the one route declared to
+// need the accelerated pipeline says so instead of showing a blank area.
+async function runWithoutWebGl(browserType, name) {
+    const logs = [];
+    const fatals = [];
+    const { proc: edge, port } = await startEdge();
+    const browser = await browserType.launch(launchOptions(browserType, true));
+    try {
+        const context = await browser.newContext();
+        const tab = await openTab(context, name, logs, fatals);
+        await tab.goto(`http://127.0.0.1:${port}/`, { waitUntil: "load", timeout: 60000 });
+
+        await waitFor(() => logs.some((l) => l.includes("state=connected")), 60000,
+                      "the client connected without WebGL", fatals);
+        console.log("  connected with no WebGL context");
+
+        // It knows it is on the raster adaptation, which is what every guard below reads.
+        await waitFor(() => logs.some((l) => l.includes("softwareRendered=true")), 20000,
+                      "the client to report software rendering", fatals);
+
+        // The pump is the tell. A client that aborted would connect and then never deliver
+        // this, which is exactly the failure this whole feature exists to prevent.
+        await waitFor(() => logs.some((l) => l.includes("posted-event pump alive")), 20000,
+                      "the posted-event pump to survive the missing context", fatals);
+        console.log("  the posted-event pump is alive, so nothing aborted");
+
+        // And it really rendered: the canvas has a box and a click reaches the button.
+        const canvas = tab.locator("canvas").first();
+        const box = await canvas.boundingBox();
+        if (!box || box.width === 0 || box.height === 0) {
+            throw new Error("the client canvas has no box: software rendering drew nothing");
+        }
+        await tab.mouse.click(box.x + box.width / 2 + 24, box.y + box.height / 2 + 34);
+        await waitFor(() => logs.some((l) => l.includes("counter=1")), 20000,
+                      "a click to reach the button on the raster adaptation", fatals);
+        console.log("  it renders and a click reaches the counter");
+
+        // The route that needs what this browser cannot give: refused, and named as such
+        // (Router.Unsupported is 5). The visitor stays on the path they asked for.
+        await tab.evaluate(() => window.history.pushState({}, "", "/3d"));
+        await tab.evaluate(() => window.dispatchEvent(new PopStateEvent("popstate")));
+        await waitFor(() => logs.some((l) => l.includes("route=/3d")), 20000,
+                      "the client to navigate to the accelerated route", fatals);
+        await waitFor(() => logs.some((l) => l.includes("pageStatus=5")), 20000,
+                      "the accelerated route to report Unsupported", fatals);
+        console.log("  the accelerated route showed the notice instead of a blank page");
+        return { name, pass: true, logsA: logs, logsB: [] };
+    } catch (err) {
+        return { name, pass: false, error: err.message, logsA: logs, logsB: [] };
+    } finally {
+        await browser.close();
+        edge.kill("SIGKILL");
+    }
+}
+
 async function main() {
     // Probed rather than assumed, the same way tests/m0-transport/verify/verify.mjs does
     // it: an engine whose runtime is not installed leaves its column unproven and says so,
@@ -380,7 +449,12 @@ async function main() {
 
     const results = [];
     for (const [browserType, browserName] of engines) {
-        for (const [suffix, run] of [["", runCase], ["-starved", runStarvedCase]]) {
+        const cases = [["", runCase], ["-starved", runStarvedCase]];
+        // Only Firefox can be told to withhold WebGL, so only Firefox can run it.
+        if (browserName === "firefox") {
+            cases.push(["-nogl", runWithoutWebGl]);
+        }
+        for (const [suffix, run] of cases) {
             const caseName = `${browserName}${suffix}`;
             console.log(`\n=== case ${caseName} ===`);
             const result = await run(browserType, caseName);

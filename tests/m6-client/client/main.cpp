@@ -6,6 +6,8 @@
 // opens the wss link; the two targets differ only in where the edge URL comes from
 // (the served page vs a baked build.desktop.edge_url) and who terminates TLS.
 
+#include "graphics.h"
+#include "graphicsprobe.h"
 #include "router.h"
 #include "serveraccessor.h"
 #include "session.h"
@@ -55,6 +57,10 @@ QUrl resolveEdgeUrl()
 
 int main(int argc, char *argv[])
 {
+    // What a generated client does before its application: a browser with no WebGL gets
+    // the raster adaptation instead of a qFatal that also kills its posted-event queue.
+    SynQt::GraphicsProbe::selectBackend();
+
     QGuiApplication app{argc, argv};
 
     synqtRegisterCounterReplicas();  // register the typed CounterReplica factory
@@ -74,7 +80,11 @@ int main(int argc, char *argv[])
                      RouteConfig{QStringLiteral("/about"), QStringLiteral("Main"), QString{},
                                  QString{}},
                      RouteConfig{QStringLiteral("/admin"), QStringLiteral("Admin"),
-                                 QStringLiteral("admin"), QString{}}};
+                                 QStringLiteral("admin"), QString{}},
+                     // Declared as needing the accelerated pipeline, so the browser proof
+                     // can navigate to it and see the notice instead of the page.
+                     RouteConfig{QStringLiteral("/3d"), QStringLiteral("Main"), QString{},
+                                 QString{}, GraphicsRequirement::Accelerated}};
 
     // The engine comes first: the Router builds each route's page component
     // with it.
@@ -89,10 +99,16 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("Server"), client->server());
     engine.rootContext()->setContextProperty(QStringLiteral("Session"), client->session());
     engine.rootContext()->setContextProperty(QStringLiteral("Router"), client->router());
+
+    SynQt::Graphics graphics;
+    graphics.installWatcher();
+    engine.rootContext()->setContextProperty(QStringLiteral("Graphics"), &graphics);
+
     engine.loadFromModule("CounterClient", "Main");
     if (engine.rootObjects().isEmpty()) {
         return -1;
     }
+    graphics.attachTo(engine.rootObjects().constFirst(), &engine, QString{});
 
     client->start();
     return app.exec();

@@ -29,7 +29,10 @@ ApplicationWindow {
     height: 220
     title: "SynQt Counter"
 
-    Component.onCompleted: Qt.callLater(window.reportPumpAlive)
+    Component.onCompleted: {
+        Qt.callLater(window.reportPumpAlive);
+        console.log("M6 softwareRendered=" + Graphics.isSoftwareRendered);
+    }
 
     // Telemetry for the end-to-end browser test: surfaces connection state and the
     // counter value to the browser console. Invisible; harmless in the shipped app.
@@ -56,7 +59,12 @@ ApplicationWindow {
         property string route: Router.path
         property int counter: Server.counter ? Server.counter.value : 0
 
+        // Two lines, not one: pathChanged is emitted before the page is resolved, so a
+        // status read from the route handler is the previous page's.
+        property int pageStatus: Router.pageStatus
+
         onRouteChanged: console.log("M6 route=" + routeTelemetry.route)
+        onPageStatusChanged: console.log("M6 pageStatus=" + routeTelemetry.pageStatus)
         onCounterChanged: {
             if (routeTelemetry.counter > 0) {
                 Router.go("/about");
