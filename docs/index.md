@@ -154,7 +154,9 @@ one QML file per entity, and the table the database keeps them in. Hover (or
 focus) any part of the diagram to read the file
 behind it, or pick the file out of the project tree beside it; it stays open
 until you move to another one. The database opens two, its QML and the table
-that QML queries, since neither says much without the other. Hover any line of
+that QML queries, since neither says much without the other, and a directory in
+the tree opens everything in it, so shared/ shows all three contracts at once.
+Hover any line of
 a file to see what that line does, and a line that ends in an arrow opens the
 page covering it, whether that is a page of this guide or the class in the C++
 reference.
@@ -220,10 +222,11 @@ reference.
        belongs to neither alone. The stroke thins as the glyph grows, so it stays
        a drawing rather than becoming a block.
 
-       Only the first carries a name in the label row (below). The label names the
-       glyph, not that one file, and three of them repeated would crowd the two
-       diagonal links, which already carry their own edge label and lock. Which
-       file each one opens is on its hotspot, and all three are named in the tree. -->
+       None of the three carries a name in the label row (below): three of them
+       repeated would crowd the two diagonal links, which already carry their own
+       edge label and lock, and one name over one of them reads as a name for that
+       file rather than for the glyph. Each opens the contract its own link carries,
+       and all three are named in the tree, where shared/ opens the set. -->
   <g transform="translate(132,166) scale(1.5)" fill="none" stroke="#e5e7ff" stroke-width="0.9">
     <rect x="-4" y="-5" width="8" height="10" rx="1"/>
     <line x1="-2" y1="-1.5" x2="2" y2="-1.5"/>
@@ -350,7 +353,6 @@ reference.
   <g class="synqt-flow__labels">
     <text x="50" y="182" text-anchor="middle">browser</text>
     <text x="220" y="190" text-anchor="middle">web edge</text>
-    <text x="132" y="192" text-anchor="middle">contract</text>
     <text x="220" y="268" text-anchor="middle">configuration</text>
     <text x="390" y="112" text-anchor="middle">database</text>
     <text x="390" y="252" text-anchor="middle">api</text>
@@ -675,20 +677,19 @@ UpstreamSource {
 <div class="synqt-tree">
 <span class="synqt-tree__title">Project tree</span>
 <ul class="synqt-tree__list">
-<li class="synqt-tree__dir">my-app</li>
 <li class="synqt-tree__leaf"><span class="synqt-tree__file" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml">synqt.yaml</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested">shared</li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="contract access-contract upstream-contract" tabindex="0" role="button" aria-label="Show the three contracts in shared/">shared</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="access-contract" tabindex="0" role="button" aria-label="Show shared/Access.syn">Access.syn</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="contract" tabindex="0" role="button" aria-label="Show shared/Feed.syn">Feed.syn</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="upstream-contract" tabindex="0" role="button" aria-label="Show shared/Upstream.syn">Upstream.syn</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested">client</li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="client" tabindex="0" role="button" aria-label="Show client/Main.qml">client</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/Main.qml">Main.qml</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested">web</li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="web" tabindex="0" role="button" aria-label="Show web/Feed.qml">web</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="web" tabindex="0" role="button" aria-label="Show web/Feed.qml">Feed.qml</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested">database</li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="database schema" tabindex="0" role="button" aria-label="Show database/Access.qml and database/schema.sql">database</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show database/Access.qml and database/schema.sql">Access.qml</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="database schema" tabindex="0" role="button" aria-label="Show database/Access.qml and database/schema.sql">schema.sql</span></li>
-<li class="synqt-tree__dir synqt-tree__dir--nested">api</li>
+<li class="synqt-tree__dir"><span class="synqt-tree__folder" data-file="api" tabindex="0" role="button" aria-label="Show api/Upstream.qml">api</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="api" tabindex="0" role="button" aria-label="Show api/Upstream.qml">Upstream.qml</span></li>
 </ul>
 </div>

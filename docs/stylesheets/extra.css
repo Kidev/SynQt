@@ -391,6 +391,32 @@ body {
   white-space: nowrap;
 }
 
+/* The same problem one column over, where pinning the whole token is not an option
+   because those cells carry prose. Material sets `word-break: break-word` on inline
+   code, which is the legacy spelling of `overflow-wrap: anywhere`: it allows a break
+   at any character of a token, and it tells the table layout that the column can be
+   squeezed down to one character wide. Both halves bite in a wide table, where the
+   layout takes that offer and spends the width on the prose columns instead: the
+   developer guide's library table set `src/consumer` as `src/consum` + `er`, a path
+   cut in the middle of a word.
+
+   `word-break: normal` takes both back. A break falls only where one is legal, after
+   the slash in a path or between two words, and the column now asks for the width of
+   its longest word rather than of one character, which is usually enough for the
+   token to stay whole. Material's own `overflow-wrap: break-word` is left in place
+   underneath, so a token too long for a line of its own still breaks rather than
+   overflowing the cell.
+
+   Measured over all 48 pages at 1600, 1100, 760 and 420 pixels: every one of the
+   mid-word breaks goes (9, 10, 12 and 43 of them), and what it costs is one more
+   table wide enough to scroll sideways at 760 and four more at 420, where sixteen
+   were already scrolling. A table that scrolls is what Material does with a table
+   that does not fit, and it is the better half of that trade: the path is still a
+   path. */
+.md-typeset table:not([class]) code {
+  word-break: normal;
+}
+
 /* The platform's scrollbar, for the reader who does not get ours: this rule and
    the next one are what a page looks like with scripting off, since the script
    below hides the native bar itself rather than letting CSS do it. Everything

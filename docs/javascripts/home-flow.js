@@ -175,14 +175,29 @@
       hint.classList.toggle(SHOWN, !!text);
     }
 
-    // What a trigger names, as one string. Almost every trigger names one file, and the
-    // database names two: the entity's QML and the schema.sql the query in it reads. They
-    // are one thing to point at, so the pair is written on the diagram's database and on
-    // both of its rows in the tree, and pointing at any of the three opens both files and
-    // lights both rows. Nothing else about them is special: they are short enough to sit
-    // one under the other in the panel without either of them scrolling.
+    // What a trigger names, as one string. Most name one file. The database names two,
+    // its QML and the schema.sql the query in it reads, because they are one thing to
+    // point at: the pair is written on the diagram's database and on both of its rows in
+    // the tree. A directory row names everything under it, which is what makes shared/
+    // open its three contracts while each contract still opens on its own.
     function nameOf(element) {
       return element.getAttribute("data-file").trim().split(/\s+/).join(" ");
+    }
+
+    // A trigger lights when every file it names is open, rather than when it names
+    // exactly what is open. For all but the directories those are the same thing. Where
+    // they differ: shared/ opens its three contracts, and each of the three rows under it
+    // and each of the three glyphs on the drawing is showing one of the files now open,
+    // so all of them light with it. Pointing at one of those instead opens that one
+    // contract and leaves the directory dark, since two of the files it names are not
+    // open. One reading, both directions: what is lit is exactly what is on screen.
+    function lit(open, named) {
+      for (var at = 0; at < named.length; at++) {
+        if (open.indexOf(named[at]) === -1) {
+          return false;
+        }
+      }
+      return true;
     }
 
     function show(name) {
@@ -203,7 +218,7 @@
         open[index].classList.add(STACKED);
       }
       for (var on = 0; on < triggers.length; on++) {
-        var chosen = nameOf(triggers[on]) === name;
+        var chosen = lit(wanted, nameOf(triggers[on]).split(" "));
         triggers[on].classList.toggle(ON, chosen);
         triggers[on].setAttribute("aria-pressed", chosen ? "true" : "false");
       }

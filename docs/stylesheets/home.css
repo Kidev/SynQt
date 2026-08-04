@@ -434,9 +434,9 @@
    The nine files as they would sit on disk, in a panel down the right edge of the
    file view, the way an editor keeps its project beside the file it has open. It
    is the same set of triggers as the diagram, in the shape a reader already knows,
-   so a file whose place in the mesh is not obvious (the contract, on the line
-   between two entities) is still one click away. Directories are labels, not
-   triggers: there is nothing behind them.
+   so a file whose place in the mesh is not obvious (the contracts, on the lines
+   between entities) is still one click away. A directory is a trigger too, for
+   whatever is under it.
 
    Inside the editor rather than beside it, so it has no box of its own: a rule
    between the two panes is what separates them, exactly as in the editor this is
@@ -485,8 +485,8 @@
    every item, from rules that carry a direction prefix (`[dir=ltr] .md-typeset
    ul`, `[dir=ltr] .md-typeset ul li`). That prefix counts for specificity, so
    those two outrank the reset above and it never took: the tree opened a 24px
-   gutter down its left, which held `my-app` clear of the label over it and made
-   the whole column that much wider than the deepest file name in it. The tree
+   gutter down its left, which held the first row clear of the label over it and
+   made the whole column that much wider than the deepest name in it. The tree
    draws its own indent, so this takes theirs back, in either direction. */
 [dir=ltr] .md-typeset .synqt-tree__list,
 [dir=rtl] .md-typeset .synqt-tree__list,
@@ -497,7 +497,7 @@
 
 /* The glyphs are masks rather than images, so both take the colour of the row
    they are on and the file rows light up with their text. */
-.synqt-tree__dir::before,
+.synqt-tree__folder::before,
 .synqt-tree__file::before {
   content: "";
   display: inline-block;
@@ -512,11 +512,13 @@
           mask-size: contain;
 }
 
+/* A directory is dimmer than the files under it, which is the whole of what
+   separates the two rows now that both are triggers. */
 .synqt-tree__dir {
   color: #8f96c4;
 }
 
-.synqt-tree__dir::before {
+.synqt-tree__folder::before {
   -webkit-mask-image: var(--synqt-icon-folder);
           mask-image: var(--synqt-icon-folder);
 }
@@ -526,23 +528,27 @@
           mask-image: var(--synqt-icon-file);
 }
 
-.synqt-tree__dir--nested,
-.synqt-tree__leaf {
+.synqt-tree__leaf--nested {
   padding-left: 1rem;
 }
 
-.synqt-tree__leaf--nested {
-  padding-left: 2rem;
-}
-
-.synqt-tree__file {
+/* A directory opens what is in it, so pointing at `database` is pointing at the
+   two files under it, and `shared` at the three contracts. It is the same
+   trigger as a file row, and it reads as one: nothing in this tree is a label
+   with nothing behind it, and a reader who lands on the folder first is not
+   asked to find the file under it before anything happens. */
+.synqt-tree__file,
+.synqt-tree__folder {
   display: inline-block;
   padding: 0 .3rem;
   margin: 0 -.3rem;
   border-radius: .2rem;
-  color: #c3c9ec;
   cursor: pointer;
   transition: color .2s ease, background .2s ease;
+}
+
+.synqt-tree__file {
+  color: #c3c9ec;
 }
 
 /* Exactly one thing in this section is ever lit, and it is whichever file is
@@ -550,7 +556,8 @@
    Lighting what the pointer is over as well meant two lights for as long as it
    took the file to open, which reads as the section lagging behind the pointer
    rather than as a preview of where it is going. */
-.synqt-tree__file.synqt-trigger--on {
+.synqt-tree__file.synqt-trigger--on,
+.synqt-tree__folder.synqt-trigger--on {
   color: #fff;
   background: rgba(0, 166, 237, .18);
 }
@@ -636,21 +643,18 @@
   top: 73.33%;
 }
 
-/* Over the document glyph below the browser-to-edge line and the name under it
-   (see the SVG), which together are the contract's part of the drawing, the same
-   way a circle and the name under it are an entity's. */
+/* One box over each of the three document glyphs, each the size of the glyph it
+   covers (132,166, 346,113 and 346,187 in the SVG's own coordinates) and no
+   larger: none of them carries a name under it, and the two on the mesh links
+   have to stop short of the database and api hotspots to their right, which
+   start at 82.64%. */
 .synqt-flow__hotspot--contract {
   left: 30%;
-  top: 58.5%;
-  width: 10%;
-  height: 14%;
+  top: 55.33%;
+  width: 7%;
+  height: 11%;
 }
 
-/* The other two contracts, over the glyph on each mesh link (346,113 and 346,187
-   in the SVG's own coordinates). Narrower and shorter than the browser link's,
-   which also has to cover the name under it: these carry no label, and the box
-   has to stop short of the database and api hotspots to its right, which start
-   at 82.64%. */
 .synqt-flow__hotspot--access-contract {
   left: 78.64%;
   top: 37.67%;
@@ -763,12 +767,14 @@
   min-height: 0;
 }
 
-/* The database opens two files at once, its QML and the schema.sql the query in it
-   reads, because they are one thing to read: the table is what the query is asking,
-   and neither is long enough to need the panel to itself. The pair stacks, so the
-   first is as tall as it is (rather than half the panel each) and the last keeps
-   `flex: 1 1 auto` above, which is what holds the explanation and the note at the
-   foot of the panel instead of letting them ride up under a short file. */
+/* Some triggers open more than one file at once: the database opens its QML and the
+   schema.sql the query in it reads, and a directory row opens everything under it,
+   which for shared/ is its three contracts. None of those files is long enough to
+   need the panel to itself. They stack, so every file but the last is as tall as it
+   is (rather than
+   the panel split evenly between them) and the last keeps `flex: 1 1 auto` above,
+   which is what holds the explanation and the note at the foot of the panel instead
+   of letting them ride up under a short file. */
 .synqt-file--current.synqt-file--stacked {
   flex: 0 0 auto;
   margin-bottom: .9rem;
