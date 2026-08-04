@@ -14,8 +14,8 @@ from typing import Any, Dict, List, Optional
 
 from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
-               config as configmod, create, deploy as deploymod, doctor, mesh, newproject,
-               run as runmod, version as versionmod)
+               config as configmod, create, deploy as deploymod, docker as dockermod,
+               doctor, mesh, newproject, run as runmod, version as versionmod)
 
 
 def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, Any]:
@@ -101,7 +101,13 @@ def build_parser() -> argparse.ArgumentParser:
         if name in ("dev", "build"):
             p.add_argument("--release", action="store_true", default=(name == "build"))
             p.add_argument("--debug", action="store_true")
-            p.add_argument("--client", default="wasm", choices=["wasm", "desktop", "all"])
+            # `none` builds the service entities and no client at all. It is what a
+            # container image wants when the browser bundle is coming from somewhere else
+            # (`synqt docker init --client host`), and it is the difference between a build
+            # that needs an Emscripten kit and one that does not: with no wasm target
+            # requested, the toolchain check stops asking for one.
+            p.add_argument("--client", default="wasm",
+                           choices=["wasm", "desktop", "all", "none"])
             p.add_argument("--verbose", action="store_true",
                            help="echo each build command and stream its output")
         if name == "build":
@@ -161,6 +167,38 @@ def build_parser() -> argparse.ArgumentParser:
         mp.add_argument("--profile", default=None, metavar="NAME",
                         help="layer synqt.<NAME>.yaml over synqt.yaml")
     meshp.set_defaults(project_dir=".", profile=None)
+
+    # `synqt docker`: generate the container setup for an existing project, and drive it.
+    # `init` is the one that writes anything; `up` and `down` are `docker compose` with the
+    # profile and the two checks worth making before it, so that neither has to be
+    # remembered.
+    dockerp = sub.add_parser("docker", help="run the whole project in containers")
+    docker_sub = dockerp.add_subparsers(dest="docker_command", required=True)
+    di = docker_sub.add_parser("init", help="generate the Dockerfile, compose file, profile")
+    di.add_argument("--force", action="store_true",
+                    help="regenerate files that already exist")
+    di.add_argument("--subnet", default=dockermod.DEFAULT_SUBNET, metavar="CIDR",
+                    help="the private network the entity containers address each other on")
+    di.add_argument("--client", default="image", choices=list(dockermod.CLIENT_MODES),
+                    help="image: build the browser bundle inside the image (needs nothing "
+                         "installed); host: mount the one `synqt build` produced here")
+    di.add_argument("--port", type=int, default=None,
+                    help="publish the edge on this port instead of the one in synqt.yaml")
+    # A generator that prompts when it has a terminal and picks defaults when it does not
+    # is two behaviors under one name (see create.py). The flag says which you get, and the
+    # questions are only ever about secrets that have to come from outside anyway.
+    di.add_argument("--no-input", action="store_true",
+                    help="ask nothing; leave a placeholder for every secret from outside")
+    du = docker_sub.add_parser("up", help="build the images and start every container")
+    du.add_argument("--detach", "-d", action="store_true", help="start in the background")
+    du.add_argument("--no-build", action="store_true",
+                    help="start what is already built instead of rebuilding first")
+    dd = docker_sub.add_parser("down", help="stop every container")
+    dd.add_argument("--volumes", action="store_true",
+                    help="also remove the mesh CA and any engine data (a clean slate)")
+    for dp in (di, du, dd):
+        dp.add_argument("--project-dir", default=".")
+    dockerp.set_defaults(project_dir=".")
 
     add = sub.add_parser("add", help="add a capability to the project")
     add_sub = add.add_subparsers(dest="what", required=True)
@@ -244,6 +282,27 @@ def _run_mesh(args: argparse.Namespace) -> int:
     elif args.mesh_command == "status":
         print(mesh.status(args.project_dir))
     return 0
+
+
+def _run_docker(args: argparse.Namespace) -> int:
+    if args.docker_command == "init":
+        # The container topology is validated before it is written, not after it fails to
+        # come up: a project whose synqt.yaml is already invalid produces a compose file
+        # that is invalid in exactly the same way, four minutes into an image build.
+        if _fails_validation(args.project_dir, release=False):
+            return 1
+        config = _load_config(args.project_dir)
+        print(dockermod.init(args.project_dir, config, force=args.force,
+                             subnet=args.subnet, client=args.client, port=args.port,
+                             source=None if args.no_input else sys.stdin))
+        return 0
+    if args.docker_command == "up":
+        command = dockermod.up_command(args.project_dir, detach=args.detach,
+                                       build=not args.no_build)
+    else:
+        command = dockermod.down_command(args.project_dir, volumes=args.volumes)
+    print(f"synqt: {' '.join(command)}")
+    return dockermod.run(args.project_dir, command)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -330,6 +389,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return runmod.test(args.project_dir)
         elif args.command == "mesh":
             return _run_mesh(args)
+        elif args.command == "docker":
+            return _run_docker(args)
         elif args.command == "add":
             return _run_add(args)
         else:
@@ -337,8 +398,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (newproject.NewProjectError, create.CreateError, addauth.AddAuthError,
             addentity.AddEntityError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
-            appmodel.AppGenError, buildmod.BuildError, configmod.ConfigError,
-            FileNotFoundError) as error:
+            dockermod.DockerError, appmodel.AppGenError, buildmod.BuildError,
+            configmod.ConfigError, FileNotFoundError) as error:
         print(f"synqt {args.command}: {error}", file=sys.stderr)
         return 1
     return 0

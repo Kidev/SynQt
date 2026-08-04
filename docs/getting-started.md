@@ -135,5 +135,10 @@ Writing a provider for an engine SynQt has no support for is its own track:
 [Advanced](tutorial-advanced.md) builds a database, a cache, and an identity service
 against the family interfaces.
 
+Want to run somebody else's project, or hand yours to a reviewer, without either of you
+installing a Qt SDK? [Running in containers](docker.md) generates a Dockerfile and a
+compose file from `synqt.yaml`, so `synqt docker up` brings the whole system up with
+Docker and nothing else.
+
 Prefer the reference documentation instead? [Framework](architecture.md) covers
 every part of SynQt, from the entity model down to the security design.
