@@ -97,10 +97,11 @@ def emit_source_helper_header(syn: SynFile, lstem: str) -> str:
                       "#include <QList>",
                       "#include <QObject>",
                       "#include <QQmlListProperty>", ""]
-    # QStandardItemModel is QtGui; only pull it in when a contract actually has a
+    # SourceModel is a QStandardItemModel that refuses a write arriving from a consumer,
+    # and it is QtGui through its base; only pull it in when a contract actually has a
     # model, so a model-less service does not need QtGui.
     if _has_models(syn):
-        out += ["#include <QStandardItemModel>", "#include <QVariantList>", ""]
+        out += ["#include <sourcemodel.h>", "#include <QVariantList>", ""]
     records = syn.record_names
     path = f"{syn.stem}.syn"
     for contract in syn.contracts:
@@ -201,7 +202,7 @@ def _source_helper_class(contract: Contract, records, path) -> str:
     lines.append("    static void appendData(QQmlListProperty<QObject> *list, QObject *object);")
     lines.append("    QList<QObject *> m_data;")
     for model in contract.models:
-        lines.append(f"    QStandardItemModel m_{model.name}Model;")
+        lines.append(f"    SynQt::SourceModel m_{model.name}Model;")
     lines.append("};")
     return "\n".join(lines)
 

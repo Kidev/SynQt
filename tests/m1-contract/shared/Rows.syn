@@ -1,0 +1,8 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// A contract that is nothing but a published model, for the tests that ask what a
+// consumer can do to one.
+contract Rows {
+    model rows(id, text)
+}

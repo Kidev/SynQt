@@ -35,6 +35,7 @@ include(cmake/SynQtCoverage.cmake)
 # target, never whether it is created twice. The same guard is what lets a suite be
 # configured standalone: there, the suite is the one that adds what it needs.
 add_subdirectory(src/transport)
+add_subdirectory(src/contract)
 add_subdirectory(src/consumer)
 add_subdirectory(src/providers)
 add_subdirectory(src/client)
@@ -48,6 +49,7 @@ add_subdirectory(src/testing)
 # when you are debugging one milestone rather than measuring the set.
 synqt_enable_coverage(
     SynQtTransport
+    SynQtContract
     SynQtConsumer
     SynQtProviders
     SynQtClient

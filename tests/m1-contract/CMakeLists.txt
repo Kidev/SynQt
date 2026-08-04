@@ -42,6 +42,25 @@ target_link_libraries(tst_m1 PRIVATE
 
 add_test(NAME m1 COMMAND tst_m1)
 
+# What a consumer can do to a published model, over a real connection. Its own target
+# (and its own contract) so the question stays legible: this is the boundary, and these
+# are the only writes that cross it.
+qt_add_executable(tst_modelwrite tst_modelwrite.cpp)
+
+synqt_add_contract(tst_modelwrite ROLE both SYN
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Rows.syn"
+)
+
+target_link_libraries(tst_modelwrite PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::Test
+)
+
+add_test(NAME m1-modelwrite COMMAND tst_modelwrite)
+
 # Owner (ROLE source): gets the Source helpers only. Proves a service entity builds
 # with no Replica code.
 qt_add_executable(m1_owner owner_main.cpp)

@@ -20,6 +20,9 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 # The directory that contains the synqtc package (this file lives in <repo>/cmake).
 get_filename_component(_SYNQT_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(SYNQTC_ROOT "${_SYNQT_REPO_ROOT}/tools/synqtc" CACHE INTERNAL "synqtc package root")
+# Cached like the above, because synqt_add_contract resolves src/contract through it and a
+# function reads the scope it is called from, not the one this file was included in.
+set(SYNQT_REPO_ROOT "${_SYNQT_REPO_ROOT}" CACHE INTERNAL "SynQt repository root")
 
 # The generator's own sources. Editing the generator (e.g. emit.py) must re-run
 # codegen as surely as editing a .syn does, or a build silently keeps stale output.
@@ -52,6 +55,18 @@ function(synqt_add_contract target)
     endif()
     if(NOT ARG_SYN)
         message(FATAL_ERROR "synqt_add_contract: no SYN files given")
+    endif()
+
+    # The owner side publishes through SynQt::SourceModel, so every target that gets a
+    # Source helper links the library that defines it. Not optional and not guarded on
+    # __has_include: a published model a consumer can write into is the hole this closes,
+    # and a target that quietly missed the link would reopen it.
+    if(NOT ARG_ROLE STREQUAL "replica")
+        if(NOT TARGET SynQtContract)
+            add_subdirectory("${SYNQT_REPO_ROOT}/src/contract"
+                "${CMAKE_BINARY_DIR}/SynQtContract")
+        endif()
+        target_link_libraries(${target} PRIVATE SynQtContract)
     endif()
 
     # Per-target so several targets in one directory (owner, consumer, and a both-
