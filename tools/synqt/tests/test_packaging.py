@@ -17,9 +17,9 @@ import pytest
 
 from synqt import appmodel
 
-try:  # tomllib is 3.11+; the CLI still supports 3.9.
+try: # tomllib is 3.11+; the CLI still supports 3.9.
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover - only on 3.9/3.10
+except ModuleNotFoundError: # pragma: no cover - only on 3.9/3.10
     tomllib = None
 
 PROJECT = Path(__file__).resolve().parents[1]

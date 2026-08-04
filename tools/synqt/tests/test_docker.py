@@ -257,6 +257,32 @@ class DockerignoreTest(unittest.TestCase):
         self.assertIn("build/", docker.render_dockerignore())
 
 
+def _run_instructions(dockerfile: str) -> list:
+    """The RUN instructions, each rejoined from its backslash continuations.
+
+    A generated RUN spans several lines and the comments above it mention the same words,
+    so asserting on raw lines both misses the command and matches the prose about it.
+    """
+    runs = []
+    pending = None
+    for line in dockerfile.splitlines():
+        if pending is not None:
+            pending += " " + line.strip().rstrip("\\").strip()
+            if not line.rstrip().endswith("\\"):
+                runs.append(pending)
+                pending = None
+            continue
+        if line.startswith("RUN "):
+            body = line[4:].strip()
+            if line.rstrip().endswith("\\"):
+                pending = body.rstrip("\\").strip()
+            else:
+                runs.append(body)
+    if pending is not None:
+        runs.append(pending)
+    return runs
+
+
 class DockerfileTest(unittest.TestCase):
     def test_the_wasm_kit_is_only_provisioned_when_the_image_builds_the_client(self):
         image = docker.render_dockerfile(_config(), client="image")
@@ -271,6 +297,34 @@ class DockerfileTest(unittest.TestCase):
         image = docker.render_dockerfile(_config(), client="image")
         self.assertIn("qtremoteobjects", image)
         self.assertIn("QT_HOST_PATH", image)
+
+    def test_the_wasm_kit_gets_its_executable_bit_back(self):
+        # aqt writes the scripts it generates itself executable, but the ones that come out
+        # of the WebAssembly archive arrive 0644, qt-cmake among them. Invoking it is then
+        # exit 126 from a file that is plainly there, which is how the first image build of
+        # this path died. The host kit does not have the problem and is left alone.
+        image = docker.render_dockerfile(_config(), client="image")
+        self.assertIn('chmod +x "$QT_ROOT/$QT_VERSION/wasm_singlethread/bin/"*', image)
+
+    def test_emsdk_is_sourced_from_its_own_directory(self):
+        # A Dockerfile RUN is /bin/sh, and emsdk_env.sh locates itself through $BASH_SOURCE,
+        # which dash leaves empty: it then prints "unable to determine 'emsdk' directory"
+        # and returns 0, so the build carries on with emcc off PATH and fails later as
+        # something else entirely. Sourcing from its own directory is the documented
+        # fallback, and every place that sources it has to use it.
+        runs = [r for r in _run_instructions(docker.render_dockerfile(_config(), client="image"))
+                if "emsdk_env.sh" in r]
+        self.assertTrue(runs, "the image never sets up Emscripten")
+        for run in runs:
+            self.assertIn("cd /opt/emsdk && . ./emsdk_env.sh", run)
+
+    def test_the_client_build_returns_to_the_project_directory(self):
+        # The cd into /opt/emsdk above is inside the same shell as the build, so without a
+        # cd back synqt would run against an emsdk checkout instead of the project.
+        runs = [r for r in _run_instructions(docker.render_dockerfile(_config(), client="image"))
+                if "synqt build" in r]
+        self.assertTrue(runs)
+        self.assertIn(f"cd {docker.APP_DIR}", runs[0])
 
     def test_the_multithreaded_kit_is_selected_from_the_config(self):
         config = _config(build={"client_threads": "multi"})

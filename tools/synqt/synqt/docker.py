@@ -158,7 +158,7 @@ _ENGINES: Dict[str, Dict[str, Any]] = {
 }
 
 
-# --- reading the project ----------------------------------------------------------------
+# reading the project
 
 def service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Every entity that becomes a container: all of them except the client.
@@ -298,7 +298,7 @@ def secret_names(config: Dict[str, Any]) -> Dict[str, List[str]]:
     return wanted
 
 
-# --- the generated profile --------------------------------------------------------------
+# the generated profile
 
 def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
                    subnet: str = DEFAULT_SUBNET) -> str:
@@ -373,7 +373,7 @@ def _provider_loopback(engine: str, entity: str) -> List[str]:
     return note
 
 
-# --- the generated Dockerfile -------------------------------------------------------------
+# the generated Dockerfile
 
 def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
     """The image every entity container runs.
@@ -402,7 +402,7 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
         "",
         "# syntax=docker/dockerfile:1",
         "",
-        "# --- toolchain: the pinned Qt and Emscripten, and nothing about this project ------",
+        "# toolchain: the pinned Qt and Emscripten, and nothing about this project",
         "# Keyed on two version numbers, so this layer is built once and reused for every",
         "# later change to the app. It is also the slow one: the first build downloads a Qt",
         "# kit" + (" and compiles a Qt module from source" if wasm else "") + ".",
@@ -461,13 +461,25 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
             f'RUN aqt install-qt all_os wasm "$QT_VERSION" {kit} \\',
             '        -m qtwebsockets --outputdir "$QT_ROOT" \\',
             '    && aqt install-src linux "$QT_VERSION" --archives qtremoteobjects \\',
-            '        --outputdir "$QT_ROOT"',
+            '        --outputdir "$QT_ROOT" \\',
+            f'    && chmod +x "$QT_ROOT/$QT_VERSION/{kit}/bin/"*',
+            "",
+            "# The chmod above is not decoration. aqt writes the scripts it generates itself",
+            "# (qmake6, qtpaths) executable, but the ones that come out of the WebAssembly",
+            "# archive arrive 0644, qt-cmake among them, so invoking it is exit 126,",
+            '# "Permission denied", from a file that is plainly there. The host kit does not',
+            "# have the problem, which is why only this one is touched.",
             "",
             "# The prebuilt WebAssembly kits ship QtWebSockets but not QtRemoteObjects, so it",
             "# is built from the pinned source with the kit's own qt-cmake and installed into",
             "# the kit. QT_HOST_PATH is required because a cross-compiled Qt carries the host",
             "# tool path from the machine it was built on, which is not this one.",
-            "RUN . /opt/emsdk/emsdk_env.sh \\",
+            "# `cd` first, and not for tidiness: a Dockerfile RUN is /bin/sh, and",
+            "# emsdk_env.sh finds its own directory through $BASH_SOURCE. Under dash that is",
+            "# empty, so it prints \"unable to determine 'emsdk' directory\" and returns 0,",
+            "# leaving emcc off PATH and the failure to surface later as something else.",
+            "# Sourcing it from its own directory is the fallback it documents.",
+            "RUN cd /opt/emsdk && . ./emsdk_env.sh \\",
             '    && export QT_HOST_PATH="$QT_ROOT/$QT_VERSION/gcc_64" \\',
             f'    && "$QT_ROOT/$QT_VERSION/{kit}/bin/qt-cmake" \\',
             '        -S "$QT_ROOT/$QT_VERSION/Src/qtremoteobjects" -B /tmp/qtro -G Ninja \\',
@@ -478,7 +490,7 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
         ]
     lines += [
         "",
-        "# --- build: this project, through the toolchain above ----------------------------",
+        "# build: this project, through the toolchain above",
         "FROM toolchain AS build",
         "",
         f"WORKDIR {APP_DIR}",
@@ -487,7 +499,10 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
         "# Which synqt to build with. The default is the published CLI, which carries the",
         "# framework's own sources, so nothing outside this file is needed. Point it at a",
         "# path inside the project, or at a git URL, to build against a checkout instead:",
-        "#     docker compose build --build-arg SYNQT_PIP_SPEC=./vendor/synqt",
+        "#     SYNQT_PIP_SPEC=./vendor/synqt synqt docker up",
+        "#",
+        "# In the environment rather than as a --build-arg, because `up --build` takes no",
+        "# build arguments; the compose file passes this variable through to here.",
         "#",
         "# After the COPY rather than before it, so a path spec is actually in the image by",
         "# the time pip looks for it. That does mean an edit to the app invalidates this",
@@ -510,7 +525,9 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
     ]
     if wasm:
         lines += [
-            "RUN . /opt/emsdk/emsdk_env.sh \\",
+            "# The `cd` dance is the emsdk_env.sh one explained in the toolchain stage; the",
+            "# second `cd` puts the build back in the project directory.",
+            f"RUN cd /opt/emsdk && . ./emsdk_env.sh && cd {APP_DIR} \\",
             f"    && synqt build --release --profile {PROFILE} --verbose",
         ]
     else:
@@ -522,7 +539,7 @@ def render_dockerfile(config: Dict[str, Any], *, client: str = "image") -> str:
         ]
     lines += [
         "",
-        "# --- runtime: the artifacts and what they link, and no compiler -------------------",
+        "# runtime: the artifacts and what they link, and no compiler",
         "FROM debian:bookworm-slim AS runtime",
         "",
         "ENV DEBIAN_FRONTEND=noninteractive",
@@ -695,7 +712,7 @@ def render_dockerignore() -> str:
     ])
 
 
-# --- the generated compose file -----------------------------------------------------------
+# the generated compose file
 
 def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
                    subnet: str = DEFAULT_SUBNET, client: str = "image",
@@ -913,7 +930,7 @@ def _engine_service(entity: Dict[str, Any], engine: str, spec: Dict[str, Any],
     return lines
 
 
-# --- the .env files -------------------------------------------------------------------------
+# the .env files
 
 _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
@@ -1034,7 +1051,7 @@ def _relative(path: Path, root: Path) -> str:
         return str(path)
 
 
-# --- writing it all out ---------------------------------------------------------------------
+# writing it all out
 
 def generated_files() -> Tuple[str, ...]:
     """Everything `init` writes, so `--force` and the tests agree on one list."""
@@ -1147,7 +1164,7 @@ def _summary(config: Dict[str, Any], written: List[str], env_files: List[str],
     return "\n".join(lines)
 
 
-# --- driving docker itself ------------------------------------------------------------------
+# driving docker itself
 
 def compose_command() -> List[str]:
     """``docker compose``, or the standalone ``docker-compose`` where that is what exists."""
