@@ -149,9 +149,9 @@ allow. Here the browser asks for some data, the web edge checks the database
 whether that caller is allowed, and only then fetches the data from the api and
 sends it back.
 
-Seven files are that whole system: one configuration file, one contract, one
-QML file per entity, and the table the database keeps them in. Hover (or focus)
-any part of the diagram to read the file
+Nine files are that whole system: one configuration file, one contract per link,
+one QML file per entity, and the table the database keeps them in. Hover (or
+focus) any part of the diagram to read the file
 behind it, or pick the file out of the project tree beside it; it stays open
 until you move to another one. The database opens two, its QML and the table
 that QML queries, since neither says much without the other. Hover any line of
@@ -211,13 +211,34 @@ reference.
     </g>
   </g>
 
-  <!-- The contract, on the link it is shared across. It is a trigger like the
-       four entities, so it is drawn and named like them: a document glyph at
-       the size of an entity's own icon, with its name under it in the same
-       label row. Neutral, not colored like either side, since the contract
-       belongs to neither alone. The stroke thins as the glyph grows, so it
-       stays a drawing rather than becoming a block. -->
+  <!-- One contract per link, each on the link it is shared across, because that is
+       what a connect point is: every one of the three in synqt.yaml names a
+       contract, and drawing it only on the browser link would say the two mesh
+       links are held together by something else. They are triggers like the four
+       entities, so they are drawn like them: a document glyph at the size of an
+       entity's own icon. Neutral, not colored like either side, since a contract
+       belongs to neither alone. The stroke thins as the glyph grows, so it stays
+       a drawing rather than becoming a block.
+
+       Only the first carries a name in the label row (below). The label names the
+       glyph, not that one file, and three of them repeated would crowd the two
+       diagonal links, which already carry their own edge label and lock. Which
+       file each one opens is on its hotspot, and all three are named in the tree. -->
   <g transform="translate(132,166) scale(1.5)" fill="none" stroke="#e5e7ff" stroke-width="0.9">
+    <rect x="-4" y="-5" width="8" height="10" rx="1"/>
+    <line x1="-2" y1="-1.5" x2="2" y2="-1.5"/>
+    <line x1="-2" y1="1" x2="2" y2="1"/>
+  </g>
+  <!-- Offset off its line on the side the edge label is not on, so neither
+       covers the other: "check access" sits above this link, so its contract
+       sits below, and "fetch data" sits below the next one, so its contract
+       sits above. -->
+  <g transform="translate(346,113) scale(1.5)" fill="none" stroke="#e5e7ff" stroke-width="0.9">
+    <rect x="-4" y="-5" width="8" height="10" rx="1"/>
+    <line x1="-2" y1="-1.5" x2="2" y2="-1.5"/>
+    <line x1="-2" y1="1" x2="2" y2="1"/>
+  </g>
+  <g transform="translate(346,187) scale(1.5)" fill="none" stroke="#e5e7ff" stroke-width="0.9">
     <rect x="-4" y="-5" width="8" height="10" rx="1"/>
     <line x1="-2" y1="-1.5" x2="2" y2="-1.5"/>
     <line x1="-2" y1="1" x2="2" y2="1"/>
@@ -339,6 +360,8 @@ reference.
 <div class="synqt-flow__hotspot synqt-flow__hotspot--user" data-file="client" tabindex="0" role="button" aria-label="Show client/Main.qml"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--hub" data-file="web" tabindex="0" role="button" aria-label="Show web/Feed.qml"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--contract" data-file="contract" tabindex="0" role="button" aria-label="Show shared/Feed.syn"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--access-contract" data-file="access-contract" tabindex="0" role="button" aria-label="Show shared/Access.syn"></div>
+<div class="synqt-flow__hotspot synqt-flow__hotspot--upstream-contract" data-file="upstream-contract" tabindex="0" role="button" aria-label="Show shared/Upstream.syn"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--config" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--database" data-file="database schema" tabindex="0" role="button" aria-label="Show database/Access.qml and database/schema.sql"></div>
 <div class="synqt-flow__hotspot synqt-flow__hotspot--api" data-file="api" tabindex="0" role="button" aria-label="Show api/Upstream.qml"></div>
@@ -477,6 +500,38 @@ contract Feed {
 <li data-code="model rows(id, title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser.</li>
 <li data-code="slot load()" data-href="programming-model/">Consumer to owner: the one direction a request travels.</li>
 <li data-code="signal denied(string reason)" data-href="programming-model/">The owner's answer when it refuses, addressed to the caller that asked.</li>
+</ul>
+
+</div>
+
+<div class="synqt-file" data-file="access-contract" markdown>
+<span class="synqt-file__name"><strong>contract</strong><span class="synqt-flow__path">shared/Access.syn</span></span>
+
+```syn
+contract Access {
+    slot bool allows(string sub)
+}
+```
+
+<ul class="synqt-flow__glossary" hidden>
+<li data-code="contract Access" data-href="entities/">The database's link to the edge, written the same way as the browser's. Nothing in a contract says which side of the mesh it is on.</li>
+<li data-code="slot bool allows" data-href="programming-model/">A slot with a return type. The caller gets a promise, so the edge can wait on the answer without blocking anything else it is serving.</li>
+</ul>
+
+</div>
+
+<div class="synqt-file" data-file="upstream-contract" markdown>
+<span class="synqt-file__name"><strong>contract</strong><span class="synqt-flow__path">shared/Upstream.syn</span></span>
+
+```syn
+contract Upstream {
+    slot var fetch()
+}
+```
+
+<ul class="synqt-flow__glossary" hidden>
+<li data-code="contract Upstream" data-href="programming-model/">Three connect points, three contracts. A contract is what one link carries, so each one is only as big as its link needs.</li>
+<li data-code="slot var fetch" data-href="programming-model/">The rows the gateway last brought back. Untyped here because they are the third party's shape, not this system's; the edge is what turns them into a declared model.</li>
 </ul>
 
 </div>
@@ -623,7 +678,9 @@ UpstreamSource {
 <li class="synqt-tree__dir">my-app</li>
 <li class="synqt-tree__leaf"><span class="synqt-tree__file" data-file="config" tabindex="0" role="button" aria-label="Show synqt.yaml">synqt.yaml</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested">shared</li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="access-contract" tabindex="0" role="button" aria-label="Show shared/Access.syn">Access.syn</span></li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="contract" tabindex="0" role="button" aria-label="Show shared/Feed.syn">Feed.syn</span></li>
+<li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="upstream-contract" tabindex="0" role="button" aria-label="Show shared/Upstream.syn">Upstream.syn</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested">client</li>
 <li class="synqt-tree__leaf synqt-tree__leaf--nested"><span class="synqt-tree__file" data-file="client" tabindex="0" role="button" aria-label="Show client/Main.qml">Main.qml</span></li>
 <li class="synqt-tree__dir synqt-tree__dir--nested">web</li>

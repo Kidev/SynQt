@@ -400,7 +400,7 @@
    pointed at, so the pointer is free to move into the file and read it.
 
    The editor takes exactly what it needs: as wide as the longest line in these
-   seven files, plus the tree's longest file name, and no wider. Everything left
+   nine files, plus the tree's longest file name, and no wider. Everything left
    over goes to the drawing, which is the part of this that can use it, and which
    is where a reader looks first.
 
@@ -431,7 +431,7 @@
 }
 
 /* --- The project tree -----------------------------------------------------
-   The seven files as they would sit on disk, in a panel down the right edge of the
+   The nine files as they would sit on disk, in a panel down the right edge of the
    file view, the way an editor keeps its project beside the file it has open. It
    is the same set of triggers as the diagram, in the shape a reader already knows,
    so a file whose place in the mesh is not obvious (the contract, on the line
@@ -646,6 +646,25 @@
   height: 14%;
 }
 
+/* The other two contracts, over the glyph on each mesh link (346,113 and 346,187
+   in the SVG's own coordinates). Narrower and shorter than the browser link's,
+   which also has to cover the name under it: these carry no label, and the box
+   has to stop short of the database and api hotspots to its right, which start
+   at 82.64%. */
+.synqt-flow__hotspot--access-contract {
+  left: 78.64%;
+  top: 37.67%;
+  width: 7%;
+  height: 11%;
+}
+
+.synqt-flow__hotspot--upstream-contract {
+  left: 78.64%;
+  top: 62.33%;
+  width: 7%;
+  height: 11%;
+}
+
 /* The configuration, under the mesh. It is a trigger like the five over the
    drawing, and the only one that is not a part of the mesh: the configuration is
    the file the mesh is generated from, which is why it sits below the drawing
@@ -697,7 +716,7 @@
   width: max-content;
   max-width: 100%;
   /* Fixed, and the same for every file: it is the height of the longest of the
-     seven, the configuration, so no file scrolls. A panel sized to the file being
+     nine, the configuration, so no file scrolls. A panel sized to the file being
      read would be a different height for each of them, and would move the diagram
      beside it under the pointer that is still pointing at the diagram. */
   height: 37.75rem;
@@ -713,7 +732,7 @@
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  /* Wide enough for the longest line in these seven files and no wider: this is a
+  /* Wide enough for the longest line in these nine files and no wider: this is a
      column of code, so any width past its longest line is width the drawing next
      to it could have had.
      Sixty six columns is that longest line (the database's caller check) and two
@@ -801,7 +820,7 @@
 }
 
 /* Every file starts at the top of the panel. Centering a short one in the space
-   instead reads better standing still, but the seven files are read one after
+   instead reads better standing still, but the nine files are read one after
    another: each change of file would then slide the code up or down by half the
    difference in their lengths, under a pointer that is on its way to a line.
    The file ends where the file ends: a short one leaves the rest of the panel
@@ -820,7 +839,7 @@
 /* Body code blocks wrap as a backstop against a long line (extra.css). A file
    here must not: its lines are the file's, and the glossary hands its
    explanations out one line at a time, so a wrapped line would be one entry
-   spread over two rows. The panel is sized for the longest line these seven files
+   spread over two rows. The panel is sized for the longest line these nine files
    have, so there is nothing to wrap; below the width where that stops being true
    the media query at the end of this section turns wrapping back on. Written as
    `pre > code` to match the specificity of the rule it is overriding. */
@@ -993,7 +1012,7 @@
   line-height: 1.4;
 }
 
-/* The row needs the editor's own width (the longest line of these seven files, plus
+/* The row needs the editor's own width (the longest line of these nine files, plus
    the tree beside it) and enough left over for the drawing to still be a drawing.
    Below that the drawing takes a row of its own and the editor follows it, which
    keeps the editor at exactly the width it was and spends the lost width on the
@@ -1020,7 +1039,7 @@
 }
 
 /* Too narrow for a file and a tree side by side. The tree keeps its job and
-   loses its shape: the seven files as a wrapped row of names above the file, with
+   loses its shape: the nine files as a wrapped row of names above the file, with
    the directories dropped, since a path is not worth two lines of a phone
    screen. */
 @media screen and (max-width: 50em) {
@@ -1044,7 +1063,7 @@
 
   /* `:not([hidden])` only to reach the specificity of Material's own
      `.md-typeset ul:not([hidden]){display:flow-root}`, which otherwise wins and
-     leaves the seven names stacked one per line. */
+     leaves the nine names stacked one per line. */
   .md-typeset .synqt-tree__list:not([hidden]),
   .synqt-tree__list {
     display: flex;
