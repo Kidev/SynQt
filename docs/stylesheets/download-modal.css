@@ -163,6 +163,34 @@
   opacity: 0.72;
 }
 
+/* The PyPI note closes the card, so it drops the gap a sublabel normally leaves for
+   the code block that follows it. */
+.synqt-dl__last {
+  margin-bottom: 0;
+}
+
+/* A command in prose stays on one line: broken across two, the chip's background reads
+   as two unrelated fragments rather than one thing to type. */
+.synqt-dl__sublabel code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.3rem;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+/* Two classes, for the same reason the warning's links carry two: `.synqt-dl a` sets a
+   smaller size later in this file and would otherwise win on source order. */
+.synqt-dl .synqt-dl__sublabel a {
+  font-size: inherit;
+}
+
+/* The PyPI section starts a new thought after the script warning, which the warning's
+   panel would otherwise run straight into. */
+.synqt-dl__warn + .synqt-dl__label {
+  margin-top: 1.5rem;
+}
+
 .synqt-dl__pre {
   position: relative;
   margin: 0 0 1.5rem;
