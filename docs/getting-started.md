@@ -21,6 +21,18 @@ The installer drops a single `synqt` binary on your `PATH`. Confirm it is there:
 synqt --version
 ```
 
+> [!TIP]
+> If you already have Python and would rather manage `synqt` with it, the same CLI is on
+> PyPI:
+>
+> ```cli
+> pipx install synqt
+> ```
+>
+> `pip install synqt` works too; `pipx` is the suggestion only because this is an
+> application rather than a library. Both installs are cut from the same tag and behave
+> identically. The rest of this page reads the same either way.
+
 > [!NOTE]
 > That one binary is all you install by hand. The first time you build a project,
 > `synqt` downloads and pins the rest of the toolchain it needs (the Qt SDK and the

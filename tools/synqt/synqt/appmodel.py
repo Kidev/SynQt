@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
@@ -34,25 +35,70 @@ class AppGenError(Exception):
     """A generation error surfaced to the CLI (no traceback for the user)."""
 
 
-def framework_root() -> Path:
-    """The SynQt framework checkout this CLI builds against (holds src/ and cmake/).
+def _holds_framework(root: Path) -> bool:
+    """Whether `root` is a directory the generated CMake can resolve SYNQT_ROOT to."""
+    return (root / "src").is_dir() and (root / "cmake").is_dir()
 
-    Set the ``SYNQT_ROOT`` environment variable to name a checkout explicitly; otherwise the
-    root is derived from this file's location, which is correct when the CLI runs from a
-    checkout (directly or as an editable install) and wrong for a standalone wheel install
-    that does not carry the framework sources. The result is validated either way, so a
-    misresolved root fails here with an actionable message instead of a later CMake
-    ``${SYNQT_ROOT}/cmake/... not found``.
+
+def _is_temporary_extraction(path: Path) -> bool:
+    """Whether `path` lives in a directory that stops existing when this process does.
+
+    A single-file PyInstaller build unpacks its data into a fresh temporary directory and
+    deletes it on exit. That is fine for something read during the run (the loading-page
+    logo), and wrong for the framework root, which `synqt new` writes into the project's
+    CMakeLists.txt for every later build to resolve: a path under that directory is dead
+    the moment the command returns, and the failure surfaces days later as a CMake error
+    naming a directory nobody can find. So a bundled copy in a one-file build is not
+    offered at all, and the caller gets the message telling it to name a checkout.
+
+    A one-directory build unpacks next to its own executable and is durable, which is why
+    this compares the two rather than testing for `sys.frozen` alone.
+    """
+    extraction = getattr(sys, "_MEIPASS", None)
+    if not extraction:
+        return False
+    extraction = Path(extraction).resolve()
+    if extraction == Path(sys.executable).resolve().parent:
+        return False
+    return extraction in path.resolve().parents or extraction == path.resolve()
+
+
+def framework_root() -> Path:
+    """The SynQt framework sources this CLI builds against (holds src/ and cmake/).
+
+    Three places are tried, in order of how deliberate they are. ``SYNQT_ROOT`` names a
+    checkout explicitly and always wins, which is how a release smoke test or a developer
+    with two checkouts says which one to build against. Otherwise the surrounding checkout
+    is used, derived from this file's location, which is what runs when the CLI is invoked
+    out of a clone or an editable install. Failing both, the copy packaged inside the
+    distribution is used: an installed wheel and the frozen binary carry ``src/`` and
+    ``cmake/`` under ``synqt/framework/`` (see ``tools/synqt/_build_backend.py``) so that
+    ``pipx install synqt`` can scaffold and build with no checkout anywhere on the machine.
+
+    The order matters in the one case where more than one exists: inside a checkout, the
+    sources being edited are the ones to build, never the packaged copy of them.
+
+    Every candidate is validated the same way, so a misresolved root fails here with an
+    actionable message instead of a later CMake ``${SYNQT_ROOT}/cmake/... not found``.
     """
     override = os.environ.get("SYNQT_ROOT")
-    root = (Path(override).expanduser().resolve() if override
-            else Path(__file__).resolve().parents[3])
-    if not (root / "src").is_dir() or not (root / "cmake").is_dir():
-        raise AppGenError(
-            f"cannot find the SynQt framework sources under {root} "
-            "(expected a checkout holding src/ and cmake/). Run synqt from a SynQt "
-            "checkout, or set SYNQT_ROOT to point at one.")
-    return root
+    if override:
+        root = Path(override).expanduser().resolve()
+        if not _holds_framework(root):
+            raise AppGenError(
+                f"SYNQT_ROOT points at {root}, which is not a SynQt checkout "
+                "(expected it to hold src/ and cmake/).")
+        return root
+    checkout = Path(__file__).resolve().parents[3]
+    if _holds_framework(checkout):
+        return checkout
+    bundled = Path(__file__).resolve().parent / "framework"
+    if _holds_framework(bundled) and not _is_temporary_extraction(bundled):
+        return bundled
+    raise AppGenError(
+        "cannot find the SynQt framework sources (a directory holding src/ and cmake/) at "
+        "a path that will still exist after this command. Run synqt from a SynQt checkout, "
+        "or set SYNQT_ROOT to point at one.")
 
 
 def qml_uri(project_name: str) -> str:

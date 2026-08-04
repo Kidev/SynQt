@@ -463,6 +463,60 @@ Each run prints the engine versions it drove. Both workflows depend on aqtinstal
 the right module names for the runner image, which is the first thing to check when one of
 them fails on a fresh runner.
 
+### Cutting a release
+
+[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) is
+manual, and it does not take a version. You pick `patch`, `minor` or `major` and it bumps
+the newest `v*` tag by that much, with an optional suffix (`-alpha`, `-rc.1`) that also
+marks the release as a pre-release so `/releases/latest`, and therefore the installer, keeps
+resolving to the last stable build. `dry_run` builds and smoke tests every artifact and
+publishes nothing, which is the way to exercise a change to the workflow itself.
+
+One run produces every way of installing `synqt`, all from one tag:
+
+| Artifact | Built by | Where it lands |
+| --- | --- | --- |
+| `synqt-linux-{x86_64,arm64}.tar.gz` | `build-linux`, inside the `manylinux_2_28` container so the glibc floor is 2.28 and stays there | the GitHub release, which is what `get.synqt.org` downloads |
+| `synqt-macos-{x86_64,arm64}.tar.gz`, `synqt-windows-{x86_64,arm64}.zip` | `build-native`, on the runner for that row | the same release |
+| `synqt-<version>.tar.gz` and `synqt-<version>-py3-none-any.whl` | `build-pypi` | [PyPI](https://pypi.org/p/synqt), and attached to the release as well |
+
+The frozen binaries and the wheel are the same CLI. They differ in one thing: a one-file
+frozen binary unpacks its data into a temporary directory it deletes on exit, so it cannot
+offer the framework sources it carries as a `SYNQT_ROOT` (`synqt new` writes that path into
+the project's CMake, where it has to still exist tomorrow). The wheel installs them durably
+under `synqt/framework/`, so a `pipx install synqt` scaffolds and builds with no checkout on
+the machine.
+
+### Publishing to PyPI
+
+Uploading uses [trusted publishing](https://docs.pypi.org/trusted-publishers/), so there is
+no API token in this repository and nothing to rotate. The `publish-pypi` job asks GitHub
+for a short-lived OpenID Connect token naming this repository, this workflow file and this
+environment, and PyPI trades it for an upload token of its own.
+
+That trade only works once the publisher is registered, which is a one-time manual step:
+
+1. On [pypi.org/manage/account/publishing](https://pypi.org/manage/account/publishing/),
+   add a **pending** GitHub publisher: PyPI project name `synqt`, owner `Kidev`, repository
+   `SynQt`, workflow `release.yml`, environment `pypi`. Pending is right because the project
+   does not exist yet; the first successful upload creates it.
+2. In the repository settings, create the `pypi`
+   [environment](https://docs.github.com/en/actions/how-tos/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment)
+   and require manual approval on it. The environment name has to match what step 1 said,
+   and the approval is what stops a compromised workflow run from publishing on its own.
+3. Run the release workflow. `publish-pypi` waits for the approval, then uploads.
+
+Two things about it are worth knowing before the first run. PyPI never allows a version to
+be re-uploaded, so `publish-pypi` runs *after* the GitHub release is out rather than beside
+it, and `build-pypi` runs `twine check` and confirms the wheel actually carries `src/` and
+`cmake/` before anything is uploadable. And the publisher is matched on the workflow *file
+name*, so renaming `release.yml` breaks publishing until the publisher on PyPI is edited to
+match.
+
+A suffix that PEP 440 cannot express (`-nightly`, say) is not an error: the `version` job
+says so, the GitHub release and the frozen binaries happen as usual, and only `publish-pypi`
+steps aside.
+
 ## Coding standards and file headers
 
 The C++, QML, and JavaScript follow the Qt conventions, with three rules applied

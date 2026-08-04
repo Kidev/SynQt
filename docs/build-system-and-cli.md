@@ -441,6 +441,12 @@ single self contained binary per operating system and architecture with PyInstal
 names each asset `synqt-<os>-<arch>.<ext>` (the contract the installer downloads), and
 publishes them on a tagged GitHub release.
 
+The same run also builds the CLI as a Python source distribution and wheel and uploads
+them to [PyPI](https://pypi.org/p/synqt), so `pipx install synqt` and the installer
+script give you the same version of the same tool. That upload uses PyPI's trusted
+publishing rather than an API token; the setup behind it is in
+[publishing to PyPI](development.md#publishing-to-pypi).
+
 ## Deployment outputs
 
 `synqt build --release` produces one shippable directory per entity:

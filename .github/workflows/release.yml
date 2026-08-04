@@ -66,6 +66,8 @@ jobs:
       version: ${{ steps.compute.outputs.version }}
       tag: ${{ steps.compute.outputs.tag }}
       prerelease: ${{ steps.compute.outputs.prerelease }}
+      pypi: ${{ steps.pep440.outputs.pypi }}
+      pypi_version: ${{ steps.pep440.outputs.pypi_version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -118,6 +120,43 @@ jobs:
             echo "tag=v$version"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
+
+      # Whether this version can go to PyPI at all, decided here rather than discovered at
+      # upload time. A tag is free-form; a PyPI version is not, so the two vocabularies only
+      # overlap. `-alpha` and `-rc.1` are both fine (PEP 440 normalizes them to `a0` and
+      # `rc1`), while something like `-nightly` is not a version PyPI will accept. A tag it
+      # cannot express is not an error: the GitHub release and the frozen binaries still
+      # happen, and only the PyPI job steps aside, saying so. The value is passed through the
+      # environment for the reason the step above gives, since it carries the free-form suffix.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Decide whether this version is publishable to PyPI
+        id: pep440
+        env:
+          SYNQT_VERSION: ${{ steps.compute.outputs.version }}
+        run: |
+          set -eu
+          python -m pip install --quiet --disable-pip-version-check packaging
+          python - <<'PY'
+          import os
+
+          from packaging.version import InvalidVersion, Version
+
+          raw = os.environ["SYNQT_VERSION"]
+          try:
+              normalized = str(Version(raw))
+          except InvalidVersion:
+              publishable, normalized = "false", ""
+              print(f"::notice::{raw} is not a PEP 440 version, so this release publishes "
+                    "the GitHub assets only and skips PyPI.")
+          else:
+              publishable = "true"
+              print(f"{raw} is a PEP 440 version (normalizes to {normalized}); PyPI is in.")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"pypi={publishable}\npypi_version={normalized}\n")
+          PY
 
   # Linux: build in the manylinux_2_28 container so the glibc floor is explicit (2.28) and stable.
   # The container is run directly (not as the job `container:`) so the Actions themselves run on the
@@ -174,7 +213,10 @@ jobs:
           IMAGE: ${{ matrix.image }}
         # Everything below runs against glibc 2.28: install the CLI (pulling its PyYAML dependency),
         # freeze it with PyInstaller (a tiny launcher is the entry point; --collect-submodules pulls
-        # every synqt.* command module, even the ones cli.py imports lazily by name), then smoke-test
+        # every synqt.* command module, even the ones cli.py imports lazily by name, and
+        # --collect-data pulls the package's data files, which submodule collection does not:
+        # without it the frozen binary has no synqt/assets/*.svg and every client build fails
+        # rendering its own loading page), then smoke-test
         # the frozen binary ON this floor. The smoke test exercises the parts a onefile freeze most
         # often gets wrong: arg parsing, the scaffold (its templating and packaged data files), and
         # the providers registry, while touching no Qt or toolchain (that is what `dev`/`build`
@@ -199,13 +241,15 @@ jobs:
             "$py" -m pip install --root-user-action=ignore --upgrade pip
             "$py" -m pip install --root-user-action=ignore ./tools/synqt pyinstaller
             printf "import sys\nfrom synqt.cli import main\nif __name__ == \"__main__\":\n    sys.exit(main())\n" > synqt_entry.py
-            "$py" -m PyInstaller --onefile --name synqt --collect-submodules synqt synqt_entry.py
+            "$py" -m PyInstaller --onefile --name synqt \
+              --collect-submodules synqt --collect-data synqt synqt_entry.py
             ./dist/synqt --help
             tmp="$(mktemp -d)"
-            # A frozen binary carries no framework sources, so point the scaffold at this
-            # checkout (mounted at /io): `synqt new` bakes SYNQT_ROOT into the generated CMake
-            # and now refuses to resolve a root without src/ and cmake/, so a real one proves
-            # the scaffold is buildable rather than booby-trapped with a dead path.
+            # A one-file binary unpacks its data into a temporary directory it deletes on
+            # exit, so the framework sources it carries are not somewhere `synqt new` may
+            # bake into the project CMake (appmodel.framework_root refuses exactly that).
+            # Point the scaffold at this checkout instead (mounted at /io): a real root
+            # proves the scaffold is buildable rather than booby-trapped with a dead path.
             SYNQT_ROOT=/io ./dist/synqt new smoketest --parent-dir "$tmp"
             test -f "$tmp/smoketest/synqt.yaml"
             ./dist/synqt providers
@@ -304,11 +348,14 @@ jobs:
       - name: Freeze synqt into a single binary
         shell: bash
         # A tiny launcher is the PyInstaller entry point; --collect-submodules pulls every
-        # synqt.* command module even the ones cli.py imports lazily by name.
+        # synqt.* command module even the ones cli.py imports lazily by name, and --collect-data
+        # pulls the package's data files, which submodule collection does not: without it the
+        # frozen binary has no synqt/assets/*.svg and every client build fails rendering its own
+        # loading page.
         run: |
           set -eu
           printf 'import sys\nfrom synqt.cli import main\nif __name__ == "__main__":\n    sys.exit(main())\n' > synqt_entry.py
-          pyinstaller --onefile --name synqt --collect-submodules synqt synqt_entry.py
+          pyinstaller --onefile --name synqt --collect-submodules synqt --collect-data synqt synqt_entry.py
 
       - name: Smoke-test the frozen binary
         shell: bash
@@ -356,11 +403,94 @@ jobs:
           path: out/${{ steps.package.outputs.asset }}
           if-no-files-found: error
 
-  # Publishing is the only step a dry run skips: `build-linux`/`build-native` still run, so a dry
-  # run fully exercises the build and smoke tests and leaves the artifacts on the run for download,
-  # but no tag is created and no release is published. A skipped job does not fail the workflow.
+  # The same CLI as a Python distribution, for `pipx install synqt`. One job builds it and a
+  # separate one uploads it, which is the split the PyPA guide asks for: only the upload job
+  # is granted the OIDC token, so a script injected into a build cannot reach the credential
+  # that publishes. This job runs on a dry run too, so a dry run proves the packaging.
+  build-pypi:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Stamp the CLI version
+        # Same pattern, and the same reasoning, as the two stamp steps above: the value is
+        # written by Python's own repr() rather than spliced into a string literal, because it
+        # carries the free-form --suffix input. pyproject.toml reads the distribution version
+        # out of this one file, so this is also what versions the wheel.
+        env:
+          SYNQT_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+
+          version = os.environ["SYNQT_VERSION"]
+          lines = [
+              "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
+              "# SPDX-License-Identifier: Apache-2.0",
+              "",
+              '"""Stamped by the release workflow. See tools/synqt/synqt/_version.py."""',
+              "",
+              "__version__ = " + repr(version),
+              "",
+          ]
+          with open("tools/synqt/synqt/_version.py", "w", encoding="utf-8") as handle:
+              handle.write("\n".join(lines))
+          PY
+
+      - name: Build the sdist and the wheel
+        # From the checkout root, so the in-tree backend finds src/ and cmake/ above the
+        # package and vendors them into it (tools/synqt/_build_backend.py). A wheel built
+        # anywhere else would install a CLI that cannot scaffold.
+        run: |
+          set -eu
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+          python -m build --outdir dist tools/synqt
+
+      - name: Check the distributions and confirm they carry the framework
+        # `twine check` is the metadata gate (a README PyPI will not render is a failure, and
+        # it is not recoverable after an upload, since a version can never be re-uploaded).
+        # The wheel listing is the content gate: the two directories the generated CMake
+        # resolves under SYNQT_ROOT have to actually be in there.
+        run: |
+          set -eu
+          python -m twine check dist/*
+          python - <<'PY'
+          import glob
+          import sys
+          import zipfile
+
+          wheel = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          for required in ("synqt/framework/cmake/SynQtContracts.cmake",
+                           "synqt/assets/favicon.svg"):
+              if required not in names:
+                  sys.exit(f"{wheel} is missing {required}")
+          print(f"{wheel}: {len(names)} files, framework and assets present")
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          # The release job downloads every artifact of this run, so the sdist and the wheel
+          # are attached to the GitHub release as well as uploaded to PyPI. Same bytes, two
+          # places to get them from.
+          name: pypi-distributions
+          path: dist/
+          if-no-files-found: error
+
+  # Publishing is the only step a dry run skips: `build-linux`/`build-native`/`build-pypi` still
+  # run, so a dry run fully exercises the build and smoke tests and leaves the artifacts on the
+  # run for download, but no tag is created and no release is published. A skipped job does not
+  # fail the workflow.
   release:
-    needs: [version, build-linux, build-native]
+    needs: [version, build-linux, build-native, build-pypi]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
@@ -386,3 +516,55 @@ jobs:
           prerelease: ${{ needs.version.outputs.prerelease }}
           generate_release_notes: true
           files: dist/*
+
+  # Upload the sdist and the wheel to PyPI through the project's trusted publisher, which is
+  # OpenID Connect: this job asks GitHub for a short-lived token that names this repository,
+  # this workflow file and this environment, and PyPI trades it for an upload token of its own.
+  # There is no API token anywhere, and nothing to rotate or leak. The publisher has to be
+  # registered on PyPI first (docs/development.md, "Publishing to PyPI") and it is matched on
+  # the workflow FILE NAME, so renaming this file breaks publishing until the publisher is
+  # updated to match.
+  #
+  # It runs after `release`, not beside it: PyPI never lets a version be re-uploaded, so the
+  # irreversible step goes last, once the tag and the GitHub release exist. A version the tag
+  # vocabulary can express but PEP 440 cannot (a `-nightly` suffix, say) skips this job rather
+  # than failing the run; the `version` job decided that and said so.
+  publish-pypi:
+    needs: [version, build-pypi, release]
+    if: ${{ !inputs.dry_run && needs.version.outputs.pypi == 'true' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/synqt
+    permissions:
+      # The whole credential. Scoped to this job alone, never to the workflow, so the jobs
+      # that compile and freeze things cannot mint a publishing token.
+      id-token: write
+    steps:
+      # Two conditions above already keep a dry run out of here: the `if` on this job, and
+      # `needs: release`, which is itself skipped on a dry run. This is the third, and the
+      # only one that survives someone editing the other two: an upload cannot be undone, so
+      # the job refuses to reach the publish step rather than trusting its own guards.
+      - name: Refuse to publish on a dry run
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          PYPI_VERSION: ${{ needs.version.outputs.pypi_version }}
+        run: |
+          set -eu
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::error::publish-pypi reached on a dry run; refusing to upload"
+            exit 1
+          fi
+          echo "not a dry run: publishing $PYPI_VERSION to PyPI"
+
+      - name: Download the distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: pypi-distributions
+          path: dist
+
+      - name: Publish to PyPI
+        # No `with:` at all. Passing no username and no password is what selects the trusted
+        # publishing flow, and PEP 740 attestations are generated and uploaded by default
+        # under it, which is why there is nothing here to sign with either.
+        uses: pypa/gh-action-pypi-publish@release/v1
