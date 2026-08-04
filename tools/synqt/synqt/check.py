@@ -14,8 +14,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import (addentity, appmodel, clientcache, config as configmod, toolchain,
-               topologywriter)
+from . import (addentity, appmodel, clientcache, config as configmod, graphics,
+               toolchain, topologywriter)
 
 
 def validate(config: Dict[str, Any], *, release: bool = False,
@@ -1119,6 +1119,26 @@ def _loading_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+def lint_graphics(config: Dict[str, Any],
+                  project_dir: os.PathLike[str] | str) -> List[str]:
+    """Report what the graphics scan concluded for each route.
+
+    The scan decides for a route that declares nothing, so it has to say so: a page hidden
+    from part of the audience by a decision the author never wrote down is worse than the
+    blank area it replaces. A declaration that disagrees with the scan is followed and
+    reported, since one of the two is wrong and only the author knows which.
+    """
+    edges = appmodel.web_edges(config)
+    edge_name = edges[0].get("name", "web") if edges else "web"
+    messages: List[str] = []
+    for route in config.get("routes") or []:
+        if not isinstance(route, dict):
+            continue
+        _, findings = graphics.route_requirement(route, project_dir, edge_name)
+        messages += [f"warn: {finding}" for finding in findings]
+    return messages
+
+
 def lint_loading(project_dir: os.PathLike[str] | str) -> List[str]:
     """Check that build.loading's files exist and that an html override keeps its
     contract with the boot script.
@@ -1374,10 +1394,12 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     client_root_messages = lint_client_root(project_dir)
     route_messages = lint_routes(config, project_dir)
     remote_page_messages = lint_remote_pages(config, project_dir)
+    graphics_messages = lint_graphics(config, project_dir)
     messages += contract_messages
     messages += loading_messages
     messages += route_messages
     messages += remote_page_messages
+    messages += graphics_messages
     qml_messages = lint_qml(project_dir)
     messages += client_root_messages
     messages += qml_messages
@@ -1386,7 +1408,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     ok = ok and not any(
         m.startswith("error:")
         for m in contract_messages + loading_messages + client_root_messages
-        + route_messages + remote_page_messages + qml_messages)
+        + route_messages + remote_page_messages + graphics_messages + qml_messages)
     if not ok:
         # validate() adds its "ok: topology valid" before the lints have run; printing it
         # above a list of errors reads as a pass. The lints get the last word.
