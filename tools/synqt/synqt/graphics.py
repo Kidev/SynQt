@@ -40,8 +40,15 @@ ACCELERATED_IMPORTS = frozenset({
 })
 
 # Types that need it while living in a module that does not, so an import scan alone misses
-# them. Kept short deliberately: a type only belongs here once tests/graphics has shown it
-# fails to render under the software backend.
+# them. Kept short deliberately: a type belongs here only once
+# tests/graphics/tst_softwarebackend.cpp has rendered it under the raster adaptation and
+# counted no pixels.
+#
+# ShaderEffect is the reason this list exists at all. It draws nothing there AND says
+# nothing: QQuickShaderEffectPrivate::handleUpdatePaintNode returns early because the
+# raster adaptation supplies no shader effect manager, so it never reaches the "No shader
+# effect node" warning. The runtime net cannot see it, which leaves this scan as the only
+# thing that can.
 ACCELERATED_TYPES = frozenset({
     "ShaderEffect",
 })
@@ -136,6 +143,44 @@ def scan_source(source: str) -> bool:
         if _mentions_word(body, name):
             return True
     return False
+
+
+#: Where a resolved requirement is stashed on a route. Leading underscore because the build
+#: derives it; nobody writes it in synqt.yaml.
+RESOLVED_KEY = "_graphics"
+
+
+def resolve(config: Dict[str, Any],
+            project_dir: os.PathLike[str] | str) -> Tuple[Dict[str, Any], List[str]]:
+    """A copy of config whose routes carry their resolved requirement, plus what the scan
+    wants to say about how it got there.
+
+    Called once, before anything renders, so the client's route table and the edge's page
+    list are generated from one decision rather than two. Mirrors
+    `appmodel.with_auth_connect_points`, which expands the topology the same way.
+    """
+    routes = config.get("routes")
+    if not isinstance(routes, list):
+        return config, []
+    edges = [entity for entity in (config.get("entities") or [])
+             if isinstance(entity, dict)
+             and (entity.get("capability") == "web_edge" or entity.get("web_edge"))]
+    edge_name = edges[0].get("name", "web") if edges else "web"
+
+    resolved = dict(config)
+    messages: List[str] = []
+    annotated: List[Any] = []
+    for route in routes:
+        if not isinstance(route, dict):
+            annotated.append(route)
+            continue
+        requirement, findings = route_requirement(route, project_dir, edge_name)
+        messages += findings
+        entry = dict(route)
+        entry[RESOLVED_KEY] = requirement
+        annotated.append(entry)
+    resolved["routes"] = annotated
+    return resolved, messages
 
 
 def declared(route: Dict[str, Any]) -> Optional[str]:

@@ -712,7 +712,7 @@ bool WebEdge::start()
     if (!m_config.pages.isEmpty()) {
         m_pageStore = new PageStore{m_config.pagesDir, this};
         for (const WebEdgePage &page : m_config.pages) {
-            m_pageStore->addPage(page.path, page.file, page.scope);
+            m_pageStore->addPage(page.path, page.file, page.scope, page.graphics);
         }
         // Development-only watching, keyed to an explicit dev flag. Only the
         // "synqt dev" launch path (dev_command() in tools/synqt/synqt/run.py, via the

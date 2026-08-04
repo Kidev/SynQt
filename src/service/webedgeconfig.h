@@ -48,6 +48,10 @@ struct WebEdgePage
     /// build the data this page paints with on its first frame. Empty (the common case)
     /// means the route has no seed, and then nothing is built and nothing is sent.
     QString seed;
+    /// "accelerated" when this page needs the RHI scene graph, empty or "software"
+    /// otherwise. Decided by the build and carried to the client in the route table; the
+    /// edge never computes it.
+    QString graphics;
 };
 
 /// The browser-facing configuration of a web edge: where it serves the bundle, the

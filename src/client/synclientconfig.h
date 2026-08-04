@@ -11,6 +11,14 @@
 
 namespace SynQt {
 
+/// What a route needs from the scene graph. Qt Quick renders through the RHI by default
+/// and through a raster adaptation when the platform cannot; Accelerated marks content
+/// that the raster path draws as nothing at all (Qt Quick 3D, ShaderEffect).
+enum class GraphicsRequirement {
+    Any,        ///< renders on either adaptation
+    Accelerated ///< needs the RHI adaptation; hidden behind a notice without it
+};
+
 /// One entry of the client's route table (path -> view, optionally scope-gated).
 struct RouteConfig
 {
@@ -22,6 +30,9 @@ struct RouteConfig
     /// when the route has no compiled-in view, which is how a route delivered by the edge
     /// is represented.
     QString componentUrl;
+
+    /// Decided by the build (synqt.graphics), never computed here.
+    GraphicsRequirement graphics{GraphicsRequirement::Any};
 };
 
 /// One connect point the client consumes: its name (how it is acquired and exposed as
@@ -53,6 +64,10 @@ struct SynClientConfig
 
     QList<RouteConfig> routes;
     QString routerFallback{QStringLiteral("/")};
+
+    /// The app's replacement for the built-in "this needs accelerated graphics" notice,
+    /// as a qrc URL (client.graphics_notice). Empty uses the built-in one.
+    QString graphicsNoticeUrl;
 
     /// The path prefix the app is served under. History entries and deep links are
     /// resolved against it, so an app under "/shop" still routes in application paths.

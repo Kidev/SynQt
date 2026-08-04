@@ -59,6 +59,10 @@ public:
         Forbidden,
         NotFound,
         Error,
+        /// The route needs an accelerated scene graph and this client has a raster one.
+        /// Like Forbidden, it is a guard rather than a failure: the page exists and this
+        /// browser cannot draw it.
+        Unsupported,
     };
     Q_ENUM(PageStatus)
 

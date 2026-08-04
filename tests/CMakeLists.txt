@@ -32,6 +32,7 @@ set(SYNQT_HOST_SUITES
     url-routing
     remote-pages
     entity-test
+    graphics
     memory
 )
 

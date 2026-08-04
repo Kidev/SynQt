@@ -5,6 +5,8 @@
 
 #include "browserhistory.h"
 #include "deletesoon.h"
+#include "graphics.h"
+#include "graphicsprobe.h"
 #include "remotepageloader.h"
 #include "resumepath.h"
 #include "session.h"
@@ -183,6 +185,13 @@ void Router::applyRemoteRouteTable(const QString &json)
         RouteConfig config;
         config.path = entry.value(QStringLiteral("path")).toString();
         config.scope = entry.value(QStringLiteral("scope")).toString();
+        // Decided by the build and carried here by the edge. Anything but "accelerated"
+        // is Any, so an edge that predates the field, or a page that needs nothing, reads
+        // as it always did.
+        if (entry.value(QStringLiteral("graphics")).toString()
+            == QLatin1String("accelerated")) {
+            config.graphics = GraphicsRequirement::Accelerated;
+        }
         // No componentUrl: an empty one is what marks a route as edge-delivered.
         const RoutePattern pattern{config.path};
         if (!pattern.isValid()) {
@@ -381,6 +390,18 @@ void Router::resolve(QString path, bool queryChanged)
         m_path = target;
         m_params = parameters;
         emit pathChanged();
+    }
+
+    // No redirect here, unlike the scope guard above: the visitor asked for a page that
+    // exists and may be theirs to see, and only this browser cannot draw it. Sending them
+    // somewhere else would hide that. The path stays and the notice takes the page.
+    if (route->config.graphics == GraphicsRequirement::Accelerated
+        && GraphicsProbe::isSoftwareRendered()) {
+        clearPendingRemoteFetch();
+        setPageComponent(Graphics::noticeComponent(m_engine, m_config.graphicsNoticeUrl,
+                                                   this),
+                         Unsupported);
+        return;
     }
 
     if (route->config.componentUrl.isEmpty()) {

@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
-from . import appmodel, clientbuild, clientcache
+from . import appmodel, clientbuild, clientcache, graphics
 
 _HEADER_CPP = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                "// SPDX-License-Identifier: Apache-2.0\n")
@@ -418,9 +418,15 @@ def _route_literal(route: Dict[str, Any], uri: str) -> str:
     # only the trailing componentUrl field is new here.
     scope_literal = (f'QStringLiteral("{cxx_string_literal(scope)}")'
                      if scope else "QString{}")
+    # Only an accelerated route carries the field, so a project that needs nothing from the
+    # scene graph emits the literal it emitted before this existed.
+    requirement = route.get(graphics.RESOLVED_KEY, graphics.ANY)
+    graphics_literal = (", GraphicsRequirement::Accelerated"
+                        if requirement == graphics.ACCELERATED else "")
     return (f'RouteConfig{{QStringLiteral("{cxx_string_literal(path)}"), '
             f'QStringLiteral("{cxx_string_literal(view)}"), '
-            f'{scope_literal}, QStringLiteral("{cxx_string_literal(url)}")}}')
+            f'{scope_literal}, QStringLiteral("{cxx_string_literal(url)}")'
+            f'{graphics_literal}}}')
 
 
 def render_client_main(config: Dict[str, Any], uri: str) -> str:
@@ -490,6 +496,13 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
     palette_line = (f'\n    config.remotePalette = {{{string_list_literal(palette)}}};'
                     if palette and any(appmodel.is_remote_route(r) for r in routes) else "")
 
+    # The app's own notice, when it named one (client.graphics_notice). Emitted only then,
+    # so a project using the built-in one generates nothing here.
+    notice = ((config.get("client") or {}).get("graphics_notice") or "")
+    notice = notice.strip() if isinstance(notice, str) else ""
+    notice_line = (f'\n    config.graphicsNoticeUrl = '
+                   f'QStringLiteral("{_component_url(notice, uri)}");' if notice else "")
+
     body = f"""{_HEADER_CPP}
 // The {name} entry point, built for the browser (WASM) and as a native desktop app from
 // the same QML. The framework exposes Server/Session/Router/App to QML and opens the wss
@@ -497,6 +510,8 @@ def render_client_main(config: Dict[str, Any], uri: str) -> str:
 // TLS. Generated from synqt.yaml by `synqt build`; edit the topology, not this file.
 
 {chr(10).join(includes)}
+#include "graphics.h"
+#include "graphicsprobe.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -556,6 +571,10 @@ int main(int argc, char *argv[])
     // console in a release WASM build unless a handler is installed).
 {logging_install}
 
+    // Before the application, because the scene graph is chosen at the first window: a
+    // browser with no WebGL gets the raster adaptation instead of a qFatal.
+    SynQt::GraphicsProbe::selectBackend();
+
     QGuiApplication app{{argc, argv}};
 
 {registrations if registrations else "    // No consumed connect points yet."}
@@ -567,7 +586,7 @@ int main(int argc, char *argv[])
     config.scopesHierarchical = {"true" if appmodel.scopes_hierarchical(config) else "false"};
     config.routerFallback = QStringLiteral("{cxx_string_literal(router_fallback)}");
     config.routerBase = QStringLiteral("{cxx_string_literal(router_base)}");
-    config.routes = {{{route_list}}};{palette_line}
+    config.routes = {{{route_list}}};{palette_line}{notice_line}
 
     // The engine comes first: the Router builds each route's page component
     // with it.
@@ -579,9 +598,15 @@ int main(int argc, char *argv[])
     // use-after-free at shutdown.
     const std::unique_ptr<SynClient> client{{std::make_unique<SynClient>(config, &engine)}};
 
+    // Watches for Qt declining to draw content this scene graph cannot, whatever route
+    // it came from, and reports it to QML as Graphics.hasUnsupportedContent.
+    SynQt::Graphics graphics;
+    graphics.installWatcher();
+
     engine.rootContext()->setContextProperty(QStringLiteral("Server"), client->server());
     engine.rootContext()->setContextProperty(QStringLiteral("Session"), client->session());
     engine.rootContext()->setContextProperty(QStringLiteral("Router"), client->router());
+    engine.rootContext()->setContextProperty(QStringLiteral("Graphics"), &graphics);
     // `App` is a registered QML type, not a context property: that is what makes the
     // App.onUpdateReady attached-handler syntax resolve, and a type shadows a context
     // property of the same name inside JS expressions.
@@ -590,6 +615,9 @@ int main(int argc, char *argv[])
     if (engine.rootObjects().isEmpty()) {{
         return -1;
     }}
+
+    // Now that there is a window to put it over.
+    graphics.attachTo(engine.rootObjects().constFirst(), &engine, config.graphicsNoticeUrl);
 
     // Resolve the path the app was opened on (a deep link, or a refresh) now
     // that the root object exists to receive the first pageChanged, and before
@@ -780,11 +808,18 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
             seed_line = (
                 f'\n        {page}.seed = qmlDir + '
                 f'QStringLiteral("/{cxx_string_literal(seed)}");' if seed else "")
+            # Same resolved value the client's route table carries, and emitted on the
+            # same terms: only when the page needs the accelerated pipeline.
+            requirement = route.get(graphics.RESOLVED_KEY, graphics.ANY)
+            graphics_line = (
+                f'\n        {page}.graphics = QStringLiteral("{graphics.ACCELERATED}");'
+                if requirement == graphics.ACCELERATED else "")
             page_blocks.append(f"""    {{
         WebEdgePage {page};
         {page}.path = QStringLiteral("{cxx_string_literal(route_path)}");
         {page}.file = QStringLiteral("{cxx_string_literal(page_file)}");
-        {page}.scope = QStringLiteral("{cxx_string_literal(scope)}");{seed_line}
+        {page}.scope = QStringLiteral("{cxx_string_literal(scope)}");{seed_line}\
+{graphics_line}
         config.pages.append({page});
     }}""")
         pages_section = (
