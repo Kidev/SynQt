@@ -416,9 +416,7 @@ for the published CLI and its installer, and `[CONTRIB]` for the contributor boo
 - [`benchmarks.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/benchmarks.yml) runs the performance harnesses weekly and holds their output to
   the ratios and orderings [`benchmarks/README.md`](https://github.com/Kidev/SynQt/blob/main/benchmarks/README.md) claims, never to absolute numbers
   measured on another machine.
-- [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) builds and publishes this documentation site on a push to `main`;
-  [`check-get-installer.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/check-get-installer.yml) guards that the get.synqt.org installer and its index copy
-  stay identical.
+- [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) builds and publishes this documentation site on a push to `main`.
 
 Neither WebAssembly workflow runs on every push: each builds a Qt module from source, which
 is too slow for that. Both run on dispatch and when what they cover changes, and the browser
@@ -450,6 +448,11 @@ them to [PyPI](https://pypi.org/p/synqt), so `pipx install synqt` and the instal
 script give you the same version of the same tool. That upload uses PyPI's trusted
 publishing rather than an API token; the setup behind it is in
 [publishing to PyPI](development.md#publishing-to-pypi).
+
+get.synqt.org serves that installer at both the root and `/install.sh`, and GitHub Pages
+wants the root document to be `index.html`, so `index.html` is a byte for byte copy of
+`install.sh`. The first job of every release run compares the two and stops the release
+if they have drifted, since a release is when the copy people download starts mattering.
 
 ## Deployment outputs
 

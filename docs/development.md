@@ -481,6 +481,13 @@ marks the release as a pre-release so `/releases/latest`, and therefore the inst
 resolving to the last stable build. `dry_run` builds and smoke tests every artifact and
 publishes nothing, which is the way to exercise a change to the workflow itself.
 
+Its first job compares `deploy/get.synqt.org/install.sh` with the `index.html` beside it.
+The two are the same script under two URLs (Pages needs the root document to be
+`index.html`), so a copy that was not made means one of them serves an old installer. The
+release job waits on that comparison, which blocks publishing rather than the builds. The
+Python suite makes the same comparison on every push, so the usual way to find out is on
+the commit that broke it rather than on the release that would have shipped it.
+
 One run produces every way of installing `synqt`, all from one tag:
 
 | Artifact | Built by | Where it lands |
