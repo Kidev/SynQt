@@ -40,6 +40,15 @@ if(MSVC)
     # reads the file in the machine's active code page and a non-ASCII byte in a comment
     # can end a line early.
     add_compile_options(/W4 /permissive- /utf-8)
+    # C4702 (unreachable code) is the one warning in /W4 that cannot be acted on here. MSVC
+    # emits it from the optimiser, after inlining, so the line it names is inside whichever
+    # header the inlined body came from: with /O2 the current Qt headers produce it from
+    # qmetatype.h, qvariant.h and qjsengine.h, in translation units that only include them.
+    # `/external:W0` does not reach it either, because /external is a front-end facility and
+    # this warning is raised by the back end, after the include context is gone. GCC and
+    # Clang have no equivalent in -Wall -Wextra, so leaving it on buys no coverage on the
+    # other two columns and reddens this one whenever a new MSVC inlines differently.
+    add_compile_options(/wd4702)
     if(SYNQT_WARNINGS_AS_ERRORS)
         add_compile_options(/WX)
     endif()
