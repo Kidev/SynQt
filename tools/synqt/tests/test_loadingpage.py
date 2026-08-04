@@ -145,6 +145,34 @@ class ShellTest(unittest.TestCase):
         self.assertIn("#000", shell)
         self.assertIn("<title>Acme</title>", shell)
 
+    def test_the_mark_is_bounded_by_the_viewport_height_as_well_as_its_width(self):
+        # Regression guard, and the reason the whole column is driven by one length. The
+        # mark used to be `min(280px, 60vw)`: width only. On a short landscape window
+        # (640x300 measured) that is a mark taller than the window, so the logo was clipped
+        # at both ends and the progress bar and the word "Loading" were off the bottom of
+        # the screen, on the one page whose entire job is to say something is happening.
+        # Any replacement has to constrain the height too.
+        shell = self._shell()
+        self.assertIn("--synqt-mark:", shell)
+        declaration = re.search(r"--synqt-mark:\s*([^;]+);", shell).group(1)
+        self.assertIn("vh", declaration, declaration)
+        self.assertIn("vw", declaration, declaration)
+        for element in ("#synqt-logo svg", "#synqt-track"):
+            block = re.search(re.escape(element) + r"\s*\{([^}]*)\}", shell).group(1)
+            self.assertIn("var(--synqt-mark)", block, element)
+
+    def test_the_background_is_pinned_to_the_dynamic_viewport(self):
+        # A mobile browser measures `100%` against whichever viewport it currently calls
+        # layout, so the page can come up a URL-bar short of the screen with the browser's
+        # own white showing through. The percentage stays as the fallback for an engine
+        # that does not know `dvh`, so both have to be in there.
+        shell = self._shell()
+        self.assertIn("height: 100%", shell)
+        self.assertIn("100dvh", shell)
+        overlay = re.search(r"#synqt-loading\s*\{([^}]*)\}", shell).group(1)
+        self.assertIn("position: fixed", overlay)
+        self.assertIn("inset: 0", overlay)
+
     def test_title_is_escaped(self):
         shell = self._shell(_config(title='A<script>"&'))
         self.assertNotIn("<script>", shell)

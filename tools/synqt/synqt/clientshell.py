@@ -54,31 +54,71 @@ _CLIENT_SHELL = """<!doctype html>
   <title>{title}</title>
   <link rel="icon" type="image/svg+xml" href="{favicon}">
   <style>
+    /* One length drives the whole column: the mark, the progress track under it, and
+       through them the height of the three stacked together. It is bounded on BOTH axes
+       on purpose. Sized from the width alone (which is what this was), a short landscape
+       viewport gets a mark taller than the window: at 640x300 the logo was clipped top
+       and bottom and the bar and the word "Loading" were off the bottom of the screen
+       entirely, on a page whose only job is to tell a visitor something is happening.
+       40vh is the cap that cannot happen under, 55vw keeps it from dominating a narrow
+       phone, and the two clamps are the floor for a very small window and the ceiling
+       that stops a desktop from rendering a 900px logo.
+
+       The rest of the column is proportional to the viewport height for the same reason,
+       so the gaps and the padding shrink with the space rather than eating a short
+       window. */
+    :root {{
+      --synqt-mark: clamp(4rem, min(55vw, 40vh), 22rem);
+      --synqt-gap: clamp(0.75rem, 3vh, 1.5rem);
+    }}
     /* The background belongs on the document, not only on the overlay: the overlay is
        hidden the moment Qt reports the module loaded, which is a frame or two before the
-       first QML paint, and the browser's default white would flash through that gap. */
+       first QML paint, and the browser's default white would flash through that gap.
+
+       `height: 100%` first and `100dvh` second: a mobile browser's `100%` is measured
+       against whichever viewport it currently calls layout, so the page can come up a
+       URL-bar short of the screen. The dynamic unit is the one that tracks the bar as it
+       retracts, and an engine that does not know it keeps the percentage. */
     html, body {{
       padding: 0; margin: 0; overflow: hidden; height: 100%;
       background: {background};
     }}
+    html, body {{ height: 100dvh }}
     #screen {{ width: 100%; height: 100% }}
+    /* Fixed and pinned to all four edges, so the background is the viewport's whatever
+       the document under it turns out to be; `min-height` is the same dynamic-viewport
+       belt as above, for the moment a retracting URL bar makes the window taller than
+       the box that was laid out. */
     #synqt-loading {{
-      position: fixed; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 1.5rem;
+      position: fixed; inset: 0; min-height: 100dvh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: var(--synqt-gap);
+      padding: clamp(1rem, 5vh, 3rem); box-sizing: border-box;
       background: {background}; color: #e8e6f0;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }}
     #synqt-loading[hidden] {{ display: none }}
-    #synqt-logo svg {{ width: min(280px, 60vw); height: auto; display: block }}
+    /* `max-height` as well as `width`, because the logo is replaceable
+       (`build.loading.logo`) and a project's own mark is not necessarily square. An SVG
+       fits itself to its box preserving its aspect ratio, so a tall one letterboxes
+       inside the square rather than stretching the column past the window. */
+    #synqt-logo svg {{
+      width: var(--synqt-mark); max-width: 100%; max-height: var(--synqt-mark);
+      height: auto; display: block;
+    }}
     #synqt-track {{
-      width: min(280px, 60vw); height: 4px; border-radius: 2px;
+      width: var(--synqt-mark); max-width: 100%;
+      height: clamp(3px, 0.5vh, 6px); border-radius: 3px;
       background: rgba(255, 255, 255, 0.16); overflow: hidden;
     }}
     #synqt-bar {{
-      width: 0; height: 100%; border-radius: 2px; background: #ffffff;
+      width: 0; height: 100%; border-radius: 3px; background: #ffffff;
       transition: width 0.2s ease;
     }}
-    #synqt-status {{ font-size: 0.875rem; opacity: 0.75; letter-spacing: 0.02em }}
+    #synqt-status {{
+      font-size: clamp(0.75rem, 1.8vh, 1rem); opacity: 0.75; letter-spacing: 0.02em;
+      text-align: center; max-width: 100%;
+    }}
   </style>
 </head>
 <body>
