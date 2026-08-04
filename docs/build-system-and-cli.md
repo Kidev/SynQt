@@ -120,7 +120,8 @@ synqt clean             # Remove build outputs (keeps the toolchain cache and th
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
 synqt --version         # Print the CLI version and the pinned toolchain (also -V).
 
-synqt add entity <name> [--blueprint <kind>]     # Scaffold a new entity (bare or from a blueprint).
+synqt add entity <name> [--blueprint <kind>] [--source <Name>]
+                                                 # Scaffold a new entity (bare or from a blueprint).
 synqt add entity <name> --blueprint <kind> --provider <engine>
                                                   # Scaffold an entity backed by a chosen engine.
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
@@ -136,6 +137,21 @@ synqt docker init       # Generate the Dockerfile, compose file, and container p
 synqt docker up         # Build the images and start one container per entity.
 synqt docker down       # Stop them (--volumes also discards the CA and engine data).
 ```
+
+The two `add` commands that produce QML each write the file that goes with what they add.
+`synqt add connect-point` writes the owner-side Source, empty, at the path the runtime
+resolves (`<owner>/<Contract>.qml`, or whatever the point's `server:` names), because a
+connect point without one is a point the owner cannot host, and nothing says so until the
+entity starts. A file that is already there is never touched. `synqt add entity` writes
+its blueprint's Source stub, named after the blueprint (`Items` for persistence, `Entries`
+for cache, `Documents` for document, `Upstream` for gateway, `Schedule` for jobs), and
+`--source <Name>` names it yourself. That name becomes a QML type, so it has to begin with
+a capital, and it may not be one of the names SynQt already uses for the helpers an
+entity's own QML calls (`Db`, `Cache`, `Docs`, `Http`, `Jobs`, `Caller`, and the client
+accessors). A `Cache.qml` of your own would shadow the `Cache` helper wherever that entity
+calls it, so the name is refused rather than debugged later. `synqt check` holds the same
+line from the other end: every connect point must have its Source file, and that file must
+be rooted at `<Contract>Source`.
 
 `synqt --version` (or `-V`) answers in three lines:
 

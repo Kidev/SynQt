@@ -83,6 +83,57 @@ class AddConnectPointTest(unittest.TestCase):
                                                consumers=["web"], contract="Prices")
         self.assertEqual((root / "synqt.yaml").read_text(), WRITTEN_BY_HAND)
 
+    def test_the_owner_gets_an_empty_source_to_implement(self):
+        """A connect point is two halves, and the configuration entry is only one of them.
+        Without the QML on the owner there is nothing to host, and the entity says so at
+        start-up rather than here, where the point was added. So the file is written empty,
+        at the path the runtime resolves when the configuration does not name another.
+        """
+        root = self._project()
+        message = addcontract.scaffold_connect_point(root, "prices", owner="api",
+                                                     consumers=["web"], contract="Prices")
+        source = (root / "api" / "Prices.qml").read_text()
+        self.assertIn("PricesSource {", source)
+        self.assertIn("SPDX-License-Identifier: Apache-2.0", source)
+        self.assertIn("Caller", source)
+        self.assertIn("api/Prices.qml", message)
+
+    def test_a_source_somebody_has_already_written_is_left_alone(self):
+        root = self._project()
+        (root / "api").mkdir()
+        (root / "api" / "Prices.qml").write_text("// mine\nPricesSource {\n}\n")
+        addcontract.scaffold_connect_point(root, "prices", owner="api",
+                                           consumers=["web"], contract="Prices")
+        self.assertEqual((root / "api" / "Prices.qml").read_text(),
+                         "// mine\nPricesSource {\n}\n")
+
+    def test_a_source_rooted_at_the_wrong_type_is_reported_rather_than_rewritten(self):
+        """The likeliest file to be sitting there is the stub `synqt add entity` writes,
+        which demonstrates a helper and is rooted at QtObject. It is somebody's file, so it
+        is not rewritten; but an owner cannot host a connect point with it, and hearing
+        that now is better than hearing it from the entity at start-up.
+        """
+        root = self._project()
+        (root / "api").mkdir()
+        (root / "api" / "Prices.qml").write_text(
+            "import QtQuick\n\n// A comment naming PricesSource, which is not the root.\n"
+            "QtObject {\n}\n")
+        message = addcontract.scaffold_connect_point(root, "prices", owner="api",
+                                                     consumers=["web"], contract="Prices")
+        self.assertIn("QtObject", message)
+        self.assertIn("PricesSource", message)
+        self.assertIn("QtObject {", (root / "api" / "Prices.qml").read_text())
+
+    def test_a_contract_name_qml_cannot_use_is_refused_before_anything_is_written(self):
+        root = self._project()
+        for refused in ("prices", "Cache", "Prices List"):
+            with self.subTest(contract=refused):
+                with self.assertRaises(addcontract.AddContractError):
+                    addcontract.scaffold_connect_point(root, "prices", owner="api",
+                                                       consumers=["web"], contract=refused)
+        self.assertEqual((root / "synqt.yaml").read_text(), WRITTEN_BY_HAND)
+        self.assertFalse((root / "api").exists())
+
     def test_a_duplicate_name_is_refused(self):
         root = self._project()
         addcontract.scaffold_connect_point(root, "prices", owner="api",
@@ -105,6 +156,16 @@ class AddContractTest(unittest.TestCase):
         addcontract.scaffold_contract(root, "Items")
         with self.assertRaises(addcontract.AddContractError):
             addcontract.scaffold_contract(root, "Items")
+
+    def test_a_lower_case_contract_is_refused_rather_than_generating_an_unusable_type(self):
+        """`items` would generate `itemsSource`, and QML has no way to instantiate a type
+        whose name begins in lower case, so the project would compile and then fail to
+        load. The name is checked where it is chosen.
+        """
+        root = Path(tempfile.mkdtemp())
+        with self.assertRaises(addcontract.AddContractError):
+            addcontract.scaffold_contract(root, "items")
+        self.assertFalse((root / "shared").exists())
 
 
 if __name__ == "__main__":

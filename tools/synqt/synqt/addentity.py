@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from synqt import yamledit
+from synqt import addcontract, yamledit
 
 # Family -> the providers bundled for it (default first). This is the list the C++ family
 # factories accept, and the only place it is written down: `synqt add entity` offers these
@@ -35,6 +35,21 @@ PROVIDERS: Dict[str, List[str]] = {
 # start), so it validates the shape and leaves the lookup to the factory, which names the
 # registered alternatives when it misses.
 CUSTOM_PREFIX = "custom:"
+
+# Blueprint -> what its Source stub is called when the author does not say. The file name
+# is a QML type name, and it is the name the contract behind that Source will want too
+# (`<owner>/<Contract>.qml` is where the runtime looks), so each one reads as the thing that
+# crosses the connect point rather than as the engine sitting behind it. `--source` names it
+# instead. None of these may collide with addcontract.RESERVED_QML_NAMES, which is why the
+# cache entity's stub is Entries and not Cache.
+SOURCE_NAMES: Dict[str, str] = {
+    "persistence": "Items",
+    "cache": "Entries",
+    "document": "Documents",
+    "gateway": "Upstream",
+    "jobs": "Schedule",
+    "service": "Items",
+}
 
 # Blueprint -> (family or None, default provider or None).
 BLUEPRINTS: Dict[str, Optional[str]] = {
@@ -166,14 +181,24 @@ def entity_block(name: str, blueprint: str, provider: Optional[str]) -> Dict[str
     return block
 
 
+def source_name(blueprint: str, chosen: Optional[str] = None) -> str:
+    """What the entity's Source stub is called: what the author asked for, or the blueprint's
+    own default. Either way it has to be a name QML can use."""
+    try:
+        return addcontract.check_qml_name(chosen or SOURCE_NAMES.get(blueprint, "Items"))
+    except addcontract.AddContractError as error:
+        raise AddEntityError(str(error)) from error
+
+
 def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
-             provider: Optional[str] = None) -> str:
+             provider: Optional[str] = None, source: Optional[str] = None) -> str:
     if blueprint not in BLUEPRINTS:
         raise AddEntityError(f"unknown blueprint '{blueprint}'; one of {sorted(BLUEPRINTS)}")
     family = BLUEPRINTS.get(blueprint)
     if provider and family and provider not in PROVIDERS[family]:
         raise AddEntityError(
             f"provider '{provider}' is not a {blueprint} provider; one of {PROVIDERS[family]}")
+    stub = source_name(blueprint, source)
 
     root = Path(project_dir)
     config_path = root / "synqt.yaml"
@@ -194,7 +219,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
     # The entity folder + a Source stub; persistence gets a schema file too.
     entity_dir = root / name
     entity_dir.mkdir(parents=True, exist_ok=True)
-    (entity_dir / "Items.qml").write_text(_source_stub(blueprint, name))
+    (entity_dir / f"{stub}.qml").write_text(_source_stub(blueprint, name))
     if blueprint == "persistence":
         (entity_dir / "schema.sql").write_text(
             "-- forward-only migrations, one statement per step\n"
@@ -224,6 +249,10 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
             steps.append("  - The QMYSQL plugin must be built against MariaDB Connector/C "
                          "(LGPLv2.1), never Oracle's GPLv2-only libmysqlclient (see "
                          "https://synqt.org/licensing/).")
+    steps.append(f"  - {name}/{stub}.qml is a worked example of the blueprint's helper. "
+                 f"The Source of a connect point lives at {name}/<Contract>.qml and is "
+                 "rooted at <Contract>Source; 'synqt add connect-point' writes an empty "
+                 "one there for you.")
     steps.append("  - Add the connect point(s) this entity owns under 'connect_points' "
                  "with a consumers allowlist.")
     return "\n".join(steps)

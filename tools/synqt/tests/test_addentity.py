@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from synqt import addentity, addprovider
+from synqt import addcontract, addentity, addprovider
 
 
 class AddEntityTest(unittest.TestCase):
@@ -76,7 +76,7 @@ class AddEntityTest(unittest.TestCase):
         addentity.scaffold(root, "api", "gateway")
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
         self.assertFalse(entity["inbound"])  # inbound exposure is an explicit choice
-        self.assertIn("Http.get", (root / "api" / "Items.qml").read_text())
+        self.assertIn("Http.get", (root / "api" / "Upstream.qml").read_text())
 
     def test_document_stub_calls_the_docs_helper_with_its_own_filter(self):
         root = self._project()
@@ -84,7 +84,7 @@ class AddEntityTest(unittest.TestCase):
         entity = yaml.safe_load((root / "synqt.yaml").read_text())["entities"][0]
         self.assertEqual(entity["blueprint"], "document")
         self.assertEqual(entity["provider"]["name"], "memory")  # embedded, nothing to install
-        source = (root / "notes" / "Items.qml").read_text()
+        source = (root / "notes" / "Documents.qml").read_text()
         self.assertIn("Docs.insert", source)
         self.assertIn("Docs.find", source)
         # A filter map is the engine's query language, so the stub builds its own from a
@@ -108,12 +108,49 @@ class AddEntityTest(unittest.TestCase):
             with self.subTest(blueprint=blueprint):
                 root = self._project()
                 addentity.scaffold(root, blueprint, blueprint)
-                source = (root / blueprint / "Items.qml").read_text()
+                stub = addentity.SOURCE_NAMES[blueprint]
+                source = (root / blueprint / f"{stub}.qml").read_text()
                 self.assertIn(helper, source)
                 for other in set(helpers.values()) - {helper}:
                     self.assertNotIn(other, source)
                 for engine in engines:
                     self.assertNotIn(engine.lower(), source.lower())
+
+    def test_the_stub_is_named_after_the_blueprint_unless_the_author_names_it(self):
+        """The file name is the QML type name, and the name a contract will inherit when
+        the entity grows a connect point, so a jobs entity does not start life with a stub
+        called Items. `--source` is how somebody who has a better name says so.
+        """
+        root = self._project()
+        addentity.scaffold(root, "rollups", "jobs")
+        self.assertTrue((root / "rollups" / "Schedule.qml").exists())
+
+        addentity.scaffold(root, "billing", "jobs", source="Invoices")
+        self.assertTrue((root / "billing" / "Invoices.qml").exists())
+        self.assertFalse((root / "billing" / "Schedule.qml").exists())
+
+    def test_the_message_names_the_file_it_wrote(self):
+        root = self._project()
+        message = addentity.scaffold(root, "cache", "cache")
+        self.assertIn("cache/Entries.qml", message)
+
+    def test_no_default_stub_shadows_a_helper_the_stub_itself_calls(self):
+        """A QML file in the entity directory becomes a type of that name, and a type from
+        the directory beats one from an import, so a cache entity whose stub was called
+        Cache.qml would shadow the `Cache` helper that same stub calls. This is why the
+        defaults are Entries and Documents rather than the obvious Cache and Docs.
+        """
+        for blueprint, stub in addentity.SOURCE_NAMES.items():
+            with self.subTest(blueprint=blueprint):
+                self.assertNotIn(stub, addcontract.RESERVED_QML_NAMES)
+
+    def test_a_name_qml_cannot_use_is_refused_before_anything_is_written(self):
+        root = self._project()
+        for refused in ("items", "Cache", "my source", "9Lives"):
+            with self.subTest(name=refused):
+                with self.assertRaises(addentity.AddEntityError):
+                    addentity.scaffold(root, "notes", "document", source=refused)
+        self.assertFalse((root / "notes").exists())
 
     def test_rejects_unknown_blueprint_and_wrong_provider(self):
         root = self._project()

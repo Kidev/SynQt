@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import yaml
 
 from . import (addentity, appmodel, clientcache, config as configmod, graphics,
-               toolchain, topologywriter)
+               qmlscan, toolchain, topologywriter)
 
 
 def validate(config: Dict[str, Any], *, release: bool = False,
@@ -1188,17 +1188,16 @@ def lint_loading(project_dir: os.PathLike[str] | str) -> List[str]:
 # without error and renders nothing. Qt Quick's window types, plus the Controls one.
 _WINDOW_ROOTS = ("ApplicationWindow", "Window")
 
-_QML_ROOT = re.compile(r"^\s*([A-Z]\w*)\s*\{", re.MULTILINE)
-
 
 def _qml_root_type(source: str) -> Optional[str]:
-    """The root object's type name, ignoring comments, imports, and pragmas."""
-    code = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
-    code = "\n".join(line.split("//", 1)[0] for line in code.splitlines())
-    code = "\n".join(line for line in code.splitlines()
-                     if not re.match(r"\s*(import|pragma)\b", line))
-    match = _QML_ROOT.search(code)
-    return match.group(1) if match else None
+    """The root object's type name, ignoring comments, imports, and pragmas.
+
+    Read with the shared scanner rather than line by line: a root object announced after a
+    `\\r`-terminated import, or a type named inside a comment, are exactly the cases a
+    line-based reading gets wrong, and both lints below turn what this returns into an
+    error.
+    """
+    return qmlscan.root_type(source)
 
 
 def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
@@ -1228,6 +1227,43 @@ def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
                 f"error: {main.relative_to(root)}: the client's root object is "
                 f"'{found}', which is not a window ({' or '.join(_WINDOW_ROOTS)}); it "
                 "would load without error and render nothing")
+    return messages
+
+
+def lint_connect_point_sources(config: Dict[str, Any],
+                               project_dir: os.PathLike[str] | str) -> List[str]:
+    """Check that every connect point has an owner-side Source, rooted at its contract.
+
+    A connect point is two halves: the contract that says what may cross it, and the QML on
+    the owner that implements it. The runtime loads `<owner>/<Contract>.qml` unless the
+    point names another file, and a point whose file is missing, or whose root object is
+    something other than `<Contract>Source`, is a point the owner cannot host. Both fail at
+    start-up rather than at build time, which is the same shape of defect
+    :func:`lint_client_root` exists to catch, so both are errors here.
+    """
+    root = Path(project_dir)
+    messages: List[str] = []
+    for point in config.get("connect_points") or []:
+        if not isinstance(point, dict):
+            continue
+        name = str(point.get("name") or "")
+        owner = str(point.get("owner") or "")
+        contract = str(point.get("contract") or "")
+        if not owner or not contract:
+            continue   # validate() reports an incomplete connect point in its own words
+        relative = str(point.get("server") or f"{owner}/{contract}.qml")
+        source = root / relative
+        if not source.is_file():
+            messages.append(
+                f"error: connect point '{name}': {relative} does not exist, so {owner} has "
+                f"nothing to host it with (write it, rooted at '{contract}Source')")
+            continue
+        found = _qml_root_type(source.read_text(encoding="utf-8", errors="replace"))
+        if found is not None and found != f"{contract}Source":
+            messages.append(
+                f"error: {relative}: the root object is '{found}', and a connect point "
+                f"carrying the {contract} contract has to be rooted at '{contract}Source' "
+                f"for {owner} to host it")
     return messages
 
 
@@ -1401,11 +1437,13 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     contract_messages = lint_contracts(project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
+    source_messages = lint_connect_point_sources(config, project_dir)
     route_messages = lint_routes(config, project_dir)
     remote_page_messages = lint_remote_pages(config, project_dir)
     graphics_messages = lint_graphics(config, project_dir)
     messages += contract_messages
     messages += loading_messages
+    messages += source_messages
     messages += route_messages
     messages += remote_page_messages
     messages += graphics_messages
@@ -1417,7 +1455,8 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     ok = ok and not any(
         m.startswith("error:")
         for m in contract_messages + loading_messages + client_root_messages
-        + route_messages + remote_page_messages + graphics_messages + qml_messages)
+        + source_messages + route_messages + remote_page_messages + graphics_messages
+        + qml_messages)
     if not ok:
         # validate() adds its "ok: topology valid" before the lints have run; printing it
         # above a list of errors reads as a pass. The lints get the last word.

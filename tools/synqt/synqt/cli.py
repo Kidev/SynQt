@@ -207,6 +207,9 @@ def build_parser() -> argparse.ArgumentParser:
     auth.add_argument("--provider-entity", default="")
     entity = add_sub.add_parser("entity"); entity.add_argument("name")
     entity.add_argument("--blueprint", default="service"); entity.add_argument("--provider")
+    entity.add_argument("--source", default="",
+                        help="what to call the entity's Source stub (default: the "
+                             "blueprint's own, e.g. Items for persistence)")
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
     contract = add_sub.add_parser("contract"); contract.add_argument("name")
@@ -252,7 +255,7 @@ def _run_add(args: argparse.Namespace) -> int:
                                    provider_entity=args.provider_entity)
     elif args.what == "entity":
         message = addentity.scaffold(args.project_dir, args.name, args.blueprint,
-                                     provider=args.provider)
+                                     provider=args.provider, source=args.source or None)
     elif args.what == "provider":
         message = addprovider.scaffold(args.project_dir, args.name, args.family)
     elif args.what == "contract":

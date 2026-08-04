@@ -20,7 +20,7 @@ enough to say what a file mentions and honest about being a heuristic.
 from __future__ import annotations
 
 import dataclasses
-from typing import List
+from typing import List, Optional
 
 _BYTE_ORDER_MARK = "\ufeff"
 
@@ -93,6 +93,30 @@ def is_identifier_character(character: str) -> bool:
 def literal_type(token: Token) -> str:
     """The `.syn` type this token stands for, or "var" when it stands for nothing."""
     return _SYN_TYPES.get(token.kind, "var")
+
+
+def root_type(source: str) -> Optional[str]:
+    """The type of a QML file's root object, or None when there is no object in it.
+
+    The name in front of the first brace, which is the root by construction: imports and
+    pragmas open no block, and every object in the file after that one is inside it. A
+    dotted name (`QtQuick.Item`) comes back whole, because that is what the file says.
+    """
+    tokens = tokenize(source)
+    for index, token in enumerate(tokens):
+        if not (token.kind == "punct" and token.text == "{"):
+            continue
+        name: List[str] = []
+        back = index - 1
+        while back >= 0 and tokens[back].kind == "ident":
+            name.insert(0, tokens[back].text)
+            previous = tokens[back - 1] if back else None
+            if previous is None or previous.kind != "punct" or previous.text != ".":
+                break
+            name.insert(0, ".")
+            back -= 2
+        return "".join(name) or None
+    return None
 
 
 def tokenize(source: str) -> List[Token]:
