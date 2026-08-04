@@ -3,29 +3,13 @@
 
 """Guard the benchmark baselines. Validate one, or diff two.
 
-Every harness under `benchmarks/` writes a JSON result and commits it under
-`results/` as a baseline. Until now nothing checked those files, which left two
-different gaps, and they want two different answers.
+Every harness under `benchmarks/` writes a JSON result and commits it under `results/`.
 
-*The absolute numbers only mean something on one machine.* A p50 of 23 microseconds is
-a fact about the author's workstation. Comparing it against a shared CI runner, which
-is virtualised, noisy, and a different CPU, would produce a gate that fails for reasons
-that have nothing to do with the commit under review. So absolute comparison lives in
-`compare`, is opt-in, and is meant to be run twice on the *same* runner.
-
-*The claims the numbers support are machine-independent, and those can be gated
-anywhere.* "Interest management holds the per-session payload flat", "minting a session
-is amortized O(1)", "the contended writer never approaches the busy timeout", "one-way
-propagation is cheaper than a round trip": none of these is a statement about clock
-speed. They are ratios, orderings, and invariants, and if one of them breaks, the
-benchmark story in `README.md` has become false regardless of the hardware. That is
-what `check` enforces, on a committed baseline or on a fresh run.
-
-One rule governs which claims are asserted. **A claim is asserted only when the
-committed baseline clears it with at least a 2x margin**; everything tighter is
-reported and not enforced. Local-socket throughput beats mutual TLS by 1.2x, for
-instance, which is real but well inside the noise of a shared runner, so it prints and
-never fails. A gate that flaps gets disabled, and a disabled gate guards nothing.
+`check` asserts the machine-independent claims the numbers support: ratios, orderings and
+invariants such as "interest management holds the per-session payload flat" or "minting a
+session is amortized O(1)". A claim is asserted only when the committed baseline clears it
+by at least 2x; tighter ones are only reported. `compare` diffs absolute numbers
+and is meaningful only for two runs on the same machine.
 
 Usage:
 
@@ -48,15 +32,14 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 BENCHMARKS_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BENCHMARKS_DIR / "results"
 
-# The margin a claim has to clear in the committed baseline before it is worth asserting.
-# See the module docstring. Anything tighter is reported instead.
+# The margin a claim must clear in the committed baseline to be asserted.
 ASSERT_MARGIN = 2.0
 
 # Fewer frames than this in a frame-time bucket and its p95 and p99 are one frame each.
 MIN_FRAMES_PER_BUCKET = 30
 
-# Units where a smaller number is the better one. Anything else (calls/s, rows/s,
-# requests/s, fps) reads the other way, and `compare` needs to know which.
+# Units where smaller is better. Everything else (calls/s, rows/s, requests/s, fps) is
+# higher-is-better.
 LOWER_IS_BETTER_UNITS = {"ms", "ns", "ns/op", "us", "s", "bytes", "mb"}
 
 
@@ -128,11 +111,8 @@ def load(path: Path) -> Dict[str, Any]:
 
 
 def kind_of(document: Mapping[str, Any], path: Optional[Path] = None) -> str:
-    """Name the harness that wrote a document.
-
-    Most harnesses stamp `benchmark`. `measure-bundle.sh` predates that and writes only
-    the weights, so it is recognised by shape, and the remote-pages baseline is
-    recognised by its two-variant structure.
+    """Name the harness that wrote a document. Most stamp `benchmark`; `measure-bundle.sh`
+    output and the remote-pages baseline are recognised by shape.
     """
     named = document.get("benchmark")
     if isinstance(named, str) and named:
@@ -158,16 +138,8 @@ def committed_baselines() -> List[Path]:
 
 DISTRIBUTION_FIELDS = ("p50", "p95", "p99", "mean", "min", "max")
 
-#: Diffed and printed, but not gated. These move for reasons that are not the code.
-#:
-#: `mean` is in here for a reason that only showed up once the comparison was run against
-#: real data. The transport harness carries a single ~40 ms outlier in
-#: `property_push_propagation` (first sample, before the link warms). It sits in the
-#: committed baseline and in every fresh run alike. With 3000 samples it lifts the mean a
-#: little, with 1000 it lifts it three times as much, so a shorter run "regressed" the
-#: mean by 89% while every percentile *improved* by 12%. One sample can do that to a mean
-#: and cannot do it to a median. p50 is the robust central estimate and is what the gate
-#: reads.
+#: Diffed and printed, but not gated. `mean` is here because one warm-up outlier moves it
+#: far more than any percentile; p50 is the gated central estimate.
 NOISY_FIELDS = ("p95", "p99", "max", "mean")
 
 
@@ -191,10 +163,8 @@ def _flatten_distribution(prefix: str, block: Mapping[str, Any], out: Dict[str, 
 
 
 def flatten(document: Mapping[str, Any]) -> Dict[str, Metric]:
-    """Turn any result document into `key -> Metric`, so two runs can be diffed.
-
-    The keys are stable and readable (`mtls_loopback.connection_setup.p50`,
-    `sweep.100.publish_cpu.p50`) because they are what a regression report shows a human.
+    """Turn any result document into `key -> Metric` so two runs can be diffed. Keys are stable
+    and readable (`mtls_loopback.connection_setup.p50`, `sweep.100.publish_cpu.p50`).
     """
     metrics: Dict[str, Metric] = {}
     kind = kind_of(document)
@@ -221,8 +191,7 @@ def flatten(document: Mapping[str, Any]) -> Dict[str, Metric]:
                 unit = _sweep_unit(name)
                 metrics[key] = Metric(key, float(value), unit, _lower_is_better(unit))
 
-    # The process sweep records two stacks side by side under two keys, so each row is
-    # labelled with the stack it came from and the two never land on the same metric.
+    # The process sweep holds two stacks; each row is labelled with its stack.
     for key_name, stack in (("processes", str(document.get("stack", "synqt"))),
                             ("node_processes", "node")):
         for row in document.get(key_name, []):
@@ -274,10 +243,8 @@ def flatten(document: Mapping[str, Any]) -> Dict[str, Metric]:
 
 
 def _sweep_label(kind: str, row: Mapping[str, Any]) -> str:
-    """Name a sweep row by what varies in it, not by its index.
-
-    An index would silently re-point every key the moment a sweep gains a size, which is
-    exactly when a comparison matters most.
+    """Name a sweep row by what varies in it, not by its index, so keys stay stable when a
+    sweep gains a size.
     """
     if "mode" in row and "consumers" in row:
         return f"{row['mode']}.n{row['consumers']}"
@@ -289,6 +256,11 @@ def _sweep_label(kind: str, row: Mapping[str, Any]) -> str:
 
 
 def _sweep_unit(name: str) -> str:
+    # A unit inside the name counts: `rss_bytes_per_caller` and `cpu_ms_per_1k` are costs.
+    if "_bytes" in name:
+        return "bytes"
+    if name.startswith("cpu_ms"):
+        return "ms"
     if name.endswith("_ns"):
         return "ns"
     if name.endswith("_ms"):
@@ -306,10 +278,8 @@ def _sweep_unit(name: str) -> str:
 
 REQUIRED_METADATA = ("host", "qt_version", "recorded")
 
-#: `recorded` may say this, and only this, instead of a timestamp. Two client baselines
-#: predate the metadata stamp and arrived in one squashed import commit, so their date is
-#: not recoverable. Writing a plausible one would turn a guess into a record.
-#: Saying so keeps the gap visible on every run instead of hiding it behind a missing key.
+#: The only value `recorded` may hold instead of a timestamp, for two client baselines whose
+#: date is not recoverable.
 UNKNOWN = "unknown"
 
 
@@ -318,19 +288,9 @@ def _finite(value: Any) -> bool:
 
 
 def _check_metadata(document: Mapping[str, Any], kind: str, checks: List[Check]) -> None:
-    """A baseline nobody can attribute is not a baseline.
-
-    Which machine, which Qt, and when. Without all three a later run has nothing to
-    compare itself against, and the number is only a number.
-    """
+    """Every baseline names its machine, its Qt and when it was recorded."""
     required = list(REQUIRED_METADATA)
-    # A run of another stack has no Qt in it, and demanding one would only teach whoever
-    # records it to write a Qt version that had nothing to do with the number. What it
-    # must say instead is which runtime produced it, so the comparison stays attributable.
-    #
-    # Any `<runtime>_version` key satisfies that, rather than a list of the runtimes this
-    # file happens to know about: benchmarks/vs-frameworks/ gains a column per runtime, and a
-    # gate that had to be edited for each one would be a gate that fails on the ninth.
+    # A run of another stack names its runtime instead of Qt: any `<runtime>_version` key.
     runtime_version = next(
         (key for key in document
          if key.endswith("_version") and key != "qt_version" and document.get(key)),
@@ -359,8 +319,9 @@ def _check_metadata(document: Mapping[str, Any], kind: str, checks: List[Check])
 
 
 def _check_distributions(document: Mapping[str, Any], checks: List[Check]) -> None:
-    """Percentiles that do not increase, or a mean outside its own range, mean the
-    harness computed them wrongly. Every number downstream is then untrustworthy."""
+    """Percentiles must not decrease and the mean must lie within the range, or the harness
+    computed them wrongly.
+    """
     broken: List[str] = []
     empty: List[str] = []
     for name, block in _iter_distributions(document):
@@ -444,8 +405,7 @@ def _check_transport(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
 
     if big:
-        # "RTT roughly flat from 64 B to 4 KB": QtRO framing, not payload, dominates.
-        # The baseline sits at 1.15x, so 2x is the band that leaves a shared runner room.
+        # "RTT roughly flat from 64 B to 4 KB": QtRO framing dominates. Baseline 1.15x.
         grew = _ratio(big["p50"], rtt["p50"])
         checks.append(
             Check(
@@ -457,8 +417,7 @@ def _check_transport(document: Mapping[str, Any], checks: List[Check]) -> None:
 
     throughput = _by_name(document.get("throughput", []), "slot_throughput_64B")
     if throughput:
-        # Calls pipeline, so throughput must beat the serialized 1/RTT ceiling. If it
-        # ever drops to it, something has started waiting for each reply.
+        # Calls pipeline, so throughput must beat the serialized 1/RTT ceiling.
         serialized = 1000.0 / rtt["p50"]
         checks.append(
             Check(
@@ -489,9 +448,8 @@ def _check_mesh(document: Mapping[str, Any], checks: List[Check]) -> None:
     local_rtt = _by_name(latency, "local_socket.slot_round_trip_64B")
 
     if mtls_setup and local_setup:
-        # The whole justification for keeping `transport: local` as an explicit opt-in.
-        # The benchmarking plan says measure it rather than assume it. The baseline is
-        # ~109x, so the gate only asks that the ordering survives.
+        # The reason `transport: local` exists as an opt-in. Baseline ~109x; the gate checks
+        # the ordering.
         factor = _ratio(mtls_setup["p50"], local_setup["p50"])
         checks.append(
             Check(
@@ -505,8 +463,7 @@ def _check_mesh(document: Mapping[str, Any], checks: List[Check]) -> None:
         checks.append(Check("mesh.modes", False, "connection_setup missing for one of the modes"))
 
     if mtls_rtt and local_rtt:
-        # "Once a link is up, mutual TLS on loopback is cheap." Baseline 1.75x. A
-        # regression here would mean per-message crypto cost had ballooned.
+        # "Once a link is up, mutual TLS on loopback is cheap." Baseline 1.75x.
         overhead = _ratio(mtls_rtt["p50"], local_rtt["p50"])
         checks.append(
             Check(
@@ -539,9 +496,8 @@ def _check_sessions(document: Mapping[str, Any], checks: List[Check]) -> None:
     smallest, largest = sweep[0], sweep[-1]
     span = _ratio(largest["sessions"], smallest["sessions"])
 
-    # At the largest size a lookup costs what main memory costs at the moment, so one table
-    # measured once moved between 70 and 170 ns on one machine in one day. A figure the
-    # comparison can hold a change to is a median over several tables.
+    # At the largest size a lookup costs what main memory costs at that moment, so the
+    # figure is a median over several tables.
     rounds = document.get("rounds", 1)
     checks.append(
         Check(
@@ -565,10 +521,8 @@ def _check_sessions(document: Mapping[str, Any], checks: List[Check]) -> None:
             )
         )
 
-    # The one that matters most. A createSession() that runs a full-table purge is
-    # O(live sessions), 306 us at 100k. The expiry queue makes it amortized O(1) at
-    # ~1.0 us. Reintroducing the walk would show up here as a ~290x spread, so a 5x band
-    # catches it with room to spare and no chance of flapping.
+    # createSession() must stay amortized O(1) (the expiry queue); a full-table purge would
+    # show as a ~290x spread. A 5x band catches it.
     creates = [row["create_ns"] for row in sweep]
     spread = _ratio(max(creates), min(creates))
     checks.append(
@@ -599,8 +553,8 @@ def _check_fanout(document: Mapping[str, Any], checks: List[Check]) -> None:
         checks.append(Check("fanout.sweep", False, "no sweep, or no interest_k recorded"))
         return
 
-    # Interest management's entire promise. Each player's slice stops growing with the
-    # world. Exact arithmetic, so it holds on any machine.
+    # Interest management: each player's slice stops growing with the world. Exact
+    # arithmetic.
     offenders = [
         f"n={row['consumers']} carried {row['rows_per_session']} rows"
         for row in sweep
@@ -676,9 +630,7 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
     plain = _by_name(latency, "sqlite_write_autocommit")
     rival = _by_name(scalars, "sqlite_contended_competitor_writes")
     if contended:
-        # The contention claims below are about writes made while another connection was
-        # writing. A run in which the rival wrote nothing during the measured window measured
-        # uncontended writes under a contended name.
+        # The contention claims need writes made while the rival was writing.
         checks.append(
             Check(
                 "persistence.the_rival_was_writing",
@@ -687,22 +639,11 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
                 if rival is not None else "the rival's writes were not recorded",
             )
         )
-        # What QSQLITE_BUSY_TIMEOUT buys, from the harness's arranged experiment rather than
-        # from a race. A third connection holds the WAL write lock for a known interval, and
-        # during it one writer carrying the timeout and one without it both ask for the lock.
-        # The one with it waits and its write lands. The one without it is refused at once.
-        # Both readings come from the same machine in the same run and neither depends on the
-        # scheduler, because the blocked interval is arranged instead of waited for.
-        #
-        # This claim has been two other things, and both were facts about the author's
-        # workstation wearing a safety bound's clothes. First the worst single write against
-        # the 5 s timeout, which a CI runner broke by descheduling the writer once. Then a
-        # flat "no write was refused" under a rival writing in a tight loop, which the same
-        # runner broke by starving it: SQLite's busy handler is not a queue, so a rival that
-        # never pauses can hold a second writer off past any timeout. That is SQLite's
-        # documented shape rather than a regression. The regression worth catching is the
-        # option not being set at all, and against a lock that is held, that is
-        # the difference between a write that lands and a write that does not.
+        # What QSQLITE_BUSY_TIMEOUT buys, from an arranged experiment: a third connection
+        # holds the WAL write lock for a known interval, and a writer with the timeout and
+        # one without both ask for it. The first waits and lands; the second is refused at
+        # once. SQLite's busy handler is not a queue, so a rival writing in a tight loop
+        # proves nothing; the check is whether the option is set.
         held = _by_name(scalars, "sqlite_held_lock_ms")
         refused_without = _by_name(scalars, "sqlite_held_lock_refused_without_timeout")
         refused_with = _by_name(scalars, "sqlite_held_lock_refused_with_timeout")
@@ -775,9 +716,8 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
                     f"(band: < 3x)",
                 )
             )
-            # The tail, as a ratio rather than a wall clock. A writer that starts losing to
-            # the competitor systematically shows up here. One descheduled sample does not,
-            # which is the difference between this and the max it replaced.
+            # The tail as a ratio rather than a wall clock, so one descheduled sample does
+            # not trip it.
             tail = _ratio(contended["p99"], plain["p99"])
             checks.append(
                 Check(
@@ -815,11 +755,8 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
 def _check_persistence_postgres(document: Mapping[str, Any], checks: List[Check]) -> None:
     """The SQLite workload through the pooled PostgresProvider.
 
-    A parity check rather than a race, so what it holds is what the provider promises: one
-    transaction around many writes costs less than a commit per write, as on SQLite, and
-    the link was what the run says it was. A verify-full run whose session the server does
-    not report encrypted, or a plaintext run that is, measured something other than its
-    name.
+    A parity check: one transaction around many writes costs less than a commit per write,
+    and the link is what the run says (verify-full encrypted, plaintext not).
     """
     scalars = document.get("scalars", [])
     autocommit = _by_name(scalars, "postgres_write_autocommit_rate")
@@ -880,13 +817,8 @@ def _check_capstone(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
     )
 
-    # A player cannot be handed more snapshots than the loop publishes. This is not a
-    # performance claim, it is an arithmetic one, and it is enforced because the only way
-    # to break it is for the harness to be measuring the wrong thing. It has happened: the
-    # rate was once derived by subtracting a coalescing counter, so a backed-up link
-    # draining the previous window's backlog reported 84.9/s from a 30 Hz tick, and the
-    # sweep's saturated end looked healthier than its healthy end. Nothing here caught it.
-    # A small tolerance covers the window boundary, not a factor of three.
+    # A player cannot receive more snapshots than the loop publishes. An arithmetic check on
+    # the harness; the tolerance covers the window boundary.
     overrun = [
         f"{row['players']} players received {row['snapshot_rate_hz']:.1f}/s"
         for row in sweep
@@ -902,9 +834,8 @@ def _check_capstone(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
     )
 
-    # The point of the capstone is to find the ceiling, so the ceiling is reported rather
-    # than gated. Past it the fixed-rate loop stops holding its cadence, and that is the
-    # limit of a single-edge deployment rather than a defect.
+    # The capstone ceiling is only reported: past it the fixed-rate loop loses its
+    # cadence.
     period_ms = 1000.0 / hz
     saturated = next(
         (row["players"] for row in sweep if row["tick_jitter"]["p50"] > period_ms / 2), None
@@ -1005,9 +936,7 @@ def _check_client_frame_time(document: Mapping[str, Any], checks: List[Check]) -
             f"{len(buckets)} buckets from {blobs[0]} to {blobs[-1]} blobs",
         )
     )
-    # A percentile is a statement about many frames. The scene once reported one average per
-    # sixty frames, which left each bucket a single number whose p50, p95 and p99 were the same
-    # value, and an average of sixty frames besides, which is exactly what hides a stutter.
+    # A percentile needs per-frame samples, not averages over many frames.
     thin = [row["blobs"] for row in buckets if row.get("count", 0) < MIN_FRAMES_PER_BUCKET]
     per_frame = document.get("samples_are") == "frames"
     checks.append(
@@ -1030,8 +959,7 @@ def _check_client_frame_time(document: Mapping[str, Any], checks: List[Check]) -
         )
     )
     if "multi" in str(document.get("label", "")):
-        # The threaded kit is only threaded when the page is cross-origin isolated. A
-        # false here means the numbers are single-threaded ones wearing the wrong label.
+        # The threaded kit is threaded only when the page is cross-origin isolated.
         checks.append(
             Check(
                 "client-frame-time.threaded_kit_was_cross_origin_isolated",
@@ -1080,9 +1008,8 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
         checks.append(Check("buildtime.sweep", False, "no entities were built"))
         return
 
-    # A clean build timed through a warm compiler cache is a cache lookup. The same edge
-    # measured 4.5 s through one and 22 s without, so a baseline that does not say the cache
-    # sat out cannot be compared with anything, including the next run of itself.
+    # A clean build through a warm compiler cache is a cache lookup, so a baseline must say
+    # the cache was off.
     checks.append(
         Check(
             "buildtime.clean_means_no_compiler_cache",
@@ -1095,10 +1022,7 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
     )
 
     for row in sweep:
-        # The claim. Building nothing costs a fraction of building everything. It is the
-        # only thing that tells a rebuilding-everything build system from an incremental
-        # one, and nothing else in the repository can. A build that recompiles the world
-        # on every invocation still passes every correctness test there is.
+        # A no-op build costs a fraction of a clean one: the incremental build claim.
         share = _ratio(row["noop_s"], row["clean_s"])
         checks.append(
             Check(
@@ -1108,12 +1032,8 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
                 f"({row['noop_s']:.2f}s of {row['clean_s']:.2f}s; band: < 50%)",
             )
         )
-        # The narrower form of the same claim, and the one that guards the defect.
-        # A no-op that costs a third of a clean build passes the band above while doing a
-        # full recompile, which is exactly what an unconditionally rewritten `main.cpp`
-        # produces. Regeneration moves every modification time, and the compiler reads
-        # modification times. Content-addressed generation (synqt.writer) puts a no-op at
-        # well under 1%, so the band that notices a regression is this one.
+        # The narrower band that guards regeneration: with content-addressed writes
+        # (synqt.writer) a no-op is well under 1% of a clean build.
         checks.append(
             Check(
                 f"buildtime.a_no_op_build_compiles_nothing[{row['target']}]",
@@ -1124,14 +1044,8 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
         if "touched_s" in row:
             edit = _ratio(row["touched_s"], row["clean_s"])
-            # A WebAssembly client is link-dominated, and no edit can avoid the link. Measured
-            # on the gavel client. Touching Main.qml costs 16.9 s to compile the one translation
-            # unit qmlcachegen produced from it and 36.3 s in the Emscripten link that follows,
-            # so the link alone is over half of a clean build. Held to the service band, that row
-            # fails for being a WebAssembly target rather than for being unincremental, which
-            # would teach the reader to ignore the check. The band that still means something
-            # here is that an edit costs less than a clean build, plus the no-op check above,
-            # which the client passes at 0.2%.
+            # A WebAssembly client is link-dominated and every edit relinks, so an edit is
+            # held only to costing less than a clean build (plus the no-op check).
             band = 0.90 if row["kind"] == "client" else 1.0 / ASSERT_MARGIN
             checks.append(
                 Check(
@@ -1159,18 +1073,9 @@ def _check_buildtime(document: Mapping[str, Any], checks: List[Check]) -> None:
 
 
 def _check_vs_frameworks_replicas(document: Mapping[str, Any], checks: List[Check]) -> None:
-    """The acceptance criterion for `replicas:`, as a machine-independent claim.
-
-    Absolute throughput is a fact about one machine and is not gated here, for the reason
-    the whole file gives. That throughput RISES as processes are added is a fact about the
-    design, and it is the entire promise the key makes. A replicated edge that does not go
-    faster than one process is a deployment paying for N processes and getting one.
-
-    The threshold is 1.5x from the smallest process count to the largest, not the 2x this
-    file uses elsewhere. 2x is right for comparing two modes on one run, where the baseline
-    is fixed. Here the baseline moves with the machine, real scaling is sublinear (the
-    balancer, the shared auth entity and the host's own contention all take a cut), and
-    "clearly more than one process" is the reading of the promise that holds.
+    """The acceptance criterion for `replicas:`: throughput rises from the smallest process
+    count to the largest by at least 1.5x. Absolute throughput is not gated. Scaling is
+    sublinear (the balancer, the shared auth entity, host contention), hence 1.5x, not 2x.
     """
     processes = document.get("processes", [])
     if len(processes) < 2:
@@ -1194,8 +1099,8 @@ def _check_vs_frameworks_replicas(document: Mapping[str, Any], checks: List[Chec
         )
     )
 
-    # Throughput bought by dropping deliveries is not throughput, so the claim above is
-    # only meaningful alongside this one.
+    # Throughput from dropped deliveries does not count, so this check accompanies the one
+    # above.
     dropped = [
         f"{row.get('count')} processes delivered {row.get('delivered')}/{row.get('expected')}"
         for row in ordered
@@ -1223,13 +1128,8 @@ def _check_vs_frameworks_replicas(document: Mapping[str, Any], checks: List[Chec
 
 
 def _check_vs_frameworks_calls(document: Mapping[str, Any], checks: List[Check]) -> None:
-    """One column of the call-path comparison, gated on the same footing as the live one:
-    what makes a column comparable, never how fast it was.
-
-    The equivalent of the live table's delivered/expected is `failed`. A call that never
-    came back is excluded from the latency distribution by construction, so a column that
-    gave up on a tenth of its calls posts a flattering p99 over the nine tenths it answered,
-    and that is precisely the failure a reader would take for a win.
+    """One column of the call-path comparison, gated on comparability, never on speed. `failed`
+    must be zero: failed calls are excluded from the latency distribution.
     """
     sweep = document.get("sweep", [])
     if not sweep:
@@ -1244,8 +1144,7 @@ def _check_vs_frameworks_calls(document: Mapping[str, Any], checks: List[Check])
             else "the result does not say which stack produced it",
         )
     )
-    # Which of the two units of work this was. A latency compared against one recorded for
-    # the other unit is a comparison of two different questions.
+    # Which unit of work this was; latencies are compared only for the same unit.
     checks.append(
         Check(
             "calls.work_is_named",
@@ -1285,15 +1184,8 @@ def _check_vs_frameworks_calls(document: Mapping[str, Any], checks: List[Check])
 
 
 def _check_vs_frameworks_live(document: Mapping[str, Any], checks: List[Check]) -> None:
-    """One column of the live-path comparison, gated on the things that make a column
-    comparable at all rather than on how fast it was.
-
-    Speed is not gated. Several stacks are recorded here, most of them not
-    SynQt's, and a gate on absolute numbers would fail the moment the host changed or would
-    quietly become a gate on the machine. What has to hold for the table to mean anything is that
-    every column carried the whole workload, and that the harness knows which stack it was
-    measuring: a column that dropped a third of its frames posts an excellent latency over
-    the survivors, and it is exactly the failure that reads as a win.
+    """One column of the live-path comparison, gated on comparability, never on speed: every
+    column carried the whole workload, and the harness names its stack.
     """
     sweep = document.get("sweep", [])
     if not sweep:
@@ -1323,9 +1215,8 @@ def _check_vs_frameworks_live(document: Mapping[str, Any], checks: List[Check]) 
         )
     )
 
-    # A column whose per-message cost falls as connections are added is measuring its own
-    # fixed cost divided by N, which is why the table prefers the marginal memory row. The
-    # note prints the slope so a reader of the JSON alone can see the same thing.
+    # A per-message cost that falls as connections are added is a fixed cost divided by N;
+    # the note prints the slope.
     sized = sorted(sweep, key=lambda row: row.get("subscribers", 0))
     if len(sized) >= 2:
         first, last = sized[0], sized[-1]
@@ -1348,13 +1239,8 @@ def _check_vs_frameworks_live(document: Mapping[str, Any], checks: List[Check]) 
 
 
 def _check_monitor_pipeline(document: Mapping[str, Any], checks: List[Check]) -> None:
-    """The one number the monitoring design rests on, and the ring's accounting.
-
-    Everything else in monitoring is a consumer of `Tracer::record`. If recording is not
-    close to free when tracing is switched off, every SynQt application pays for a feature
-    it never asked for, and the right answer is a compile-time branch rather than a faster
-    lock. So that budget is enforced here. The enabled and dropping paths are reported, and
-    only their shape is gated.
+    """`Tracer::record` must be close to free with tracing off; that budget is enforced. The
+    enabled and dropping paths are reported and only their shape is gated.
     """
     rows = document.get("latency", [])
     disabled = _by_name(rows, "record_disabled")
@@ -1374,9 +1260,8 @@ def _check_monitor_pipeline(document: Mapping[str, Any], checks: List[Check]) ->
             f"tracing off costs {disabled['p50']:.2f} ns/call (budget {budget_ns:.0f} ns)",
         )
     )
-    # A ceiling loose enough that it is about the design and not about this host's clock:
-    # what it refuses is a record() that has started doing real work (a format, an
-    # allocation that grows, a syscall) on the caller's thread.
+    # A loose ceiling: it refuses a record() doing real work (formatting, growing
+    # allocation, a syscall) on the caller thread.
     checks.append(
         Check(
             "monitor.enabled_path_stays_off_the_wire",
@@ -1384,8 +1269,7 @@ def _check_monitor_pipeline(document: Mapping[str, Any], checks: List[Check]) ->
             f"tracing on costs {enabled['p50']:.1f} ns/call with room in the ring",
         )
     )
-    # An entity in trouble is exactly the entity whose events matter. Dropping must be a
-    # flat cost, not a cliff, or the pipeline finishes off the entity it was observing.
+    # With the ring full, a dropped record may cost at most 3x a recorded one.
     ratio = _ratio(dropping["p50"], enabled["p50"])
     checks.append(
         Check(
@@ -1407,8 +1291,7 @@ def _check_monitor_pipeline(document: Mapping[str, Any], checks: List[Check]) ->
             else f"{delivered} delivered + {dropped} dropped != {total} recorded",
         )
     )
-    # With no sink at all every record after the ring fills must be counted, or a gap in
-    # the record would be invisible, which is the one failure a monitor may not have.
+    # With no sink every record after the ring fills must be counted.
     under_pressure = document.get("dropped_under_pressure", 0)
     checks.append(
         Check(
@@ -1510,12 +1393,8 @@ def compare(
     tolerance: float = 0.25,
     strict: bool = False,
 ) -> Comparison:
-    """Diff two runs of the same benchmark, metric by metric.
-
-    Only meaningful when both came off the same machine. `tolerance` is the fraction a
-    metric may move in the worse direction before it counts. P95/p99/max are diffed and
-    printed but do not fail unless `strict`, because tail latency on any real machine
-    moves for reasons that are not the code.
+    """Diff two runs of the same benchmark, metric by metric, from the same machine.
+    `tolerance` is the fraction a metric may worsen. p95/p99/max fail only with `strict`.
     """
     base_metrics = flatten(baseline)
     cand_metrics = flatten(candidate)
@@ -1595,8 +1474,7 @@ def _command_compare(args: argparse.Namespace) -> int:
 
     result = compare(baseline, candidate, args.tolerance, args.strict)
     if not result.deltas:
-        # Almost always a sweep run with different sizes. Reporting "nothing regressed"
-        # for a comparison that compared nothing is the one answer that must not happen.
+        # Usually a sweep with different sizes. A comparison of nothing is an error.
         print(
             "no metric appears in both runs, so there is nothing to compare. Re-run the "
             "candidate with the baseline's parameters.",

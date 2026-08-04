@@ -1,19 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Guard the guard.
+"""Tests for benchmarks/baselines.py.
 
-Two jobs. The first is the gate itself. Every baseline the repository commits is checked
-here, so a result file that stops supporting the claim `benchmarks/README.md` makes about
-it fails the ordinary test run rather than waiting for someone to notice.
-
-The second is the harder one. An invariant that cannot fail is decoration, and a check
-written from the same numbers it validates is exactly the kind that quietly cannot fail.
-So most of what follows takes a real baseline, breaks one thing in it the way a genuine
-regression would, and asserts the checker says so and names the right invariant. The
-mutations are the real historical shapes, `createSession` going back to a
-full-table purge, interest management silently publishing the whole world, a SQLite
-connection losing its busy timeout.
+Every committed baseline is checked here. Most tests also take a real baseline, break one
+thing the way a regression would (`createSession` back to a full-table purge, interest
+management publishing the whole world, a SQLite connection without its busy timeout), and
+assert the checker fails on the right invariant.
 """
 
 from __future__ import annotations
@@ -81,8 +74,9 @@ def assert_fails(document, invariant):
 
 
 def test_a_full_table_purge_on_create_is_caught():
-    """The real one. A `createSession()` that walks every live session costs 306 us at
-    100k against ~1.0 us for the expiry queue. That shape must fail the amortized-O(1) claim."""
+    """A `createSession()` that walks every live session (306 us at 100k, against ~1.0 us)
+    fails the amortized-O(1) claim.
+    """
     document = load_kind("sessions")
     biggest = max(document["sweep"], key=lambda row: row["sessions"])
     biggest["create_ns"] = 306_000.0
@@ -97,8 +91,7 @@ def test_lookup_degrading_to_a_scan_is_caught():
 
 
 def test_interest_management_publishing_the_whole_world_is_caught():
-    """If the per-session slice starts tracking N again, the arena's scaling story is
-    gone. The payload claim is exact arithmetic, so this holds on any machine."""
+    """A per-session slice that grows with the world fails the payload claim."""
     document = load_kind("fanout")
     for row in document["sweep"]:
         if row["mode"] == "per_session_interest":
@@ -116,8 +109,7 @@ def test_interest_costing_more_than_naive_is_caught():
 
 
 def test_a_held_lock_the_busy_timeout_did_not_wait_out_is_caught():
-    """The shape of QSQLITE_BUSY_TIMEOUT going missing. The lock is held, and the write that
-    should have waited for it comes back refused like the one with no timeout at all."""
+    """Without QSQLITE_BUSY_TIMEOUT the write refused under a held lock fails the check."""
     document = load_kind("persistence")
     baselines._by_name(document["scalars"],
                        "sqlite_held_lock_refused_with_timeout")["value"] = 1
@@ -125,8 +117,7 @@ def test_a_held_lock_the_busy_timeout_did_not_wait_out_is_caught():
 
 
 def test_a_held_lock_that_let_the_impatient_writer_through_is_caught():
-    """The control failing is the experiment failing. If a connection with no busy timeout
-    was let through, the lock was not held and the run evidences nothing."""
+    """If the writer with no busy timeout got through, the lock was not held: the run is invalid."""
     document = load_kind("persistence")
     baselines._by_name(document["scalars"],
                        "sqlite_held_lock_refused_without_timeout")["value"] = 0
@@ -140,8 +131,7 @@ def test_a_held_lock_experiment_that_never_took_the_lock_is_caught():
 
 
 def test_a_baseline_recorded_before_the_held_lock_experiment_is_caught():
-    """Fail closed rather than quietly dropping the safety check. A baseline with no
-    experiment in it is one nobody measured this on."""
+    """A baseline without the held-lock experiment fails."""
     document = load_kind("persistence")
     document["scalars"] = [scalar for scalar in document["scalars"]
                            if not scalar["name"].startswith("sqlite_held_lock_")]
@@ -149,8 +139,7 @@ def test_a_baseline_recorded_before_the_held_lock_experiment_is_caught():
 
 
 def test_contention_moving_the_tail_is_caught():
-    """A writer that starts systematically losing the lock race shows up at p99 while its
-    median still looks fine."""
+    """A writer losing the lock race systematically moves p99 while p50 stays."""
     document = load_kind("persistence")
     contended = baselines._by_name(document["latency"], "sqlite_write_contended")
     contended["p99"] *= 50
@@ -167,11 +156,7 @@ def test_contention_moving_the_median_is_caught():
 
 
 def postgres_run(sslmode="verify-full", encrypted=1.0):
-    """A persistence-postgres result in the shape bench_postgres writes.
-
-    Built here rather than loaded, so the invariants are held to account before the first
-    run is committed, and after it without depending on which link that run used.
-    """
+    """A persistence-postgres result in the shape bench_postgres writes, built here."""
     def distribution(name, p50):
         return {"name": name, "unit": "ms", "samples": 500, "min": p50 * 0.8, "p50": p50,
                 "p95": p50 * 1.5, "p99": p50 * 2, "max": p50 * 3, "mean": p50 * 1.1}
@@ -198,8 +183,7 @@ def test_a_postgres_run_in_the_harness_shape_supports_its_claims():
 
 
 def test_a_verified_postgres_run_the_server_calls_plaintext_is_caught():
-    """A verify-full run on a session the server reports unencrypted measured a plaintext
-    link under a TLS name, which is the one thing a TLS row must never be."""
+    """A verify-full run on a session the server reports unencrypted fails."""
     assert_fails(postgres_run("verify-full", 0.0),
                  "persistence-postgres.the_link_is_what_it_says")
 
@@ -209,8 +193,7 @@ def test_a_plaintext_postgres_run_the_server_calls_encrypted_is_caught():
 
 
 def test_postgres_batching_that_no_longer_beats_autocommit_is_caught():
-    """The pinned transaction connection going back to a lease per statement would commit
-    each INSERT on its own, and one transaction would cost what autocommit does."""
+    """One transaction must beat autocommit; a lease per statement would not."""
     document = postgres_run()
     baselines._by_name(document["scalars"], "postgres_write_batched_rate")["value"] = 150.0
     assert_fails(document, "persistence-postgres.batching_beats_autocommit")
@@ -225,8 +208,7 @@ def test_batching_losing_its_advantage_is_caught():
 
 
 def test_a_round_trip_cheaper_than_a_one_way_push_is_caught():
-    """Physically impossible on the same link, so this catches a harness that has started
-    measuring something other than what it names."""
+    """A round trip cheaper than a one-way push means the harness measures something else."""
     document = load_kind("transport")
     push = baselines._by_name(document["latency"], "property_push_propagation")
     rtt = baselines._by_name(document["latency"], "slot_round_trip_64B")
@@ -252,8 +234,7 @@ def test_payload_size_starting_to_dominate_is_caught():
 
 
 def test_the_mutual_tls_setup_advantage_disappearing_is_caught():
-    """The measured setup gap is the entire justification for keeping `transport: local`
-    as an explicit opt-in. If it closes, the config knob has stopped paying for itself."""
+    """The setup gap between mutual TLS and a local socket, which justifies `transport: local`."""
     document = load_kind("mesh")
     local = baselines._by_name(document["latency"], "local_socket.connection_setup")
     mtls = baselines._by_name(document["latency"], "mtls_loopback.connection_setup")
@@ -276,11 +257,9 @@ def test_a_payload_above_the_interest_cap_is_caught():
 
 
 def test_a_build_that_rebuilds_everything_on_a_no_op_is_caught():
-    """The defect this invariant was written from, and which it found on its first run:
-    codegen writes at CMake configure time, so a generated header rewritten unconditionally
-    moved its timestamp and invalidated every translation unit that included it. A no-op
-    build cost 72% of a clean one. Nothing else in the repository could see that. A build
-    system that recompiles the world still passes every correctness test there is."""
+    """A no-op build costing a large fraction of a clean one fails: a regenerated header with a
+    new timestamp recompiles every unit that includes it.
+    """
     document = load_kind("buildtime")
     for row in document["sweep"]:
         row["noop_s"] = row["clean_s"] * 0.72
@@ -289,12 +268,9 @@ def test_a_build_that_rebuilds_everything_on_a_no_op_is_caught():
 
 
 def test_a_no_op_build_that_recompiles_is_caught_before_the_wider_band_notices():
-    """The band above is 50%, which a full recompile can pass. This is the measured
-    regression the generator had. `synqt build` rewrote every `main.cpp` on every
-    invocation, identical content and all, and a rewritten file has a new modification
-    time whatever its bytes say. That put a no-op at ~30% of a clean build, under the 50%
-    band and doing the entire compile. Content-addressed generation (synqt.writer) took it
-    to well under 1%, so 30% has to be a failure and not a pass."""
+    """A no-op at ~30% of a clean build (every `main.cpp` rewritten) fails the narrower band;
+    content-addressed writes (synqt.writer) keep it well under 1%.
+    """
     document = load_kind("buildtime")
     for row in document["sweep"]:
         row["noop_s"] = row["clean_s"] * 0.30
@@ -350,8 +326,7 @@ def test_a_remote_pages_saving_that_is_not_the_difference_is_caught():
 
 
 def test_a_threaded_kit_that_lost_cross_origin_isolation_is_caught():
-    """Without SharedArrayBuffer the multi-threaded bundle runs single-threaded, and its
-    frame times would be filed under the wrong label."""
+    """A threaded kit without cross-origin isolation ran single-threaded."""
     for path in committed():
         document = baselines.load(path)
         if baselines.kind_of(document) == "client-frame-time" and "multi" in document["label"]:
@@ -389,8 +364,7 @@ def test_an_unattributable_baseline_is_caught():
 
 
 def test_an_undated_baseline_is_a_note_and_not_a_failure():
-    """Two client baselines cannot be dated. Saying so keeps them visible on
-    every run without inventing a timestamp, and without failing the build over it."""
+    """An undated baseline gets a note and still passes."""
     document = load_kind("transport")
     document["recorded"] = baselines.UNKNOWN
     report = baselines.check_document(document)
@@ -429,8 +403,7 @@ def test_flatten_reads_the_direction_of_each_unit():
 
 
 def test_flatten_names_sweep_rows_by_what_varies_not_by_index():
-    """An index would silently re-point every key the moment a sweep gains a size, which
-    is precisely when a comparison matters."""
+    """Sweep rows are named by what varies, not by index."""
     document = load_kind("fanout")
     metrics = baselines.flatten(document)
     assert any(key.startswith("per_session_interest.n") for key in metrics)
@@ -445,10 +418,7 @@ def test_flatten_marks_the_tail_percentiles_noisy():
 
 
 def test_a_single_outlier_moves_the_mean_but_does_not_fail_the_gate():
-    """Why `mean` is ungated. The transport harness carries one ~40 ms first-sample
-    outlier. Halving the sample count doubles its weight in the mean while leaving every
-    percentile alone. Gating the mean would report that as an 89% regression, which is
-    what a real run did before this was fixed."""
+    """One ~40 ms first-sample outlier moves the mean but no percentile; the mean is not gated."""
     document = load_kind("transport")
     assert baselines.flatten(document)["property_push_propagation.mean"].noisy
     shorter = copy.deepcopy(document)
@@ -546,8 +516,7 @@ def test_show_prints_every_flattened_metric(tmp_path, capsys):
 
 
 def test_compare_of_runs_with_no_metric_in_common_is_an_error(tmp_path, capsys):
-    """Two sweeps over different sizes share no keys. Reporting "nothing regressed" for a
-    comparison that compared nothing is the one answer that must not happen."""
+    """Comparing runs with no metric in common is an error."""
     document = load_kind("sessions")
     other = copy.deepcopy(document)
     for row in other["sweep"]:
@@ -587,8 +556,7 @@ def test_a_replica_sweep_that_scales_passes():
 
 
 def test_a_replica_sweep_that_does_not_scale_fails():
-    """The whole promise of `replicas:` is that adding processes adds throughput. A run
-    where it does not is the feature not working, whatever the absolute numbers say."""
+    """A replica sweep whose throughput does not rise fails."""
     report = baselines.check_document(_replica_sweep([(1, 100.0), (4, 101.0)]))
     assert not report.ok
     assert any("scale" in c.name for c in report.failures)
@@ -641,16 +609,14 @@ def test_a_live_column_that_carried_every_frame_passes():
 
 
 def test_a_node_column_is_attributed_by_its_runtime_and_not_by_qt():
-    """Two of the three columns have no Qt in them. Demanding a Qt version of those would
-    only teach whoever records one to write a version that had nothing to do with it."""
+    """A non-Qt column is attributed by its runtime version."""
     report = baselines.check_document(
         _live_column("node-bare", [(10, 1000), (100, 10000)], node=True))
     assert report.ok, [c.detail for c in report.failures]
 
 
 def test_a_live_column_that_dropped_frames_fails():
-    """A column that drops frames posts an excellent latency over the survivors, so this
-    is the check that stops the failure from reading as the win."""
+    """A live column that dropped frames fails."""
     report = baselines.check_document(_live_column("synqt", [(10, 1000), (100, 6000)]))
     assert not report.ok
     assert any("delivered" in c.name for c in report.failures)
@@ -663,16 +629,14 @@ def test_a_live_column_must_say_which_stack_it_is():
 
 
 def test_each_subscriber_count_flattens_to_its_own_metrics():
-    """Every sweep row needs a label of its own. Without `subscribers` among the axes they
-    all collapsed onto one, and a comparison silently read only the last size."""
+    """Each subscriber count flattens to its own metrics."""
     metrics = baselines.flatten(_live_column("synqt", [(10, 1000), (100, 10000)]))
     assert "subscribers_10.throughput_msgs_per_sec" in metrics
     assert "subscribers_100.throughput_msgs_per_sec" in metrics
 
 
 def test_both_stacks_in_a_process_sweep_flatten_side_by_side():
-    """The sweep records SynQt's column and Node's in one file. They must not overwrite each
-    other, or a comparison would diff one stack against the other."""
+    """Both stacks in a process sweep flatten side by side."""
     document = _replica_sweep([(1, 100.0), (4, 400.0)])
     document["node_processes"] = [
         {"count": 1, "throughput_msgs_per_sec": 120.0, "delivered": 100, "expected": 100},
@@ -684,9 +648,7 @@ def test_both_stacks_in_a_process_sweep_flatten_side_by_side():
 
 
 def test_a_disabled_tracer_that_started_costing_something_is_caught():
-    """The budget the whole monitoring design rests on. Every SynQt entity carries the
-    instrumented call sites whether or not it has a monitor, so a disabled `record()` that
-    grows a lock or an allocation is a tax on applications that never asked for any of it."""
+    """A disabled `record()` must stay nearly free: every entity carries the call sites."""
     document = load_kind("monitor")
     for row in document["latency"]:
         if row["name"] == "record_disabled":
@@ -703,8 +665,7 @@ def test_recording_that_started_touching_the_wire_is_caught():
 
 
 def test_a_full_ring_becoming_a_cliff_is_caught():
-    """An entity under a burst is exactly the entity whose events matter. If overflow gets
-    expensive instead of staying flat, the pipeline finishes off what it was observing."""
+    """Ring overflow must stay a flat cost."""
     document = load_kind("monitor")
     normal = next(row for row in document["latency"] if row["name"] == "record_enabled")
     for row in document["latency"]:
@@ -714,15 +675,14 @@ def test_a_full_ring_becoming_a_cliff_is_caught():
 
 
 def test_events_vanishing_without_being_counted_is_caught():
-    """A monitor may lose events. What it may not do is lose them quietly. A gap nobody is
-    told about reads exactly like a period when nothing happened."""
+    """Every dropped event must be counted."""
     document = load_kind("monitor")
     document["dropped_under_pressure"] = 0
     assert_fails(document, "monitor.a_gap_is_reported_as_a_gap")
 
 
 def test_a_buildtime_baseline_taken_through_the_compiler_cache_is_caught():
-    """A clean build timed through a warm ccache is a cache lookup, not a build."""
+    """A clean build timed through a warm ccache measures cache lookups and fails."""
     document = load_kind("buildtime")
     document.pop("compiler_cache", None)
     assert_fails(document, "buildtime.clean_means_no_compiler_cache")
@@ -754,3 +714,14 @@ def test_a_sessions_run_of_one_table_per_size_is_caught():
     document = load_kind("sessions")
     document.pop("rounds", None)
     assert_fails(document, "sessions.measured_over_several_tables")
+
+
+def test_a_cost_named_mid_word_is_compared_as_a_cost():
+    """`rss_total_bytes` and `cpu_ms_per_1k` are costs, compared lower-is-better."""
+    base = _live_column("synqt", [(10, 1000), (100, 10000)])
+    leaner = copy.deepcopy(base)
+    for row in leaner["sweep"]:
+        row["rss_total_bytes"] //= 2
+        row["cpu_ms_per_1k"] /= 2
+    assert baselines.compare(base, leaner, tolerance=0.25).ok
+    assert not baselines.compare(leaner, base, tolerance=0.25).ok
