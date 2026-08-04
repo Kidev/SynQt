@@ -102,7 +102,7 @@ Create `shared/Hall.syn`:
 
 ```syn
 contract Hall {
-    model winners(item, winner, amount)   // a live list the browser watches
+    model winners(string item, string winner, int amount)   // the browser watches it
 }
 ```
 

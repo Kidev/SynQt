@@ -39,11 +39,26 @@ class Prop:
 
 
 @dataclass
+class Role:
+    """``<type> <name>`` inside a model's role list; one field of a published row.
+
+    Typed like every other declaration, so the owner-side boundary can check a row
+    before it serializes. ``var`` is the escape hatch for a role that really does
+    carry anything.
+    """
+
+    type: str
+    name: str
+    line: int = 0
+    col: int = 0
+
+
+@dataclass
 class Model:
     """``model <name>(<roles...>)``; a live list; only listed roles cross."""
 
     name: str
-    roles: List[str]
+    roles: List[Role]
     line: int = 0
     col: int = 0
 

@@ -1,8 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// A contract that is nothing but a published model, for the tests that ask what a
-// consumer can do to one.
+// Two contracts that are nothing but published models, for the tests that ask what
+// crosses one and what a consumer can do to it.
+
+// Watched over a real connection: what a consumer's write reaches.
 contract Rows {
-    model rows(id, text)
+    model rows(string id, string text)
+}
+
+// Driven locally: what the owner's own publish is allowed to put on the wire. Every
+// role kind is here, `var` included, because `var` is the one that checks nothing.
+contract Checked {
+    model rows(string id, int n, var payload)
 }

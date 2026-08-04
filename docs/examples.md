@@ -129,7 +129,7 @@ that never leaves the edge, and an edge to client refusal channel.
 ```syn
 contract Todo {
     prop int count                          // number of items, edge owned
-    model items(text, author, done)         // only these roles cross to clients
+    model items(string text, string author, bool done)   // only these cross to clients
     slot add(string text)
     slot remove(int index)
     signal rejected(string reason)          // the edge explains a refusal to one client
@@ -465,7 +465,7 @@ provisions throwaway development ones automatically.
 
 ```syn
 contract Todo {
-    model items(text, author, done)   // only these roles cross to the browser
+    model items(string text, string author, bool done)   // only these cross to the browser
     slot add(string text)
     slot remove(int index)
     signal rejected(string reason)

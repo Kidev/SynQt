@@ -490,7 +490,7 @@ ApplicationWindow {
 ```syn
 contract Feed {
     prop bool loaded
-    model rows(id, title)
+    model rows(int id, string title)
     slot load()
     signal denied(string reason)
 }
@@ -499,7 +499,7 @@ contract Feed {
 <ul class="synqt-flow__glossary" hidden>
 <li data-code="contract Feed" data-href="programming-model/">The only thing both sides share. It compiles to the typed layer each of them links.</li>
 <li data-code="prop bool loaded" data-href="programming-model/">Owner to consumers, pushed. A consumer sees it change; it cannot set it.</li>
-<li data-code="model rows(id, title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser.</li>
+<li data-code="model rows(int id, string title)" data-href="programming-model/">The roles listed here are the whole of what a row is allowed to carry to a browser.</li>
 <li data-code="slot load()" data-href="programming-model/">Consumer to owner: the one direction a request travels.</li>
 <li data-code="signal denied(string reason)" data-href="programming-model/">The owner's answer when it refuses, addressed to the caller that asked.</li>
 </ul>

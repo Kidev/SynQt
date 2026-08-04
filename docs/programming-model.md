@@ -25,7 +25,7 @@ A contract file uses the `.syn` extension. Example, `shared/Todo.syn`:
 //   slot   : consumer -> owner request, the owner decides whether to act
 contract Todo {
     prop int count                          // read on the consumer, set on the owner
-    model items(text, author, done)         // private row fields never cross
+    model items(string text, string author, bool done)   // private fields never cross
     slot add(string text)                   // returns nothing; fire and forget request
     slot remove(int index)
     slot bool clear()                       // returns a value; becomes an async call
@@ -44,8 +44,16 @@ Mapping to the QtRO semantics the generated rep encodes:
   an array of row objects as the new authoritative model state and replicates only
   the declared roles, so a row may carry extra owner only fields (an owner id, a
   timestamp) that are dropped at the boundary and never serialize to any consumer.
-  Replacing the rows wholesale is the owner surface today; finer grained row
-  updates are an optimization behind the same declaration.
+  Each role is declared with its type, and a value that will not convert to it
+  refuses the publish with a message naming the model, the role and the row, so a
+  row that does not match the contract never reaches a consumer at all. Declare a
+  role `var` where it genuinely carries anything. Replacing the rows wholesale is
+  the owner surface today; finer grained row updates are an optimization behind the
+  same declaration.
+- A model travels from the owner to its consumers and no further. A consumer cannot
+  write into one, even though the underlying Qt type has a `setData`; a consumer
+  that wants owner state changed calls a slot, where `Caller` exists and the owner
+  decides.
 - `signal` and `slot` map directly: signals run owner to consumer, slots run
   consumer to owner.
 - A slot with a return type becomes an asynchronous call on the consumer (a

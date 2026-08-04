@@ -67,7 +67,9 @@ def emit_rep(syn: SynFile) -> str:
 
 def _lower_member(member, records, path) -> str:
     if isinstance(member, Model):
-        return f"MODEL {member.name}({', '.join(member.roles)})"
+        # repc's roles are names. The declared types are ours to enforce, at the
+        # publish boundary in the Source helper.
+        return f"MODEL {member.name}({', '.join(role.name for role in member.roles)})"
     if isinstance(member, Signal):
         return f"SIGNAL({member.name}({_param_list(member.params, records, path)}))"
     if isinstance(member, Slot):
@@ -245,7 +247,9 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
                       "#include <QQmlListProperty>",
                       "#include <QVariant>", ""]
     if _has_models(syn):
-        out += ["#include <QStandardItem>", ""]
+        out += ["#include <QMetaType>",
+                "#include <QStandardItem>", "",
+                "#include <utility>", ""]
     has_slots = any(contract.slots for contract in syn.contracts)
     if has_slots:
         out += [SLOT_DISPATCH_HELPER, ""]
@@ -325,7 +329,7 @@ def _source_helper_impl(contract: Contract, records, path) -> str:
     lines.append("")
 
     for model in contract.models:
-        lines.append(_set_model_impl(name, model))
+        lines.append(_set_model_impl(name, model, records, path))
         lines.append("")
 
     for slot in contract.slots:
@@ -351,33 +355,73 @@ def _emit_signal_impl(class_name: str, signal: Signal, records, path) -> str:
     ])
 
 
-def _set_model_impl(class_name: str, model: Model) -> str:
+def _set_model_impl(class_name: str, model: Model, records, path) -> str:
     roles = model.roles
-    role_array = ", ".join(f'QByteArrayLiteral("{role}")' for role in roles)
+    role_array = ", ".join(f'QByteArrayLiteral("{role.name}")' for role in roles)
     lines = [
         f"void {class_name}SourceHelper::set{_cap(model.name)}(const QVariantList &rows)",
         "{",
         f"    static const QList<QByteArray> declaredRoles{{{role_array}}};",
+        "    // Built first and committed at the end: a row that does not match the",
+        "    // contract refuses the whole publish, rather than leaving half of one.",
+        "    QList<QStandardItem *> items;",
+        "    items.reserve(rows.size());",
+        "    for (qsizetype rowIndex{0}; rowIndex < rows.size(); ++rowIndex) {",
+        "        const QVariantMap row{rows.at(rowIndex).toMap()};",
+        "        QStandardItem *item{new QStandardItem{}};",
+        "        items.append(item);",
+    ]
+    for index, role in enumerate(roles):
+        lines.append("")
+        lines += _role_conversion(class_name, model, role, index, records, path)
+    lines += [
+        "    }",
         f"    m_{model.name}Model.clear();",
         "    QHash<int, QByteArray> roleNames;",
         "    for (int roleIndex{0}; roleIndex < declaredRoles.size(); ++roleIndex) {",
         "        roleNames.insert(Qt::UserRole + roleIndex, declaredRoles.at(roleIndex));",
         "    }",
         f"    m_{model.name}Model.setItemRoleNames(roleNames);",
-        "    for (const QVariant &rowVariant : rows) {",
-        "        const QVariantMap row{rowVariant.toMap()};",
-        "        QStandardItem *item{new QStandardItem{}};",
-        "        for (int roleIndex{0}; roleIndex < declaredRoles.size(); ++roleIndex) {",
-        "            // Only declared roles cross; undeclared row fields are dropped here.",
-        "            item->setData(row.value(QString::fromUtf8(declaredRoles.at(roleIndex))),",
-        "                          Qt::UserRole + roleIndex);",
-        "        }",
+        "    for (QStandardItem *item : std::as_const(items)) {",
         f"        m_{model.name}Model.appendRow(item);",
         "    }",
         f"    {class_name}SimpleSource::set{_cap(model.name)}(&m_{model.name}Model);",
         "}",
     ]
     return "\n".join(lines)
+
+
+def _role_conversion(class_name: str, model: Model, role, index: int, records, path) -> List[str]:
+    """The lines that take one declared role off a row and put it on the item.
+
+    Only declared roles cross, so an undeclared field on the row is dropped by never
+    being read. A `var` role is stored as it arrives; any other role is converted to
+    its declared type, and a value that will not convert refuses the publish.
+    """
+    key = f'QStringLiteral("{role.name}")'
+    if role.type == "var":
+        return [
+            f"        // {role.name}: declared var, so whatever arrives is what crosses.",
+            f"        item->setData(row.value({key}), Qt::UserRole + {index});",
+        ]
+    ctype = cpp_type(role.type, records, path=path, line=role.line, col=role.col)
+    where = f"{class_name}.{model.name}"
+    return [
+        f"        // {role.name}: declared {role.type}.",
+        f"        QVariant {role.name}Value{{row.value({key})}};",
+        f"        if (!{role.name}Value.isValid()) {{",
+        f"            {role.name}Value = QVariant{{QMetaType::fromType<{ctype}>()}};",
+        f"        }} else if (!{role.name}Value.convert(QMetaType::fromType<{ctype}>())) {{",
+        '            qWarning("%s row %lld: role \'%s\' is declared %s and a %s does not "',
+        '                     "convert to it; the publish is refused",',
+        f'                     "{where}", static_cast<long long>(rowIndex),'
+        f' "{role.name}", "{role.type}",',
+        f"                     row.value({key}).typeName());",
+        "            qDeleteAll(items);",
+        "            return;",
+        "        }",
+        f"        item->setData({role.name}Value, Qt::UserRole + {index});",
+    ]
 
 
 def _slot_impl(class_name: str, slot: Slot, records, path) -> str:

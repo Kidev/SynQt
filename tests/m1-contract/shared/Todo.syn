@@ -5,7 +5,7 @@
 // returning slot, and one signal; all four QtRO directions the generator lowers.
 contract Todo {
     prop int count                       // owner writes, consumers read (READPUSH)
-    model items(text, author, done)      // only these roles cross to consumers
+    model items(string text, string author, bool done)  // only these roles cross
     slot add(string text)                // fire and forget request
     slot bool clear()                    // returning slot -> async call on consumer
     signal rejected(string reason)       // owner explains a refusal

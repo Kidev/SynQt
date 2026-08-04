@@ -394,7 +394,7 @@ browser user and reading `Client` there is clearer than reading `Caller`.
 
 The owner of a connect point implements it against the Source type the contract
 generator emits, named `<Contract>Source`. This is the only place authoritative
-state is written. For `contract Todo { prop int count; model items(text, author);
+state is written. For `contract Todo { prop int count; model items(string text, string author);
 signal rejected(string reason); slot add(string text) }` the owner's Source
 exposes:
 

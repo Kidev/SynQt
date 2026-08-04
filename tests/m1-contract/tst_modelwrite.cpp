@@ -85,6 +85,71 @@ private slots:
         QVERIFY(!(m_model->flags(m_model->index(0, 0)) & Qt::ItemIsEditable));
     }
 
+    // The other half of the same boundary: what the owner is allowed to publish. A
+    // declared role type is checked here, where the row is still the owner's, rather
+    // than trusted and serialized.
+
+    void aRowThatDoesNotConvertIsRefused()
+    {
+        CheckedSourceHelper source;
+        // "n" is declared int, and a map is not convertible to one.
+        source.setRows(QVariantList{QVariantMap{{QStringLiteral("id"), QStringLiteral("a")},
+                                                {QStringLiteral("n"), QVariantMap{}}}});
+        QCOMPARE(source.rows()->rowCount(), 0);
+    }
+
+    void aRefusedRowLeavesTheModelAsItWas()
+    {
+        CheckedSourceHelper source;
+        source.setRows(QVariantList{QVariantMap{{QStringLiteral("id"), QStringLiteral("a")},
+                                                {QStringLiteral("n"), 1}}});
+        source.setRows(QVariantList{QVariantMap{{QStringLiteral("id"), QStringLiteral("b")},
+                                                {QStringLiteral("n"), QVariantMap{}}}});
+        QCOMPARE(source.rows()->rowCount(), 1);
+        QCOMPARE(source.rows()->index(0, 0).data(Qt::UserRole).toString(),
+                 QStringLiteral("a"));
+    }
+
+    void aConvertibleValueIsStoredConverted()
+    {
+        CheckedSourceHelper source;
+        source.setRows(QVariantList{QVariantMap{{QStringLiteral("id"), 7},
+                                                {QStringLiteral("n"), QStringLiteral("3")}}});
+        QCOMPARE(source.rows()->index(0, 0).data(Qt::UserRole).toString(),
+                 QStringLiteral("7"));
+        QCOMPARE(source.rows()->index(0, 0).data(Qt::UserRole + 1).toInt(), 3);
+    }
+
+    void anAbsentRoleIsTheDeclaredTypesDefault()
+    {
+        CheckedSourceHelper source;
+        source.setRows(QVariantList{QVariantMap{{QStringLiteral("id"), QStringLiteral("a")}}});
+        QCOMPARE(source.rows()->rowCount(), 1);
+        QCOMPARE(source.rows()->index(0, 0).data(Qt::UserRole + 1).toInt(), 0);
+    }
+
+    void aVarRoleTakesWhateverArrives()
+    {
+        CheckedSourceHelper source;
+        source.setRows(QVariantList{QVariantMap{
+            {QStringLiteral("id"), QStringLiteral("a")},
+            {QStringLiteral("n"), 1},
+            {QStringLiteral("payload"), QVariantMap{{QStringLiteral("k"), 1}}}}});
+        QCOMPARE(source.rows()->rowCount(), 1);
+        QCOMPARE(source.rows()->index(0, 0).data(Qt::UserRole + 2).toMap().value(
+                     QStringLiteral("k")).toInt(), 1);
+    }
+
+    void anUndeclaredFieldIsStillDropped()
+    {
+        CheckedSourceHelper source;
+        source.setRows(QVariantList{QVariantMap{{QStringLiteral("id"), QStringLiteral("a")},
+                                                {QStringLiteral("n"), 1},
+                                                {QStringLiteral("secret"), QStringLiteral("x")}}});
+        const QList<QByteArray> names{source.rows()->roleNames().values()};
+        QVERIFY(!names.contains(QByteArrayLiteral("secret")));
+    }
+
     void cleanupTestCase()
     {
         m_replica.reset();

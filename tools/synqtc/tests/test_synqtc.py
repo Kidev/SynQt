@@ -24,7 +24,7 @@ from synqtc.emit import (  # noqa: E402
 TODO = """
 contract Todo {
     prop int count
-    model items(text, author, done)
+    model items(string text, string author, bool done)
     slot add(string text)
     slot bool clear()
     signal rejected(string reason)
@@ -77,6 +77,62 @@ class RepLoweringTest(unittest.TestCase):
         )
         self.assertIn("POD ItemRow(QString text)", rep)
         self.assertIn("SLOT(void insert(ItemRow row))", rep)
+
+
+class ModelRoleTypeTest(unittest.TestCase):
+    """A role is typed like everything else a contract declares.
+
+    The type is what lets the boundary check a row before it serializes, and what
+    lets a reader of the contract know what a consumer will get. `var` stays legal
+    for a role that genuinely carries anything.
+    """
+
+    def roles(self, text):
+        return parse_text(text, stem="C").contracts[0].models[0].roles
+
+    def test_a_model_role_carries_its_type(self):
+        roles = self.roles("contract C { model rows(string id, int count) }")
+        self.assertEqual([(role.type, role.name) for role in roles],
+                         [("string", "id"), ("int", "count")])
+
+    def test_var_is_a_legal_role_type(self):
+        roles = self.roles("contract C { model rows(string id, var payload) }")
+        self.assertEqual(roles[1].type, "var")
+
+    def test_a_record_is_a_legal_role_type(self):
+        roles = self.roles("record Bid(int amount) contract C { model rows(Bid top) }")
+        self.assertEqual(roles[0].type, "Bid")
+
+    def test_an_untyped_role_is_a_parse_error_naming_the_line(self):
+        with self.assertRaises(SynError) as caught:
+            parse_text("contract C {\n    model rows(id, count)\n}", path="bad.syn")
+        self.assertEqual(caught.exception.line, 2)
+        self.assertIn("role", caught.exception.message)
+
+    def test_an_unknown_role_type_is_refused(self):
+        with self.assertRaises(SynError) as caught:
+            parse_text("contract C { model rows(widget id) }", path="bad.syn")
+        self.assertIn("widget", caught.exception.message)
+
+    def test_the_rep_model_line_still_carries_names_only(self):
+        # repc's roles are names; the types are ours to enforce at the boundary.
+        rep = emit_rep(parse_text("contract C { model rows(string id, int n) }", stem="C"))
+        self.assertIn("MODEL rows(id, n)", rep)
+
+    def test_the_helper_converts_each_declared_role(self):
+        syn = parse_text("contract C { model rows(string id, int n) }", stem="C")
+        source = emit_source_helper_source(syn, "c")
+        self.assertIn("QMetaType::fromType<QString>()", source)
+        self.assertIn("QMetaType::fromType<int>()", source)
+
+    def test_a_var_role_is_stored_as_it_arrives(self):
+        syn = parse_text("contract C { model rows(var payload) }", stem="C")
+        source = emit_source_helper_source(syn, "c")
+        self.assertNotIn("QMetaType::fromType<QVariant>()", source)
+
+    def test_the_published_model_is_the_one_a_consumer_cannot_write(self):
+        syn = parse_text("contract C { model rows(string id) }", stem="C")
+        self.assertIn("SynQt::SourceModel m_rowsModel;", emit_source_helper_header(syn, "c"))
 
 
 class SourceHelperTest(unittest.TestCase):

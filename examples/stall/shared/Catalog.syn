@@ -6,6 +6,6 @@
 // cart. Only these two roles cross the wire: the internal sku the edge keys stock on never
 // reaches the browser-facing offers model.
 contract Catalog {
-    model offers(title, price)   // the live list of offers the browser watches
+    model offers(string title, int price)   // the live list the browser watches
     slot addToCart(string sku)   // a consumer (a browser) asks to add one to its cart
 }

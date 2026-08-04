@@ -6,7 +6,7 @@
 // authorization; is NOT here and can never cross to a browser.
 contract Todo {
     prop int count                       // number of items; the client reads it
-    model items(id, text, author, done)  // only these roles cross; no ownerSub
+    model items(int id, string text, string author, bool done)  // no ownerSub
     slot add(string text)                // the edge authorizes the user, then persists
     slot remove(int id)                  // the edge authorizes ownership / moderator
     signal rejected(string reason)       // the edge explains a refusal to one caller

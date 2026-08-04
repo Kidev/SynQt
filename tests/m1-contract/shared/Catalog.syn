@@ -7,7 +7,7 @@
 record ItemRow(string text, string author, string ownerSub)
 
 contract Catalog {
-    model rows(text, author)             // ownerSub is deliberately NOT declared
+    model rows(string text, string author)  // ownerSub is deliberately NOT declared
     slot insert(ItemRow row)
     signal changed()
 }

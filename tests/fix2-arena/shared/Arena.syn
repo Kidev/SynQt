@@ -6,9 +6,10 @@
 // The only movement input is an aim point, a goal; models flow owner -> consumer, so a
 // browser can never write a position, mass, or name.
 contract Arena {
-    model blobs(id, name, x, y, mass, online)     // players in view, for drawing
-    model board(name, mass)                        // the live leaderboard, biggest first
-    model pellets(id, x, y)                        // food in view
+    // Players in view, for drawing.
+    model blobs(string id, string name, real x, real y, real mass, bool online)
+    model board(string name, real mass)            // the live leaderboard, biggest first
+    model pellets(string id, real x, real y)       // food in view
     slot steer(real x, real y)                     // "I am aiming at this spot" (a goal)
     slot real ping()                               // the edge clock in ms, for latency
     signal eaten(string prey, string predator)     // one blob swallowed another
