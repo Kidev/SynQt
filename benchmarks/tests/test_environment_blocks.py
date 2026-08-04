@@ -1,21 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Hold the prose to the toolchain the file it names ran on.
-
-`baselines.py` gates the claims a baseline supports: ratios, orderings, invariants. None of
-those move when a harness is re-run on a newer Qt, which is exactly why the prose drifted
-away from the files without anything failing. A whole sweep was re-run on 6.12.0 and
-committed while six environment blocks went on saying 6.11.1, and the numbers beside them
-went on describing a run nobody could reproduce.
-
-So this reads the other half. Wherever a section of a README writes `results/<file>.json`
-and a Qt version in the same breath, the version has to be the one inside that file. It is
-a narrow check by design. A version string and a filename are unambiguous to parse, where a
-table of measurements is not, and this is the class of drift that happened.
-
-A file whose recorded version is `unknown` is a harness that could not ask its kit, which is
-its own failure and is reported as one.
+"""The Qt version a README states for a `results/<file>.json` matches the version recorded
+inside that file. A recorded `unknown` is reported as a failure of its own.
 """
 
 from __future__ import annotations
@@ -29,9 +16,8 @@ import pytest
 BENCHMARKS = Path(__file__).resolve().parents[1]
 RESULTS = BENCHMARKS / "results"
 
-#: A `results/<name>.json` reference followed, within the same sentence, by `(Qt <version>`.
-#: Both spellings the READMEs use are one pattern. The filename may be wrapped in backticks
-#: and the version may be introduced by "(Qt " or ", Qt ".
+#: A `results/<name>.json` reference followed in the same sentence by "(Qt " or ", Qt " and
+#: a version; the filename may be in backticks.
 _CLAIM = re.compile(
     r"`?results/(?P<file>[A-Za-z0-9_.{},-]+\.json)`?"   # the file being described
     r"(?P<between>[^.]{0,200}?)"                          # ... within one sentence
@@ -64,8 +50,7 @@ def _claims() -> list[tuple[Path, str, str]]:
 
 
 def test_there_are_claims_to_check():
-    # A regex that matches nothing passes every assertion below it. This is the one
-    # assertion that fails when the prose is rewritten into a shape this cannot read.
+    # The pattern must match something.
     assert len(_claims()) >= 6
 
 
@@ -93,3 +78,33 @@ def test_a_recorded_qt_version_is_a_real_one(path):
         "this; 'unknown' means one could not, which is a harness to fix rather than a "
         "number to write down."
     )
+
+
+def _measure_bundle_calls():
+    """Every tracked call to measure-bundle.sh, with its backslash continuations joined."""
+    calls = []
+    for script in sorted(BENCHMARKS.rglob("*.sh")):
+        if script.name == "measure-bundle.sh" or "node_modules" in script.parts:
+            continue
+        joined = script.read_text(encoding="utf-8").replace("\\\n", " ")
+        for line in joined.splitlines():
+            if "measure-bundle.sh" in line and not line.lstrip().startswith("#"):
+                calls.append((script, line.strip()))
+    return calls
+
+
+def test_measure_bundle_has_callers():
+    assert len(_measure_bundle_calls()) >= 2
+
+
+@pytest.mark.parametrize("script,call", [
+    pytest.param(script, call, id=str(script.relative_to(BENCHMARKS)))
+    for script, call in _measure_bundle_calls()
+])
+def test_a_bundle_written_to_a_file_names_its_kit(script, call):
+    # measure-bundle.sh refuses --out without --qt-version.
+    if "--out" in call:
+        assert "--qt-version" in call, (
+            f"{script.relative_to(BENCHMARKS)} writes a bundle baseline without the kit's "
+            f"Qt version: {call}"
+        )

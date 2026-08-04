@@ -41,6 +41,14 @@ if [ ! -x "$QT_WASM_ST/bin/qt-cmake" ]; then
     exit 1
 fi
 
+# The Qt the bundles are built with, asked of the kit rather than of the example's pin: a
+# baseline names the toolchain it was taken on, and the pin moves without rebuilding anything.
+QT_VERSION="$("$QT_WASM_ST/bin/qmake6" -query QT_VERSION 2>/dev/null || true)"
+if [ -z "$QT_VERSION" ]; then
+    echo "run: $QT_WASM_ST/bin/qmake6 did not report the kit's Qt version" >&2
+    exit 1
+fi
+
 # The CLI, run from this repo checkout so the generated CMake points SYNQT_ROOT at this
 # repo's src/ and cmake/ (framework_root() is derived from the module's own path). An
 # installed synqt elsewhere on PATH would bake in its own checkout, not this one.
@@ -109,7 +117,7 @@ build_and_measure() {
     echo "== build client ($label) ==" >&2
     synqt_cli build --client wasm --entity "$CLIENT" --project-dir "$project" --release >&2
     bash "$REPO_ROOT/benchmarks/client/measure-bundle.sh" \
-        "$project/$BUNDLE" "$label" --out "$out"
+        "$project/$BUNDLE" "$label" --qt-version "$QT_VERSION" --out "$out"
 }
 
 build_and_measure "$WORK/remote" "stall-remote" "$WORK/remote.json"
@@ -118,7 +126,6 @@ build_and_measure "$WORK/compiled-in" "stall-compiled-in" "$WORK/compiled-in.jso
 # The Emscripten version reported by the kit's emcc, falling back to the pinned 5.0.5.
 EMSCRIPTEN_VERSION="$(emcc --version 2>/dev/null | sed -n '1s/.*replacement + linker emulating GNU ld) \([0-9.]*\).*/\1/p')"
 EMSCRIPTEN_VERSION="${EMSCRIPTEN_VERSION:-5.0.5}"
-QT_VERSION="$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["project"]["qt_version"])' "$EXAMPLE/synqt.yaml")"
 
 mkdir -p "$(dirname "$OUT")"
 python3 - "$WORK/remote.json" "$WORK/compiled-in.json" "$OUT" \
