@@ -116,7 +116,7 @@ jobs:
       # one of which (Qt6QmlAssetDownloaderPrivate) depends on Qt6TaskTree, so every configure
       # that finds Qml warns it could not be found. Installing it costs one small archive and
       # removes the warning at its source rather than muting it.
-      QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree"
+      QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree qtquick3d qtshadertools"
       # jwt-cpp v0.7.1 is the floor, not a preference: JwksVerifier builds the RSA public key
       # from the JWK modulus/exponent with jwt::helper::create_public_key_from_rsa_components,
       # which does not exist before v0.7.1. v0.7.2 is what the vcpkg baseline resolves to, so
@@ -302,6 +302,8 @@ jobs:
               qthttpserver)   echo Qt6HttpServer ;;
               qtnetworkauth)  echo Qt6NetworkAuth ;;
               qttasktree)     echo Qt6TaskTree ;;
+              qtquick3d)      echo Qt6Quick3D ;;
+              qtshadertools)  echo Qt6ShaderTools ;;
             esac
           }
           for m in $QT_MODULES; do

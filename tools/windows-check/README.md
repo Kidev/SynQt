@@ -19,6 +19,13 @@ includes and types, MSVC STL and SDK header incompatibilities, the named-pipe an
 API usage compiling and linking at all, ABI-level mistakes. A target that builds here
 builds under the CI's `cl.exe`.
 
+It cannot build a target that links `Qt6::Quick`. Quick pulls in `Qt6::OpenGL`, whose
+`WrapOpenGL` dependency resolves to this Linux box's own `/usr/include`, and the host GL
+headers then collide with the MSVC CRT (`stdint.h` typedef redefinition, and on from
+there). Nothing is wrong with the code when that happens; the target simply has to be
+checked by the real Windows column instead. `tests/graphics` is the one suite this
+affects: `tst_graphics` builds here, `tst_softwarebackend` does not.
+
 It does not catch: the exact `cl.exe /W4 /WX` warning verdict (clang emits its own
 warning set, so a specific MSVC warning number can differ) or any runtime behaviour.
 The Windows named-pipe ACL semantics that the m3 assertion was really about need a real

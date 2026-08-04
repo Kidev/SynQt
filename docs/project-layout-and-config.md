@@ -660,6 +660,10 @@ routes:
   - path: /admin
     view: Admin.qml
     scope: admin          # below this scope, the router redirects to fallback
+
+  - path: /tour
+    view: Tour.qml
+    graphics: accelerated # hidden behind a notice when the browser has no WebGL
 ```
 
 `router` keys:
@@ -680,6 +684,7 @@ routes:
 | `remote` | one of `view`/`remote` | The QML file the web edge delivers on demand, instead of compiling it in. Write it relative to the edge entity's `pages/` directory (`Campaign.qml` names `<edge>/pages/Campaign.qml`). The edge sends it over the same authenticated `wss` link at navigation time, so it never enters the bundle and changes without a client rebuild. Mutually exclusive with `view`. See [remote pages](remote-pages.md). |
 | `seed` | no | The [page seed](remote-pages.md#the-page-seed-painting-the-first-frame) hook the edge runs, after this route's scope check, to build the data a delivered page paints with on its first frame. Written project-root-relative (like `identity.mapping`), because a hook is edge code, not a delivered page: `seed: web/campaign-seed.qml`. Applies only to a `remote:` route; a `seed:` on a compiled-in route is refused, because it would never run. |
 | `scope` | no | The scope a session must hold to reach this route. Omitted, the route is open to everyone, anonymous sessions included. On a `remote:` route the edge enforces it before delivery, so an under-scoped fetch is refused with no markup, no hash, and no seed. |
+| `graphics` | no | `accelerated` or `software`. Whether this route needs a GPU-backed scene graph. Omitted, `synqt build` reads the route's QML and decides; write it to overrule that. See below. |
 
 Every QML file under the client entity's directory is put into the client's QML
 module for you: `Main.qml`, the views the routes name, and everything those views
@@ -701,6 +706,51 @@ directory (an absolute path, a `../` path, or a Windows drive path). A route wit
 neither a `view` nor a `remote` is refused both by `synqt check` and by the
 generator, since there is nothing for it to show. Do not add views to the generated
 `CMakeLists.txt` by hand: it is rewritten from `synqt.yaml` on every build.
+
+### `graphics`: which routes need an accelerated scene graph
+
+Qt Quick draws through the GPU pipeline the browser exposes as WebGL, and some visitors
+have no such pipeline: it can be disabled by policy or blocked for a driver. The client
+checks before it starts and uses Qt's raster adaptation when there is none, which handles
+ordinary 2D Qt Quick completely. Nothing needs configuring for that to happen.
+
+Three things do not work on the raster adaptation, and they draw nothing at all rather than
+degrading: [Qt Quick 3D](https://doc.qt.io/qt-6/qtquick3d-index.html), `ShaderEffect`, and
+[Qt Quick Effects](https://doc.qt.io/qt-6/qtquickeffects-qmlmodule.html). A route holding
+any of them shows a notice explaining that instead of an empty area.
+
+`synqt build` decides which routes those are by reading each route's QML, and says what it
+concluded:
+
+```
+$ synqt check
+warn: routes: /tour needs the accelerated pipeline, so it is hidden on a client with
+      none. Write graphics: accelerated on this route to make that explicit, or
+      graphics: software to show it anyway
+```
+
+Write `graphics:` yourself to overrule it, in either direction. The written value always
+wins, and a disagreement is reported rather than silently resolved:
+
+```yaml
+  - path: /gallery
+    view: Gallery.qml
+    graphics: accelerated   # a Loader pulls in a 3D scene, which no scan can see
+
+  - path: /report
+    view: Report.qml
+    graphics: software      # the scan is wrong about this one; show it anyway
+```
+
+The scan reads imports and type names, so it sees what a page declares rather than what it
+loads at run time. Content it misses still reaches the visitor with an explanation: the
+client watches for Qt declining to draw something and raises the same notice over the page,
+leaving everything that did render in place. Such a page is told about a moment later than
+one the scan caught, rather than not at all.
+
+`client.graphics_notice` names your own notice in place of the built-in one, as a QML file
+relative to the client entity's directory. It is shown in both positions, as the whole page
+for a refused route and over the page otherwise, so write it to work in either.
 
 ### Edge-delivered pages (`remote:`)
 

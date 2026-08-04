@@ -67,6 +67,12 @@ edge's connect points through `Server`, one entity reaches another's by that
 entity's name (`Database.users.find(id)`), and inside a connect point's own
 function `Caller` says who is asking, so the owner can authorize every request.
 
+Not every visitor's browser gives Qt a WebGL context. It can be disabled by policy or
+blocked for a driver. SynQt checks before the app starts and draws in software when
+there is none, which covers ordinary 2D Qt Quick completely. The few things that do
+need a GPU show a notice in place of the content instead of a blank rectangle. See
+[graphics](https://synqt.org/project-layout-and-config/#graphics-which-routes-need-an-accelerated-scene-graph).
+
 You do not run Postgres, Redis, or an API gateway as separate products you configure
 and secure yourself. You run SynQt entities: one toolchain, one security model, one
 deploy story. When you do want a particular engine, a

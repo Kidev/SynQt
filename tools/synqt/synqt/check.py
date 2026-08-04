@@ -1136,6 +1136,15 @@ def lint_graphics(config: Dict[str, Any],
             continue
         _, findings = graphics.route_requirement(route, project_dir, edge_name)
         messages += [f"warn: {finding}" for finding in findings]
+
+    # A named notice that is not there means the one case it exists for shows nothing at
+    # all, and only a browser without WebGL would ever reveal that.
+    notice = ((config.get("client") or {}).get("graphics_notice") or "")
+    notice = notice.strip() if isinstance(notice, str) else ""
+    if notice and not (Path(project_dir) / "client" / notice).is_file():
+        messages.append(
+            f"error: client.graphics_notice names {notice}, which is not in the client "
+            f"directory")
     return messages
 
 

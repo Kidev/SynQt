@@ -142,7 +142,7 @@ where an in-memory stack stands in for the address bar.
 | `Router.params` | object | the path parameters the matched route captured, percent-decoded (`/c/:campaign` navigated to `/c/summer%20sale` gives `{ campaign: "summer sale" }`). Empty for a route with no parameters. On a redirect the refused route's captures are dropped and the fallback route's own captures take their place, which is nothing at all for the usual parameterless fallback. |
 | `Router.query` | object | the decoded query string of the current URL (`?page=2&q=hat` gives `{ page: "2", q: "hat" }`). Cleared whenever the navigation ends somewhere other than the route that was asked for, whether a guard refused it or nothing matched, so a query addressed to that page never reaches the fallback. |
 | `Router.pageComponent` | Component \| null | the component for the current route's view, ready to hand to a `Loader`. `null` when the route has no view to show. |
-| `Router.pageStatus` | enumeration | why the current page is the one showing: `Ready`, `Loading`, `Forbidden`, `NotFound`, or `Error`. Values below. |
+| `Router.pageStatus` | enumeration | why the current page is the one showing: `Ready`, `Loading`, `Forbidden`, `NotFound`, `Error`, or `Unsupported`. Values below. |
 | `Router.pageSeed` | object | the seed the edge sent for the current page, a read-only map. For a [remote page](remote-pages.md) it is whatever the route's [seed hook](remote-pages.md#the-page-seed-painting-the-first-frame) returned, so a delivered page can paint real content on its first frame before its connect points arrive; empty for a compiled-in view and for a remote page whose route declares no `seed`. It is kept across a `notModified` refetch, so a new parameterization of one page paints the new seed rather than the old page's data. |
 | `Router.go(path)` | action | navigate to `path` and add a history entry. If the matched route declares a `scope` the session lacks, the router goes to `router.fallback` instead and reports `Forbidden`. |
 | `Router.replace(path)` | action | navigate without adding a history entry: the current entry is rewritten, so `back()` skips the page being left. |
@@ -161,6 +161,7 @@ them, so one binding on any of the three sees a consistent set.
 | `Loading` | the view is still being built. A view compiled into the bundle is built synchronously, so a route pointing at one never reports this; a [remote page](remote-pages.md) does, while the edge is being asked for it and the reply has not arrived. |
 | `Forbidden` | a route matched, but it declares a `scope` the session lacks. `path` is now `router.fallback` and the fallback's view is showing. The refused path is remembered for [after login](#returning-to-the-page-that-was-refused). |
 | `NotFound` | nothing in the route table matched. `path` is now `router.fallback`, the fallback's view is showing, and the query the unmatched path carried is dropped. |
+| `Unsupported` | the route declares [`graphics: accelerated`](project-layout-and-config.md#graphics-which-routes-need-an-accelerated-scene-graph) and this browser gave Qt no accelerated scene graph, so the page cannot be drawn. Unlike a scope refusal this is not a redirect: `path` is still the path that was asked for, and `pageComponent` is the notice, so a `Loader` bound to it shows the notice where the page would have been. |
 | `Error` | there is no page to show: a compiled-in view failed to load, because it does not compile or because its URL names nothing, or a [remote page](remote-pages.md) arrived but could not be shown, because no loader is present to resolve it, or the delivered page was refused by the [palette](remote-pages.md#the-palette-what-a-delivered-page-may-import) or would not compile. An *edge refusal* is not this: a scope refusal reports `Forbidden` and a route the edge does not know reports `NotFound`. A route that declares neither a `view` nor a `remote` in `synqt.yaml` never becomes a page at all: `synqt check` reports it, and `synqt build` refuses to generate it. `Error` also wins over `Forbidden` and `NotFound` when it is the *fallback's* own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
 
 `Router` is bound as a context property rather than as a registered QML type, so
@@ -288,6 +289,37 @@ Button {
 
 Requires `build.client_cache: service_worker` (the default). Under `http` the signal
 never fires: a new build arrives on the next load instead.
+
+## Client: `Graphics`
+
+Qt Quick draws through the GPU pipeline the browser exposes as WebGL, and some visitors
+have no such pipeline: it can be disabled by policy or blocked for a driver. The client
+runs anyway, on Qt's raster adaptation, and `Graphics` is how the app finds out.
+
+| Member | Type | Meaning |
+|--------|------|---------|
+| `Graphics.isSoftwareRendered` | bool | the client is drawing on the raster adaptation, because this browser offered no accelerated one. |
+| `Graphics.hasUnsupportedContent` | bool | something on the current page asked for the accelerated pipeline and could not be drawn. |
+
+Neither has to be handled. A route marked
+[`graphics: accelerated`](project-layout-and-config.md#graphics-which-routes-need-an-accelerated-scene-graph)
+is replaced by a notice on its own, and content that turns out to need acceleration
+anywhere else raises the same notice over the page, leaving everything that did render in
+place. Bind to these only to say something of your own:
+
+```qml
+Label {
+    visible: Graphics.isSoftwareRendered
+    text: qsTr("Showing a simplified view")
+}
+```
+
+Replace the notice itself with `client.graphics_notice` in `synqt.yaml`.
+
+Ordinary 2D Qt Quick renders in software without any change.
+[Qt Quick 3D](https://doc.qt.io/qt-6/qtquick3d-index.html), `ShaderEffect` and
+[Qt Quick Effects](https://doc.qt.io/qt-6/qtquickeffects-qmlmodule.html) do not: they draw
+nothing at all, which is what the notice explains.
 
 ## Service: `Caller`
 
