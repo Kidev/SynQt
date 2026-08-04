@@ -185,7 +185,11 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
     """
     blueprint = entity.get("blueprint") or ""
     if blueprint in addentity.BLUEPRINTS:
-        addentity.scaffold(work, entity["name"], blueprint, entity.get("provider") or None)
+        try:
+            addentity.scaffold(work, entity["name"], blueprint,
+                               entity.get("provider") or None)
+        except addentity.AddEntityError as error:
+            raise DesignPlanError(f"'{entity['name']}': {error}") from error
     else:
         block = {"name": entity["name"], "kind": entity.get("kind") or "service"}
         _edit_config(work, lambda text: yamledit.append_item(text, "entities", block))
@@ -216,19 +220,22 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
         _patch(work, "connect_points", name, was[name], link, _LINK_FIELDS,
                _link_field, reasons)
 
-    kept = {link["contract"] for link in now.values() if link.get("contract")}
-    for name, link in was.items():
+    for name in was:
         if name in now:
             continue
         _edit_config(work, lambda text: yamledit.remove_item(text, "connect_points", name))
         _note(reasons, "synqt.yaml", f"connect point '{name}' removed")
-        contract = link.get("contract")
-        if contract and contract not in kept:
-            source = work / "shared" / f"{contract}.syn"
-            if source.exists():
-                source.unlink()
-                _note(reasons, f"shared/{contract}.syn",
-                      f"no connect point carries the {contract} contract any more")
+
+    # A contract nothing carries any more goes with the last link that carried it, whether
+    # the link was removed or just pointed at a different contract.
+    kept = {link["contract"] for link in now.values() if link.get("contract")}
+    orphaned = {link["contract"] for link in was.values() if link.get("contract")} - kept
+    for contract in sorted(orphaned):
+        source = work / "shared" / f"{contract}.syn"
+        if source.exists():
+            source.unlink()
+            _note(reasons, f"shared/{contract}.syn",
+                  f"no connect point carries the {contract} contract any more")
 
 
 def _write_contract(work: Path, link: Dict[str, Any], was: Optional[Dict[str, Any]],
@@ -383,6 +390,94 @@ def diff(plan: Plan) -> str:
 def digest(plan: Plan) -> str:
     """A fingerprint of the change set, so what is applied is what was shown."""
     return hashlib.sha256(diff(plan).encode("utf-8")).hexdigest()
+
+
+# Applying
+
+
+def execute(project_dir: os.PathLike[str] | str, plan: Plan) -> str:
+    """Apply `plan` to the project, or leave the project exactly as it was.
+
+    There is no half-applied state to explain: everything the plan touches is held in
+    memory first, and any failure puts all of it back before the error is raised. A plan
+    that does not validate, or that was computed against a synqt.yaml somebody has since
+    edited, is refused rather than applied and reported on afterwards.
+    """
+    root = Path(project_dir)
+    if plan.stale:
+        raise DesignPlanError(
+            "the project changed after this plan was worked out; read the design again "
+            "and have another look at what it would do")
+    if not plan.ok:
+        errors = [message for message in plan.findings if message.startswith("error:")]
+        raise DesignPlanError("this design does not pass synqt check: "
+                              + "; ".join(errors or ["it was not accepted"]))
+
+    held: List[Tuple[Path, Optional[bytes]]] = []
+    made: List[Path] = []
+    done: List[str] = []
+    at = ""
+    try:
+        for change in plan.changes:
+            at = change.path
+            target = root / change.path
+            _hold(target, held)
+            if change.action == "delete":
+                _remove(target)
+            else:
+                made.extend(_missing_parents(root, target))
+                _write(target, change.after or "")
+            done.append(f"{change.action} {change.path}: {change.reason}")
+    except Exception as error:
+        _restore(held, made)
+        raise DesignPlanError(
+            f"{at}: {error}. Nothing was changed; the project is as it was.") from error
+    return "\n".join(done)
+
+
+def _hold(target: Path, held: List[Tuple[Path, Optional[bytes]]]) -> None:
+    """Remember what `target` is now, so it can be put back. A directory holds its tree."""
+    if target.is_dir():
+        for path in sorted(target.rglob("*")):
+            if path.is_file():
+                held.append((path, path.read_bytes()))
+        return
+    held.append((target, target.read_bytes() if target.is_file() else None))
+
+
+def _missing_parents(root: Path, target: Path) -> List[Path]:
+    """The directories writing `target` would create, nearest last."""
+    missing: List[Path] = []
+    parent = target.parent
+    while parent != root and not parent.exists() and root in parent.parents:
+        missing.append(parent)
+        parent = parent.parent
+    return list(reversed(missing))
+
+
+def _write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def _restore(held: List[Tuple[Path, Optional[bytes]]], made: List[Path]) -> None:
+    for path, data in reversed(held):
+        if data is None:
+            if path.is_file():
+                path.unlink()
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+    for directory in reversed(made):
+        if directory.is_dir() and not any(directory.iterdir()):
+            directory.rmdir()
 
 
 def _git_position(root: Path) -> str:
