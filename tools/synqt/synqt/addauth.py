@@ -47,9 +47,10 @@ def provider_template(provider: str) -> Dict[str, Any]:
     """The provider entry, mapping raw provider fields to the normalized identity.
 
     Each template documents which endpoints and scopes it needs. The client secret is
-    always an ``env:`` reference; the real value lives only in the edge ``.env``.
+    always an ``env:`` reference; the real value lives only in the edge ``.env``. What is
+    written here is therefore the reference, `env:GITHUB_CLIENT_SECRET`, never a credential.
     """
-    secret = f"env:{_secret_env(provider)}"
+    secret_ref = f"env:{_secret_env(provider)}"
     if provider == "github":
         # Plain OAuth2: identity from /user, with the numeric id mapped to sub and the
         # primary verified address pulled from /user/emails when a private email hides it.
@@ -61,7 +62,7 @@ def provider_template(provider: str) -> Dict[str, Any]:
             "emails_url": "https://api.github.com/user/emails",
             "scopes": ["read:user", "user:email"],
             "client_id": "your-github-client-id",
-            "client_secret": secret,
+            "client_secret": secret_ref,
             "sub_field": "id",
         }
     if provider == "google":
@@ -75,7 +76,7 @@ def provider_template(provider: str) -> Dict[str, Any]:
             "use_id_token": True,
             "scopes": ["openid", "email", "profile"],
             "client_id": "your-google-client-id",
-            "client_secret": secret,
+            "client_secret": secret_ref,
         }
     # A generic OpenID Connect provider, to be pointed at any compliant issuer.
     return {
@@ -87,7 +88,7 @@ def provider_template(provider: str) -> Dict[str, Any]:
         "use_id_token": True,
         "scopes": ["openid", "email", "profile"],
         "client_id": f"your-{provider}-client-id",
-        "client_secret": secret,
+        "client_secret": secret_ref,
     }
 
 
@@ -136,18 +137,21 @@ IdentityMapping {
 
 
 def manual_steps(provider: str, provider_entity: str = "") -> str:
-    secret = _secret_env(provider)
+    # `secret_env` is the NAME of the variable to set, which is the whole point of the step:
+    # it tells the reader where to put a value this process never sees.
+    secret_env = _secret_env(provider)
     # Where the client secret lives depends on where identity runs. In process it is the
     # edge; with provider_entity the OAuth engine (token exchange + secret + tokens) runs on
     # the auth entity, so the secret belongs in the auth entity's .env, never the edge's.
     if provider_entity:
         secret_step = (
             f"  3. Put the client secret in the '{provider_entity}' auth entity's .env as "
-            f"{secret} (never in synqt.yaml, never on the edge, never in a client target).\n"
+            f"{secret_env} (never in synqt.yaml, never on the edge, never in a client "
+            "target).\n"
         )
     else:
         secret_step = (
-            f"  3. Put the client secret in the edge .env as {secret} "
+            f"  3. Put the client secret in the edge .env as {secret_env} "
             "(never in synqt.yaml, never in a client target).\n"
         )
     return (
@@ -184,14 +188,15 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
     config["identity"] = identity_section(provider, required, provider_entity)
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
 
-    # Document the required secret as unset, so it is discoverable but never committed.
+    # Document the variable to set, with no value: the line written here is
+    # `GITHUB_CLIENT_SECRET=`, so it is discoverable and there is nothing to commit.
     env_example = root / ".env.example"
-    secret = _secret_env(provider)
+    secret_env = _secret_env(provider)
     lines: List[str] = []
     if env_example.exists():
         lines = env_example.read_text().splitlines()
-    if not any(line.startswith(secret + "=") for line in lines):
-        lines.append(f"{secret}=")
+    if not any(line.startswith(secret_env + "=") for line in lines):
+        lines.append(f"{secret_env}=")
         env_example.write_text("\n".join(lines) + "\n")
 
     # Scaffold the mapping hook (never overwrite an edited one).

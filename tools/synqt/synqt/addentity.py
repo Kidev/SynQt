@@ -44,21 +44,25 @@ BLUEPRINTS: Dict[str, Optional[str]] = {
     "service": None,   # a bare custom entity
 }
 
-# External providers: the secret env var name and the provider block that carries it.
+# External providers: the NAME of the environment variable the credential is read from, and
+# the provider block that references it. Nothing here ever holds a credential: `secret_env` is
+# a variable name, and the block records the `env:` reference the runtime resolves at start-up
+# from the entity's own environment. That distinction is why these are not called `secret`.
 _EXTERNAL: Dict[str, Dict[str, Any]] = {
-    "postgres": {"secret": "DB_PASSWORD", "block": lambda name, secret: {
+    "postgres": {"secret_env": "DB_PASSWORD", "block": lambda name, secret_env: {
         "name": "postgres", "host": "db.internal", "port": 5432, "database": name,
-        "user": name, "password": f"env:{secret}", "sslmode": "verify-full",
+        "user": name, "password": f"env:{secret_env}", "sslmode": "verify-full",
         "ca_cert": "certs/db-ca.pem", "pool_size": 8}},
-    "mysql": {"secret": "DB_PASSWORD", "block": lambda name, secret: {
+    "mysql": {"secret_env": "DB_PASSWORD", "block": lambda name, secret_env: {
         "name": "mysql", "host": "db.internal", "port": 3306, "database": name,
-        "user": name, "password": f"env:{secret}", "sslmode": "verify-full",
+        "user": name, "password": f"env:{secret_env}", "sslmode": "verify-full",
         "ca_cert": "certs/db-ca.pem", "pool_size": 8}},
-    "redis": {"secret": "REDIS_PASSWORD", "block": lambda name, secret: {
+    "redis": {"secret_env": "REDIS_PASSWORD", "block": lambda name, secret_env: {
         "name": "redis", "host": "cache.internal", "port": 6379,
-        "password": f"env:{secret}", "tls": True, "ca_cert": "certs/redis-ca.pem"}},
-    "mongodb": {"secret": "MONGODB_URI", "block": lambda name, secret: {
-        "name": "mongodb", "uri": f"env:{secret}", "tls": True, "ca_cert": "certs/mongo-ca.pem"}},
+        "password": f"env:{secret_env}", "tls": True, "ca_cert": "certs/redis-ca.pem"}},
+    "mongodb": {"secret_env": "MONGODB_URI", "block": lambda name, secret_env: {
+        "name": "mongodb", "uri": f"env:{secret_env}", "tls": True,
+        "ca_cert": "certs/mongo-ca.pem"}},
 }
 
 
@@ -149,7 +153,7 @@ def entity_block(name: str, blueprint: str, provider: Optional[str]) -> Dict[str
     if family:
         chosen = provider or PROVIDERS[family][0]
         if chosen in _EXTERNAL:
-            block["provider"] = _EXTERNAL[chosen]["block"](name, _EXTERNAL[chosen]["secret"])
+            block["provider"] = _EXTERNAL[chosen]["block"](name, _EXTERNAL[chosen]["secret_env"])
         elif blueprint == "persistence":
             block["settings"] = {"file": f"{name}/data/app.db",
                                  "journal_mode": "wal", "busy_timeout_ms": 5000}
@@ -192,21 +196,22 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, blueprint: str,
             "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
             "                    text TEXT NOT NULL, author TEXT NOT NULL);\n")
 
-    # An external provider's secret is documented as unset.
+    # An external provider's credential is documented by name, with no value: the line written
+    # here is `DB_PASSWORD=`, so the variable to set is discoverable and nothing is committed.
     chosen = provider or (PROVIDERS[family][0] if family else None)
-    secret: Optional[str] = None
+    secret_env: Optional[str] = None
     if chosen in _EXTERNAL:
-        secret = _EXTERNAL[chosen]["secret"]
+        secret_env = _EXTERNAL[chosen]["secret_env"]
         env_example = root / ".env.example"
         lines = env_example.read_text().splitlines() if env_example.exists() else []
-        if not any(line.startswith(secret + "=") for line in lines):
-            lines.append(f"{secret}=")
+        if not any(line.startswith(secret_env + "=") for line in lines):
+            lines.append(f"{secret_env}=")
             env_example.write_text("\n".join(lines) + "\n")
 
     steps = [f"Entity '{name}' scaffolded ({blueprint}"
              + (f", provider {chosen}" if chosen else "") + ")."]
-    if secret:
-        steps.append(f"  - Put the {chosen} credential in the entity .env as {secret} "
+    if secret_env:
+        steps.append(f"  - Put the {chosen} credential in the entity .env as {secret_env} "
                      "(never in synqt.yaml, never in a client target).")
         steps.append("  - The connection uses verified TLS by default; keep it that way "
                      "(release refuses plaintext).")
