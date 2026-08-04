@@ -505,12 +505,20 @@ class DriveTest(unittest.TestCase):
         self.assertIn("synqt build --client wasm", str(error.exception))
 
     def test_up_is_content_when_the_image_builds_the_bundle(self):
+        # The two tests above stop at a check and never reach the compose binary; this one
+        # runs to the end, where `up_command` resolves it. That resolution is a property of
+        # the machine, not of what is being asserted here (that an image-built bundle is let
+        # through, and with which flags), and the macOS runner has no docker at all, so the
+        # lookup is stubbed rather than left to decide whether the test passes.
         import tempfile
+        from unittest import mock
 
         with tempfile.TemporaryDirectory() as tmp:
             root = self._generated(tmp, client="image")
-            command = docker.up_command(root)
-        self.assertEqual(command[-2:], ["up", "--build"])
+            with mock.patch.object(docker, "compose_command",
+                                   return_value=["docker", "compose"]):
+                command = docker.up_command(root)
+        self.assertEqual(command, ["docker", "compose", "up", "--build"])
 
     def _generated(self, tmp, *, client):
         root = Path(tmp)
