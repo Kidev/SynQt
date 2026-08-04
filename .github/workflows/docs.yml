@@ -8,11 +8,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Permissions the official Pages deployment needs.
+# Read-only for the workflow. The two writes the official Pages deployment needs are granted
+# to the job that deploys and to nothing else, so the job that runs mkdocs, Doxygen and the
+# hooks over the tree cannot publish a site.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Allow one concurrent deployment; do not cancel a run in progress.
 concurrency:
@@ -82,6 +82,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write # publish the built site
+      id-token: write # the OIDC token actions/deploy-pages trades for a deployment
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
