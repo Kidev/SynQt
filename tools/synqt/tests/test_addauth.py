@@ -19,6 +19,32 @@ class AddAuthTest(unittest.TestCase):
             yaml.safe_dump({"project": {"name": "app", "version": "0.1.0"}}, sort_keys=False))
         return root
 
+    def test_the_scaffold_keeps_the_comments_already_in_the_file(self):
+        """The file belongs to whoever wrote it. Adding the identity section is not
+        permission to reformat the rest of it, and a scaffold command that silently drops
+        the comments explaining a topology is worse than one that refuses to run.
+        """
+        root = Path(tempfile.mkdtemp())
+        written_by_hand = ("# Hand written, and it stays.\n"
+                           "project:\n"
+                           "  name: app\n"
+                           "\n"
+                           "entities:\n"
+                           "  # The edge, the only entity a browser reaches.\n"
+                           "  - name: web\n"
+                           "    kind: service\n"
+                           "    capability: web_edge\n")
+        (root / "synqt.yaml").write_text(written_by_hand)
+
+        addauth.scaffold(root, "github")
+
+        text = (root / "synqt.yaml").read_text()
+        self.assertIn("# Hand written, and it stays.", text)
+        self.assertIn("# The edge, the only entity a browser reaches.", text)
+        self.assertTrue(text.startswith(written_by_hand.rstrip("\n")))
+        identity = yaml.safe_load(text)["identity"]
+        self.assertEqual(identity["providers"][0]["name"], "github")
+
     def test_github_scaffold_is_secure_by_default(self):
         root = self._fresh_project()
         message = addauth.scaffold(root, "github")

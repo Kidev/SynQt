@@ -19,6 +19,34 @@ class AddEntityTest(unittest.TestCase):
             yaml.safe_dump({"project": {"name": "app"}}, sort_keys=False))
         return root
 
+    def test_the_scaffold_keeps_the_comments_already_in_the_file(self):
+        """The file belongs to whoever wrote it. Adding one entity is not permission to
+        reformat the rest of it, and a scaffold command that silently drops the comments
+        explaining a topology is worse than one that refuses to run.
+        """
+        root = Path(tempfile.mkdtemp())
+        written_by_hand = ("# Hand written, and it stays.\n"
+                           "project:\n"
+                           "  name: app\n"
+                           "\n"
+                           "entities:\n"
+                           "  # The edge, the only entity a browser reaches.\n"
+                           "  - name: web\n"
+                           "    kind: service\n"
+                           "    capability: web_edge\n")
+        (root / "synqt.yaml").write_text(written_by_hand)
+
+        addentity.scaffold(root, "db", "persistence")
+
+        text = (root / "synqt.yaml").read_text()
+        self.assertIn("# Hand written, and it stays.", text)
+        self.assertIn("# The edge, the only entity a browser reaches.", text)
+        self.assertTrue(text.startswith(written_by_hand.rstrip("\n")))
+        entities = yaml.safe_load(text)["entities"]
+        self.assertEqual([e["name"] for e in entities], ["web", "db"])
+        self.assertEqual(entities[1]["blueprint"], "persistence")
+        self.assertEqual(entities[1]["settings"]["journal_mode"], "wal")
+
     def test_persistence_defaults_to_embedded_sqlite(self):
         root = self._project()
         addentity.scaffold(root, "database", "persistence")

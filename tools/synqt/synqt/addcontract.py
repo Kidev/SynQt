@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from synqt import yamledit
+
 _CONTRACT_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
@@ -61,14 +63,16 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, name: str, *,
         if consumer not in entities:
             raise AddContractError(f"unknown consumer entity '{consumer}'")
 
-    connect_points: List[Dict[str, Any]] = config.setdefault("connect_points", [])
-    if any(cp.get("name") == name for cp in connect_points):
+    connect_points: List[Dict[str, Any]] = config.get("connect_points") or []
+    if any(isinstance(cp, dict) and cp.get("name") == name for cp in connect_points):
         raise AddContractError(f"a connect point named '{name}' already exists")
-    connect_points.append({
-        "name": name, "contract": contract, "owner": owner,
-        "consumers": consumers, "instance": instance,
-    })
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+
+    # Spliced into the text rather than dumped over it: the file is the author's, and one
+    # added entry is not a reason to lose their comments and their formatting.
+    config_path.write_text(yamledit.append_item(
+        config_path.read_text(), "connect_points",
+        {"name": name, "contract": contract, "owner": owner,
+         "consumers": consumers, "instance": instance}))
     return (f"Added connect point '{name}' (owner {owner}, consumers {', '.join(consumers)}, "
             f"instance {instance}). Deny-by-default: only listed consumers may acquire it.\n"
             f"  - Implement the owner Source in {owner}/ and authorize Caller in every slot.")

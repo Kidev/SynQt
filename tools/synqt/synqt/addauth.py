@@ -170,7 +170,10 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
 
     Refuses to clobber an existing ``identity`` section.
     """
-    import yaml  # deliberately local; see the note where the other imports are
+    # Both deliberately local; see the note where the other imports are. yamledit imports
+    # PyYAML itself, so it carries the same restriction.
+    import yaml
+    from synqt import yamledit
 
     root = Path(project_dir)
     config_path = root / "synqt.yaml"
@@ -185,8 +188,11 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
             "an 'identity' section already exists; edit it by hand rather than re-running "
             "'synqt add auth'")
 
-    config["identity"] = identity_section(provider, required, provider_entity)
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    # Spliced into the text rather than dumped over it: the file is the author's, and one
+    # added section is not a reason to lose their comments and their formatting.
+    section = identity_section(provider, required, provider_entity)
+    existing = config_path.read_text() if config_path.exists() else ""
+    config_path.write_text(yamledit.set_scalar(existing, "identity", section))
 
     # Document the variable to set, with no value: the line written here is
     # `GITHUB_CLIENT_SECRET=`, so it is discoverable and there is nothing to commit.
