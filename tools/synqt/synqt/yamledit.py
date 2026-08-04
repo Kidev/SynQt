@@ -106,6 +106,33 @@ def patch_item(text: str, list_path: str, name: str, fields: Dict[str, Any]) -> 
                  + lines[item.end:])
 
 
+def remove_field(text: str, list_path: str, name: str, field: str) -> str:
+    """`text` with `field` gone from the item named `name`, and nothing else touched.
+
+    The counterpart of `patch_item`, and not the same as setting the field to nothing:
+    writing `capability: null` where the author had written no line at all leaves behind a
+    line nobody meant to put there, and a reader has to work out whether it means anything.
+    A field the item does not have is already gone, so that is not an error.
+    """
+    lines = _split(text)
+    _, items = _list_of(lines, list_path)
+    item = _item_named(items, name, list_path)
+
+    fragment = _deindented(lines[item.start:item.end], item.indent)
+    key_line = _find_key(fragment, _root_block(fragment), field)
+    if key_line is None:
+        return text
+    if key_line == 0:
+        # The first key shares its line with the dash that opens the item; taking it out
+        # would take the item's own opening with it.
+        raise YamlEditError(
+            f"'{list_path}': '{field}' opens the item '{name}' and cannot be removed alone")
+    existing = _block_at(fragment, key_line)
+    end = _trimmed_end(fragment, key_line + 1, existing.end)
+    fragment = fragment[:key_line] + fragment[end:]
+    return _join(lines[:item.start] + _reindented(fragment, item.indent) + lines[item.end:])
+
+
 def remove_item(text: str, list_path: str, name: str) -> str:
     """`text` with the item named `name` gone, along with the comment written above it.
 
@@ -124,6 +151,12 @@ def remove_item(text: str, list_path: str, name: str) -> str:
         end += 1
 
     lines = lines[:start] + lines[end:]
+    # Taking out the last item of a list leaves the blank line above it against the blank
+    # line below, and the gap grows with every removal. One blank is what the rest of the
+    # file uses between sections, so the seam is closed back to one.
+    while start > 0 and start < len(lines) and not lines[start - 1].strip() \
+            and not lines[start].strip():
+        del lines[start]
     if len(items) == 1:
         key_line = block.key_line
         lines[key_line] = lines[key_line][:lines[key_line].index(":") + 1] + " []"

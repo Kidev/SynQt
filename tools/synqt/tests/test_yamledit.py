@@ -125,6 +125,34 @@ def test_patch_replaces_a_field_that_spans_several_lines():
     assert loaded["kind"] == "service"
 
 
+def test_remove_field_takes_the_key_out_rather_than_nulling_it():
+    out = yamledit.remove_field(SAMPLE, "entities", "web", "capability")
+    web = next(e for e in yaml.safe_load(out)["entities"] if e["name"] == "web")
+    assert "capability" not in web
+    assert "null" not in out
+    assert "# The browser." in out
+
+
+def test_remove_field_takes_a_key_that_spans_several_lines():
+    text = ("entities:\n"
+            "  - name: db\n"
+            "    provider:\n"
+            "      name: sqlite\n"
+            "      path: data/app.db\n"
+            "    kind: service\n")
+    out = yamledit.remove_field(text, "entities", "db", "provider")
+    assert yaml.safe_load(out)["entities"][0] == {"name": "db", "kind": "service"}
+
+
+def test_remove_field_of_something_the_item_never_had_changes_nothing():
+    assert yamledit.remove_field(SAMPLE, "entities", "web", "blueprint") == SAMPLE
+
+
+def test_the_key_that_opens_an_item_is_refused_rather_than_half_removed():
+    with pytest.raises(yamledit.YamlEditError):
+        yamledit.remove_field(SAMPLE, "entities", "web", "name")
+
+
 def test_remove_takes_the_item_and_its_leading_comment():
     out = yamledit.remove_item(SAMPLE, "entities", "client")
     assert "# The browser." not in out
@@ -135,6 +163,12 @@ def test_remove_of_the_last_item_leaves_an_empty_list_that_still_parses():
     text = "entities:\n  - name: only\n    kind: client\n"
     out = yamledit.remove_item(text, "entities", "only")
     assert yaml.safe_load(out)["entities"] == []
+
+
+def test_remove_does_not_leave_a_growing_gap_behind_it():
+    out = yamledit.remove_item(SAMPLE, "entities", "web")
+    assert "\n\n\n" not in out
+    assert yaml.safe_load(out)["connect_points"][0]["name"] == "auction"
 
 
 def test_remove_leaves_what_follows_the_list_alone():

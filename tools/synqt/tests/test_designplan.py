@@ -1,0 +1,198 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+"""What applying a design document would do, before it does any of it."""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import yaml
+
+from synqt import designdoc, designplan
+
+EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
+
+
+def _copy(tmp_path, name):
+    target = tmp_path / name
+    shutil.copytree(EXAMPLES / name, target,
+                    ignore=shutil.ignore_patterns("build", ".synqt"))
+    return target
+
+
+def test_an_unchanged_document_changes_nothing(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    plan = designplan.compute(project, designdoc.read(project))
+    assert plan.changes == ()
+    assert plan.ok
+
+
+def test_moving_a_node_on_the_canvas_is_not_a_change_to_the_project(tmp_path):
+    """Where a box sits is a drawing. If it reached synqt.yaml, every pan of the canvas
+    would ask the author to approve a diff of their configuration.
+    """
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    for entity in document["entities"]:
+        entity["x"] = entity["x"] + 17
+    assert designplan.compute(project, document).changes == ()
+
+
+def test_adding_an_entity_creates_what_add_entity_creates(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append({"id": "new", "name": "cache", "kind": "service",
+                                 "blueprint": "cache", "provider": "memory",
+                                 "x": 400, "y": 40})
+    plan = designplan.compute(project, document)
+    created = {c.path for c in plan.changes if c.action == "create"}
+    assert "cache/Items.qml" in created
+    assert any(c.path == "synqt.yaml" and c.action == "edit" for c in plan.changes)
+    config = next(c for c in plan.changes if c.path == "synqt.yaml")
+    assert "blueprint: cache" in config.after
+
+
+def test_adding_a_link_creates_its_contract(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["links"].append({
+        "id": "new", "name": "prices", "contract": "Prices", "owner": "web",
+        "consumers": ["client"], "instance": "shared",
+        "members": [{"kind": "prop", "name": "spot", "type": "real",
+                     "params": [], "roles": []}]})
+    plan = designplan.compute(project, document)
+    contract = next(c for c in plan.changes if c.path == "shared/Prices.syn")
+    assert contract.action == "create"
+    assert "prop real spot" in contract.after
+
+
+def test_changing_a_contract_member_rewrites_only_that_contract(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    auction = next(l for l in document["links"] if l["name"] == "auction")
+    auction["members"].append({"kind": "prop", "name": "reserve", "type": "int",
+                               "params": [], "roles": []})
+    plan = designplan.compute(project, document)
+    assert [c.path for c in plan.changes] == ["shared/Auction.syn"]
+    assert "prop int reserve" in plan.changes[0].after
+
+
+def test_deleting_an_entity_takes_its_points_its_directory_and_its_name_off_consumers(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"] = [e for e in document["entities"] if e["name"] != "database"]
+    document["links"] = [l for l in document["links"] if l["owner"] != "database"]
+    plan = designplan.compute(project, document)
+    deleted = {c.path for c in plan.changes if c.action == "delete"}
+    assert "database" in deleted
+    assert "shared/Ledger.syn" in deleted
+    assert all(c.reason for c in plan.changes)
+    config = yaml.safe_load(
+        next(c for c in plan.changes if c.path == "synqt.yaml").after)
+    assert [e["name"] for e in config["entities"]] == ["client", "web"]
+    assert [p["name"] for p in config["connect_points"]] == ["auction", "hall"]
+
+
+def test_a_deleted_entity_is_dropped_from_a_link_that_still_names_it(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    # The client goes, but the two points it consumed stay behind still naming it.
+    document["entities"] = [e for e in document["entities"] if e["name"] != "client"]
+    plan = designplan.compute(project, document)
+    config = yaml.safe_load(
+        next(c for c in plan.changes if c.path == "synqt.yaml").after)
+    assert all(e["name"] != "client" for e in config["entities"])
+    assert all("client" not in p["consumers"] for p in config["connect_points"])
+    assert any("client" in c.reason for c in plan.changes)
+
+
+def test_clearing_a_field_takes_the_line_out_rather_than_writing_null(tmp_path):
+    """Unsetting is not setting to nothing. `capability: null` left behind in the file
+    would read as a deliberate statement about the entity instead of the absence of one.
+    """
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    next(e for e in document["entities"] if e["name"] == "web")["capability"] = ""
+    plan = designplan.compute(project, document)
+    config = next(c for c in plan.changes if c.path == "synqt.yaml")
+    assert "capability" not in config.after
+    # And the result is caught: the browser now consumes points owned by a plain service.
+    assert not plan.ok
+
+
+def test_an_illegal_topology_is_not_ok(tmp_path):
+    # The client consuming a point the database owns: pitfall 8, and check.validate says so.
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    ledger = next(l for l in document["links"] if l["name"] == "ledger")
+    ledger["consumers"] = ["web", "client"]
+    plan = designplan.compute(project, document)
+    assert not plan.ok
+    assert any(m.startswith("error:") for m in plan.findings)
+
+
+def test_the_scope_a_document_does_not_carry_is_still_validated(tmp_path):
+    """The document draws the topology and nothing else, so the rest of the configuration
+    has to reach the validator anyway; otherwise a plan is checked against a project more
+    permissive than the one it is about to write.
+    """
+    project = _copy(tmp_path, "arena")
+    # The `arena` point requires scope 'player'. Take that scope out of the vocabulary and
+    # the point becomes unreachable, which check.validate can only say if the scope reached
+    # it; the document carries no scope of its own.
+    config = (project / "synqt.yaml").read_text()
+    (project / "synqt.yaml").write_text(
+        config.replace("order: [anonymous, player]", "order: [anonymous]"))
+    plan = designplan.compute(project, designdoc.read(project))
+    assert any("scope 'player'" in m for m in plan.findings)
+    assert not plan.ok
+
+
+def test_a_stale_source_hash_is_reported(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    (project / "synqt.yaml").write_text(
+        (project / "synqt.yaml").read_text() + "\n# edited elsewhere\n")
+    assert designplan.compute(project, document).stale
+
+
+def test_the_diff_names_every_change_and_digests_stably(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["entities"].append({"id": "new", "name": "jobs", "kind": "service",
+                                 "blueprint": "jobs", "x": 400, "y": 240})
+    plan = designplan.compute(project, document)
+    text = designplan.diff(plan)
+    assert "synqt.yaml" in text and "jobs/" in text
+    assert designplan.digest(plan) == designplan.digest(
+        designplan.compute(project, document))
+
+
+def test_the_digest_of_a_different_change_set_is_different(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    first = designdoc.read(project)
+    first["entities"].append({"id": "new", "name": "jobs", "kind": "service",
+                              "blueprint": "jobs", "x": 400, "y": 240})
+    second = designdoc.read(project)
+    second["entities"].append({"id": "new", "name": "cache", "kind": "service",
+                               "blueprint": "cache", "x": 400, "y": 240})
+    assert (designplan.digest(designplan.compute(project, first))
+            != designplan.digest(designplan.compute(project, second)))
+
+
+def test_nothing_is_written_while_a_plan_is_computed(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    before = {p: p.read_bytes() for p in project.rglob("*") if p.is_file()}
+    document = designdoc.read(project)
+    document["entities"].append({"id": "new", "name": "jobs", "kind": "service",
+                                 "blueprint": "jobs", "x": 400, "y": 240})
+    designplan.compute(project, document)
+    after = {p: p.read_bytes() for p in project.rglob("*") if p.is_file()}
+    assert after == before
+
+
+def test_the_git_position_of_a_directory_that_is_not_a_repository(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    assert designplan.compute(project, designdoc.read(project)).git == "not a repository"
