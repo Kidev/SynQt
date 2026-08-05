@@ -191,7 +191,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         messages.append(
             "warn: build.client_asyncify is on; the client links with asyncify, which costs "
             "roughly a third more bundle over the wire and instruments every call that can "
-            "suspend. SynQt does not need it (see docs/project-layout-and-config.md)")
+            "suspend. SynQt does not need it (see "
+            "https://synqt.org/project-layout-and-config/)")
 
     # Where the client sends diagnostic output (build.client_logging). Unset is fine: the
     # client defaults to console in a debug build and drops debug output in a release build.

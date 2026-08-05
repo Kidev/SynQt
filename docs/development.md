@@ -112,6 +112,21 @@ browser.
   project actually declared. Nothing declared gets a line, so the defaults stay where they
   belong, in `WebEdgeConfig` and `IdentityConfig`, rather than being copied into Python
   where they could drift out of step with the structs they fill.
+- The [visual editor](designer.md) and the inference behind it are the same project read
+  two ways, and they share one shape. `designdoc` is that shape: a project as entities,
+  links and members, read from `synqt.yaml` and `shared/*.syn` and written back to them.
+  `design` serves the page and answers it, `designplan` turns an edited document into the
+  change set Apply is allowed to write (and refuses one the real `synqt check` fails, or a
+  contract the compiler could not read back), and `yamledit` is what writes `synqt.yaml`
+  again without reformatting the parts nobody touched. On the reading side, `qmlscan` finds
+  the members an entity's QML already uses, `typebackend` answers what type an expression
+  has (TypeScript where node and `ts-morph` are installed, a literal reader otherwise), and
+  `infer` unions the two ends of each link into the contract they imply. The page itself is
+  under [`assets/design/`](https://github.com/Kidev/SynQt/tree/main/tools/synqt/synqt/assets/design)
+  and is plain modules a browser loads directly, with no build step and no reference to
+  anything off-origin: it is served by `synqt design` and copied onto this site by a docs
+  hook, out of that same directory. See [adding a rule](#adding-a-rule-to-the-visual-editor)
+  below before touching `rules.js`.
 - [`tools/pygments-synqt`](https://github.com/Kidev/SynQt/tree/main/tools/pygments-synqt) is the Pygments lexer that colours SynQt flavoured QML in the
   documentation site, so a `Contract.onSignal` attached handler highlights the same way in
   the docs as it does in an editor.
@@ -192,6 +207,7 @@ five commits without ever running.
 | [`graphics`](https://github.com/Kidev/SynQt/tree/main/tests/graphics)               | The fallback for a browser with no WebGL: what the runtime net recognises, that it chains to the handler already installed, the notice, and the route guard. Its `tst_softwarebackend` renders each candidate type on the raster adaptation and counts pixels, which is what decides whether a type needs the accelerated pipeline rather than a reading of Qt's source. |
 | [`memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory)                 | What a repeated workload leaves behind: browser connections, page loads, sessions and mesh reconnects, each run many times over one long lived object, with the heap required to come back to where it started. Its `run-leakcheck.sh` runs the rest of the tree and the benchmarks under LeakSanitizer. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
+| [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [visual editor](designer.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and is what proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium; run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
 | [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which is what makes `split_origin` a measurement rather than folklore. No Qt at all: two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
 
 One directory there is not a suite.
@@ -225,6 +241,63 @@ QT_HOST=/opt/Qt/6.11.1/gcc_64 tests/m7-caller/run-m7.sh
 The scripts default `QT_HOST` to `/opt/Qt/6.11.1/gcc_64` when it is unset, so on that
 layout the variable can be omitted. Each script configures with Ninja, builds, and runs
 `ctest`.
+
+### The Python suites
+
+The tooling has its own tests, and they need no Qt, no display, and no compiler, which is
+why they run on every push across all three operating systems:
+
+```sh
+python -m pytest tools/synqt/tests tools/synqtc/tests tools/pygments-synqt/tests \
+    benchmarks/tests -q
+```
+
+Two groups of them skip rather than fail when what they drive is not installed, and both
+are worth having on the machine you work on.
+
+A handful drive `qmllint` and `qmlformat`, which come with a Qt kit; put one on the `PATH`
+and they run. The [coverage](#coverage) floor below knows about this and holds a run
+without Qt to its own number.
+
+The rest are the TypeScript type backend, the one `synqt infer --types ts` uses to follow
+a value back to where it was built. It runs the JavaScript inside a project's QML through
+`ts-morph`, so it needs node and that package, and the tests announce
+`node and ts-morph are not here` when it is missing:
+
+```sh
+npm install ts-morph
+```
+
+Installed in the repository root or in the project being inferred, either answers: the
+node side looks for `ts-morph` beside its own script first and in the working directory
+second. No application ever needs any of this, which is why `--types auto` falls back to
+the literal reader where node is not there and names in its last line which backend
+answered. The rest of what needs node here is the browser suites, the mermaid check, and
+the editor's rule fixture, none of which the CLI itself depends on.
+
+### Adding a rule to the visual editor
+
+The [editor](designer.md) paints a subset of the `synqt check` rules in the page, live, as
+you draw. Being a subset is the claim the fixtures hold it to: the canvas must never reach
+a verdict the command line would not. So a rule lives in two places, and it moves in two
+places.
+
+[`rules.js`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/synqt/assets/design/rules.js)
+is what the browser runs, and
+[`topologies.json`](https://github.com/Kidev/SynQt/blob/main/tools/synqt/synqt/assets/design/topologies.json)
+beside it holds one small topology per rule, with the verdict it should draw. Two fixtures
+read that same file and each asserts one half of the parity: `test_designrules.py` runs the
+topologies through the real `synqt check` and asserts the command line reaches the named
+verdict, and
+[`tools/check-designrules/check-designrules.mjs`](https://github.com/Kidev/SynQt/blob/main/tools/check-designrules/check-designrules.mjs)
+imports the shipped `rules.js` in node and asserts the page does. Both fail on a rule with
+no case and on a case for a rule nobody paints, so neither file can gain an entry the other
+has never heard of.
+
+Adding a rule is therefore three edits: the rule in `rules.js`, a case in
+`topologies.json`, and whatever in `check.py` produces the same verdict from the command
+line. Run `node tools/check-designrules/check-designrules.mjs`, which installs nothing, and
+the Python suite.
 
 ### Coverage
 

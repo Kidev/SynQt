@@ -401,14 +401,20 @@ exposes:
 | Surface | From | Description |
 |---------|------|-------------|
 | `count = n` | `prop count` | assign to push a new value to every consumer. The owner is the only writer; consumers get a read-only mirror. |
-| `setItems(rows)` | `model items(...)` | replace the model with `rows`. Only the declared roles cross; any extra field on a row (an owner id, a timestamp) is dropped at the boundary and never serializes to a consumer. |
+| `setItems(rows)` | `model items(...)` | replace the model with `rows`. Only the declared roles cross; any extra field on a row (an owner id, a timestamp) is dropped at the boundary and never serializes to a consumer. Each role carries a type, and a row whose value will not convert to it is refused rather than published, naming the model, the role and the row. |
 | `rejected(reason)` | `signal rejected` | emit the signal to **all** consumers of this Source instance. |
 | `add(text) { ... }` | `slot add` | the slot body you write; `Caller` is available inside it. |
 
 The `set<Model>` name follows the model name: `model winners(...)` gives
 `setWinners(rows)`, `model players(...)` gives `setPlayers(rows)`. Replacing the
 rows wholesale is the owner surface today; finer-grained updates are an
-optimization behind the same declaration. See the [contract
+optimization behind the same declaration. Declare a role `var` where it genuinely
+carries anything, and only there: a type is what makes the refusal above possible.
+
+`set<Model>` is the only way into a model. It travels from the owner to its consumers
+and no further, and a consumer's write is refused at the boundary even though the Qt type
+underneath has a `setData`. A consumer that wants a row changed calls a slot, which is
+where `Caller` exists and where the owner decides. See the [contract
 generator](programming-model.md#contracts-the-shape-of-what-may-cross) for how
 each `.syn` construct lowers.
 

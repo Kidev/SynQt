@@ -90,6 +90,17 @@ The first run installs the toolchain, so it takes a few minutes. After that your
 browser opens to the scaffolded app, and `synqt dev` keeps watching your files,
 reloading the browser whenever you save.
 
+## Or draw it
+
+Everything you would add with `synqt add entity` and `synqt add connect-point` can be
+drawn instead. `synqt design` opens the project as a graph in your browser: entities as
+nodes, the connect points between them as lines, and the topology rules running as you
+work, so a link the deployment would refuse goes red on the canvas rather than in a build
+four steps later. Nothing is written until you have read the change set it offers. Both
+routes run the same scaffolder, so you can draw one entity and type the next without
+either half noticing. The [visual editor](designer.md) covers it, and there is a copy of
+the editor [on this site](/designer/) that needs nothing installed at all.
+
 ## Pick a tutorial
 
 Each tutorial grows this project from nothing into a working system, one idea at
