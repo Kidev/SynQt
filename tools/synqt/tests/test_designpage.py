@@ -88,8 +88,11 @@ def _node(script, *, raw=False):
     """Run `script` as an ES module and read back what it prints (JSON unless `raw`)."""
     if shutil.which("node") is None:
         pytest.skip("node is not installed")
-    finished = subprocess.run(["node", "--input-type=module", "-e", script],
-                              capture_output=True, text=True, check=False)
+    # On stdin, not after -e: an example inlined into the script outgrows the 32767
+    # characters a Windows command line holds.
+    finished = subprocess.run(["node", "--input-type=module"], input=script,
+                              capture_output=True, text=True, encoding="utf-8",
+                              check=False)
     assert finished.returncode == 0, finished.stderr
     return finished.stdout if raw else json.loads(finished.stdout)
 

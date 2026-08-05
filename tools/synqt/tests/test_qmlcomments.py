@@ -1,12 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Taking the commentary out of a file the editor scaffolds, and leaving the licence on.
-
-The rule exists twice: once in Python, for the editor with a CLI behind it, and once in
-JavaScript, for the copy on the site that has no disk to write to. Both write files somebody
-then has to build, so the last test here runs them over the same inputs and fails when they
-disagree.
+"""Taking the commentary out of a scaffolded file, keeping the licence header. Python and
+JavaScript implement the same rule; the last test runs both on the same inputs.
 """
 
 from __future__ import annotations
@@ -27,8 +23,7 @@ LICENCE = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
 
 
 def test_the_licence_header_is_never_commentary():
-    """Every SynQt source file carries one, so a scaffolder that dropped it would be writing
-    a file that fails the project's own checks the moment it lands."""
+    """The licence header is never commentary."""
     out = qmlcomments.without_commentary(LICENCE + "\nQtObject {\n}\n")
     assert "SPDX-FileCopyrightText" in out
     assert "SPDX-License-Identifier" in out
@@ -46,8 +41,7 @@ def test_a_trailing_comment_is_cut_off_the_code_it_followed():
 
 
 def test_a_url_is_not_mistaken_for_a_comment():
-    """Cutting at the first `//` in a string would leave it unterminated, which is a file
-    that no longer parses. A worse outcome than a comment nobody wanted."""
+    """A `//` inside a string is not a comment."""
     line = '    property string home: "https://synqt.org/guide"\n'
     assert qmlcomments.without_commentary(line) == line
 
@@ -77,8 +71,7 @@ def test_a_file_that_is_only_comments_comes_back_empty():
 
 @pytest.mark.parametrize("entity_type", sorted(addentity.TYPES))
 def test_every_scaffold_survives_having_its_comments_taken_off(entity_type):
-    """The scaffolds are what this is run on, so each of them is tried: what comes
-    back has to keep the licence, keep the object, and hold no commentary."""
+    """Every scaffold keeps its licence and its object and loses its commentary."""
     out = qmlcomments.without_commentary(addentity.entity_qml(entity_type, "store"))
     assert out.startswith("// SPDX-FileCopyrightText")
     assert "QtObject {" in out
@@ -91,16 +84,16 @@ def test_every_scaffold_survives_having_its_comments_taken_off(entity_type):
 def _node(script):
     if shutil.which("node") is None:
         pytest.skip("node is not installed")
-    finished = subprocess.run(["node", "--input-type=module", "-e", script],
-                              capture_output=True, text=True, check=False)
+    # On stdin: an inlined example exceeds the Windows command-line limit.
+    finished = subprocess.run(["node", "--input-type=module"], input=script,
+                              capture_output=True, text=True, encoding="utf-8",
+                              check=False)
     assert finished.returncode == 0, finished.stderr
     return json.loads(finished.stdout)
 
 
 def test_the_browser_and_the_command_line_take_off_the_same_comments():
-    """Two implementations, one behaviour. The copy on the site downloads a project and the
-    copy with a CLI behind it writes one. A reader who did both would otherwise get two
-    different files for the same drawing."""
+    """The browser and the command line remove the same comments."""
     samples = [newproject._MAIN_QML,
                newproject.entity_singleton("store"),
                *(addentity.entity_qml(kind, "store") for kind in sorted(addentity.TYPES)),
