@@ -117,6 +117,7 @@ synqt check [--release] # Validate config and topology, lint QML and contracts.
                         # Every command below that reads a project also takes
                         # --profile <name> (layer synqt.<name>.yaml over synqt.yaml).
 synqt infer [--write]   # Read back the contracts the QML already implies.
+                        # --types ts uses TypeScript for what a literal cannot answer.
 synqt test              # Build and run the project's own QML tests (see testing.md).
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
@@ -190,6 +191,17 @@ habits the [QML conventions](https://doc.qt.io/qt-6/qml-codingconventions.html) 
 anyway: annotate a function's parameters, and take a model role in a delegate with
 `required property string winner` rather than reading `model.winner`. Both are
 declarations, so both come back typed.
+
+Most arguments are neither a literal nor a declaration, though. `recordWinner(item, winner,
+amount)` is where three values ended up, not where they were built, and following one back
+is a type checker's job. `--types` says who does it. `ts` hands the JavaScript inside your
+QML to TypeScript, which infers over plain JavaScript and follows each value to where it
+came from; it needs node and `ts-morph` (`npm install ts-morph` in the project), and it
+refuses rather than quietly answering worse when they are missing. `heuristic` is the
+literal reader on its own, and needs nothing. The default, `auto`, uses TypeScript where it
+is installed and the literal reader where it is not, and the last line of the report says
+which one answered. Neither ever invents a type: what nothing in the QML gave a type to
+comes back `var`, marked for you to fill in.
 
 `synqt --version` (or `-V`) answers in three lines:
 

@@ -1,0 +1,11 @@
+{
+    "name": "synqt-tsinfer",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "The TypeScript side of `synqt infer`: what type an expression in a project's QML has. Install ts-morph here, or in the project being read, and `--types ts` uses it.",
+    "main": "infer.mjs",
+    "dependencies": {
+        "ts-morph": ">=21"
+    }
+}

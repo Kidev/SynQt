@@ -44,11 +44,14 @@ class Token:
 
     `text` is the source slice, so a string keeps its quotes and its escapes; a caller
     that wants the value unquotes it itself rather than being handed a guess at one.
+    `offset` is where it starts in the source that was tokenized, which is what lets a
+    caller cut a run of tokens back out of the file exactly as it was written.
     """
 
     kind: str
     text: str
     line: int
+    offset: int = -1
 
 
 def stripped(source: str) -> str:
@@ -169,7 +172,7 @@ def tokenize(source: str) -> List[Token]:
             index = min(index + 1, size)
             text = source[start:index]
             line += _line_terminators(text)
-            tokens.append(Token("string", text, start_line))
+            tokens.append(Token("string", text, start_line, start))
             continue
 
         if character.isdigit():
@@ -177,7 +180,7 @@ def tokenize(source: str) -> List[Token]:
             index = _end_of_number(source, index)
             text = source[start:index]
             kind = "real" if ("." in text or _has_exponent(text)) else "int"
-            tokens.append(Token(kind, text, line))
+            tokens.append(Token(kind, text, line, start))
             continue
 
         if is_identifier_character(character):
@@ -185,10 +188,10 @@ def tokenize(source: str) -> List[Token]:
             while index < size and is_identifier_character(source[index]):
                 index += 1
             text = source[start:index]
-            tokens.append(Token(_KEYWORD_KINDS.get(text, "ident"), text, line))
+            tokens.append(Token(_KEYWORD_KINDS.get(text, "ident"), text, line, start))
             continue
 
-        tokens.append(Token("punct", character, line))
+        tokens.append(Token("punct", character, line, index))
         index += 1
     return tokens
 

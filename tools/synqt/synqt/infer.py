@@ -24,7 +24,7 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import designdoc, qmlscan
+from . import designdoc, qmlscan, typebackend
 
 #: The root type of an owner file: `AuctionSource` implements the `Auction` contract.
 _SOURCE_SUFFIX = "Source"
@@ -89,6 +89,71 @@ _UNKNOWN_ROLE = Param("var", "role")
 
 
 @dataclasses.dataclass(frozen=True)
+class _Reading:
+    """One file being read, and where to ask what an expression inside it is.
+
+    The scan matches shapes in a token stream, so a value built anywhere but at the call
+    is beyond it. This carries the source the tokens came from and whoever is answering
+    that question, and every reader takes it in place of the path it used to take.
+    """
+
+    path: str
+    source: str
+    types: Optional["_Types"] = None
+
+    def type_of(self, span: Sequence[qmlscan.Token]) -> str:
+        """The type of the expression these tokens spell, or `var` when nobody knows."""
+        if self.types is None or not span:
+            return "var"
+        return self.types.of(self.path, _expression(self.source, span), span[0].line)
+
+
+class _Types:
+    """The types a backend answered for the expressions the scan could not read.
+
+    The scan is run twice: once to find out which expressions it cannot type, and once
+    with the answers to those in hand. It is a token match over a few files, so running it
+    again costs nothing next to starting a type checker, and it keeps every call site
+    asking one question rather than carrying a second, half-typed result around.
+    """
+
+    def __init__(self, backend: Any) -> None:
+        self._backend = backend
+        self._answered: Dict[Tuple[str, int, str], str] = {}
+        self._asking: Dict[Tuple[str, int, str], typebackend.Query] = {}
+
+    def of(self, path: str, expression: str, line: int) -> str:
+        key = (path, line, expression)
+        if key in self._answered:
+            return self._answered[key]
+        if expression:
+            self._asking.setdefault(key, typebackend.Query(expression, path, line))
+        return "var"
+
+    def settle(self, project_dir: os.PathLike[str] | str) -> bool:
+        """Ask the backend everything the pass just gathered; say whether it told us any."""
+        asking = self._asking
+        self._asking = {}
+        if not asking:
+            return False
+        sources = (typebackend.extract(project_dir)
+                   if getattr(self._backend, "needs_sources", False) else ())
+        answers = self._backend.types(list(asking.values()), sources)
+        learned = False
+        for key, answer in zip(asking, answers):
+            self._answered[key] = answer.type
+            learned = learned or answer.certain
+        return learned
+
+
+def _expression(source: str, span: Sequence[qmlscan.Token]) -> str:
+    """The source these tokens were cut from, exactly as the file spells it."""
+    if span[0].offset < 0:
+        return ""
+    return source[span[0].offset:span[-1].offset + len(span[-1].text)]
+
+
+@dataclasses.dataclass(frozen=True)
 class Use:
     """One member of one connect point, as a consumer names it.
 
@@ -116,14 +181,31 @@ class Edge:
     dynamic: bool = False
 
 
-def collect(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List[Edge]:
+def collect(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
+            backend: Any = None) -> List[Edge]:
     """Every connect point the project's QML shows, as both of its ends describe it.
 
     The owner files are read first and the consumers after, so a declaration is always the
     first thing recorded about a member and a guess can only fill in what it left open.
     A file is read as both when it is both, which is the ordinary shape of a web edge: it
     owns what the browser sees and consumes what the database holds.
+
+    `backend` answers what type an expression has where the scan can only read a literal
+    (`typebackend`). Passing none and passing a `HeuristicBackend` come to the same
+    contract, because a lone literal is exactly what that one reads too; passing the
+    TypeScript one is what follows a value back to where it was built.
     """
+    types = _Types(backend) if backend is not None else None
+    edges = _scan(project_dir, config, types)
+    if types is not None and types.settle(project_dir):
+        # The first pass was what found the expressions worth asking about. Now that they
+        # are answered, the same pass over the same files produces the typed contract.
+        edges = _scan(project_dir, config, types)
+    return edges
+
+
+def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
+          types: Optional["_Types"]) -> List[Edge]:
     root = Path(project_dir)
     entities = list(config.get("entities") or [])
     points = list(config.get("connect_points") or [])
@@ -134,7 +216,7 @@ def collect(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List
         name = str(entity.get("name") or "")
         for path in _entity_files(root, name):
             relative = path.relative_to(root).as_posix()
-            contract, members = scan_owner(relative, _read_text(path))
+            contract, members = scan_owner(relative, _read_text(path), types)
             if not contract:
                 continue
             entry = _bucket(found, name, _point_for(points, relative, contract, name), contract)
@@ -148,7 +230,7 @@ def collect(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List
             continue
         for path in _entity_files(root, name):
             relative = path.relative_to(root).as_posix()
-            for use in scan_consumer(relative, _read_text(path), accessors):
+            for use in scan_consumer(relative, _read_text(path), accessors, types):
                 if not use.point:
                     unknown.append(use.owner)
                     continue
@@ -217,8 +299,12 @@ def render_syn(edge: Edge) -> str:
     return "\n".join(lines) + "\n"
 
 
-def report(edges: Sequence[Edge]) -> str:
-    """What `synqt infer` prints: every link, every member, and what is still a guess."""
+def report(edges: Sequence[Edge], *, typed_by: str = "") -> str:
+    """What `synqt infer` prints: every link, every member, and what is still a guess.
+
+    `typed_by` names the backend that answered what a literal could not, so a report full
+    of `var` says whether TypeScript looked and found nothing or was never asked.
+    """
     if not edges:
         return ("No connect point was found in this project's QML.\n"
                 "Nothing here reads another entity yet, so there is no contract to read "
@@ -240,7 +326,7 @@ def report(edges: Sequence[Edge]) -> str:
             lines.append("    %s%s" % (designdoc.render_member(_record_of(member)), marker))
             lines.append("        %s" % ", ".join(member.evidence))
         lines.append("")
-    lines.extend(textwrap.wrap(_tally(total, guessed), width=_WIDTH))
+    lines.extend(textwrap.wrap(_tally(total, guessed, typed_by), width=_WIDTH))
     return "\n".join(lines)
 
 
@@ -293,14 +379,27 @@ def _preamble(edge: Edge) -> List[str]:
     return ["// %s" % line for line in textwrap.wrap(" ".join(sentences), width=_WIDTH - 3)]
 
 
-def _tally(total: int, guessed: int) -> str:
+def _tally(total: int, guessed: int, typed_by: str = "") -> str:
     """The line that closes the report: how much of this a person still has to answer."""
     if not guessed:
         return ("%s, every one of them read from a declaration rather than guessed at."
                 % _count(total, "member"))
     return ("%s, %d of them guessed from a shape rather than read from a declaration. "
             "Nothing here was compiled, so open the line a guess names and correct it "
-            "before you keep it." % (_count(total, "member"), guessed))
+            "before you keep it.%s"
+            % (_count(total, "member"), guessed, _backend_note(typed_by)))
+
+
+def _backend_note(typed_by: str) -> str:
+    """What the backend that answered still leaves to a person, or how to have one answer."""
+    if typed_by == "ts":
+        return (" TypeScript followed what it could; what is left is a value nothing in "
+                "the QML ever gave a type to.")
+    if typed_by == "heuristic":
+        return (" Only a literal was read here: install node and ts-morph, then pass "
+                "--types ts, to have TypeScript follow these back to where they were "
+                "built.")
+    return ""
 
 
 def _rendered_member(member: Member) -> List[str]:
@@ -414,7 +513,8 @@ def _contract_for(points: Sequence[Dict[str, Any]], name: str) -> str:
     return ""
 
 
-def scan_owner(relative_path: str, source: str) -> Tuple[str, List[Member]]:
+def scan_owner(relative_path: str, source: str,
+               types: Optional["_Types"] = None) -> Tuple[str, List[Member]]:
     """The contract an owner file implements, and the members it shows.
 
     The root type names the contract, so a file whose root is not a Source is not an owner
@@ -424,6 +524,7 @@ def scan_owner(relative_path: str, source: str) -> Tuple[str, List[Member]]:
     if not root.endswith(_SOURCE_SUFFIX) or len(root) == len(_SOURCE_SUFFIX):
         return "", []
 
+    reading = _Reading(relative_path, source, types)
     tokens = qmlscan.tokenize(source)
     members: List[Member] = []
     raised: List[Member] = []
@@ -441,17 +542,16 @@ def scan_owner(relative_path: str, source: str) -> Tuple[str, List[Member]]:
             # A signal is raised, a model pushed and a property written from inside a
             # function body, so these are looked for at any depth under the root object
             # rather than only beside it.
-            consumed = (_read_emitted_signal(relative_path, tokens, index, members)
-                        or _read_pushed_model(relative_path, tokens, index, members)
-                        or _read_raised_signal(relative_path, tokens, index, identifier,
-                                               raised)
-                        or _read_written_property(relative_path, tokens, index, identifier,
+            consumed = (_read_emitted_signal(reading, tokens, index, members)
+                        or _read_pushed_model(reading, tokens, index, members)
+                        or _read_raised_signal(reading, tokens, index, identifier, raised)
+                        or _read_written_property(reading, tokens, index, identifier,
                                                   members))
         if not consumed and depth == 1:
-            consumed = (_read_declared_property(relative_path, tokens, index, members)
-                        or _read_declared_signal(relative_path, tokens, index, members)
-                        or _read_function(relative_path, tokens, index, members)
-                        or _read_assignment(relative_path, tokens, index, members))
+            consumed = (_read_declared_property(reading, tokens, index, members)
+                        or _read_declared_signal(reading, tokens, index, members)
+                        or _read_function(reading, tokens, index, members)
+                        or _read_assignment(reading, tokens, index, members))
         index += consumed or 1
 
     # `ledger.winnerRecorded(...)` raises a signal, and `ledger.recordWinner(...)` calls
@@ -473,8 +573,8 @@ def _root_identifier(tokens: Sequence[qmlscan.Token]) -> str:
     return ""
 
 
-def scan_consumer(relative_path: str, source: str,
-                  accessors: Dict[str, str]) -> List[Use]:
+def scan_consumer(relative_path: str, source: str, accessors: Dict[str, str],
+                  types: Optional["_Types"] = None) -> List[Use]:
     """Every connect point member a consumer file names, and how it named it.
 
     `accessors` maps the name a file writes to the entity behind it: `Server` is the
@@ -482,16 +582,17 @@ def scan_consumer(relative_path: str, source: str,
     map is a connect point, so an entity's own ids and Qt's own types are passed over
     without having to be listed.
     """
+    reading = _Reading(relative_path, source, types)
     tokens = qmlscan.tokenize(source)
     uses: List[Use] = []
-    _read_connections(relative_path, tokens, accessors, uses)
+    _read_connections(reading, tokens, accessors, uses)
     index = 0
     while index < len(tokens):
-        index += _read_reference(relative_path, tokens, index, accessors, uses) or 1
+        index += _read_reference(reading, tokens, index, accessors, uses) or 1
     return uses
 
 
-def _read_reference(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_reference(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                     accessors: Dict[str, str], uses: List[Use]) -> int:
     """`Server.arena.steer(1.5, 2.5)`: the owner, the point, and the member being used."""
     token = _at(tokens, index)
@@ -521,12 +622,12 @@ def _read_reference(path: str, tokens: Sequence[qmlscan.Token], index: int,
     if not (_is_punct(_at(tokens, position), ".") and _is_ident(member_token)):
         # The point itself, handed somewhere whole: it names no member of the contract.
         return position - index
-    end, member = _read_used_member(path, tokens, position + 2, member_token, index)
+    end, member = _read_used_member(reading, tokens, position + 2, member_token, index)
     uses.append(Use(accessors[token.text], point, _settled(member), dynamic))
     return end - index
 
 
-def _read_used_member(path: str, tokens: Sequence[qmlscan.Token], position: int,
+def _read_used_member(reading: "_Reading", tokens: Sequence[qmlscan.Token], position: int,
                       member_token: qmlscan.Token, start: int) -> Tuple[int, Member]:
     """What the member is, read from what the file does with it.
 
@@ -534,12 +635,12 @@ def _read_used_member(path: str, tokens: Sequence[qmlscan.Token], position: int,
     with a member is read it, which is a property. Nothing here proves a type, so what a
     consumer contributes is names and shapes, and the owner end supplies the rest.
     """
-    where = (_where(path, member_token),)
+    where = (_where(reading, member_token),)
     if _is_punct(_at(tokens, position), "("):
         close = _matching(tokens, position)
         if close < 0:
             return position, Member("slot", member_token.text, evidence=where)
-        params = _argument_types(tokens, position + 1, close)
+        params = _argument_types(reading, tokens, position + 1, close)
         # `.then(...)` is how the consumer facade hands back a return value, so a call
         # written that way is a slot that returns something rather than a void one.
         returns = "var" if (_is_punct(_at(tokens, close + 1), ".")
@@ -614,7 +715,7 @@ def _enclosing_block(tokens: Sequence[qmlscan.Token], index: int) -> Tuple[int, 
     return -1, -1
 
 
-def _read_connections(path: str, tokens: Sequence[qmlscan.Token],
+def _read_connections(reading: "_Reading", tokens: Sequence[qmlscan.Token],
                       accessors: Dict[str, str], uses: List[Use]) -> None:
     """`Connections { target: Server.arena; function onEaten(...) }`: a signal, received."""
     for index, token in enumerate(tokens):
@@ -640,7 +741,7 @@ def _read_connections(path: str, tokens: Sequence[qmlscan.Token],
                             _settled(Member("signal", name,
                                             params=_declared_parameters(tokens, position + 3,
                                                                         paren),
-                                            evidence=(_where(path, name_token),)))))
+                                            evidence=(_where(reading, name_token),)))))
 
 
 def _connections_target(tokens: Sequence[qmlscan.Token], start: int, end: int,
@@ -660,7 +761,7 @@ def _connections_target(tokens: Sequence[qmlscan.Token], start: int, end: int,
     return "", ""
 
 
-def _read_declared_property(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_declared_property(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                             members: List[Member]) -> int:
     """`property real reserve`: the type is written down, so it is not a guess."""
     if not _is_keyword(_at(tokens, index), "property"):
@@ -672,11 +773,11 @@ def _read_declared_property(path: str, tokens: Sequence[qmlscan.Token], index: i
     # `property var` is a declaration that declares nothing about what would cross the
     # wire, so it leaves the type an open question and `_record` says so.
     _record(members, Member("prop", name_token.text, type_token.text,
-                            evidence=(_where(path, tokens[index]),)))
+                            evidence=(_where(reading, tokens[index]),)))
     return 3
 
 
-def _read_declared_signal(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_declared_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                           members: List[Member]) -> int:
     """`signal bidRejected(string reason)`, the declared form of what emit raises."""
     if not _is_keyword(_at(tokens, index), "signal"):
@@ -686,18 +787,18 @@ def _read_declared_signal(path: str, tokens: Sequence[qmlscan.Token], index: int
         return 0
     if not _is_punct(_at(tokens, index + 2), "("):
         _record(members, Member("signal", name_token.text,
-                                evidence=(_where(path, tokens[index]),)))
+                                evidence=(_where(reading, tokens[index]),)))
         return 2
     close = _matching(tokens, index + 2)
     if close < 0:
         return 0
     params = _declared_parameters(tokens, index + 3, close)
     _record(members, Member("signal", name_token.text, params=params,
-                            evidence=(_where(path, tokens[index]),)))
+                            evidence=(_where(reading, tokens[index]),)))
     return close + 1 - index
 
 
-def _read_function(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_function(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                    members: List[Member]) -> int:
     """A function beside the root object is what a consumer calls: a slot."""
     if not _is_keyword(_at(tokens, index), "function"):
@@ -722,11 +823,11 @@ def _read_function(path: str, tokens: Sequence[qmlscan.Token], index: int,
     # An untyped parameter is the ordinary way to write QML and says nothing about what
     # crosses the wire, so such a slot is offered as a starting point, not as a fact.
     _record(members, Member("slot", name_token.text, returns, params=params,
-                            evidence=(_where(path, tokens[index]),)))
+                            evidence=(_where(reading, tokens[index]),)))
     return close + 1 - index
 
 
-def _read_assignment(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_assignment(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                      members: List[Member]) -> int:
     """`highBid: 0`: a property of the Source, typed from what it was given."""
     name_token = _at(tokens, index)
@@ -739,11 +840,11 @@ def _read_assignment(path: str, tokens: Sequence[qmlscan.Token], index: int,
     value = _at(tokens, index + 2)
     type_name = qmlscan.literal_type(value) if value else "var"
     _record(members, Member("prop", name_token.text, type_name,
-                            evidence=(_where(path, name_token),)))
+                            evidence=(_where(reading, name_token),)))
     return 2
 
 
-def _read_emitted_signal(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_emitted_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                          members: List[Member]) -> int:
     """`Caller.emitBidRejected("too low")`: the signal, and the type of its argument."""
     if not _is_keyword(_at(tokens, index), "Caller"):
@@ -757,12 +858,13 @@ def _read_emitted_signal(path: str, tokens: Sequence[qmlscan.Token], index: int,
     close = _matching(tokens, index + 3)
     if close < 0:
         return 0
-    _record(members, Member("signal", name, params=_argument_types(tokens, index + 4, close),
-                            evidence=(_where(path, tokens[index]),)))
+    _record(members, Member("signal", name,
+                            params=_argument_types(reading, tokens, index + 4, close),
+                            evidence=(_where(reading, tokens[index]),)))
     return close + 1 - index
 
 
-def _read_pushed_model(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_pushed_model(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                        members: List[Member]) -> int:
     """`auction.setWinners([{ ... }])`: the model, and the roles the row literal shows.
 
@@ -783,11 +885,11 @@ def _read_pushed_model(path: str, tokens: Sequence[qmlscan.Token], index: int,
         return 0
     roles = _row_roles(tokens, index + 4, close)
     _record(members, Member("model", name, roles=roles,
-                            evidence=(_where(path, call),)))
+                            evidence=(_where(reading, call),)))
     return close + 1 - index
 
 
-def _read_raised_signal(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_raised_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                         identifier: str, raised: List[Member]) -> int:
     """`ledger.winnerRecorded(item, winner, amount)`: the owner announcing to consumers.
 
@@ -805,12 +907,12 @@ def _read_raised_signal(path: str, tokens: Sequence[qmlscan.Token], index: int,
     if close < 0:
         return 0
     raised.append(Member("signal", call.text,
-                         params=_argument_types(tokens, index + 4, close),
-                         evidence=(_where(path, call),)))
+                         params=_argument_types(reading, tokens, index + 4, close),
+                         evidence=(_where(reading, call),)))
     return close + 1 - index
 
 
-def _read_written_property(path: str, tokens: Sequence[qmlscan.Token], index: int,
+def _read_written_property(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
                            identifier: str, members: List[Member]) -> int:
     """`ledger.count = ledger.store.length`: a property of the contract, written to.
 
@@ -830,7 +932,7 @@ def _read_written_property(path: str, tokens: Sequence[qmlscan.Token], index: in
     written_whole = _is_punct(after, ";") or _is_punct(after, "}")
     type_name = qmlscan.literal_type(value) if (value and written_whole) else "var"
     _record(members, Member("prop", name_token.text, type_name,
-                            evidence=(_where(path, name_token),)))
+                            evidence=(_where(reading, name_token),)))
     return 4
 
 
@@ -856,20 +958,23 @@ def _declared_parameters(tokens: Sequence[qmlscan.Token], start: int,
     return tuple(params)
 
 
-def _argument_types(tokens: Sequence[qmlscan.Token], start: int,
+def _argument_types(reading: "_Reading", tokens: Sequence[qmlscan.Token], start: int,
                     end: int) -> Tuple[Param, ...]:
     """What a call's arguments say about the parameters they are passed to.
 
-    A literal proves its type and anything else proves nothing, so an expression comes
-    back `var`. An argument passed as a plain variable lends its name, which is the one
-    the person who wrote the call chose for that value and reads better than a position.
+    A literal proves its own type. Anything else is a value built somewhere else, and what
+    the scan can say about it is nothing, so the backend is asked: with none, that stays
+    `var`, and with TypeScript behind it the value is followed back to where it was built.
+    An argument passed as a plain variable lends its name, which is the one the person who
+    wrote the call chose for that value and reads better than a position.
     """
     params: List[Param] = []
     for position, span in enumerate(_split_on_commas(tokens, start, end), start=1):
-        type_name = "var"
         name = "arg%d" % position
         if len(span) == 1 and span[0].kind in _LITERAL_KINDS:
             type_name = qmlscan.literal_type(span[0])
+        else:
+            type_name = reading.type_of(span)
         if len(span) == 1 and _is_ident(span[0]):
             name = span[0].text
         params.append(Param(type_name, name))
@@ -1058,8 +1163,8 @@ def _is_handler_name(text: str) -> bool:
     return bool(_suffix_after(text, _HANDLER_PREFIX))
 
 
-def _where(path: str, token: qmlscan.Token) -> str:
-    return "%s:%d" % (path, token.line)
+def _where(reading: "_Reading", token: qmlscan.Token) -> str:
+    return "%s:%d" % (reading.path, token.line)
 
 
 def _at(tokens: Sequence[qmlscan.Token], index: int) -> Optional[qmlscan.Token]:

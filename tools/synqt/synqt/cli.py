@@ -17,11 +17,16 @@ from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
                config as configmod, create, deploy as deploymod, design as designmod,
                docker as dockermod, doctor, infer as infermod, mesh, newproject,
-               run as runmod, version as versionmod)
+               run as runmod, typebackend, version as versionmod)
 
 
 def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, Any]:
     return configmod.load(project_dir, profile=profile)
+
+
+def _backend_name(backend: Any) -> str:
+    """Which type backend `--types auto` settled on, for the report to say so."""
+    return "ts" if isinstance(backend, typebackend.TsBackend) else "heuristic"
 
 
 def _service_entities(config: Dict[str, Any]) -> List[str]:
@@ -112,6 +117,11 @@ def build_parser() -> argparse.ArgumentParser:
                            help="with --write, overwrite a contract that is already there")
             p.add_argument("--json", action="store_true",
                            help="print the result as a design document instead of a report")
+            # A literal is all a token scan can type, and most arguments are not literals.
+            # `auto` takes TypeScript where it is installed, `ts` refuses rather than
+            # quietly answering worse, and `heuristic` is the literal reader on its own.
+            p.add_argument("--types", default="auto", choices=list(typebackend.MODES),
+                           help="who answers what type an expression has (default: auto)")
         if name in ("dev", "build"):
             p.add_argument("--release", action="store_true", default=(name == "build"))
             p.add_argument("--debug", action="store_true")
@@ -353,11 +363,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 0 if ok else 1
         elif args.command == "infer":
             config = _load_config(args.project_dir, args.profile)
-            edges = infermod.collect(args.project_dir, config)
+            backend = typebackend.resolve(args.types, args.project_dir)
+            edges = infermod.collect(args.project_dir, config, backend=backend)
             if args.json:
                 print(json.dumps(infermod.to_document(edges, config), indent=2))
             else:
-                print(infermod.report(edges))
+                print(infermod.report(edges, typed_by=_backend_name(backend)))
                 if edges and not args.write:
                     print("\nWrite these to shared/ with: synqt infer --write")
             if args.write:
@@ -445,7 +456,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (newproject.NewProjectError, create.CreateError, addauth.AddAuthError,
             addentity.AddEntityError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
-            designmod.DesignError, infermod.InferError,
+            designmod.DesignError, infermod.InferError, typebackend.TypeBackendError,
             dockermod.DockerError, appmodel.AppGenError, buildmod.BuildError,
             configmod.ConfigError, FileNotFoundError) as error:
         print(f"synqt {args.command}: {error}", file=sys.stderr)
