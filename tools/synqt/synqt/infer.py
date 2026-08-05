@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import qmlscan
+from . import designdoc, qmlscan
 
 #: The root type of an owner file: `AuctionSource` implements the `Auction` contract.
 _SOURCE_SUFFIX = "Source"
@@ -39,6 +40,13 @@ _SET_PREFIX = "set"
 _HANDLER_PREFIX = "on"
 
 _LITERAL_KINDS = ("string", "int", "real", "bool")
+
+#: What a view offers every delegate whatever its model holds, so never a contract role.
+_VIEW_ROLES = ("index", "model", "modelData")
+
+
+class InferError(Exception):
+    """An inference error surfaced to the CLI or the editor (no traceback)."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -70,6 +78,14 @@ class Member:
     roles: Tuple[Param, ...] = ()
     certain: bool = True
     evidence: Tuple[str, ...] = ()
+
+
+#: The column the prose in a report and in a rendered header wraps at.
+_WIDTH = 76
+
+#: What a model gets when nothing showed its roles. A contract needs one to be a contract,
+#: and this one is spelled so that nobody mistakes it for a role somebody meant.
+_UNKNOWN_ROLE = Param("var", "role")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -172,6 +188,174 @@ def accessors_for(config: Dict[str, Any], entity_name: str) -> Dict[str, str]:
         if owner and owner != entity_name and entity_name in (point.get("consumers") or []):
             accessors[_accessor_name(owner)] = owner
     return accessors
+
+
+def contract_name(edge: Edge) -> str:
+    """What the contract on this link is called, named after the point when it has no name."""
+    if edge.contract:
+        return edge.contract
+    return edge.point[:1].upper() + edge.point[1:]
+
+
+def render_syn(edge: Edge) -> str:
+    """The `.syn` source this link's evidence adds up to.
+
+    Every member carries the lines it was found on, so the first thing a reader can do
+    with a guess is go and look at what produced it, and a member the scan had to guess at
+    says so on its own line rather than in a note at the top nobody reads twice.
+    """
+    contract = contract_name(edge)
+    lines = [designdoc.LICENCE_HEADER.rstrip("\n"), ""]
+    lines.extend(_preamble(edge))
+    lines.append("")
+    lines.append("contract %s {" % contract)
+    for position, member in enumerate(edge.members):
+        if position:
+            lines.append("")
+        lines.extend(_rendered_member(member))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def report(edges: Sequence[Edge]) -> str:
+    """What `synqt infer` prints: every link, every member, and what is still a guess."""
+    if not edges:
+        return ("No connect point was found in this project's QML.\n"
+                "Nothing here reads another entity yet, so there is no contract to read "
+                "back.")
+    lines = ["%s, read back from the QML that already uses %s."
+             % (_count(len(edges), "connect point"), "it" if len(edges) == 1 else "them"),
+             ""]
+    guessed = 0
+    total = 0
+    for edge in edges:
+        lines.append("%s: %s" % (edge.point, _ends(edge)))
+        if edge.dynamic:
+            lines.append("    (one use of this point was reached by a computed name, so "
+                         "this list may be short)")
+        for member in edge.members:
+            total += 1
+            guessed += 0 if member.certain else 1
+            marker = "" if member.certain else "    check this type"
+            lines.append("    %s%s" % (designdoc.render_member(_record_of(member)), marker))
+            lines.append("        %s" % ", ".join(member.evidence))
+        lines.append("")
+    lines.extend(textwrap.wrap(_tally(total, guessed), width=_WIDTH))
+    return "\n".join(lines)
+
+
+def to_document(edges: Sequence[Edge], config: Dict[str, Any]) -> Dict[str, Any]:
+    """The same links as a design document, the shape the editor draws and the planner
+    takes, so what the scan found can be looked at rather than only read."""
+    return {
+        "version": designdoc.VERSION,
+        "project": designdoc.project_name(config, ""),
+        "entities": designdoc.entities_of(config),
+        "links": [_link_of(edge, config) for edge in edges],
+    }
+
+
+def write(project_dir: os.PathLike[str] | str, edges: Sequence[Edge], *,
+          force: bool = False) -> List[str]:
+    """Write a `shared/<Contract>.syn` per link, and return what was written.
+
+    A contract that is already there is somebody's own writing, and this one is a guess, so
+    the whole command stops rather than overwriting any of them. Nothing is written when
+    one file would be refused: a half-applied scaffold is worse to unpick than none.
+    """
+    root = Path(project_dir)
+    planned = [("shared/%s.syn" % contract_name(edge), edge) for edge in edges
+               if edge.members]
+    present = [relative for relative, _ in planned if (root / relative).exists()]
+    if present and not force:
+        raise InferError(
+            "%s already written, and this is a guess, not a reading of what runs; "
+            "correct the guess and keep your own file, or pass --force to overwrite it"
+            % ", ".join(sorted(present)))
+    written: List[str] = []
+    for relative, edge in planned:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_syn(edge), encoding="utf-8")
+        written.append(relative)
+    return written
+
+
+def _preamble(edge: Edge) -> List[str]:
+    """The note at the top of a rendered contract: where it came from, and what it is not."""
+    sentences = ["Inferred from the QML that already uses this connect point: %s."
+                 % _ends(edge)]
+    if edge.dynamic:
+        sentences.append("One use of it was reached by a name computed at run time, so this "
+                         "may be short of a member the scan could not follow.")
+    sentences.append("Nothing here was compiled, so a member marked \"check this type\" was "
+                     "guessed from a shape rather than read from a declaration.")
+    return ["// %s" % line for line in textwrap.wrap(" ".join(sentences), width=_WIDTH - 3)]
+
+
+def _tally(total: int, guessed: int) -> str:
+    """The line that closes the report: how much of this a person still has to answer."""
+    if not guessed:
+        return ("%s, every one of them read from a declaration rather than guessed at."
+                % _count(total, "member"))
+    return ("%s, %d of them guessed from a shape rather than read from a declaration. "
+            "Nothing here was compiled, so open the line a guess names and correct it "
+            "before you keep it." % (_count(total, "member"), guessed))
+
+
+def _rendered_member(member: Member) -> List[str]:
+    """One member of a rendered contract: where it was found, then the member itself."""
+    lines = ["    // %s" % ", ".join(member.evidence)]
+    if member.kind == "model" and not member.roles:
+        lines.append("    // No row literal and no delegate reading it, so the roles are "
+                     "not known.")
+    lines.append("    %s%s" % (designdoc.render_member(_record_of(member)),
+                               "" if member.certain else "  // check this type"))
+    return lines
+
+
+def _record_of(member: Member) -> Dict[str, Any]:
+    """A member as the flat record `designdoc` renders and the editor draws.
+
+    A model must declare a role to be a contract at all, so one whose roles nothing showed
+    gets a placeholder rather than being dropped: a contract short a model is wrong in a
+    way a contract with a name to fill in is not.
+    """
+    roles = member.roles or ((_UNKNOWN_ROLE,) if member.kind == "model" else ())
+    return {
+        "kind": member.kind,
+        "name": member.name,
+        "type": member.type or ("var" if member.kind == "prop" else ""),
+        "params": [{"type": param.type, "name": param.name} for param in member.params],
+        "roles": [{"type": role.type, "name": role.name} for role in roles],
+    }
+
+
+def _link_of(edge: Edge, config: Dict[str, Any]) -> Dict[str, Any]:
+    """One link of the document: the topology as configured, the members as scanned."""
+    declared = next((point for point in (config.get("connect_points") or [])
+                     if str(point.get("name") or "") == edge.point), {})
+    return {
+        "id": edge.point,
+        "name": edge.point,
+        "contract": contract_name(edge),
+        "owner": edge.owner,
+        "consumers": list(edge.consumers),
+        "instance": str(declared.get("instance") or "shared"),
+        "transport": str(declared.get("transport") or ""),
+        "members": [_record_of(member) for member in edge.members],
+    }
+
+
+def _ends(edge: Edge) -> str:
+    """`web owns it, client reads it`, the sentence both the report and the header want."""
+    if not edge.consumers:
+        return "%s owns it, and nothing here reads it" % edge.owner
+    return "%s owns it, %s reads it" % (edge.owner, " and ".join(edge.consumers))
+
+
+def _count(number: int, noun: str) -> str:
+    return "%d %s%s" % (number, noun, "" if number == 1 else "s")
 
 
 def _first_edge(entities: Sequence[Dict[str, Any]]) -> str:
@@ -369,25 +553,49 @@ def _read_used_member(path: str, tokens: Sequence[qmlscan.Token], position: int,
 
 
 def _delegate_roles(tokens: Sequence[qmlscan.Token], index: int) -> Tuple[Param, ...]:
-    """The roles a delegate reads, from the `model.<role>` accesses beside the binding.
+    """The roles a delegate names, from the two ways QML lets it name them.
 
-    A delegate names the roles it needs and says nothing about their types, so these come
-    back untyped. That is the whole of what a consumer knows about a model, and it is
-    still worth having: it is the list a person would otherwise reconstruct by hand.
+    `required property string winner` is a declaration and carries its type, so a role read
+    that way is as good as the owner's own; `model.winner` says only that the role exists.
+    The declared ones come first and the read ones fill in what they left out, so a delegate
+    written the way the documentation recommends produces a typed model rather than a list
+    of names somebody still has to type over.
     """
     opening, closing = _enclosing_block(tokens, index)
     if opening < 0:
         return ()
     roles: List[Param] = []
     for position in range(opening, closing):
-        name_token = _at(tokens, position + 2)
-        if not (_is_keyword(tokens[position], "model") and _is_punct(_at(tokens, position + 1),
-                                                                    ".")):
-            continue
-        if not _is_ident(name_token) or any(role.name == name_token.text for role in roles):
-            continue
-        roles.append(Param("var", name_token.text))
+        found = (_required_role(tokens, position) or _read_role(tokens, position))
+        if found and not any(role.name == found.name for role in roles):
+            roles.append(found)
     return tuple(roles)
+
+
+def _required_role(tokens: Sequence[qmlscan.Token], index: int) -> Optional[Param]:
+    """`required property string winner`, the declared way a delegate takes a role."""
+    if not (_is_keyword(_at(tokens, index), "required")
+            and _is_keyword(_at(tokens, index + 1), "property")):
+        return None
+    type_token = _at(tokens, index + 2)
+    name_token = _at(tokens, index + 3)
+    if not (_is_ident(type_token) and _is_ident(name_token)):
+        return None
+    if name_token.text in _VIEW_ROLES:
+        # `index`, `model` and `modelData` are the view's own, offered to every delegate
+        # whatever the model holds. They belong to no contract.
+        return None
+    return Param(type_token.text, name_token.text)
+
+
+def _read_role(tokens: Sequence[qmlscan.Token], index: int) -> Optional[Param]:
+    """`model.winner`, the way a delegate names a role without saying what it is."""
+    name_token = _at(tokens, index + 2)
+    if not (_is_keyword(_at(tokens, index), "model") and _is_punct(_at(tokens, index + 1), ".")):
+        return None
+    if not _is_ident(name_token) or name_token.text in _VIEW_ROLES:
+        return None
+    return Param("var", name_token.text)
 
 
 def _enclosing_block(tokens: Sequence[qmlscan.Token], index: int) -> Tuple[int, int]:

@@ -116,6 +116,7 @@ synqt serve             # Run the built entities, the edge serving the built cli
 synqt check [--release] # Validate config and topology, lint QML and contracts.
                         # Every command below that reads a project also takes
                         # --profile <name> (layer synqt.<name>.yaml over synqt.yaml).
+synqt infer [--write]   # Read back the contracts the QML already implies.
 synqt test              # Build and run the project's own QML tests (see testing.md).
 synqt clean             # Remove build outputs (keeps the toolchain cache and the CA).
 synqt doctor            # Diagnose toolchain, ports, certificates, versions, topology.
@@ -169,6 +170,26 @@ is worth doing only if something else is already there), behind a token minted f
 run and carried in the fragment of the URL it prints. A browser never sends a fragment to
 a server, so the token stays out of every log, and it is worth nothing once the command
 stops. `--no-open` prints the URL instead of opening a browser. Ctrl-C stops it.
+
+`synqt infer` reads the project the other way round. A contract is written once and read
+from both ends, so QML that already works carries its own answer: the owner's Source
+assigns the properties, answers the calls and pushes the models, and every consumer names
+the members it reads. The command scans both, unions what it finds, and prints one entry
+per connect point with the file and line every member came from. `--write` turns that into
+`shared/<Contract>.syn`, and it refuses to overwrite a contract that is already there
+unless you add `--force`, because what is on disk is somebody's writing and this is a
+reading of a shape. `--json` prints the same result as the document `synqt design` draws,
+which is how the editor offers to fill a contract in for you.
+
+It is evidence, not proof. Nothing is compiled: the scan matches shapes in the source, so
+a literal argument proves a type and an expression proves nothing. A member it had to
+guess at is marked `check this type` on its own line rather than presented as fact, and
+the lines it names are there so the first thing you can do with a guess is go and look at
+what produced it. Two ordinary QML habits make the answer much better, and they are the
+habits the [QML conventions](https://doc.qt.io/qt-6/qml-codingconventions.html) recommend
+anyway: annotate a function's parameters, and take a model role in a delegate with
+`required property string winner` rather than reading `model.winner`. Both are
+declarations, so both come back typed.
 
 `synqt --version` (or `-V`) answers in three lines:
 

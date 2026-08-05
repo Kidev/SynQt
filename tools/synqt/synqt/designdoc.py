@@ -42,8 +42,8 @@ _SERVICE_X = 680
 _FIRST_Y = 40
 _ROW_HEIGHT = 160
 
-_LICENCE_HEADER = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
-                   "// SPDX-License-Identifier: Apache-2.0\n")
+LICENCE_HEADER = ("// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
+                  "// SPDX-License-Identifier: Apache-2.0\n")
 
 
 class DesignDocError(Exception):
@@ -227,18 +227,35 @@ def _link(point: Dict[str, Any], root: Path) -> Dict[str, Any]:
     }
 
 
+def entities_of(config: Dict[str, Any], *,
+                places: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """The entity records a configuration describes, each with a place on the canvas.
+
+    The inference builds a document from a configuration it has already loaded, so this is
+    the half of :func:`read` that needs no disk: same records, same layout rule, no second
+    reading of what an entity is.
+    """
+    entities = [_entity(entity) for entity in appmodel.entities(config)]
+    _place(entities, places or {})
+    return entities
+
+
+def project_name(config: Dict[str, Any], fallback: str) -> str:
+    project = config.get("project")
+    name = project.get("name") if isinstance(project, dict) else None
+    return str(name or fallback)
+
+
 def read(project_dir: os.PathLike[str] | str, *,
          profile: Optional[str] = None) -> Dict[str, Any]:
     """The whole project as one document, ready to draw or to diff."""
     root = Path(project_dir)
     config = configmod.load(root, profile=profile)
-    project = config.get("project")
-    name = project.get("name") if isinstance(project, dict) else None
-    entities = [_entity(entity) for entity in appmodel.entities(config)]
-    _place(entities, _stored_places(root))
+    name = project_name(config, root.name)
+    entities = entities_of(config, places=_stored_places(root))
     return {
         "version": VERSION,
-        "project": str(name or root.name),
+        "project": name,
         "sourceHash": source_hash(root),
         "entities": entities,
         "links": [_link(point, root) for point in appmodel.connect_points(config)],
@@ -256,9 +273,9 @@ def render_contract(name: str, members: List[Dict[str, Any]]) -> str:
     contract the editor drew, never for rewriting a hand-written file that may hold more
     than the document can carry.
     """
-    lines = [_LICENCE_HEADER, f"contract {name} {{"]
+    lines = [LICENCE_HEADER, f"contract {name} {{"]
     for member in members:
-        lines.append("    " + _render_member(member))
+        lines.append("    " + render_member(member))
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -267,7 +284,8 @@ def _render_params(params: List[Dict[str, str]]) -> str:
     return ", ".join(f"{p['type']} {p['name']}" for p in params)
 
 
-def _render_member(member: Dict[str, Any]) -> str:
+def render_member(member: Dict[str, Any]) -> str:
+    """One member of a contract, as the line a ``.syn`` file holds."""
     kind = member.get("kind")
     name = member.get("name", "")
     if kind == "prop":

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -15,8 +16,8 @@ from typing import Any, Dict, List, Optional
 from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
                config as configmod, create, deploy as deploymod, design as designmod,
-               docker as dockermod, doctor, mesh, newproject, run as runmod,
-               version as versionmod)
+               docker as dockermod, doctor, infer as infermod, mesh, newproject,
+               run as runmod, version as versionmod)
 
 
 def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, Any]:
@@ -81,13 +82,14 @@ def build_parser() -> argparse.ArgumentParser:
                            ("serve", "run the built entities in dependency order"),
                            ("test", "build and run the project test suite"),
                            ("check", "validate config, lint contracts and QML"),
+                           ("infer", "read back the contracts the QML already implies"),
                            ("clean", "remove build outputs"),
                            ("doctor", "diagnose toolchain, certificates, versions"),
                            ("providers", "list bundled providers per family")]:
         p = sub.add_parser(name, help=helptext)
         if name != "providers":
             p.add_argument("--project-dir", default=".")
-        if name in ("dev", "design", "build", "serve", "check", "doctor"):
+        if name in ("dev", "design", "build", "serve", "check", "infer", "doctor"):
             # The commands that read the topology take the profile that layers over it
             # (docs/project-layout-and-config.md, "Configuration resolution order").
             # `clean`, `providers`, and `test` read no configuration, so offering them a
@@ -100,6 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
             # topology, so they are opt-in here and automatic on `build --release`/`serve`.
             p.add_argument("--release", action="store_true",
                            help="also apply the rules a release build and serve apply")
+        if name == "infer":
+            # Reporting is what this does; writing is what you ask it for. A scan that
+            # guessed at half its types has no business rewriting the contracts a
+            # deployment is built from because somebody wanted to see what it found.
+            p.add_argument("--write", action="store_true",
+                           help="write shared/<Contract>.syn for every link it found")
+            p.add_argument("--force", action="store_true",
+                           help="with --write, overwrite a contract that is already there")
+            p.add_argument("--json", action="store_true",
+                           help="print the result as a design document instead of a report")
         if name in ("dev", "build"):
             p.add_argument("--release", action="store_true", default=(name == "build"))
             p.add_argument("--debug", action="store_true")
@@ -339,6 +351,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                                                   profile=args.profile)
             print("\n".join(messages))
             return 0 if ok else 1
+        elif args.command == "infer":
+            config = _load_config(args.project_dir, args.profile)
+            edges = infermod.collect(args.project_dir, config)
+            if args.json:
+                print(json.dumps(infermod.to_document(edges, config), indent=2))
+            else:
+                print(infermod.report(edges))
+                if edges and not args.write:
+                    print("\nWrite these to shared/ with: synqt infer --write")
+            if args.write:
+                written = infermod.write(args.project_dir, edges, force=args.force)
+                # With --json the report is machine-read, so what was written is said on
+                # stderr rather than in the middle of the document.
+                for path in written:
+                    print(f"wrote {path}", file=sys.stderr if args.json else sys.stdout)
         elif args.command == "design":
             # No validation gate here, unlike `build` and `serve`. A topology the validator
             # refuses is exactly what somebody opens the editor to fix, and refusing to open
@@ -418,7 +445,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (newproject.NewProjectError, create.CreateError, addauth.AddAuthError,
             addentity.AddEntityError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
-            designmod.DesignError,
+            designmod.DesignError, infermod.InferError,
             dockermod.DockerError, appmodel.AppGenError, buildmod.BuildError,
             configmod.ConfigError, FileNotFoundError) as error:
         print(f"synqt {args.command}: {error}", file=sys.stderr)
