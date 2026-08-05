@@ -19,7 +19,9 @@ presented as fact.
 from __future__ import annotations
 
 import dataclasses
-from typing import List, Optional, Sequence, Tuple
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import qmlscan
 
@@ -31,6 +33,10 @@ _EMIT_PREFIX = "emit"
 
 #: `auction.setWinners(rows)` replaces the `winners` model, the owner side model API.
 _SET_PREFIX = "set"
+
+#: `function onEaten(...)` handles the `eaten` signal, and `onClicked:` handles nothing
+#: that belongs to a contract; the same prefix answers both questions.
+_HANDLER_PREFIX = "on"
 
 _LITERAL_KINDS = ("string", "int", "real", "bool")
 
@@ -64,6 +70,164 @@ class Member:
     roles: Tuple[Param, ...] = ()
     certain: bool = True
     evidence: Tuple[str, ...] = ()
+
+
+@dataclasses.dataclass(frozen=True)
+class Use:
+    """One member of one connect point, as a consumer names it.
+
+    `dynamic` is set when the accessor was reached by a name computed at run time
+    (`Server[whichever]`), which is legal QML the scan cannot follow. The point is then
+    unknown rather than absent, and saying so is the difference between a list that is
+    short and a list that is wrong.
+    """
+
+    owner: str
+    point: str
+    member: Member
+    dynamic: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
+class Edge:
+    """A connect point as both ends describe it: who owns it, who reads it, what crosses."""
+
+    point: str
+    owner: str
+    consumers: Tuple[str, ...] = ()
+    contract: str = ""
+    members: Tuple[Member, ...] = ()
+    dynamic: bool = False
+
+
+def collect(project_dir: os.PathLike[str] | str, config: Dict[str, Any]) -> List[Edge]:
+    """Every connect point the project's QML shows, as both of its ends describe it.
+
+    The owner files are read first and the consumers after, so a declaration is always the
+    first thing recorded about a member and a guess can only fill in what it left open.
+    A file is read as both when it is both, which is the ordinary shape of a web edge: it
+    owns what the browser sees and consumes what the database holds.
+    """
+    root = Path(project_dir)
+    entities = list(config.get("entities") or [])
+    points = list(config.get("connect_points") or [])
+    found: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    unknown: List[str] = []
+
+    for entity in entities:
+        name = str(entity.get("name") or "")
+        for path in _entity_files(root, name):
+            relative = path.relative_to(root).as_posix()
+            contract, members = scan_owner(relative, _read_text(path))
+            if not contract:
+                continue
+            entry = _bucket(found, name, _point_for(points, relative, contract, name), contract)
+            for member in members:
+                _record(entry["members"], member)
+
+    for entity in entities:
+        name = str(entity.get("name") or "")
+        accessors = accessors_for(config, name)
+        if not accessors:
+            continue
+        for path in _entity_files(root, name):
+            relative = path.relative_to(root).as_posix()
+            for use in scan_consumer(relative, _read_text(path), accessors):
+                if not use.point:
+                    unknown.append(use.owner)
+                    continue
+                entry = _bucket(found, use.owner, use.point, _contract_for(points, use.point))
+                entry["dynamic"] = entry["dynamic"] or use.dynamic
+                if name not in entry["consumers"]:
+                    entry["consumers"].append(name)
+                _record(entry["members"], use.member)
+
+    for (owner, _), entry in found.items():
+        entry["dynamic"] = entry["dynamic"] or owner in unknown
+    return [Edge(point=point, owner=owner, consumers=tuple(entry["consumers"]),
+                 contract=entry["contract"], members=tuple(entry["members"]),
+                 dynamic=entry["dynamic"])
+            for (owner, point), entry in sorted(found.items())]
+
+
+def accessors_for(config: Dict[str, Any], entity_name: str) -> Dict[str, str]:
+    """The names this entity's QML reaches other entities by, and who each one is.
+
+    A service names the owner it consumes from, capitalized (`database` is `Database`),
+    which is what `EntityRuntime::accessorName` installs. A client names its edge `Server`
+    whatever the edge is called, because the browser can reach nothing else.
+    """
+    entities = list(config.get("entities") or [])
+    points = list(config.get("connect_points") or [])
+    kind = next((str(entity.get("kind") or "") for entity in entities
+                 if entity.get("name") == entity_name), "")
+    if kind == "client":
+        owners = [str(point.get("owner") or "") for point in points
+                  if entity_name in (point.get("consumers") or [])]
+        edge = next((owner for owner in owners if owner), "") or _first_edge(entities)
+        return {"Server": edge} if edge else {}
+    accessors: Dict[str, str] = {}
+    for point in points:
+        owner = str(point.get("owner") or "")
+        if owner and owner != entity_name and entity_name in (point.get("consumers") or []):
+            accessors[_accessor_name(owner)] = owner
+    return accessors
+
+
+def _first_edge(entities: Sequence[Dict[str, Any]]) -> str:
+    for entity in entities:
+        if entity.get("capability") == "web_edge":
+            return str(entity.get("name") or "")
+    return ""
+
+
+def _accessor_name(owner: str) -> str:
+    return owner[:1].upper() + owner[1:]
+
+
+def _bucket(found: Dict[Tuple[str, str], Dict[str, Any]], owner: str, point: str,
+            contract: str) -> Dict[str, Any]:
+    """The one record for a connect point, made on first sight and added to after."""
+    entry = found.get((owner, point))
+    if entry is None:
+        entry = {"contract": contract, "members": [], "consumers": [], "dynamic": False}
+        found[(owner, point)] = entry
+    elif contract and not entry["contract"]:
+        entry["contract"] = contract
+    return entry
+
+
+def _entity_files(root: Path, name: str) -> List[Path]:
+    """The QML an entity is built from: its own directory, never the build output."""
+    directory = root / name
+    if not name or not directory.is_dir():
+        return []
+    return [path for path in sorted(directory.rglob("*.qml"))
+            if not ({"build", "node_modules"} & set(path.parts))]
+
+
+def _read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _point_for(points: Sequence[Dict[str, Any]], relative: str, contract: str,
+               owner: str) -> str:
+    """Which declared connect point an owner file implements, or the name it suggests."""
+    for point in points:
+        if str(point.get("server") or "") == relative and point.get("name"):
+            return str(point["name"])
+    for point in points:
+        if (str(point.get("contract") or "") == contract
+                and str(point.get("owner") or "") == owner and point.get("name")):
+            return str(point["name"])
+    return contract[:1].lower() + contract[1:]
+
+
+def _contract_for(points: Sequence[Dict[str, Any]], name: str) -> str:
+    for point in points:
+        if str(point.get("name") or "") == name:
+            return str(point.get("contract") or "")
+    return ""
 
 
 def scan_owner(relative_path: str, source: str) -> Tuple[str, List[Member]]:
@@ -123,6 +287,169 @@ def _root_identifier(tokens: Sequence[qmlscan.Token]) -> str:
             name = _at(tokens, index + 2)
             return name.text if _is_ident(name) else ""
     return ""
+
+
+def scan_consumer(relative_path: str, source: str,
+                  accessors: Dict[str, str]) -> List[Use]:
+    """Every connect point member a consumer file names, and how it named it.
+
+    `accessors` maps the name a file writes to the entity behind it: `Server` is the
+    client's edge, and a service reaches `database` as `Database`. Nothing outside that
+    map is a connect point, so an entity's own ids and Qt's own types are passed over
+    without having to be listed.
+    """
+    tokens = qmlscan.tokenize(source)
+    uses: List[Use] = []
+    _read_connections(relative_path, tokens, accessors, uses)
+    index = 0
+    while index < len(tokens):
+        index += _read_reference(relative_path, tokens, index, accessors, uses) or 1
+    return uses
+
+
+def _read_reference(path: str, tokens: Sequence[qmlscan.Token], index: int,
+                    accessors: Dict[str, str], uses: List[Use]) -> int:
+    """`Server.arena.steer(1.5, 2.5)`: the owner, the point, and the member being used."""
+    token = _at(tokens, index)
+    if not _is_ident(token) or token.text not in accessors:
+        return 0
+    if _is_punct(_at(tokens, index - 1), "."):
+        # `something.Server` is a property of something else that happens to share a name.
+        return 0
+    dynamic = False
+    point = ""
+    position = index + 1
+    if _is_punct(_at(tokens, position), "["):
+        close = _matching(tokens, position)
+        if close < 0:
+            return 0
+        dynamic = True
+        position = close + 1
+    elif _is_punct(_at(tokens, position), "."):
+        name_token = _at(tokens, position + 1)
+        if not _is_ident(name_token):
+            return 0
+        point = name_token.text
+        position += 2
+    else:
+        return 0
+    member_token = _at(tokens, position + 1)
+    if not (_is_punct(_at(tokens, position), ".") and _is_ident(member_token)):
+        # The point itself, handed somewhere whole: it names no member of the contract.
+        return position - index
+    end, member = _read_used_member(path, tokens, position + 2, member_token, index)
+    uses.append(Use(accessors[token.text], point, _settled(member), dynamic))
+    return end - index
+
+
+def _read_used_member(path: str, tokens: Sequence[qmlscan.Token], position: int,
+                      member_token: qmlscan.Token, start: int) -> Tuple[int, Member]:
+    """What the member is, read from what the file does with it.
+
+    A call is a slot and a `model:` binding is a model; everything else a consumer can do
+    with a member is read it, which is a property. Nothing here proves a type, so what a
+    consumer contributes is names and shapes, and the owner end supplies the rest.
+    """
+    where = (_where(path, member_token),)
+    if _is_punct(_at(tokens, position), "("):
+        close = _matching(tokens, position)
+        if close < 0:
+            return position, Member("slot", member_token.text, evidence=where)
+        params = _argument_types(tokens, position + 1, close)
+        # `.then(...)` is how the consumer facade hands back a return value, so a call
+        # written that way is a slot that returns something rather than a void one.
+        returns = "var" if (_is_punct(_at(tokens, close + 1), ".")
+                            and _is_keyword(_at(tokens, close + 2), "then")) else ""
+        return close + 1, Member("slot", member_token.text, returns, params=params,
+                                 evidence=where)
+    if _is_keyword(_at(tokens, start - 2), "model") and _is_punct(_at(tokens, start - 1), ":"):
+        roles = _delegate_roles(tokens, start)
+        return position, Member("model", member_token.text, roles=roles, evidence=where)
+    return position, Member("prop", member_token.text, "var", evidence=where)
+
+
+def _delegate_roles(tokens: Sequence[qmlscan.Token], index: int) -> Tuple[Param, ...]:
+    """The roles a delegate reads, from the `model.<role>` accesses beside the binding.
+
+    A delegate names the roles it needs and says nothing about their types, so these come
+    back untyped. That is the whole of what a consumer knows about a model, and it is
+    still worth having: it is the list a person would otherwise reconstruct by hand.
+    """
+    opening, closing = _enclosing_block(tokens, index)
+    if opening < 0:
+        return ()
+    roles: List[Param] = []
+    for position in range(opening, closing):
+        name_token = _at(tokens, position + 2)
+        if not (_is_keyword(tokens[position], "model") and _is_punct(_at(tokens, position + 1),
+                                                                    ".")):
+            continue
+        if not _is_ident(name_token) or any(role.name == name_token.text for role in roles):
+            continue
+        roles.append(Param("var", name_token.text))
+    return tuple(roles)
+
+
+def _enclosing_block(tokens: Sequence[qmlscan.Token], index: int) -> Tuple[int, int]:
+    """The braces of the object the token at `index` sits directly inside."""
+    depth = 0
+    for position in range(index, -1, -1):
+        token = tokens[position]
+        if token.kind != "punct":
+            continue
+        if token.text == "}":
+            depth += 1
+        elif token.text == "{":
+            if depth == 0:
+                return position, _matching(tokens, position)
+            depth -= 1
+    return -1, -1
+
+
+def _read_connections(path: str, tokens: Sequence[qmlscan.Token],
+                      accessors: Dict[str, str], uses: List[Use]) -> None:
+    """`Connections { target: Server.arena; function onEaten(...) }`: a signal, received."""
+    for index, token in enumerate(tokens):
+        if not _is_keyword(token, "Connections") or not _is_punct(_at(tokens, index + 1), "{"):
+            continue
+        close = _matching(tokens, index + 1)
+        if close < 0:
+            continue
+        owner, point = _connections_target(tokens, index + 2, close, accessors)
+        if not point:
+            continue
+        for position in range(index + 2, close):
+            name_token = _at(tokens, position + 1)
+            if not (_is_keyword(tokens[position], "function") and _is_ident(name_token)):
+                continue
+            if not _is_punct(_at(tokens, position + 2), "("):
+                continue
+            name = _suffix_after(name_token.text, _HANDLER_PREFIX)
+            paren = _matching(tokens, position + 2)
+            if not name or paren < 0:
+                continue
+            uses.append(Use(owner, point,
+                            _settled(Member("signal", name,
+                                            params=_declared_parameters(tokens, position + 3,
+                                                                        paren),
+                                            evidence=(_where(path, name_token),)))))
+
+
+def _connections_target(tokens: Sequence[qmlscan.Token], start: int, end: int,
+                        accessors: Dict[str, str]) -> Tuple[str, str]:
+    """The owner and point a `Connections` block is bound to, or two empty strings."""
+    for position in range(start, end):
+        if not (_is_keyword(tokens[position], "target")
+                and _is_punct(_at(tokens, position + 1), ":")):
+            continue
+        accessor = _at(tokens, position + 2)
+        point = _at(tokens, position + 4)
+        if not (_is_ident(accessor) and accessor.text in accessors):
+            continue
+        if not (_is_punct(_at(tokens, position + 3), ".") and _is_ident(point)):
+            continue
+        return accessors[accessor.text], point.text
+    return "", ""
 
 
 def _read_declared_property(path: str, tokens: Sequence[qmlscan.Token], index: int,
@@ -402,9 +729,14 @@ def _matching(tokens: Sequence[qmlscan.Token], index: int) -> int:
 
 
 def _record(members: List[Member], member: Member) -> None:
-    """Add a member, or fold it into the one already found under the same name."""
+    """Add a member, or fold it into the one already found under the same name.
+
+    A contract has one member per name, so two sightings of a name are two views of one
+    thing however differently they looked, and folding them is what turns both ends of a
+    link into the single line a `.syn` file would hold.
+    """
     for position, existing in enumerate(members):
-        if existing.kind == member.kind and existing.name == member.name:
+        if existing.name == member.name:
             members[position] = _settled(_merged(existing, member))
             return
     members.append(_settled(member))
@@ -419,9 +751,10 @@ def _merged(first: Member, second: Member) -> Member:
     """
     return dataclasses.replace(
         first,
+        kind=_better_kind(first.kind, second.kind),
         type=_better_type(first.type, second.type),
         params=_better_params(first.params, second.params),
-        roles=_better_params(first.roles, second.roles),
+        roles=_better_roles(first.roles, second.roles),
         evidence=first.evidence + tuple(entry for entry in second.evidence
                                         if entry not in first.evidence))
 
@@ -438,8 +771,21 @@ def _settled(member: Member) -> Member:
     elif member.kind == "model":
         certain = bool(member.roles) and all(role.type != "var" for role in member.roles)
     else:
-        certain = all(param.type != "var" for param in member.params)
+        # A slot with no return type is complete; one whose return type is still a guess
+        # is not, and the two are spelled differently on purpose.
+        certain = (member.type != "var"
+                   and all(param.type != "var" for param in member.params))
     return dataclasses.replace(member, certain=certain)
+
+
+def _better_kind(first: str, second: str) -> str:
+    """The more specific of two readings of a member.
+
+    A consumer reading a member in a binding cannot tell a property from a model, so
+    "prop" is the reading anything else replaces. Every other pair is two sightings that
+    agree, and the first one is kept.
+    """
+    return second if first == "prop" else first
 
 
 def _better_type(first: str, second: str) -> str:
@@ -451,16 +797,44 @@ def _better_type(first: str, second: str) -> str:
 
 def _better_params(first: Tuple[Param, ...],
                    second: Tuple[Param, ...]) -> Tuple[Param, ...]:
-    """The better of two parameter or role lists: the longer, then the better typed."""
+    """Two parameter lists as one, by position, because that is what a call fixes."""
     if len(first) != len(second):
+        # One end saw a call with defaults left out, or a shape this scan misread. The
+        # longer list is the one with more in it, and mixing the two by position would
+        # pair arguments that were never each other's.
         return first if len(first) > len(second) else second
-    if _typed_count(second) > _typed_count(first):
+    return tuple(_better_param(one, other) for one, other in zip(first, second))
+
+
+def _better_roles(first: Tuple[Param, ...],
+                  second: Tuple[Param, ...]) -> Tuple[Param, ...]:
+    """Two role lists as one, by name: a delegate reads the roles it needs, not all of them."""
+    roles: List[Param] = list(first)
+    for role in second:
+        position = next((at for at, existing in enumerate(roles)
+                         if existing.name == role.name), -1)
+        if position < 0:
+            roles.append(role)
+            continue
+        roles[position] = _better_param(roles[position], role)
+    return tuple(roles)
+
+
+def _better_param(first: Param, second: Param) -> Param:
+    """The type one end proved and the name the other end chose."""
+    return Param(_better_type(first.type, second.type), _better_name(first.name, second.name))
+
+
+def _better_name(first: str, second: str) -> str:
+    """A name somebody wrote beats one this module counted out."""
+    if _is_positional(first) and not _is_positional(second):
         return second
     return first
 
 
-def _typed_count(params: Tuple[Param, ...]) -> int:
-    return sum(1 for param in params if param.type not in ("", "var"))
+def _is_positional(name: str) -> bool:
+    """`arg2` is what an unnamed argument was called here, not what it is called."""
+    return name.startswith("arg") and name[3:].isdigit()
 
 
 def _suffix_after(text: str, prefix: str) -> str:
@@ -473,7 +847,7 @@ def _suffix_after(text: str, prefix: str) -> str:
 
 def _is_handler_name(text: str) -> bool:
     """`onClicked` is a handler, not a property of the contract."""
-    return text.startswith("on") and text[2:3].isupper()
+    return bool(_suffix_after(text, _HANDLER_PREFIX))
 
 
 def _where(path: str, token: qmlscan.Token) -> str:
