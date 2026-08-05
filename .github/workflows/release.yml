@@ -489,8 +489,12 @@ jobs:
 
           wheel = glob.glob("dist/*.whl")[0]
           names = zipfile.ZipFile(wheel).namelist()
+          # The editor is a directory of static files under assets/, so it rides on the
+          # same package-data glob as the favicon and is dropped by the same mistake.
+          # `synqt design` has nothing to serve without it.
           for required in ("synqt/framework/cmake/SynQtContracts.cmake",
-                           "synqt/assets/favicon.svg"):
+                           "synqt/assets/favicon.svg",
+                           "synqt/assets/design/index.html"):
               if required not in names:
                   sys.exit(f"{wheel} is missing {required}")
           print(f"{wheel}: {len(names)} files, framework and assets present")

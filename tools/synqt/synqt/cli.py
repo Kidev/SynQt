@@ -14,8 +14,9 @@ from typing import Any, Dict, List, Optional
 
 from . import (addauth, addcontract, addentity, addprovider, appmodel,
                build as buildmod, check as checkmod, clientbuild,
-               config as configmod, create, deploy as deploymod, docker as dockermod,
-               doctor, mesh, newproject, run as runmod, version as versionmod)
+               config as configmod, create, deploy as deploymod, design as designmod,
+               docker as dockermod, doctor, mesh, newproject, run as runmod,
+               version as versionmod)
 
 
 def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, Any]:
@@ -75,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     create_cmd.add_argument("--parent-dir", default=".")
 
     for name, helptext in [("dev", "build, start locally, watch and hot reload"),
+                           ("design", "edit the topology as a graph, in a browser"),
                            ("build", "production build of every entity artifact"),
                            ("serve", "run the built entities in dependency order"),
                            ("test", "build and run the project test suite"),
@@ -85,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=helptext)
         if name != "providers":
             p.add_argument("--project-dir", default=".")
-        if name in ("dev", "build", "serve", "check", "doctor"):
+        if name in ("dev", "design", "build", "serve", "check", "doctor"):
             # The commands that read the topology take the profile that layers over it
             # (docs/project-layout-and-config.md, "Configuration resolution order").
             # `clean`, `providers`, and `test` read no configuration, so offering them a
@@ -146,6 +148,14 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--no-open", action="store_true", help="do not open a browser")
             p.add_argument("--no-watch", action="store_true",
                            help="serve once without watching for changes")
+        if name == "design":
+            # A port of its own, so the editor and `synqt dev` can be up at the same time:
+            # drawing a connect point and watching it come up is the whole point of having
+            # both open.
+            p.add_argument("--port", type=int, default=8181,
+                           help="the loopback port the editor is served on")
+            p.add_argument("--no-open", action="store_true",
+                           help="print the URL instead of opening a browser")
 
     meshp = sub.add_parser("mesh", help="the project CA and per-entity certificates")
     mesh_sub = meshp.add_subparsers(dest="mesh_command", required=True)
@@ -329,6 +339,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                                                   profile=args.profile)
             print("\n".join(messages))
             return 0 if ok else 1
+        elif args.command == "design":
+            # No validation gate here, unlike `build` and `serve`. A topology the validator
+            # refuses is exactly what somebody opens the editor to fix, and refusing to open
+            # it would put the repair tool behind the damage. The page reads the same verdict
+            # on arrival and paints it; the rules gate Apply, not the door.
+            print(designmod.serve(args.project_dir, port=args.port,
+                                  open_browser=not args.no_open, profile=args.profile))
         elif args.command == "clean":
             build_dir = Path(args.project_dir) / "build"
             if build_dir.exists():
@@ -401,6 +418,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (newproject.NewProjectError, create.CreateError, addauth.AddAuthError,
             addentity.AddEntityError,
             addprovider.AddProviderError, addcontract.AddContractError, mesh.MeshError,
+            designmod.DesignError,
             dockermod.DockerError, appmodel.AppGenError, buildmod.BuildError,
             configmod.ConfigError, FileNotFoundError) as error:
         print(f"synqt {args.command}: {error}", file=sys.stderr)

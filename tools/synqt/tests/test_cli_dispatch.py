@@ -23,8 +23,8 @@ from pathlib import Path
 import pytest
 
 from synqt import (addauth, addcontract, addentity, addprovider, build as buildmod,
-                   check as checkmod, cli, config as configmod, doctor, mesh,
-                   newproject, run as runmod)
+                   check as checkmod, cli, config as configmod, design as designmod,
+                   doctor, mesh, newproject, run as runmod)
 
 _PROJECT = textwrap.dedent("""\
     project:
@@ -369,6 +369,46 @@ class TestServe:
         assert not started
 
 
+class TestDesign:
+    def test_design_is_a_subcommand_with_its_flags(self):
+        args = cli.build_parser().parse_args(["design", "--port", "9000", "--no-open"])
+        assert args.command == "design"
+        assert args.port == 9000
+        assert args.no_open is True
+
+    def test_design_serves_the_project_it_was_pointed_at(self, tmp_path, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(designmod, "serve",
+                            lambda project_dir, **kwargs:
+                            seen.update(project_dir=project_dir, **kwargs) or "stopped")
+        project = _project(tmp_path)
+        assert _run(["design", "--project-dir", project, "--profile", "ci",
+                     "--port", "9000", "--no-open"])[0] == 0
+        assert seen == {"project_dir": project, "port": 9000, "open_browser": False,
+                        "profile": "ci"}
+
+    def test_design_opens_a_project_that_does_not_check_out(self, tmp_path, monkeypatch):
+        # Deliberate: a topology the validator refuses is exactly what somebody opens the
+        # editor to fix. Validating first would lock the one tool that repairs it behind the
+        # damage. The page shows the same verdict on arrival, and Apply is what the rules
+        # gate, not the door.
+        monkeypatch.setattr(checkmod, "validate", lambda *a, **k: (False, ["error: nope"]))
+        served = []
+        monkeypatch.setattr(designmod, "serve", lambda *a, **k: served.append(True) or "done")
+        assert _run(["design", "--project-dir", _project(tmp_path)])[0] == 0
+        assert served
+
+    def test_a_design_failure_is_a_message_and_an_exit_code(self, tmp_path, monkeypatch):
+        def explode(*a, **k):
+            raise designmod.DesignError("port 8181 is already in use")
+
+        monkeypatch.setattr(designmod, "serve", explode)
+        code, _, err = _run(["design", "--project-dir", _project(tmp_path)])
+        assert code == 1
+        assert "synqt design: port 8181 is already in use" in err
+        assert "Traceback" not in err
+
+
 class TestErrorReporting:
     @pytest.mark.parametrize("error", [
         newproject.NewProjectError("bad name"),
@@ -377,6 +417,7 @@ class TestErrorReporting:
         addprovider.AddProviderError("unknown family"),
         addcontract.AddContractError("no such entity"),
         mesh.MeshError("no CA yet"),
+        designmod.DesignError("port already in use"),
         buildmod.BuildError("compile failed"),
         configmod.ConfigError("bad yaml"),
         FileNotFoundError("no such file"),
