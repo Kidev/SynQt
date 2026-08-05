@@ -83,6 +83,29 @@ def test_adding_a_link_creates_its_contract(tmp_path):
     assert "prop real spot" in contract.after
 
 
+def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path):
+    """The panel takes a member's name as text, and `record` opens a record declaration in
+    the grammar. Written out it is worse than a build error: the editor reads the project
+    through the same parser, so applying it left the project it had just written unopenable.
+    """
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    document["links"].append({
+        "id": "new", "name": "prices", "contract": "Prices", "owner": "web",
+        "consumers": ["client"], "instance": "shared",
+        "members": [{"kind": "slot", "name": "record", "type": "",
+                     "params": [{"type": "string", "name": "who"}], "roles": []}]})
+    plan = designplan.compute(project, document)
+    assert not plan.ok
+    assert any("would not compile" in message and "'prices'" in message
+               for message in plan.findings)
+    with pytest.raises(designplan.DesignPlanError):
+        designplan.execute(project, plan)
+    assert not (project / "shared" / "Prices.syn").exists()
+    # And the project it was drawn over still opens.
+    assert designdoc.read(project)
+
+
 def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
     """Drawing a link is the whole gesture, so both halves of a connect point come out of
     it: the contract that says what may cross, and the QML on the owner that implements it.

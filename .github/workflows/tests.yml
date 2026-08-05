@@ -14,6 +14,11 @@
 # still hold. It measures nothing, so it is machine-independent and belongs on every push. The half
 # that actually runs the harnesses needs Qt and a quiet machine, and lives in benchmarks.yml.
 #
+# One job here does run a browser: the design editor is a page, and most of what it does (the
+# canvas, the drag that draws a connect point, the plan digest behind Apply) exists nowhere a
+# Python test can reach. It needs Chromium and nothing else, no Qt and no display, which is why
+# it belongs in this gate rather than with the WebAssembly proofs.
+#
 # The heavier, platform-specific checks live elsewhere and are not duplicated here: the WASM
 # QtRO-over-WebSockets browser matrix is browser-matrix.yml, and the C++ ctest suites need a full
 # Qt 6.11.1 build (and, for several, a display, generated certs, or the WASM kit), which the
@@ -122,3 +127,39 @@ jobs:
       # browser loads does. It imports the shipped asset by path and installs nothing.
       - name: Check the editor's rules against the shared topologies
         run: node tools/check-designrules/check-designrules.mjs
+
+  designer:
+    # The design editor in a real browser, which is the only place most of it exists: the
+    # canvas, the drag that draws a connect point, the inspector, and the plan digest that
+    # ties Apply to the change set that was shown. The Python suite reaches the server and
+    # the page's text; this reaches the page. It needs no Qt and no display, only Chromium,
+    # so it belongs in this gate rather than with the WebAssembly proofs.
+    name: design editor (browser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      # The editor is served by the CLI, which resolves the contract compiler beside it.
+      - name: Install the CLI and the contract generator (editable)
+        run: >
+          python -m pip install --upgrade pip &&
+          python -m pip install -e ./tools/synqt -e ./tools/synqtc
+
+      - name: Install Playwright and Chromium
+        working-directory: tests/designer
+        run: npm install && npx playwright install --with-deps chromium
+
+      - name: Drive the editor, and the copy the site publishes
+        working-directory: tests/designer
+        env:
+          DESIGNER_HEADLESS: "1"
+        run: node verify.mjs

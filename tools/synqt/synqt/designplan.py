@@ -88,8 +88,34 @@ def compute(project_dir: os.PathLike[str] | str, document: Dict[str, Any], *,
 
     ok, findings = checkmod.validate(designdoc.to_config(wanted, base=base),
                                      project_dir=root)
-    return Plan(changes=tuple(changes), findings=tuple(findings), ok=ok,
-                git=_git_position(root), stale=stale)
+    unwritable = _uncompilable_contracts(wanted)
+    return Plan(changes=tuple(changes), findings=tuple(findings) + tuple(unwritable),
+                ok=ok and not unwritable, git=_git_position(root), stale=stale)
+
+
+def _uncompilable_contracts(wanted: Dict[str, Any]) -> List[str]:
+    """Every drawn contract the compiler would refuse to read back.
+
+    The panel takes a member's name as text, and some of that text is not a name the
+    grammar has: `record` opens a record declaration, and a slot called one is a file that
+    parses as something else. Written out, it is worse than a build error, because the
+    editor reads the project through the same parser: applying one left the project it had
+    just written unopenable. So the contract is rendered and parsed here, in the plan,
+    which is the last point where the answer is still "no" rather than "no, and also your
+    project is broken now".
+    """
+    problems: List[str] = []
+    for link in wanted.get("links", []):
+        contract = link.get("contract")
+        if not contract or not (link.get("members") or []):
+            continue
+        try:
+            designdoc.parse_from_text(
+                designdoc.render_contract(contract, link["members"]), contract)
+        except designdoc.DesignDocError as error:
+            problems.append(f"error: '{link.get('name')}': the {contract} contract would "
+                            f"not compile: {error}")
+    return problems
 
 
 def _note(reasons: Dict[str, List[str]], path: str, why: str) -> None:

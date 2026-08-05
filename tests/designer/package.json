@@ -1,0 +1,13 @@
+{
+    "name": "synqt-designer-verify",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Playwright proof that the design editor draws a project, applies it, and runs with nothing behind it.",
+    "scripts": {
+        "verify": "node verify.mjs"
+    },
+    "dependencies": {
+        "playwright": "^1.49.0"
+    }
+}
