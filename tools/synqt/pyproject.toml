@@ -71,11 +71,13 @@ packages = ["synqt"]
 version = { attr = "synqt._version.__version__" }
 
 [tool.setuptools.package-data]
-# `assets/` is the default client loading-page logo and favicon: without them an installed
-# synqt renders no loading page at all. `framework/` is the vendored src/ and cmake/ that
-# the generated CMake resolves under SYNQT_ROOT; _build_backend.py puts it there at build
-# time and it is git-ignored in a checkout.
-synqt = ["assets/*.svg", "framework/**/*"]
+# `assets/` is the default client loading-page logo and favicon, and the design editor's own
+# page and rules: without them an installed synqt renders no loading page at all and
+# `synqt design` serves nothing. Everything under it recursively, because the editor is a
+# directory of html, css, js and json rather than a fixed list. `framework/` is the vendored
+# src/ and cmake/ that the generated CMake resolves under SYNQT_ROOT; _build_backend.py puts
+# it there at build time and it is git-ignored in a checkout.
+synqt = ["assets/**/*", "framework/**/*"]
 
 # Coverage for the CLI, measured over the package and nothing else. Branch coverage is on
 # because most of this tool is decisions about a configuration file, and a line-only figure

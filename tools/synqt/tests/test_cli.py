@@ -334,7 +334,11 @@ class ProviderNameValidationTest(unittest.TestCase):
     """
 
     def _config(self, entity):
-        return {"entities": [{"name": "client", "kind": "client"}, entity]}
+        # A whole project, minimal but sound: the client needs an edge to reach, so a
+        # topology error of its own does not turn up in the list this asks about.
+        return {"entities": [{"name": "client", "kind": "client"},
+                             {"name": "web", "kind": "service", "capability": "web_edge"},
+                             entity]}
 
     def _errors(self, entity):
         _, messages = check.validate(self._config(entity))

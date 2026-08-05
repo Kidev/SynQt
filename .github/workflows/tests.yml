@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Run the deterministic checks (the synqt CLI, the synqtc contract generator, the docs' Pygments
-# lexers, the committed benchmark baselines, and the docs' mermaid diagrams) on every push and pull
-# request. The suites are pure Python and run across the
+# lexers, the committed benchmark baselines, the docs' mermaid diagrams, and the design editor's
+# rules) on every push and pull request. The suites are pure Python and run across the
 # three desktop operating systems SynQt supports as native targets (Linux, macOS, Windows; see
 # docs/desktop.md): they drive the generators and CLI and assert on the emitted CMake, presets,
 # topology, and config, so they need no Qt build or display and run identically on all three
@@ -95,10 +95,10 @@ jobs:
       - name: Measure and enforce the floor
         run: HALVES=py tests/run-coverage.sh
 
-  mermaid:
-    # One runner: the diagrams are the same text everywhere, and this parses them rather than
-    # rendering them. It is a separate job from pytest because nothing else here needs node.
-    name: mermaid diagrams
+  node-checks:
+    # One runner: both of these read text that is the same on every platform. They are a
+    # separate job from pytest because nothing else here needs node.
+    name: node checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -115,3 +115,10 @@ jobs:
 
       - name: Parse every diagram in docs/
         run: node tools/check-mermaid/check-mermaid.mjs docs
+
+      # The design editor paints a subset of the `synqt check` rules and must never become a
+      # second opinion on them. The Python suite reads the same topologies.json and asserts
+      # the command line reaches the same verdict for every case; this asserts the module the
+      # browser loads does. It imports the shipped asset by path and installs nothing.
+      - name: Check the editor's rules against the shared topologies
+        run: node tools/check-designrules/check-designrules.mjs

@@ -10,6 +10,7 @@ one: that pyproject.toml says what the release depends on it saying, and that
 over a packaged copy and makes a copy that will not outlive the process lose to an error.
 """
 
+import glob
 import sys
 from pathlib import Path
 
@@ -70,9 +71,28 @@ def test_readme_ships_and_is_the_one_pypi_renders():
 
 
 def test_package_data_covers_the_assets_and_the_vendored_framework():
+    """Every asset in the tree, not a list of patterns somebody remembered to widen.
+
+    An asset the wheel does not carry fails where it is used and not where it was left out:
+    a missing logo is a client build with no loading page, and a missing editor file is
+    `synqt design` serving nothing. The vendored framework is checked by name because it
+    does not exist in a checkout; the backend puts it there at build time.
+    """
     patterns = _pyproject()["tool"]["setuptools"]["package-data"]["synqt"]
-    assert "assets/*.svg" in patterns
     assert "framework/**/*" in patterns
+    package = PROJECT / "synqt"
+    # Expanded the way setuptools expands it, rather than matched by hand: `**` means
+    # something different to glob than it does to fnmatch, and the question here is what
+    # the wheel ends up holding.
+    packaged = {Path(found).resolve() for pattern in patterns
+                for found in glob.glob(str(package / pattern), recursive=True)}
+    assets = [path for path in sorted((package / "assets").rglob("*"))
+              if path.is_file() and "__pycache__" not in path.parts]
+    assert assets, "no assets at all, which is not a passing state"
+    for path in assets:
+        assert path.resolve() in packaged, \
+            (f"{path.relative_to(package).as_posix()} matches no package-data pattern, so "
+             "an installed synqt lacks it")
 
 
 def test_the_build_backend_is_in_tree_and_shipped_in_the_sdist():

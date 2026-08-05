@@ -17,6 +17,21 @@ import yaml
 from . import (addentity, appmodel, clientcache, config as configmod, graphics,
                qmlscan, toolchain, topologywriter)
 
+# How many Source instances an owner keeps for one connect point: one for everybody, one
+# per browser session, or one per connected entity.
+INSTANCE_MODES = frozenset({"shared", "per_session", "per_peer"})
+
+
+def _duplicate_messages(names: List[Any], what: str, consequence: str) -> List[str]:
+    """One message per name declared more than once.
+
+    Both maps are keyed by name, so a repeat is not a conflict anyone is told about: the
+    later entry replaces the earlier one and the file reads as though both are in force.
+    """
+    seen: List[str] = [str(name) for name in names if name]
+    return [f"error: {what} '{name}' is declared more than once; {consequence}"
+            for name in sorted({n for n in seen if seen.count(n) > 1})]
+
 
 def validate(config: Dict[str, Any], *, release: bool = False,
              project_dir: Optional[os.PathLike[str] | str] = None,
@@ -34,9 +49,19 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     builds (docs/security.md), so a release build that demanded one would be demanding
     the one thing CI must never hold."""
     messages: List[str] = []
-    entities = {e.get("name"): e for e in config.get("entities", []) if isinstance(e, dict)}
+    declared = [e for e in config.get("entities", []) if isinstance(e, dict)]
+    entities = {e.get("name"): e for e in declared}
     if not entities:
         return False, ["error: no entities declared"]
+    messages += _duplicate_messages(
+        [e.get("name") for e in declared], "entity",
+        "the later one wins and the earlier one is never built, so part of this file "
+        "describes an entity that does not exist")
+    messages += _duplicate_messages(
+        [c.get("name") for c in config.get("connect_points") or [] if isinstance(c, dict)],
+        "connect point",
+        "the later one wins, which quietly replaces the owner and the consumer list of the "
+        "earlier one; a narrower consumer list can vanish this way")
 
     # Validate the topology the build will actually wire, which includes the two links
     # `identity.provider_entity` implies. Checked before the expansion, because a collision
@@ -46,6 +71,15 @@ def validate(config: Dict[str, Any], *, release: bool = False,
 
     web_edges = {name for name, e in entities.items() if _is_web_edge(e)}
     clients = {name for name, e in entities.items() if e.get("kind") == "client"}
+
+    # A browser reaches a web edge or it reaches nothing: it holds no mesh certificate and
+    # the mesh is not routable from it. A client in a project with no web_edge entity has
+    # nowhere to connect, so it is a client that cannot run rather than one not wired yet.
+    if clients and not web_edges:
+        for name in sorted(clients):
+            messages.append(
+                f"error: client '{name}' has no web_edge entity to reach; the browser can "
+                "only reach a web edge (see https://synqt.org/entities/)")
 
     # The endpoints the build will actually write, not the keys as spelled: a link's
     # transport and host can come from the owner entity's `mesh:` block as easily as from
@@ -62,6 +96,26 @@ def validate(config: Dict[str, Any], *, release: bool = False,
 
         if owner not in entities:
             messages.append(f"error: connect point '{name}' has unknown owner '{owner}'")
+
+        # The owner holds the Source. Listing it among the consumers asks the entity to
+        # open a mesh link to itself and acquire a replica of the object it already has,
+        # and it reads as an authorization: an owner needs no permission to reach its own
+        # state, so the entry only widens what the consumer list appears to say.
+        if owner in consumers:
+            messages.append(
+                f"error: connect point '{name}' lists its owner '{owner}' as a consumer; an "
+                "entity holds its own Source and does not acquire a replica of it")
+
+        # Anything unrecognised is read as 'shared' downstream (maingen), so a typo here
+        # does not fail, it hands every caller the one Source that per_session existed to
+        # keep apart. Which is the whole of interest management and half of the per-user
+        # isolation in one word nobody would look at twice.
+        instance = connect_point.get("instance")
+        if instance is not None and str(instance) not in INSTANCE_MODES:
+            messages.append(
+                f"error: connect point '{name}' has instance '{instance}'; it must be one of "
+                f"{', '.join(sorted(INSTANCE_MODES))}")
+
         for consumer in consumers:
             if consumer not in entities:
                 messages.append(
