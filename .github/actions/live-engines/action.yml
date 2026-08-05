@@ -1,10 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The real database, cache and document engines the M9 provider proofs need, each answering
-# plaintext and TLS, plus the QMYSQL plugin rebuilt against MariaDB Connector/C. Linux only
-# and best effort. An engine that does not come up leaves its proof skipping. Results reach
-# the calling job through GITHUB_ENV.
+# The engines the provider proofs need, plaintext and TLS, plus QMYSQL rebuilt against
+# MariaDB Connector/C. Linux only, best effort: a missing engine leaves its proof skipping.
 
 name: Live provider engines
 description: Start the throwaway engines the live provider proofs need, and build QMYSQL against Connector/C
@@ -19,13 +17,14 @@ inputs:
   kit_dir:
     description: Directory the kit installs into under $QT_ROOT/$QT_VERSION
     required: true
+  aqt_version:
+    description: aqtinstall commit that fetches the Qt sources (see toolchain.AQT_VERSION)
+    required: true
 
 runs:
   using: composite
   steps:
-    # Qt's prebuilt QMYSQL links Oracle's libmysqlclient, which SynQt may not convey beside
-    # the LGPLv3 Qt modules (docs/licensing.md). Tools/qmysql-plugin/build-qmysql-plugin.sh
-    # rebuilds it against Connector/C from the Qt sources.
+    # Qt's prebuilt QMYSQL links Oracle's GPLv2 libmysqlclient (docs/licensing.md).
     - name: Cache the QMYSQL plugin built against Connector/C
       if: runner.os == 'Linux'
       id: qmysql-cache
@@ -49,6 +48,10 @@ runs:
         if [ "$CACHED" = "true" ] && [ -n "$(find "$HOME/.cache/synqt-qmysql" -name 'libqsqlmysql.so' 2>/dev/null)" ]; then
           echo "QMYSQL plugin restored from cache"
         else
+          # A restored kit cache skipped the step that installs aqt.
+          if ! python -c "import aqt" 2>/dev/null; then
+            python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@${{ inputs.aqt_version }}" || true
+          fi
           if python -m aqt install-src linux "$QT_VERSION" --archives qtbase \
               --outputdir "$QT_ROOT"; then
             tools/qmysql-plugin/build-qmysql-plugin.sh ||

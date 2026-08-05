@@ -24,17 +24,14 @@ env:
   AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
   QT_VERSION: "6.12.0"
   QT_ROOT: ${{ github.workspace }}/Qt
-  # qttasktree and qtquicktimeline are not linked. The Qml plugin scan warns without them,
-  # and tests/run-all.sh fails on any Qt warning.
+  # qttasktree and qtquicktimeline silence the Qml plugin scan's warnings.
   QT_MODULES: "qtwebsockets qtremoteobjects qthttpserver qtnetworkauth qttasktree qtquick3d qtquicktimeline qtshadertools"
-  # v0.7.1 is the floor: JwksVerifier needs jwt::helper::create_public_key_from_rsa_components.
+  # At least v0.7.1.
   JWT_CPP_VERSION: "v0.7.2"
   QT_QPA_PLATFORM: offscreen
 
 jobs:
-  # A job skipped by `if:` reports "skipped" and satisfies a required check. A workflow
-  # skipped by a `paths:` filter reports nothing. The platform matrix is published here so
-  # the two matrix jobs share one copy.
+  # Gates the jobs with `if:`, never `paths:`, so required checks still report.
   changes:
     name: Decide what this run has to build
     runs-on: ubuntu-24.04
@@ -102,6 +99,7 @@ jobs:
           qt_version: ${{ env.QT_VERSION }}
           qt_root: ${{ env.QT_ROOT }}
           kit_dir: ${{ matrix.kit_dir }}
+          aqt_version: ${{ env.AQT_VERSION }}
 
       - name: Build the tree and run its ctest suites
         shell: bash
@@ -128,8 +126,7 @@ jobs:
             sccache --show-stats
           fi
 
-  # Phase [3/3] of tests/run-all.sh. The suites that compile what a generator emitted. Each
-  # builds a tree of its own, so the Windows column needs about 33 minutes cold.
+  # Phase [3/3] of tests/run-all.sh: the suites that compile generated code.
   generated:
     name: generated (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
@@ -208,6 +205,7 @@ jobs:
           qt_version: ${{ env.QT_VERSION }}
           qt_root: ${{ env.QT_ROOT }}
           kit_dir: gcc_64
+          aqt_version: ${{ env.AQT_VERSION }}
 
       - name: Measure and enforce the C++ coverage floor
         shell: bash

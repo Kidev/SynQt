@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M9 acceptance. The family interfaces and bundled providers. The connect point Source
-// calls only the interface (never an engine). A persistence entity stores and returns
-// rows across a restart with sqlite. The same Source swaps to postgres by config alone;
-// a parameterized value is inert to SQL injection. Many writes never deadlock. An
-// external provider refuses a plaintext connection in release. The memory cache evicts
-// under pressure and never exceeds its bound. The gateway refuses plaintext outbound in
-// release. The jobs queue is bounded.
+// The family interfaces and bundled providers. The connect point Source calls only the
+// interface (never an engine). A persistence entity stores and returns rows across a
+// restart with sqlite. The same Source swaps to postgres by config alone; a parameterized
+// value is inert to SQL injection. Many writes never deadlock. An external provider refuses
+// a plaintext connection in release. The memory cache evicts under pressure and never
+// exceeds its bound. The gateway refuses plaintext outbound in release. The jobs queue is
+// bounded.
 
 #include "cache.h"
 #include "cachefactory.h"
@@ -31,6 +31,7 @@
 #include "sqlsupport.h"
 
 #include <QElapsedTimer>
+#include <QFile>
 #include <QJSEngine>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -247,17 +248,15 @@ private:
 
     QString dbFile(const QString &name) { return m_dir.filePath(name); }
 
-    // Why the named Qt SQL driver plugin cannot be used, or a null string when it can.
-    // Worth separating from "the engine did not answer": both surface as a failed connect,
-    // but they call for opposite fixes, and a skip that says the wrong one sends whoever
-    // reads it to the wrong place.
+    // Why the named Qt SQL driver plugin cannot be used, or a null string when it can. Kept
+    // apart from "the engine did not answer": both surface as a failed connect, but they
+    // need opposite fixes, and a skip naming the wrong one misleads.
     //
-    // The check has to be addDatabase(), not isDriverAvailable(). The availability list is
-    // built from plugin metadata, which is read without loading the plugin, so a plugin
-    // whose client library is missing or ABI-incompatible is still reported as available;
-    // addDatabase() loads it and hands back an invalid database when it will not
-    // load. Measured on the pinned kit. isDriverAvailable("QMYSQL") is true even where the
-    // plugin cannot load at all.
+    // addDatabase(), not isDriverAvailable(). The availability list is built from plugin
+    // metadata without loading the plugin, so a plugin whose client library is missing or
+    // ABI-incompatible is still reported available (isDriverAvailable("QMYSQL") is true on
+    // the pinned kit even where the plugin cannot load); addDatabase() loads it and returns
+    // an invalid database when it will not load.
     static QString driverLoadFailure(const QString &driver)
     {
         const QString connection{QStringLiteral("synqt-driver-probe")};
@@ -267,6 +266,15 @@ private:
             loaded = probe.isValid();
         }
         QSqlDatabase::removeDatabase(connection);
+        if (loaded && driver == QLatin1String("QMYSQL") && linksOracleClient()) {
+            // It loaded, but it is Qt's prebuilt plugin on Oracle's client, which ignores
+            // MYSQL_OPT_SSL_VERIFY_SERVER_CERT: a proof run through it measures a driver
+            // SynQt never ships, and its verify-full check fails for that reason alone.
+            return QStringLiteral("the QMYSQL plugin that loaded links Oracle's "
+                                  "libmysqlclient, not MariaDB Connector/C. Rebuild it with "
+                                  "tools/qmysql-plugin/build-qmysql-plugin.sh and put "
+                                  "PLUGIN_ROOT on QT_PLUGIN_PATH");
+        }
         if (loaded) {
             return QString{};
         }
@@ -290,6 +298,17 @@ private:
                                      "PLUGIN_ROOT on QT_PLUGIN_PATH");
         }
         return reason;
+    }
+
+    // Whether Oracle's client library is mapped into this process. Only Linux says so
+    // cheaply, and Linux is where the live engines run; elsewhere nothing is claimed.
+    static bool linksOracleClient()
+    {
+        QFile maps{QStringLiteral("/proc/self/maps")};
+        if (!maps.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            return false;
+        }
+        return maps.readAll().contains("/libmysqlclient.so");
     }
 
     // The engines tests/lib/live-engines.sh starts answer TLS with a certificate for
@@ -722,11 +741,10 @@ private slots:
         QVERIFY(!provider.exec(insert, {QStringLiteral("late"), QStringLiteral("dee")}).ok);
     }
 
-    // A connection that will not open is the ordinary start-up failure of a pooled engine: a
-    // wrong host, a wrong password, a certificate that does not verify. The pool gives up on
-    // it and says why, and lets the connection go before removing it, so the failure is the
-    // reason and nothing else. Removed while a handle was still held, Qt warned that the
-    // connection was in use on every refused connect.
+    // A connection that will not open is the ordinary start-up failure of a pooled engine:
+    // a wrong host, a wrong password, a certificate that does not verify. The pool gives up
+    // on it, says why, and lets the connection go before removing it; removing it while a
+    // handle is still held makes Qt warn that the connection is in use.
     void aConnectionThatWillNotOpenLeavesNothingInUse()
     {
         QTest::failOnWarning(QRegularExpression{QStringLiteral("still in use")});
@@ -796,12 +814,12 @@ private slots:
     void mysqlAsksTheDriverForTheTlsItClaims()
     {
         // A provider that emits "SSL_MODE=VERIFY_IDENTITY" asks for something the QMYSQL
-        // driver does not know. It warns "Illegal connect option value" and ignores it, and the
-        // key it does know (MYSQL_OPT_SSL_MODE) is compiled out of a plugin built against
-        // MariaDB Connector/C, which is the only build SynQt may convey. So an entity
-        // configured for verified TLS could be speaking plaintext with every check
-        // above it satisfied. Assert the option string, because it is the one place where
-        // what the entity believes and what the driver was told can drift apart.
+        // driver does not know: it warns "Illegal connect option value" and ignores it, and
+        // the key it does know (MYSQL_OPT_SSL_MODE) is compiled out of a plugin built
+        // against MariaDB Connector/C, the only build SynQt may convey. An entity
+        // configured for verified TLS could then speak plaintext with every check above
+        // satisfied. The option string is asserted because it is where what the entity
+        // believes and what the driver was told can drift apart.
         ProviderConfig verified;
         verified.name = QStringLiteral("mysql");
         verified.host = QStringLiteral("db.internal");
@@ -1034,9 +1052,9 @@ private slots:
 
     void aCustomProviderCannotShadowABundledEngine()
     {
-        // `custom:` is a namespace, not decoration. Registering "sqlite" as a custom name
-        // must not change what `provider.name: sqlite` means, or a third-party file added
-        // to an entity could silently redirect its database.
+        // `custom:` is a namespace. Registering "sqlite" as a custom name must not change
+        // what `provider.name: sqlite` means, or a third-party file added to an entity
+        // could silently redirect its database.
         ProviderRegistry::registerPersistence(
             QStringLiteral("sqlite"), [](const ProviderConfig &config) {
                 return std::unique_ptr<IPersistenceProvider>{
@@ -1281,10 +1299,9 @@ private slots:
 
     // `tls: true` means TLS or nothing, on every link.
     //
-    // The same live server, which speaks plaintext, must now refuse the connection instead
-    // of returning a healthy provider. Before this, the flag was only ever read by the
-    // release guard, and a connection asked to be encrypted was opened in the clear, with
-    // the cache password as its first bytes.
+    // The same live server speaks plaintext, so the connection must be refused rather than
+    // returning a healthy provider. Otherwise a connection asked to be encrypted would open
+    // in the clear, with the cache password as its first bytes.
     void redisTlsAskedForIsTlsOrNothing()
     {
         if (!qEnvironmentVariableIsSet("SYNQT_TEST_REDIS_HOST")) {
@@ -1576,12 +1593,10 @@ private slots:
 
     // Every outbound call has an end, whatever the far side does.
     //
-    // A third party that accepts the connection and then answers nothing is not an error and
-    // never becomes one, so the promise never settles, the reply is never freed, and the
-    // `.catchError()` an author wrote for exactly this case never runs. One per call, for as
-    // long as the entity runs. Asserted on the request rather than by waiting out a real
-    // timeout, because the deadline is thirty seconds and a suite cannot spend that to watch
-    // a socket do nothing.
+    // A third party that accepts the connection and then answers nothing never produces an
+    // error, so without a deadline the promise never settles, the reply is never freed, and
+    // the author's `.catchError()` never runs: one leak per call for as long as the entity
+    // runs. Asserted on the request rather than by waiting out the thirty-second timeout.
     void everyOutboundCallCarriesADeadline()
     {
         QJSEngine engine;
@@ -1599,14 +1614,12 @@ private slots:
 
     // The allowlist is a place rather than a string.
     //
-    // `normalized.startsWith(endpoint.url)` is the obvious way to
-    // write it and lets three different URLs out of a declared prefix. The userinfo shape
-    // (`https://api.example.com@evil.test/`, whose host is evil.test and whose *string*
-    // begins with the prefix), a suffix on the host (`api.example.com.evil.test`), and a
-    // suffix on the last path segment (`/v1evil` under `/v1`). Each one is worse than a
-    // request going somewhere unexpected. The endpoint's declared headers are attached to
-    // whatever gets through, so the API key the deployment kept out of the QML travels to
-    // the attacker's host with it.
+    // `normalized.startsWith(endpoint.url)` lets three kinds of URL out of a declared
+    // prefix: the userinfo shape (`https://api.example.com@evil.test/`, whose host is
+    // evil.test and whose *string* begins with the prefix), a suffix on the host
+    // (`api.example.com.evil.test`), and a suffix on the last path segment (`/v1evil` under
+    // `/v1`). The endpoint's declared headers are attached to whatever gets through, so the
+    // API key the deployment kept out of the QML would travel to the attacker's host.
     void theOutboundAllowlistIsAPlaceAndNotAStringPrefix()
     {
         QJSEngine engine;
@@ -1653,16 +1666,16 @@ private slots:
         }
     }
 
-    /// A redirect is where the allowlisted call ends up, so it is checked like the first hop.
+    /// A redirect is where the allowlisted call ends up, so it is checked like the first
+    /// hop.
     ///
-    /// Qt follows redirects by default (NoLessSafeRedirectPolicy), to any host, carrying the
-    /// original request's headers, which here are the endpoint's own credential headers,
-    /// declared in `network.outbound` so a call site never holds the key. So an allowlisted
-    /// third party answering 302 (or a path under the prefix that an application composes
-    /// from a caller's input, where the target is somebody else's to choose) was a way to
-    /// both send the deployment's API key to a host nobody named and reach that host from
-    /// inside the mesh. Two servers here. One is on the allowlist and redirects, the other
-    /// is not on it and records anything that arrives.
+    /// Qt follows redirects by default (NoLessSafeRedirectPolicy), to any host, carrying
+    /// the original request's headers, here the endpoint's credential headers declared in
+    /// `network.outbound` so a call site never holds the key. An allowlisted third party
+    /// answering 302, or a path under the prefix composed from a caller's input, could
+    /// otherwise send the deployment's API key to a host nobody named and reach that host
+    /// from inside the mesh. Two servers here: one on the allowlist that redirects, and one
+    /// off it that records anything that arrives.
     void aRedirectOutOfTheAllowlistIsRefused()
     {
         QJSEngine engine;
@@ -1733,11 +1746,9 @@ private slots:
     /// with two named endpoints holding two keys has two places in it. Qt builds the
     /// redirected request as a copy of the original (createRedirectRequest, qtbase 6.12.0:
     /// only Content-Length and Content-Type go, and only when the method downgrades), so
-    /// the first endpoint's credential headers travel to the second. Both are places the
-    /// deployment named, and that is exactly why the second must not see the first's key:
-    /// "an allowlisted third party is not the same thing as a trusted one" is the rule
-    /// this file is written under, and one endpoint's key was never meant for the other.
-    /// So a redirect is held to the endpoint the call started at, not to the list.
+    /// the first endpoint's credential headers would travel to the second. An allowlisted
+    /// third party is not a trusted one, and one endpoint's key is not meant for another,
+    /// so a redirect is held to the endpoint the call started at, not to the list.
     void aRedirectToAnotherEndpointDoesNotCarryTheFirstOnesKey()
     {
         QJSEngine engine;
@@ -2080,16 +2091,15 @@ private slots:
 
     // A job that enqueues a job, which is what a batch walking a list a page at a time is.
     //
-    // A drain that runs until the queue is empty never gives the event
-    // loop back on that shape. The entity stops answering its connect points, stops reconnecting and
-    // stops reporting, with nothing to say why, because the queue is bounded, so it never grows,
-    // and each turn of the loop looks like progress. A pass runs what was waiting when
-    // it started and asks for another turn, so the work still finishes and everything else
-    // gets served in between.
+    // A drain that runs until the queue is empty never gives the event loop back on that
+    // shape. The entity stops answering its connect points, reconnecting and reporting,
+    // with nothing to say why: the queue is bounded, so it never grows, and each turn looks
+    // like progress. A pass runs what was waiting when it started and asks for another
+    // turn, so the work still finishes and everything else is served in between.
     //
-    // What is measured is when the event loop next ran, and the marker is armed from inside
-    // the first job rather than before it. Armed earlier it would fire before the drain even
-    // started, and the test would pass either way.
+    // The test checks when the event loop next ran, with the marker armed from inside the
+    // first job; armed earlier it would fire before the drain started, and the test would
+    // pass either way.
     void aJobThatEnqueuesAJobDoesNotHoldTheEventLoop()
     {
         constexpr int kPasses{20};
@@ -2154,10 +2164,10 @@ private slots:
         jobs->cancel(4242);
 
         // The timers belong to the Jobs object, so they go when it does. With a
-        // process-lifetime map keyed on the owner's address (see the note on Jobs::m_timers),
-        // a second Jobs landing on a freed address inherits the dead one's handles, and
-        // cancelling one of them stops an already-destroyed QTimer. Allocating a fresh
-        // Jobs right after destroying one is the arrangement that reproduces it.
+        // process-lifetime map keyed on the owner's address (see the note on
+        // Jobs::m_timers), a second Jobs landing on a freed address would inherit the dead
+        // one's handles, and cancelling one would stop a destroyed QTimer. Allocating a
+        // fresh Jobs right after destroying one is the arrangement that exposes that.
         jobs.reset();
         auto reborn{std::make_unique<Jobs>()};
         reborn->cancel(handle);   // must not reach the destroyed timer
@@ -2231,13 +2241,12 @@ private slots:
         QVERIFY(!cache.get(QStringLiteral("absent")).isValid());
     }
 
-    // Clearing a deadline, and the other half of the sentence set() already answers.
+    // Clearing a deadline, the other half of what set() already answers.
     //
-    // `expire(key, 0)` reads two ways ("no expiry" and "expire now"), and the two
-    // providers in this family read it differently. The memory one kept the key and Redis
-    // deleted it, because Redis takes a non-positive EXPIRE as "already expired". The
-    // interface says what set() says, which is no expiry, so this pins it on the provider
-    // every project gets by default. redisLiveRoundTrip() pins the same line on the other.
+    // `expire(key, 0)` reads two ways ("no expiry" and "expire now"), and Redis takes a
+    // non-positive EXPIRE as "already expired". The interface says what set() says, which
+    // is no expiry, so this pins it on the provider every project gets by default.
+    // redisLiveRoundTrip() pins the same line on the other.
     void memoryCacheExpireWithNoTtlClearsTheDeadline()
     {
         ProviderConfig config;
@@ -2257,14 +2266,11 @@ private slots:
 
     // A key whose deadline has passed is gone, and expire() may not bring it back.
     //
-    // The entries table is swept lazily (get() erases what it finds expired), so an
-    // entry that has run out is still sitting there until somebody reads it. expire()
-    // looked the key up and reset its deadline without asking whether the deadline it was
-    // replacing had already gone by, which turned a key that had expired an hour ago into
-    // a live one holding the value it expired with. Redis answers the same call with "no
-    // such key", so this was the divergence the family interface exists to prevent: the
-    // same line of application QML read a stale value against the default provider and
-    // nothing at all against Redis.
+    // The entries table is swept lazily (get() erases what it finds expired), so an expired
+    // entry stays until somebody reads it. An expire() that reset the deadline without
+    // checking it would turn a key that expired an hour ago into a live one holding its old
+    // value, while Redis answers the same call with "no such key": the divergence the
+    // family interface exists to prevent.
     void memoryCacheExpireDoesNotResurrectAKeyThatHasAlreadyExpired()
     {
         ProviderConfig config;
@@ -2314,10 +2320,10 @@ private slots:
 
     void memoryCacheDropsAnEntryOnceItsTtlHasPassed()
     {
-        // The one test here that has to spend real time. A TTL is in whole seconds, so the
-        // shortest one that can be observed to elapse is one second. It is worth the wait,
-        // because expiry is the cache's whole correctness claim and the read path is where
-        // it is enforced (get() erases what it finds expired rather than only hiding it).
+        // The one test here that spends real time. A TTL is in whole seconds, so the
+        // shortest one that can be observed to elapse is one second. Expiry is the cache's
+        // correctness claim, and the read path is where it is enforced (get() erases what
+        // it finds expired rather than only hiding it).
         ProviderConfig config;
         MemoryCacheProvider cache{config, /*maxEntries*/ 8};
         QVERIFY(cache.connect(nullptr));
@@ -2341,11 +2347,10 @@ private slots:
         QVERIFY(!cache.get(QStringLiteral("never-set")).isValid());
         cache.del(QStringLiteral("never-set"));  // deleting a missing key is not an error
 
-        // A TTL of zero or less means no deadline at all, which is the default every
-        // caller gets (`set(key, value)` and `incr()` both store without one). Pinning it
-        // here because "0 seconds" could as easily have been read as "already expired",
-        // and a cache that quietly dropped everything stored with the default would be a
-        // cache nothing could rely on.
+        // A TTL of zero or less means no deadline, the default every caller gets (`set(key,
+        // value)` and `incr()` both store without one). Pinned because "0 seconds" could be
+        // read as "already expired", and a cache that dropped everything stored with the
+        // default would be useless.
         cache.set(QStringLiteral("forever"), 1, 0);
         cache.set(QStringLiteral("also-forever"), 2, -5);
         QCOMPARE(cache.get(QStringLiteral("forever")).toInt(), 1);
