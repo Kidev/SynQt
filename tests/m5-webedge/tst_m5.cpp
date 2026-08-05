@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// M5 acceptance. The web edge, over real TLS. It serves the bundle with the computed
-// browser-hardening headers, accepts an authorized upgrade and exposes its connect
-// points, rejects a disallowed origin before a socket exists, closes a connection that
-// stalls its upgrade past the handshake timeout, and rejects an oversized frame.
+// The web edge, over real TLS. It serves the bundle with the computed browser-hardening
+// headers, accepts an authorized upgrade and exposes its connect points, rejects a
+// disallowed origin before a socket exists, closes a connection that stalls its upgrade
+// past the handshake timeout, and rejects an oversized frame.
 
 #include "sessionmanager.h"
 #include "topology.h"
@@ -89,27 +89,22 @@ class TestM5 : public QObject
     Q_OBJECT
 
 private:
-    /// One client for the whole suite, kept shared because the tests here are about the
-    /// edge's behaviour across requests, which is what a browser does.
+    /// One client for the whole suite, shared because the tests here are about the edge's
+    /// behaviour across requests, which is what a browser does.
     ///
     /// Every test starts an edge on a fresh OS-assigned port, and a QNetworkAccessManager
-    /// caches a connection and its TLS session per host:port, releasing them on an
-    /// inactivity timer that never comes round inside a test run. It holds about 131 KB per
-    /// edge, which is what made this suite by far the largest entry in run-leakcheck.sh's
-    /// soak table until cleanup() below started dropping each one as its port went dead.
-    /// None of it was ever a leak in the edge, and that too is measured rather than
-    /// asserted. Tests/memory's anEdgeThatServedARequestLetsGoOfAllOfIt runs the same cycle
-    /// with a client thrown away each time and reads zero, which is what says the retention
-    /// is the client's and not the edge's.
+    /// caches a connection and its TLS session per host:port on an inactivity timer that
+    /// never fires inside a run, about 131 KB per edge. cleanup() drops them. None of it is
+    /// the edge's: tests/memory's anEdgeThatServedARequestLetsGoOfAllOfIt runs the same
+    /// cycle with a client thrown away each time and reads zero.
     QNetworkAccessManager m_nam;
 
     /// Every request carries exactly the cookies the test names, and stores none.
     ///
-    /// QNetworkAccessManager keeps a cookie jar of its own, so without this a reply's
-    /// Set-Cookie would ride the next request and quietly override a Cookie header set
-    /// here. That matters now that the edge answers a request presenting a live session
-    /// without minting another. A test asking "what does a browser holding X get" has to
-    /// be the one deciding what X is.
+    /// QNetworkAccessManager keeps a cookie jar of its own, so a reply's Set-Cookie would
+    /// ride the next request and override a Cookie header set here. The edge answers a
+    /// request presenting a live session without minting another, so a test asking "what
+    /// does a browser holding X get" has to decide what X is.
     static void useOnlyTheCookiesNamedHere(QNetworkRequest &request)
     {
         request.setAttribute(QNetworkRequest::CookieLoadControlAttribute,
@@ -186,19 +181,14 @@ private slots:
 
     /// After each test, never between the requests inside one.
     ///
-    /// The comment on m_nam explains what the shared client retains and why it is shared;
-    /// this is the half of it nothing needs. Every test here starts an edge on a fresh
-    /// OS-assigned port and takes it down at the end, so by the time this runs that port is
-    /// dead and the connection and TLS session cached against it can never be reused by
-    /// anything. They are held anyway, on an inactivity timer that never comes round inside
-    /// a run, and with about sixty edges to a pass they added roughly 4 MB per repetition of
-    /// this suite. Enough to put m5 over the per-run limit in
-    /// tests/memory/run-leakcheck.sh, which is where it was found.
+    /// The comment on m_nam explains what the shared client retains. Every test starts an
+    /// edge on a fresh port and takes it down at the end, so by now the connection and TLS
+    /// session cached against that port can never be reused. They would otherwise be held
+    /// on an inactivity timer that never fires inside a run, roughly 4 MB per repetition of
+    /// this suite, enough to exceed the per-run limit in tests/memory/run-leakcheck.sh.
     ///
-    /// It cannot change what a test observes, because no test here reaches an edge that
-    /// another one started, and Qt documents this function as the one to call for exactly
-    /// this in an auto test. What the suite is about, one client behaving like a
-    /// browser across the requests of a single test, is untouched.
+    /// It cannot change what a test observes, because no test reaches an edge another one
+    /// started, and Qt documents this function for exactly this use in an auto test.
     void cleanup()
     {
         m_nam.clearAccessCache();
@@ -301,21 +291,17 @@ private slots:
 
     void theEdgeTerminatesTlsWithAnEllipticCurveKey()
     {
-        // The same edge, over an EC key instead of an RSA one. `certbot --key-type ecdsa`
-        // writes one, and the certificate documentation promises SynQt has no opinion
-        // about where a certificate comes from. It had one: the key was read as RSA, which
-        // decodes with RSA's own PEM reader and answers a null key for anything else, so
-        // the edge listened on the public port with nothing to terminate TLS with and
-        // every handshake failed with nothing in the log naming the file.
+        // The same edge over an EC key instead of an RSA one; `certbot --key-type ecdsa`
+        // writes one, and SynQt has no opinion about where a certificate comes from. A key
+        // read as RSA would decode to a null key, so the edge would listen on the public
+        // port with nothing to terminate TLS with and nothing in the log naming the file.
         //
         // Reading it is only the first half. A Qt TLS backend with no key API of its own
         // (Secure Transport on macOS, Schannel on Windows) hands the pair to the platform
         // as a PKCS#12 blob, and qtbase's builder for that blob writes an algorithm
-        // identifier for RSA and DSA and for nothing else, so an EC key arrives malformed
-        // and the socket ends up with no identity at all. That is the same dead port by
-        // another road, which is why the edge asks the second question too and refuses
-        // where the answer is no. The two branches below are one rule: an edge either
-        // terminates TLS with the key it was given or does not listen.
+        // identifier only for RSA and DSA, so an EC key arrives malformed and the socket
+        // ends up with no identity. The edge therefore checks both and refuses where either
+        // answer is no: it terminates TLS with the key it was given or does not listen.
         QQmlEngine engine;
         WebEdgeConfig config{makeConfig(false)};
         config.certFile = QStringLiteral(M5_CERT_DIR "/server-ec.crt");
@@ -483,9 +469,8 @@ private slots:
 
     // A compressed copy older than the file it was made from is a copy of an older file.
     // `synqt dev` rebuilds the client in place and leaves the copies the first build wrote,
-    // and every browser accepts gzip, so a stale one was served in its place: after the first
-    // build, no edit to the client ever reached the browser. The edge serves the file itself
-    // instead, uncompressed and current.
+    // and every browser accepts gzip, so serving the stale copy would hide every edit to
+    // the client. The edge serves the file itself instead, uncompressed and current.
     void aStaleCompressedCopyIsNotServed()
     {
         const QString bundle{QStringLiteral(M5_SRCDIR "/bundle")};
@@ -498,8 +483,9 @@ private slots:
         gz.write(QByteArrayLiteral("the previous build, compressed"));
         gz.close();
         // Dated once the bytes are on disk. Setting it before the close would be undone by
-        // the flush the close does.
-        QVERIFY(gz.open(QIODevice::ReadOnly));
+        // the flush the close does. ReadWrite, not ReadOnly: Windows sets a file time only
+        // through a handle opened with write access, and ReadWrite does not truncate.
+        QVERIFY(gz.open(QIODevice::ReadWrite));
         QVERIFY(gz.setFileTime(QDateTime::currentDateTimeUtc().addSecs(-3600),
                                QFileDevice::FileModificationTime));
         gz.close();
@@ -553,13 +539,11 @@ private slots:
 
     // Ending a session ends the connections it authorized.
     //
-    // Which connect points a connection hosts is decided once, when it is accepted, from
-    // the scope that session held then. Every property and model on them then replicates
-    // for as long as the socket is open. So revoking a session (signing out) or letting it
-    // expire has to take the socket with it. It did not. The credential went away, a *new*
-    // slot call was refused because Caller re-reads the live session, and everything the
-    // owner pushed went on arriving in a tab that had signed out. Read access outliving the
-    // credential is the half of authorization nobody notices is missing.
+    // Which connect points a connection hosts is decided once, at accept, from the scope
+    // the session held then, and every property and model on them replicates for as long as
+    // the socket is open. So revoking a session (signing out) or letting it expire has to
+    // take the socket with it. Refusing new slot calls is not enough: without closing the
+    // socket, everything the owner pushes would go on arriving in a tab that signed out.
     void revokingASessionClosesTheConnectionsItAuthorized()
     {
         QQmlEngine engine;
@@ -687,12 +671,10 @@ private slots:
 
     // Ending a session still ends its connections when the socket is on another thread.
     //
-    // This is the same rule as revokingASessionClosesTheConnectionsItAuthorized, on the
-    // path where it is easiest to lose. Closing a connection means reaching a QWebSocket
-    // that no longer belongs to this thread. Calling close() on it from here does nothing
-    // and reports nothing, and the result is the exact failure that test was written for,
-    // back again on a threaded edge only. The credential is gone, a new call is refused,
-    // and everything the owner pushes goes on arriving in a tab that signed out.
+    // The same rule as revokingASessionClosesTheConnectionsItAuthorized, on the path where
+    // it is easiest to lose. Closing the connection means reaching a QWebSocket owned by
+    // another thread; close() called from here does nothing and reports nothing, and a
+    // signed-out tab would go on receiving what the owner pushes.
     void revokingASessionClosesAThreadedConnection()
     {
         QQmlEngine engine;
@@ -954,17 +936,16 @@ private slots:
     // the offered subprotocols and echo it in the 101, and Qt 6.12 offers no way to do that
     // on this path: QHttpServerWebSocketUpgradeResponse::accept() takes no arguments, and
     // the QWebSocketServer that writes the response lives in QAbstractHttpServerPrivate,
-    // where setSupportedSubprotocols() cannot be reached. The upgrade still succeeds, with
+    // where setSupportedSubprotocols() cannot be reached. The upgrade still succeeds with
     // nothing negotiated, which is what this pins.
     //
-    // Qt's own QWebSocket accepts that silence, and so does Firefox 151. Chromium 149 does
-    // not. It closes with 1006 and "Sent non-empty 'Sec-WebSocket-Protocol' header but no
-    // response was received". Two engines disagreeing is the reason this is a refusal in
-    // `synqt check` rather than a feature with a caveat.
+    // Qt's QWebSocket and Firefox accept that silence; Chromium closes with 1006 and "Sent
+    // non-empty 'Sec-WebSocket-Protocol' header but no response was received". Two engines
+    // disagreeing is why `synqt check` refuses it.
     //
-    // This is a tripwire, not a wish. If a later Qt lets the verifier select a subprotocol,
-    // this test starts failing, and that failure is the signal the transport can be built.
-    // See docs/project-layout-and-config.md (`session_transport`).
+    // A tripwire: if a later Qt lets the verifier select a subprotocol, this test fails,
+    // and that is the signal the transport can be built. See
+    // docs/project-layout-and-config.md (`session_transport`).
     void theUpgradePathCannotNegotiateASubprotocol()
     {
         QQmlEngine engine;
@@ -1023,12 +1004,12 @@ private slots:
         QCOMPARE(connectedSpy.count(), 0);
     }
 
-    // The other half of the origin gate, and the half a refusal test cannot see. Every
-    // test above hands the edge back the origin the edge itself computed, so all of them
-    // pass an edge that is wrong about where it lives. The browser that then arrives at
-    // the address it was reachable on is refused, and the app loops at the sign-in
-    // screen with nothing in the log. So: bind the wildcard, the way a container and every
-    // unconfigured deployment does, and arrive the way a browser has to.
+    // The other half of the origin gate, the one a refusal test cannot see. Every test
+    // above hands the edge back the origin it computed itself, so all of them pass an edge
+    // that is wrong about where it lives, while a real browser arriving at the edge's
+    // actual address would be refused and loop at the sign-in screen. So: bind the
+    // wildcard, as a container and every unconfigured deployment does, and arrive the way a
+    // browser has to.
     void wildcardBoundEdgeAcceptsTheBrowserThatCanReachIt()
     {
         WebEdgeConfig config{makeConfig(false)};
@@ -1037,7 +1018,7 @@ private slots:
         WebEdge edge{config, &engine};
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
 
-        // "0.0.0.0" is an instruction to a socket, not a name anything can be at.
+        // "0.0.0.0" tells a socket to bind every interface; nothing can be reached at it.
         QVERIFY(!edge.httpOrigin().contains(QStringLiteral("0.0.0.0")));
         QCOMPARE(edge.httpOrigin(),
                  QStringLiteral("https://localhost:%1").arg(edge.serverPort()));
@@ -1126,11 +1107,9 @@ private slots:
         QCOMPARE(connectedSpy.count(), 0);  // refused before a socket exists
     }
 
-    // The other half of the same gate, and the half that was missing. A session that HAS an
-    // identity gets in. Without it, the test above passes just as happily against an edge
-    // that refuses everybody, which is exactly what `identity.required: true` did until
-    // this was written. Being refused is what a broken accept looks like from the outside,
-    // so a refusal test on its own can never tell the two apart.
+    // The other half of the same gate: a session that HAS an identity gets in. Without
+    // this, the test above passes just as well against an edge that refuses everybody, and
+    // a refusal test on its own cannot tell a working gate from a broken accept.
     void authenticatedUpgradeIsAcceptedWhenIdentityIsRequired()
     {
         WebEdgeConfig config{makeConfig(false)};
@@ -1165,14 +1144,13 @@ private slots:
 
     void socketCapRefusesAPeerThatOpensSocketsAndSendsNothing()
     {
-        // The hole the connection cap on its own never covers.
+        // The hole the connection cap alone does not cover.
         //
-        // max_connections_per_ip is counted in hostConnection(), which runs after an
-        // upgrade is accepted. A peer that connects and never finishes a request is never
-        // hosted, so it was never counted, and nothing else closed it either: measured, such
-        // a socket was still open a minute later with only the 64 KiB header ceiling in the
-        // way, which at a byte every few seconds is days out. One address could therefore
-        // hold as many sockets as the process had descriptors.
+        // max_connections_per_ip is counted in hostConnection(), after an upgrade is
+        // accepted. A peer that connects and never finishes a request is never hosted, so
+        // never counted, and only the 64 KiB header ceiling stands in its way, which at a
+        // byte every few seconds is days. One address could hold as many sockets as the
+        // process has descriptors.
         //
         // Qt 6.12's QHttpServerConfiguration::setMaximumConnectionsPerHost counts at accept
         // instead, which is what this asserts. The ceiling is the link ceiling times
@@ -1181,24 +1159,22 @@ private slots:
         config.maxConnectionsPerIp = 1;
         // The held sockets below are also the peer the handshake window is for: they
         // complete TLS and never send a byte, and a QSslSocket's readyRead is application
-        // data only, so nothing ever stops their clock. With makeConfig's 800 ms window the
-        // first of them was aborted before the ninth arrived on any machine where eight
-        // sequential handshakes take longer than that (the macOS runner, every time), the
-        // count fell under the ceiling, and the ninth was hosted and answered. That window
-        // has its own test (stalledUpgradeClosed). Here it is lifted past everything this
-        // test waits for, so what holds the ceiling is the cap alone.
+        // data only, so nothing stops their clock. With makeConfig's 800 ms window, a
+        // machine where eight sequential handshakes take longer would abort the first
+        // before the ninth arrives, and the ninth would be hosted. The window has its own
+        // test (stalledUpgradeClosed); here it is lifted past everything this test waits
+        // for, so the cap alone holds the ceiling.
         config.handshakeTimeoutMs = 60000;
         QQmlEngine engine;
         WebEdge edge{config, &engine};
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
 
         // Hold the ceiling open with sockets that complete a TLS handshake and then say
-        // nothing at all, which is exactly the peer the connection cap cannot see.
+        // nothing, the peer the connection cap cannot see.
         //
-        // QTRY_VERIFY and not waitForEncrypted. The edge is in this process, so a blocking
-        // wait stops the event loop that would have to accept the connection and the
-        // handshake never completes. The first draft did exactly that and timed out on
-        // socket one of eight, which reads like a refused connection and is not one.
+        // QTRY_VERIFY, not waitForEncrypted: the edge is in this process, so a blocking
+        // wait stops the event loop that has to accept the connection, and the handshake
+        // never completes.
         const int ceiling{config.maxConnectionsPerIp * WebEdgeConfig::SocketsPerLink};
         std::vector<std::unique_ptr<QSslSocket>> held;
         for (int i{0}; i < ceiling; ++i) {
@@ -1235,17 +1211,16 @@ private slots:
         afterRelease->deleteLater();
     }
 
-    // The other half of "releasing a socket readmits the next caller", and the half the
-    // test above never reached. A socket that was UPGRADED and then closed.
+    // The other half of "releasing a socket readmits the next caller": a socket that was
+    // UPGRADED and then closed.
     //
     // QHttpServer counts sockets at accept and counts them back down on the socket's
-    // `disconnected`, and its upgrade path wildcard-disconnects the socket the moment an
-    // upgrade is accepted (`socket->disconnect()` in QHttpServerHttp1ProtocolHandler, Qt
-    // 6.12.0), which takes that receiver with it. So every accepted WebSocket link held its
-    // slot for the life of the process. After `max_connections_per_ip * SocketsPerLink`
-    // links from one address, ever, that address was refused at accept, silently, and after
-    // the global figure so was everybody. The edge keeps the count itself now
-    // (WebEdge::trackPendingUpgrade), on the raw socket's own destruction, which is the
+    // `disconnected`, but its upgrade path wildcard-disconnects the socket once an upgrade
+    // is accepted (`socket->disconnect()` in QHttpServerHttp1ProtocolHandler, Qt 6.12.0),
+    // which removes that receiver. Every accepted WebSocket link would hold its slot for
+    // the life of the process, and after `max_connections_per_ip * SocketsPerLink` links
+    // from one address that address would be refused at accept, silently. The edge keeps
+    // the count itself (WebEdge::trackPendingUpgrade), on the raw socket's destruction, the
     // one event no hand-over can disconnect.
     void aClosedWebSocketLinkGivesItsSocketBack()
     {
@@ -1517,13 +1492,10 @@ private slots:
 
     void aKeepAliveConnectionThatFetchedThePageIsNotClosedUnderIt()
     {
-        // The other half of the same deadline, and the half that is easy to get wrong. A browser
-        // fetches the page, the loader and the bundle over one keep-alive connection, and
-        // that is the connection it upgrades on, so a window that runs against ordinary
-        // traffic sends an RST past it and records a refusal nobody made, four of them
-        // per session from a browser that is only loading the
-        // page. The deadline applies to a socket that arrives and stays silent, which
-        // is what it is for.
+        // The other half of the same deadline. A browser fetches the page, the loader and
+        // the bundle over one keep-alive connection and upgrades on it, so a window that
+        // ran against ordinary traffic would reset it and record refusals nobody made. The
+        // deadline applies only to a socket that arrives and stays silent.
         QQmlEngine engine;
         WebEdge edge{makeConfig(false), &engine};
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
@@ -1594,12 +1566,12 @@ private slots:
     }
 
     // The session table is the one thing a stranger can grow with nothing but page loads:
-    // every request that arrives without a live cookie is handed a fresh session, and
-    // until this only the TTL ever took one away. Twelve hours at one request per record
-    // was the memory an anonymous flood could make the edge hold, and on a replicated
-    // edge every record went to every replica. Past the ceiling the edge lets go of the
-    // oldest anonymous session nobody is connected on, so the flood evicts its own and a
-    // visitor arriving in the middle of it is still given a session.
+    // every request without a live cookie is handed a fresh session. Bounded by the TTL
+    // alone, an anonymous flood could make the edge hold twelve hours of records at one per
+    // request, and on a replicated edge every record goes to every replica. Past the
+    // ceiling the edge lets go of the oldest anonymous session nobody is connected on, so
+    // the flood evicts its own and a visitor arriving in the middle of it still gets a
+    // session.
     void aFloodOfPageLoadsCannotGrowTheSessionTablePastItsCeiling()
     {
         QQmlEngine engine;
@@ -1660,15 +1632,13 @@ private slots:
     void aDevEdgeWithoutTheFlagHasNoPickerRoute()
     {
         // Not "refuses": not registered. Nothing built passes --identity-picker and `synqt
-        // serve` has no flag for it, so this is the shape every edge but one has.
+        // serve` has no flag for it, so this is the shape of every edge but one.
         //
-        // The claim is made on the answers rather than on a status code, and that is worth
-        // saying because the obvious test is wrong here. This edge serves a client bundle,
-        // so an unmatched GET falls through to index.html and comes back 200 whether the
-        // route exists or not. A test that compared 404 would have been asserting the
-        // absence of a route by a number that never says anything about routes. What does
-        // say something is that the GET is not the picker's page, and that the POST, which
-        // is the only half that could mint anything, is refused and mints nothing.
+        // The claim is made on the answers rather than on a status code. This edge serves a
+        // client bundle, so an unmatched GET falls through to index.html and returns 200
+        // whether the route exists or not. What does say something is that the GET is not
+        // the picker's page, and that the POST, the only half that could mint anything, is
+        // refused and mints nothing.
         QQmlEngine engine;
         WebEdgeConfig config{makeGatedConfig()};
         WebEdge edge{config, &engine};
@@ -1714,12 +1684,11 @@ private slots:
     void thePickerCoversEverySignInSurfaceInTheProject()
     {
         // A flag that covers one of two sign-in surfaces is worse than one that covers
-        // neither, because the uncovered surface still shows a real login and reads as a
-        // bug in the flag. There are two surfaces on this edge. The OAuth login, which runs
-        // in process by default and on a dedicated entity when identity.provider_entity
-        // names one, and the password gate behind signInPath, whose one user is the
-        // monitor. The picker is registered above both of them and depends on neither, and
-        // this is what says so rather than the shape of the code saying it.
+        // neither, because the uncovered surface still shows a real login. This edge has
+        // two: the OAuth login (in process by default, on a dedicated entity when
+        // identity.provider_entity names one) and the password gate behind signInPath,
+        // whose one user is the monitor. The picker is registered above both and depends on
+        // neither, and this test asserts it.
 
         // Promoted identity. This edge holds no secret and no OAuth engine, because the
         // auth entity owns them and the edge reaches identity over the mesh. The picker
@@ -1829,15 +1798,14 @@ private slots:
 
     // An elevation the response itself hands back leaves no hand-off behind.
     //
-    // `SessionManager::setScope` rotates the credential and remembers, for ten minutes,
-    // that the old id became the new one, so that a browser whose session was elevated
-    // under a live socket (Caller.setScope in a slot, which can set no cookie) is handed
-    // its new credential on the next page load. The password gate is not that case: its
-    // answer IS the response that carries the new cookie, so the browser that signed in
-    // already holds it. Left standing, the hand-off made the pre-sign-in id a ticket to the
-    // operator session for ten minutes, redeemable by anyone who knew it: a cookie planted
-    // from a sibling subdomain before the operator typed their password is exactly that
-    // (session fixation, which rotating on elevation exists to close).
+    // `SessionManager::setScope` rotates the credential and remembers for ten minutes that
+    // the old id became the new one, so a browser whose session was elevated under a live
+    // socket (Caller.setScope in a slot, which can set no cookie) is handed its new
+    // credential on the next page load. The password gate is not that case: its answer IS
+    // the response carrying the new cookie. A hand-off left standing would make the
+    // pre-sign-in id a ticket to the operator session for ten minutes, redeemable by anyone
+    // who knew it, such as a cookie planted from a sibling subdomain before the operator
+    // typed their password (session fixation, which rotating on elevation exists to close).
     void thePasswordGateLeavesNoHandOffFromTheOldCredential()
     {
         QQmlEngine engine;
@@ -1891,9 +1859,8 @@ private slots:
 
     void aDevEdgePicksAScopeAndHandsBackASession()
     {
-        // The accept case, and it is not padding. A gate tested only by refusals passes
-        // when it refuses everything, which is how identity.required refused everybody in
-        // this tree for months. moderator is index 2 in makeGatedConfig's vocabulary.
+        // The accept case. A gate tested only by refusals passes when it refuses
+        // everything. moderator is index 2 in makeGatedConfig's vocabulary.
         QQmlEngine engine;
         WebEdgeConfig config{makeGatedConfig()};
         config.identityPicker = true;
