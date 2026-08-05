@@ -1,0 +1,675 @@
+/* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+   SPDX-License-Identifier: Apache-2.0
+
+   The editor's look, which is the front page's mesh drawing made editable: entities are
+   discs with a glyph, links are dashed lines carrying a lock and the contract they share,
+   and the browser sits to the left of the edge it reaches with everything it must not reach
+   to the right of that. Same palette as synqt.org (docs/stylesheets/home.css), so a reader
+   arriving from the guide recognises what they are looking at.
+
+   Dark is the default because that is what the site is; light follows the reader's own
+   setting rather than a control on the page, since this window belongs to a terminal
+   session and holds nothing worth a preference of its own. */
+
+:root {
+  color-scheme: dark;
+
+  --ink: #e5e7ff;
+  --ink-dim: #9a94c4;
+  --page: #150d24;
+  --panel: #1a1033;
+  --panel-high: #241848;
+  --line: #6a5b99;
+  --accent: #00a6ed;
+  --client: #46f477;
+  --service: #8890c0;
+  --edge: #e5e7ff;
+  --error: #ff6b6b;
+  --warn: #ffb347;
+  --shadow: rgba(0, 0, 0, .45);
+
+  --bar-height: 3rem;
+  --rail-width: 14rem;
+  --inspector-width: 22rem;
+  --mono: ui-monospace, "Roboto Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --ink: #201335;
+    --ink-dim: #5b5580;
+    --page: #f2f1f9;
+    --panel: #ffffff;
+    --panel-high: #eceaf6;
+    --line: #b0a8d0;
+    --accent: #0077b6;
+    --client: #12a150;
+    --service: #5f689c;
+    --edge: #3a2a5c;
+    --error: #c62828;
+    --warn: #a35c00;
+    --shadow: rgba(32, 19, 53, .16);
+  }
+}
+
+/* The colour lives on the root, not the body: of a canvas background the browser paints
+   only the colour behind the scrollbar, so this is what the gutter shows. */
+html {
+  background-color: var(--page);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: var(--bar-height) 1fr;
+  color: var(--ink);
+  font-family: var(--text);
+  font-size: 14px;
+  overflow: hidden;
+}
+
+h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* The bar */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: 0 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar__mark {
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--accent);
+}
+
+.bar__project {
+  font-family: var(--mono);
+}
+
+.bar__gap {
+  flex: 1;
+}
+
+.bar__verdict {
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.bar__verdict--error {
+  color: var(--error);
+}
+
+.bar__verdict--warn {
+  color: var(--warn);
+}
+
+.button {
+  padding: .35rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: .25rem;
+  background: var(--panel-high);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.button--go {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.button--danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+/* The three columns */
+
+.work {
+  display: grid;
+  grid-template-columns: var(--rail-width) 1fr var(--inspector-width);
+  min-height: 0;
+}
+
+.rail,
+.inspector {
+  padding: 1rem;
+  background: var(--panel);
+  overflow-y: auto;
+}
+
+.rail {
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.inspector {
+  border-left: 1px solid var(--line);
+}
+
+.rail__title {
+  margin-top: .5rem;
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .35rem .5rem;
+  border: 1px solid transparent;
+  border-radius: .25rem;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette__item:hover {
+  border-color: var(--line);
+  background: var(--panel-high);
+}
+
+/* The same three colours the canvas gives a node, so the button and what it adds are
+   recognisably the same thing. */
+.palette__swatch {
+  width: .55rem;
+  height: .55rem;
+  border-radius: 50%;
+  flex: none;
+  background: var(--service);
+}
+
+.palette__swatch--client {
+  background: var(--client);
+}
+
+.palette__swatch--edge {
+  background: var(--edge);
+}
+
+.findings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.finding {
+  padding: .35rem .5rem;
+  border-left: 2px solid var(--line);
+  background: var(--panel-high);
+  border-radius: 0 .2rem .2rem 0;
+  font-size: 12px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.finding--error {
+  border-left-color: var(--error);
+}
+
+.finding--warn {
+  border-left-color: var(--warn);
+}
+
+.finding__rule {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+.finding--quiet {
+  color: var(--ink-dim);
+  cursor: default;
+}
+
+/* The canvas */
+
+.stage {
+  position: relative;
+  min-width: 0;
+  background:
+    radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 32px 32px,
+    var(--page);
+}
+
+.canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+
+.canvas.is-panning {
+  cursor: grabbing;
+}
+
+.stage__hint {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  right: 1rem;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-dim);
+  pointer-events: none;
+}
+
+.stage__hint--error {
+  color: var(--error);
+}
+
+/* Nodes. The glyph inside each takes its colour from the group, so one class per role
+   colours the disc, its rim and its icon together. */
+
+.node {
+  cursor: pointer;
+  color: var(--service);
+}
+
+.node--client {
+  color: var(--client);
+}
+
+.node--edge {
+  color: var(--edge);
+}
+
+.node__disc {
+  fill: var(--panel);
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.node--edge .node__disc {
+  fill: var(--panel-high);
+}
+
+.node__name {
+  fill: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.node__kind {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+/* The handle you pull a link out of. Invisible until the pointer is over the node, so a
+   resting canvas is the mesh and nothing else. */
+.node__rim {
+  fill: var(--panel);
+  stroke: currentColor;
+  stroke-width: 1.2;
+  opacity: 0;
+  cursor: crosshair;
+}
+
+.node:hover .node__rim,
+.node.is-selected .node__rim {
+  opacity: 1;
+}
+
+.node__rim-mark {
+  stroke: currentColor;
+  stroke-width: 1.2;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.node:hover .node__rim-mark,
+.node.is-selected .node__rim-mark {
+  opacity: 1;
+}
+
+.node.is-selected .node__disc {
+  stroke-width: 2.5;
+}
+
+.node.is-error .node__disc {
+  stroke: var(--error);
+}
+
+.node.is-warn .node__disc {
+  stroke: var(--warn);
+}
+
+/* Links */
+
+.link {
+  cursor: pointer;
+}
+
+.link__line {
+  stroke: var(--line);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 5;
+  fill: none;
+}
+
+.link__head {
+  fill: var(--line);
+}
+
+/* Wide, transparent, and the only part that answers a click, so a 1.5px line does not have
+   to be hit exactly. `pointer-events: all` rather than relying on the fill: it says the band
+   catches the pointer without asking anything about how it is painted. */
+.link__hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+
+.link__lock,
+.link__doc {
+  stroke: var(--ink-dim);
+  fill: none;
+  pointer-events: none;
+}
+
+.link__lock-body {
+  fill: var(--ink-dim);
+  stroke: none;
+}
+
+.link__name {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.link.is-selected .link__line {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+}
+
+.link.is-selected .link__head {
+  fill: var(--accent);
+}
+
+.link.is-selected .link__name {
+  fill: var(--accent);
+}
+
+.link.is-error .link__line {
+  stroke: var(--error);
+}
+
+.link.is-error .link__head {
+  fill: var(--error);
+}
+
+.link.is-error .link__name {
+  fill: var(--error);
+}
+
+/* A local socket is not a mistake and is not drawn as one. It is drawn as what it is: a
+   link whose caller is trusted by colocation rather than by certificate, so its lock is
+   open and its line is not the same line as the others. */
+.link.is-warn .link__line {
+  stroke: var(--warn);
+  stroke-dasharray: 1 4;
+}
+
+.link.is-warn .link__lock,
+.link.is-warn .link__name {
+  stroke: var(--warn);
+  fill: var(--warn);
+}
+
+.link.is-warn .link__lock-body {
+  fill: var(--warn);
+}
+
+.ghost {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  fill: none;
+  pointer-events: none;
+}
+
+/* The inspector */
+
+.inspector__empty {
+  color: var(--ink-dim);
+  line-height: 1.5;
+}
+
+.inspector__title {
+  margin: 0 0 .75rem;
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
+.field {
+  display: block;
+  margin-bottom: .6rem;
+}
+
+.field__label {
+  display: block;
+  margin-bottom: .2rem;
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.field__note {
+  margin: -.35rem 0 .6rem;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+
+input[type="text"],
+select {
+  width: 100%;
+  padding: .3rem .4rem;
+  border: 1px solid var(--line);
+  border-radius: .2rem;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+input[type="text"]:focus,
+select:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: .25rem;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.members {
+  margin-top: 1rem;
+}
+
+.member {
+  margin-top: .5rem;
+  padding: .5rem;
+  border: 1px solid var(--line);
+  border-radius: .25rem;
+  background: var(--page);
+}
+
+.member__row {
+  display: flex;
+  gap: .3rem;
+  align-items: center;
+}
+
+.member__row select {
+  width: auto;
+  flex: none;
+}
+
+.member__row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.member__parts {
+  margin: .4rem 0 0 .75rem;
+  padding-left: .5rem;
+  border-left: 1px solid var(--line);
+}
+
+.member__parts-title {
+  margin-bottom: .2rem;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.member__part {
+  display: flex;
+  gap: .3rem;
+  align-items: center;
+  margin-bottom: .25rem;
+}
+
+.member__part select {
+  width: 7rem;
+  flex: none;
+}
+
+.icon-button {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: .2rem;
+  background: var(--panel-high);
+  color: var(--ink-dim);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.inspector__actions {
+  margin-top: 1rem;
+  display: flex;
+  gap: .5rem;
+}
+
+/* The change set */
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 55vh;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: 1rem;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px var(--shadow);
+}
+
+.sheet[hidden] {
+  display: none;
+}
+
+.sheet__bar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.sheet__title {
+  flex: 1;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+.sheet__git {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.sheet__diff {
+  flex: 1;
+  margin: 0;
+  padding: .75rem;
+  overflow: auto;
+  background: var(--page);
+  border: 1px solid var(--line);
+  border-radius: .25rem;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}

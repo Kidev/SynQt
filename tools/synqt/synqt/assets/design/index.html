@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+     SPDX-License-Identifier: Apache-2.0
+
+     The editor's one page. Nothing is inline: no script body, no style block, no handler
+     attribute, and nothing loaded from anywhere but here, so the page runs under the policy
+     the server sends it with (default-src 'none' and 'self' for the rest, no unsafe-inline).
+     design.js finds every element below by id and attaches every listener. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SynQt design</title>
+    <link rel="stylesheet" href="design.css">
+    <script type="module" src="design.js"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <span class="bar__mark">SynQt</span>
+      <span class="bar__project" id="project">reading the project</span>
+      <span class="bar__verdict" id="verdict"></span>
+      <span class="bar__gap"></span>
+      <button type="button" class="button" id="review">Review changes</button>
+      <button type="button" class="button button--go" id="apply" disabled>Apply</button>
+    </header>
+
+    <main class="work">
+      <aside class="rail">
+        <h2 class="rail__title">Add an entity</h2>
+        <div class="palette" id="palette"></div>
+        <h2 class="rail__title">What the rules say</h2>
+        <ul class="findings" id="findings"></ul>
+      </aside>
+
+      <section class="stage">
+        <svg class="canvas" id="canvas" xmlns="http://www.w3.org/2000/svg">
+          <!-- Links first so a line passes under a node rather than across it, and the
+               half-drawn one between them so it does the same. -->
+          <g id="viewport">
+            <g id="links"></g>
+            <g id="ghost"></g>
+            <g id="nodes"></g>
+          </g>
+        </svg>
+        <p class="stage__hint" id="hint"></p>
+      </section>
+
+      <aside class="inspector" id="inspector"></aside>
+    </main>
+
+    <section class="sheet" id="sheet" hidden>
+      <header class="sheet__bar">
+        <h2 class="sheet__title" id="sheet-title">Changes</h2>
+        <button type="button" class="button" id="sheet-close">Close</button>
+      </header>
+      <p class="sheet__git" id="sheet-git"></p>
+      <ul class="findings" id="sheet-findings"></ul>
+      <pre class="sheet__diff" id="sheet-diff"></pre>
+    </section>
+  </body>
+</html>
