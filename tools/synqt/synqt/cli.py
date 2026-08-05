@@ -24,11 +24,6 @@ def _load_config(project_dir: str, profile: Optional[str] = None) -> Dict[str, A
     return configmod.load(project_dir, profile=profile)
 
 
-def _backend_name(backend: Any) -> str:
-    """Which type backend `--types auto` settled on, for the report to say so."""
-    return "ts" if isinstance(backend, typebackend.TsBackend) else "heuristic"
-
-
 def _service_entities(config: Dict[str, Any]) -> List[str]:
     return [e.get("name") for e in config.get("entities", [])
             if isinstance(e, dict) and e.get("kind") != "client"]
@@ -117,9 +112,13 @@ def build_parser() -> argparse.ArgumentParser:
                            help="with --write, overwrite a contract that is already there")
             p.add_argument("--json", action="store_true",
                            help="print the result as a design document instead of a report")
+        if name in ("infer", "check"):
             # A literal is all a token scan can type, and most arguments are not literals.
             # `auto` takes TypeScript where it is installed, `ts` refuses rather than
             # quietly answering worse, and `heuristic` is the literal reader on its own.
+            # `check` takes it for the same reason `infer` does: it compares a contract
+            # with the calls that cross it, and an argument nobody could type is an
+            # argument it says nothing about.
             p.add_argument("--types", default="auto", choices=list(typebackend.MODES),
                            help="who answers what type an expression has (default: auto)")
         if name in ("dev", "build"):
@@ -358,7 +357,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(doctor.report(args.project_dir, profile=args.profile))
         elif args.command == "check":
             ok, messages = checkmod.check_project(args.project_dir, release=args.release,
-                                                  profile=args.profile)
+                                                  types=args.types, profile=args.profile)
             print("\n".join(messages))
             return 0 if ok else 1
         elif args.command == "infer":
@@ -368,7 +367,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             if args.json:
                 print(json.dumps(infermod.to_document(edges, config), indent=2))
             else:
-                print(infermod.report(edges, typed_by=_backend_name(backend)))
+                print(infermod.report(edges, typed_by=typebackend.name_of(backend)))
                 if edges and not args.write:
                     print("\nWrite these to shared/ with: synqt infer --write")
             if args.write:

@@ -181,6 +181,38 @@ class Edge:
     dynamic: bool = False
 
 
+@dataclasses.dataclass(frozen=True)
+class Survey:
+    """One reading of a project's QML: the links, and every reach across one.
+
+    `edges` is what a contract would be written from, both ends of a link folded into the
+    one line per member a `.syn` file holds. `uses` is the consumer end left unfolded, one
+    entry per place the QML reached across a link, which is what a question about a single
+    call site needs: once folded, an argument the owner also declares no longer says which
+    end typed it, and "the contract says int" and "this call hands it a string" are the
+    two halves of the only question worth asking about a call.
+    """
+
+    edges: Tuple[Edge, ...] = ()
+    uses: Tuple[Use, ...] = ()
+
+
+def survey(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
+           backend: Any = None) -> Survey:
+    """Everything one read of the project's QML found, links and call sites both.
+
+    :func:`collect` is this with the call sites dropped, and is what writing a contract
+    wants; comparing a contract against the QML wants both.
+    """
+    types = _Types(backend) if backend is not None else None
+    found = _scan(project_dir, config, types)
+    if types is not None and types.settle(project_dir):
+        # The first pass was what found the expressions worth asking about. Now that they
+        # are answered, the same pass over the same files produces the typed contract.
+        found = _scan(project_dir, config, types)
+    return found
+
+
 def collect(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             backend: Any = None) -> List[Edge]:
     """Every connect point the project's QML shows, as both of its ends describe it.
@@ -195,22 +227,17 @@ def collect(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     contract, because a lone literal is exactly what that one reads too; passing the
     TypeScript one is what follows a value back to where it was built.
     """
-    types = _Types(backend) if backend is not None else None
-    edges = _scan(project_dir, config, types)
-    if types is not None and types.settle(project_dir):
-        # The first pass was what found the expressions worth asking about. Now that they
-        # are answered, the same pass over the same files produces the typed contract.
-        edges = _scan(project_dir, config, types)
-    return edges
+    return list(survey(project_dir, config, backend=backend).edges)
 
 
 def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
-          types: Optional["_Types"]) -> List[Edge]:
+          types: Optional["_Types"]) -> Survey:
     root = Path(project_dir)
     entities = list(config.get("entities") or [])
     points = list(config.get("connect_points") or [])
     found: Dict[Tuple[str, str], Dict[str, Any]] = {}
     unknown: List[str] = []
+    reached: List[Use] = []
 
     for entity in entities:
         name = str(entity.get("name") or "")
@@ -231,6 +258,7 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
         for path in _entity_files(root, name):
             relative = path.relative_to(root).as_posix()
             for use in scan_consumer(relative, _read_text(path), accessors, types):
+                reached.append(use)
                 if not use.point:
                     unknown.append(use.owner)
                     continue
@@ -242,10 +270,12 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
 
     for (owner, _), entry in found.items():
         entry["dynamic"] = entry["dynamic"] or owner in unknown
-    return [Edge(point=point, owner=owner, consumers=tuple(entry["consumers"]),
-                 contract=entry["contract"], members=tuple(entry["members"]),
-                 dynamic=entry["dynamic"])
-            for (owner, point), entry in sorted(found.items())]
+    return Survey(
+        edges=tuple(Edge(point=point, owner=owner, consumers=tuple(entry["consumers"]),
+                         contract=entry["contract"], members=tuple(entry["members"]),
+                         dynamic=entry["dynamic"])
+                    for (owner, point), entry in sorted(found.items())),
+        uses=tuple(reached))
 
 
 def accessors_for(config: Dict[str, Any], entity_name: str) -> Dict[str, str]:

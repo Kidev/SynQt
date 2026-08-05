@@ -14,8 +14,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from . import (addentity, appmodel, clientcache, config as configmod, graphics,
-               qmlscan, toolchain, topologywriter)
+from . import (addentity, appmodel, clientcache, config as configmod, designdoc,
+               graphics, infer, qmlscan, toolchain, topologywriter, typebackend)
 
 # How many Source instances an owner keeps for one connect point: one for everybody, one
 # per browser session, or one per connected entity.
@@ -1348,6 +1348,151 @@ def lint_contracts(project_dir: os.PathLike[str] | str) -> List[str]:
     return messages
 
 
+# What a value of one type can be handed to. The three families are what QML converts
+# within and not across: a number reaches an int parameter and a real one alike (JavaScript
+# keeps one numeric type, so which of the two a value is was never a promise the language
+# made), and a string handed to an int is a defect wherever it was written. A declared type
+# outside these, a record or a `var`, takes whatever it is given and is not judged here.
+_TYPE_FAMILIES = {
+    "int": "number", "real": "number", "double": "number", "float": "number",
+    "string": "text", "url": "text", "date": "text",
+    "bool": "truth",
+}
+
+
+def _converts(inferred: str, declared: str) -> bool:
+    """Whether a value of `inferred` type can be what a `declared` parameter is for."""
+    families = (_TYPE_FAMILIES.get(inferred), _TYPE_FAMILIES.get(declared))
+    if None in families:
+        return True
+    return families[0] == families[1]
+
+
+def _declared_members(project_dir: Path, contract: str) -> Optional[List[Dict[str, Any]]]:
+    """The members of `shared/<contract>.syn`, or None when there is no such file.
+
+    A contract that is not written yet is not a contract this project has drifted from,
+    and one that does not parse is reported by :func:`lint_contracts` and by the build in
+    their own words rather than a second time here.
+    """
+    path = project_dir / "shared" / f"{contract}.syn"
+    if not contract or not path.is_file():
+        return None
+    try:
+        return designdoc.parse_contract(path)
+    except designdoc.DesignDocError:
+        return None
+
+
+def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | str, *,
+                        types: str = "auto") -> List[str]:
+    """A contract and the QML on both ends of it, compared.
+
+    A contract is written once and the QML around it keeps moving, so the two drift apart
+    quietly: the call that names a member nobody declared fails in a browser, and the
+    member nobody calls stays in the file long after the code that wanted it went.
+
+    Three rules, and each is narrow on purpose, because a lint that cries wolf about
+    correct code is one people learn to run with their eyes closed:
+
+    * a **consumer** naming a member the contract does not declare is an error. It is the
+      one drift that always breaks: the replica it holds has no such member. What the
+      owner's own file holds is not judged, because a Source is an ordinary QML object and
+      the state it keeps for itself (`property var store: []`) crosses nothing;
+    * a declared member neither end mentions is a note. It costs nothing at run time, so
+      it is worth seeing and not worth failing a build over, and a point some QML reached
+      by a computed name is skipped entirely: the scan cannot follow that, so "nobody uses
+      this" would be a claim about what it failed to read;
+    * an argument whose type the backend is **certain** of and which does not convert to
+      the declared parameter's is an error. An uncertain answer says nothing at all, so
+      the heuristic backend never invents one of these, and only a call that crosses a
+      connect point is looked at: what a project's own QML hands its own functions is
+      between it and qmllint.
+
+    `types` names who answers what an expression's type is (`typebackend.MODES`).
+    """
+    root = Path(project_dir)
+    backend = typebackend.resolve(types, root)
+    try:
+        found = infer.survey(root, config, backend=backend)
+    except (infer.InferError, typebackend.TypeBackendError, OSError) as error:
+        # A lint, not a gate: a project whose types could not be read is still checked for
+        # everything else, and the reason is on the screen rather than in a traceback.
+        return ["note: the contracts could not be compared with the QML that uses them: "
+                f"{error}"]
+
+    points = {str(point.get("name") or ""): point
+              for point in appmodel.connect_points(config)}
+    declared: Dict[str, List[Dict[str, Any]]] = {}
+    for name, point in points.items():
+        members = _declared_members(root, str(point.get("contract") or ""))
+        if members is not None:
+            declared[name] = members
+
+    messages: List[str] = []
+    for use in found.uses:
+        messages += _use_messages(use, points, declared)
+    for edge in found.edges:
+        messages += _unused_messages(edge, points, declared)
+    return messages
+
+
+def _use_messages(use: "infer.Use", points: Dict[str, Any],
+                  declared: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+    """What one reach across a connect point says about the contract it crosses."""
+    # A use the scan reached through a computed name carries no point (`Server[whichever]`
+    # names none), so there is no contract to hold it to and `members` is None for it.
+    members = declared.get(use.point)
+    if members is None:
+        return []
+    where = use.member.evidence[0] if use.member.evidence else use.point
+    contract = str(points[use.point].get("contract") or "")
+    match = next((member for member in members if member["name"] == use.member.name), None)
+    if match is None:
+        return [f"error: {where}: connect point '{use.point}' has no '{use.member.name}': "
+                f"the {contract} contract declares no member of that name, so this reaches "
+                f"for something that never crosses the link"]
+    if use.member.kind == "slot" and match["kind"] != "slot":
+        return [f"error: {where}: connect point '{use.point}': '{use.member.name}' is "
+                f"called here and the {contract} contract declares it as a "
+                f"{match['kind']}, which is not something a consumer can call"]
+    if use.member.kind != "slot":
+        return []
+    return _argument_messages(use, contract, match, where)
+
+
+def _argument_messages(use: "infer.Use", contract: str, match: Dict[str, Any],
+                       where: str) -> List[str]:
+    """Every argument of one call whose type the contract says it cannot be.
+
+    Only what the backend was sure of is compared, and `certain` is exactly "not var": both
+    backends answer a type when they have one and `var` when nothing proved anything, so a
+    call whose arguments nobody could type produces silence rather than a guess.
+    """
+    messages: List[str] = []
+    for param, expected in zip(use.member.params, match.get("params") or []):
+        if param.type == "var" or _converts(param.type, expected["type"]):
+            continue
+        messages.append(
+            f"error: {where}: connect point '{use.point}': {use.member.name}'s "
+            f"'{expected['name']}' is declared {expected['type']} on the {contract} "
+            f"contract and this call hands it a {param.type}")
+    return messages
+
+
+def _unused_messages(edge: "infer.Edge", points: Dict[str, Any],
+                     declared: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+    """The declared members neither end of this link mentions anywhere."""
+    members = declared.get(edge.point)
+    if members is None or edge.dynamic:
+        return []
+    contract = str(points[edge.point].get("contract") or "")
+    seen = {member.name for member in edge.members}
+    return [f"note: shared/{contract}.syn: '{member['name']}' is declared on the "
+            f"{contract} contract and nothing on either end of '{edge.point}' uses it"
+            for member in members if member["name"] not in seen]
+
+
 # Categories qmllint reports as warnings that are actually fatal at run time, elevated so
 # they fail the check. `property-override`: shadowing a FINAL member (the classic case is a
 # delegate taking a model role named x or y as a required property, against the x/y every
@@ -1470,9 +1615,13 @@ def lint_qml(project_dir: os.PathLike[str] | str) -> List[str]:
 
 
 def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
-                  starting: bool = False,
+                  starting: bool = False, types: str = "auto",
                   profile: Optional[str] = None) -> Tuple[bool, List[str]]:
     """The full `synqt check`: topology validation + contract lint + loading lint + QML lint.
+
+    `types` is who answers what an expression's type is when the contracts are compared
+    with the QML that uses them (`typebackend.MODES`); the default asks TypeScript where
+    it is installed and reads literals where it is not.
 
     `release` turns on the rules that bind only a production artifact. `synqt check` with
     no argument answers "is this project sound", which is the question a developer asks
@@ -1495,12 +1644,14 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     route_messages = lint_routes(config, project_dir)
     remote_page_messages = lint_remote_pages(config, project_dir)
     graphics_messages = lint_graphics(config, project_dir)
+    drift_messages = lint_contract_drift(config, project_dir, types=types)
     messages += contract_messages
     messages += loading_messages
     messages += source_messages
     messages += route_messages
     messages += remote_page_messages
     messages += graphics_messages
+    messages += drift_messages
     qml_messages = lint_qml(project_dir)
     messages += client_root_messages
     messages += qml_messages
@@ -1510,7 +1661,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
         m.startswith("error:")
         for m in contract_messages + loading_messages + client_root_messages
         + source_messages + route_messages + remote_page_messages + graphics_messages
-        + qml_messages)
+        + drift_messages + qml_messages)
     if not ok:
         # validate() adds its "ok: topology valid" before the lints have run; printing it
         # above a list of errors reads as a pass. The lints get the last word.

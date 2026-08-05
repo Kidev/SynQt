@@ -165,6 +165,16 @@ def resolve(mode: str, project_dir: os.PathLike[str] | str) -> object:
     return HeuristicBackend()
 
 
+def name_of(backend: object) -> str:
+    """Which backend this is, in the word `--types` names it by.
+
+    `auto` settles the question at run time, so whatever reports an answer has to be able
+    to say who gave it: a report full of `var` means one thing from TypeScript and quite
+    another from the literal reader.
+    """
+    return "ts" if isinstance(backend, TsBackend) else "heuristic"
+
+
 def extract(project_dir: os.PathLike[str] | str) -> List[Tuple[str, str]]:
     """The JavaScript inside every QML file of a project, one synthesized module each.
 

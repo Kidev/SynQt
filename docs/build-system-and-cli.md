@@ -113,7 +113,8 @@ synqt build             # Production build of every entity artifact.
 synqt build --deploy --sign <identity>   # ... and run the platform deploy step on a
 synqt build --deploy --unsigned          #     desktop client, signed or knowingly not.
 synqt serve             # Run the built entities, the edge serving the built client.
-synqt check [--release] # Validate config and topology, lint QML and contracts.
+synqt check [--release] # Validate config and topology, lint QML and contracts,
+                        # and report a contract and its QML drifting apart.
                         # Every command below that reads a project also takes
                         # --profile <name> (layer synqt.<name>.yaml over synqt.yaml).
 synqt infer [--write]   # Read back the contracts the QML already implies.
@@ -164,7 +165,10 @@ draw. When you are ready, the editor shows the whole change set as a diff, file 
 with a reason on each, and only then does Apply write it. The topology rules are live as
 you work, so a link the deployment would refuse goes red on the canvas rather than in a
 build four steps later. A project that does not check out still opens: an invalid
-topology is what you came to fix.
+topology is what you came to fix. "Infer from the sources" is `synqt infer` on the canvas:
+it fills every link with the members both ends of it already use, so a contract you have
+not written yet arrives drawn rather than typed out, and it is a document like any other
+until you review and apply it.
 
 The editor is served on the loopback address only, on port 8181 (`--port` moves it, which
 is worth doing only if something else is already there), behind a token minted for that
@@ -202,6 +206,22 @@ literal reader on its own, and needs nothing. The default, `auto`, uses TypeScri
 is installed and the literal reader where it is not, and the last line of the report says
 which one answered. Neither ever invents a type: what nothing in the QML gave a type to
 comes back `var`, marked for you to fill in.
+
+`synqt check` reads the same two ends and asks a narrower question: has the contract on
+this link and the QML around it drifted apart? Three answers come out of it, and each is
+narrow on purpose, because a check that cries wolf about correct code is one people learn
+to run with their eyes closed. A consumer naming a member the contract does not declare is
+an **error**: the replica it holds has no such member, so the call fails in a browser and
+not at build time. A member the contract declares that neither end mentions is a **note**:
+it costs nothing at run time, so it is worth seeing and not worth failing a build over. An
+argument whose type is known and cannot be what the parameter is declared as is an
+**error**, naming the point, the slot, the parameter, what was declared and what arrived.
+That last one is why `synqt check` takes `--types` too: an argument nobody could type is an
+argument it says nothing about, so the literal reader alone never produces one of these
+and TypeScript produces the ones it is sure of. What an owner's own Source keeps for itself
+is not judged, because a Source is an ordinary QML object and its `property var store: []`
+crosses nothing; neither is a point some QML reached by a computed name, because the scan
+cannot follow that and "nobody uses this" would be a claim about what it failed to read.
 
 `synqt --version` (or `-V`) answers in three lines:
 

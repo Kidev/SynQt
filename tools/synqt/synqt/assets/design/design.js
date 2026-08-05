@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The editor: one design document, the canvas that draws it, the panel that edits it, and
-// the two requests that turn it into files.
+// The editor: one design document, the canvas that draws it, the panel that edits it, the
+// request that reads it back out of the project's own QML, and the two that turn it into
+// files.
 //
 // Nothing here writes to the project. Editing changes a document held in this tab; Review
 // asks the server what applying it would do and shows the diff; Apply names the change set
@@ -74,6 +75,7 @@ const page = {
     project: document.getElementById("project"),
     verdict: document.getElementById("verdict"),
     hint: document.getElementById("hint"),
+    infer: document.getElementById("infer"),
     review: document.getElementById("review"),
     apply: document.getElementById("apply"),
     sheet: document.getElementById("sheet"),
@@ -538,6 +540,56 @@ function showSheet(title, git, found, body) {
     page.sheet.hidden = false;
 }
 
+// Reading the project back
+
+// The inferred document describes the same entities, so it lays them out afresh. Where
+// each one sits is a drawing this page is holding and the sources say nothing about, so
+// it survives: reading the contracts back should not rearrange the canvas.
+function keepPlaces(design) {
+    const placed = new Map((state.design.entities || [])
+        .map((entity) => [entity.name, entity]));
+    for (const entity of design.entities || []) {
+        const already = placed.get(entity.name);
+        if (already) {
+            entity.x = already.x;
+            entity.y = already.y;
+        }
+    }
+    return design;
+}
+
+function toCheck(design) {
+    let count = 0;
+    for (const link of design.links || []) {
+        for (const member of link.members || []) {
+            const types = [member.type || "",
+                           ...(member.params || []).map((one) => one.type),
+                           ...(member.roles || []).map((one) => one.type)];
+            count += types.includes("var") ? 1 : 0;
+        }
+    }
+    return count;
+}
+
+async function inferContracts() {
+    say("Reading back what the QML already says...");
+    try {
+        const answer = await request("POST", "api/infer", {});
+        adopt(keepPlaces(answer.document));
+        const open = toCheck(state.design);
+        const found = `Read ${state.design.links.length} connect point(s) back from the `
+            + "QML that already uses them. Nothing is written until you review and apply.";
+        say(open === 0 ? found
+            : `${found} ${open} member(s) came back with a type nothing in the QML gave `
+              + (answer.typedBy === "ts"
+                 ? "away. Open each one and say what it is."
+                 : "away, and only literals were read here: install node and ts-morph "
+                   + "for the rest."));
+    } catch (error) {
+        fail(error);
+    }
+}
+
 async function review() {
     say("Working out what this would do...");
     try {
@@ -617,6 +669,9 @@ function buildPalette() {
 
 function goOffline(reason) {
     state.backend = false;
+    // Nothing to read back: inference reads the QML in a project on a disk, and there is
+    // no project on the other end of this page.
+    page.infer.hidden = true;
     page.review.hidden = true;
     page.apply.textContent = "Download";
     page.apply.disabled = false;
@@ -637,6 +692,7 @@ async function load() {
             answer.ok ? "" : "error");
     } catch (error) {
         if (error.status === 403) {
+            page.infer.disabled = true;
             page.review.disabled = true;
             page.apply.disabled = true;
             say(`${error.message}`, "error");
@@ -654,6 +710,7 @@ function wire() {
     page.canvas.addEventListener("pointerup", onUp);
     page.canvas.addEventListener("pointercancel", onUp);
     page.canvas.addEventListener("wheel", onWheel, {passive: false});
+    page.infer.addEventListener("click", () => inferContracts());
     page.review.addEventListener("click", () => review());
     page.apply.addEventListener("click", () => applyPlan());
     page.sheetClose.addEventListener("click", () => {

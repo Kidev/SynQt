@@ -43,7 +43,7 @@ from urllib.parse import unquote, urlparse
 
 from . import check as checkmod
 from . import config as configmod
-from . import designdoc, designplan
+from . import designdoc, designplan, infer, typebackend
 
 TOKEN_HEADER = "X-SynQt-Token"
 
@@ -111,6 +111,28 @@ def _validate(server: "_DesignServer", body: Optional[Dict[str, Any]]) -> Dict[s
     return {"ok": ok, "findings": findings}
 
 
+def _infer(server: "_DesignServer", _body: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The contracts the project's own QML already implies, as a document to draw.
+
+    The same reading `synqt infer` prints, handed to the canvas instead of the terminal:
+    a link nobody has written a contract for arrives with the members both ends of it
+    already use, and the answer is a document like any other, so nothing is written until
+    somebody has read a change set and applied it.
+    """
+    config = configmod.load(server.project_dir, profile=server.profile)
+    backend = typebackend.resolve("auto", server.project_dir)
+    try:
+        edges = infer.collect(server.project_dir, config, backend=backend)
+    except infer.InferError as error:
+        raise _Refused(HTTPStatus.BAD_REQUEST, str(error)) from error
+    document = infer.to_document(edges, config)
+    # The document is drawn and then applied like any other, and applying names the
+    # configuration it was read from. Without this the page would be holding a document
+    # that says nothing about which synqt.yaml it describes.
+    document["sourceHash"] = designdoc.source_hash(server.project_dir)
+    return {"document": document, "typedBy": typebackend.name_of(backend)}
+
+
 def _plan(server: "_DesignServer", body: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """The whole change set a document implies, with the digest that names it."""
     plan = _computed(server, _document(body))
@@ -148,6 +170,7 @@ def _apply(server: "_DesignServer", body: Optional[Dict[str, Any]]) -> Dict[str,
 
 ROUTES: Dict[Tuple[str, str], Callable[..., Dict[str, Any]]] = {
     ("GET", "/api/project"): _project,
+    ("POST", "/api/infer"): _infer,
     ("POST", "/api/validate"): _validate,
     ("POST", "/api/plan"): _plan,
     ("POST", "/api/apply"): _apply,
