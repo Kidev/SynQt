@@ -16,6 +16,7 @@ of the tests that already cover the scaffolders, the builder, and the validator.
 from __future__ import annotations
 
 import io
+import json
 import textwrap
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -24,7 +25,8 @@ import pytest
 
 from synqt import (addauth, addcontract, addentity, addprovider, build as buildmod,
                    check as checkmod, cli, config as configmod, design as designmod,
-                   doctor, mesh, newproject, run as runmod)
+                   docker as dockermod, doctor, infer as infermod, mesh, newproject,
+                   run as runmod)
 
 _PROJECT = textwrap.dedent("""\
     project:
@@ -488,3 +490,100 @@ class TestValidationReporting:
         _, out, err = _run(["build", "--project-dir", _project(tmp_path)])
         assert "nothing to say" not in out
         assert "nothing to say" not in err
+
+
+class TestDocker:
+    """`synqt docker` writes a compose file and then runs somebody else's binary, so the
+    dispatch has two jobs: refuse a project the validator already rejects before four
+    minutes of image build finds out, and hand the right argv to the compose it found."""
+
+    def test_init_refuses_a_project_the_validator_already_rejects(self, tmp_path,
+                                                                  monkeypatch):
+        monkeypatch.setattr(checkmod, "validate",
+                            lambda *a, **k: (False, ["error: no web edge"]))
+        called = []
+        monkeypatch.setattr(dockermod, "init", lambda *a, **k: called.append(a) or "wrote")
+        code, _, err = _run(["docker", "init", "--project-dir", _project(tmp_path)])
+        assert code == 1
+        assert "no web edge" in err
+        assert not called
+
+    def test_init_forwards_the_flags_it_was_given(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(checkmod, "validate", lambda *a, **k: (True, []))
+        seen = {}
+
+        def wrote(project_dir, config, **named):
+            seen.update(named)
+            return "wrote docker/compose.yaml"
+
+        monkeypatch.setattr(dockermod, "init", wrote)
+        code, out, _ = _run(["docker", "init", "--project-dir", _project(tmp_path),
+                             "--force", "--port", "9443", "--client", "image",
+                             "--no-input"])
+        assert code == 0
+        assert "wrote docker/compose.yaml" in out
+        assert seen["force"] is True
+        assert seen["port"] == 9443
+        assert seen["client"] == "image"
+        assert seen["source"] is None
+
+    def test_up_prints_the_command_before_it_runs_it(self, tmp_path, monkeypatch):
+        """It is somebody else's binary and its first run downloads a Qt kit, so saying
+        what is about to run is the difference between a long step and a hang."""
+        monkeypatch.setattr(dockermod, "up_command",
+                            lambda project_dir, **named: ["docker", "compose", "up"])
+        monkeypatch.setattr(dockermod, "run", lambda project_dir, command: 0)
+        code, out, _ = _run(["docker", "up", "--project-dir", _project(tmp_path)])
+        assert code == 0
+        assert "synqt: docker compose up" in out
+
+    def test_down_returns_what_compose_returned(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(dockermod, "down_command",
+                            lambda project_dir, **named: ["docker", "compose", "down"])
+        monkeypatch.setattr(dockermod, "run", lambda project_dir, command: 7)
+        assert _run(["docker", "down", "--project-dir", _project(tmp_path)])[0] == 7
+
+    def test_a_docker_error_is_a_message_rather_than_a_traceback(self, tmp_path,
+                                                                 monkeypatch):
+        def refused(*a, **k):
+            raise dockermod.DockerError("docker compose was not found")
+
+        monkeypatch.setattr(dockermod, "up_command", refused)
+        code, _, err = _run(["docker", "up", "--project-dir", _project(tmp_path)])
+        assert code == 1
+        assert "docker compose was not found" in err
+
+
+class TestInfer:
+    """`synqt infer` reads contracts back out of a project's QML. It reports by default and
+    writes only when asked, which is the line worth holding: a command that rewrote
+    shared/ because somebody ran it to look would be a command nobody runs twice."""
+
+    def _edges(self, monkeypatch, written=()):
+        monkeypatch.setattr(infermod, "collect", lambda *a, **k: ["an edge"])
+        monkeypatch.setattr(infermod, "to_document",
+                            lambda edges, config: {"version": 1, "links": []})
+        monkeypatch.setattr(infermod, "report", lambda edges, **named: "one connect point")
+        monkeypatch.setattr(infermod, "write", lambda *a, **k: list(written))
+
+    def test_reporting_writes_nothing_and_says_how_to_write(self, tmp_path, monkeypatch):
+        self._edges(monkeypatch)
+        code, out, _ = _run(["infer", "--project-dir", _project(tmp_path)])
+        assert code == 0
+        assert "one connect point" in out
+        assert "synqt infer --write" in out
+
+    def test_json_is_the_document_and_nothing_else_on_stdout(self, tmp_path, monkeypatch):
+        self._edges(monkeypatch, written=["shared/Auction.syn"])
+        code, out, err = _run(["infer", "--project-dir", _project(tmp_path), "--json",
+                               "--write"])
+        assert code == 0
+        assert json.loads(out) == {"version": 1, "links": []}
+        # What was written is said beside the document, not in the middle of it.
+        assert "wrote shared/Auction.syn" in err
+
+    def test_writing_without_json_says_so_on_stdout(self, tmp_path, monkeypatch):
+        self._edges(monkeypatch, written=["shared/Auction.syn"])
+        code, out, _ = _run(["infer", "--project-dir", _project(tmp_path), "--write"])
+        assert code == 0
+        assert "wrote shared/Auction.syn" in out

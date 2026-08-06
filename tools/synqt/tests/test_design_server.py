@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -321,6 +322,143 @@ def test_a_directory_that_is_not_a_project_is_refused_before_a_port_is_bound(tmp
 def test_an_unknown_route_is_a_404_not_a_stack_trace(server):
     base, _ = server
     assert _refused(f"{base}/api/nothing-here") == 404
+
+
+# What arrives in the body
+
+def _raw(base, path, body, *, length=None, token=TOKEN):
+    """POST bytes that urllib would not build for us, and read the status back.
+
+    The framing cases below are about what the server does with a Content-Length and a body
+    that do not agree, which means writing both by hand rather than through a request
+    object that keeps them consistent.
+    """
+    with socket.create_connection(("127.0.0.1", int(base.rsplit(":", 1)[1]))) as sock:
+        stated = length if length is not None else len(body)
+        head = (f"POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                f"{design.TOKEN_HEADER}: {token}\r\n"
+                f"Content-Type: application/json\r\nContent-Length: {stated}\r\n"
+                "Connection: close\r\n\r\n")
+        sock.sendall(head.encode("ascii") + body)
+        answer = b""
+        while True:
+            more = sock.recv(4096)
+            if not more:
+                break
+            answer += more
+    return int(answer.split(b" ", 2)[1])
+
+
+def test_a_content_length_that_is_not_a_number_is_refused(server):
+    base, _ = server
+    assert _raw(base, "/api/plan", b"{}", length="a lot") == 400
+
+
+def test_an_empty_body_is_refused_rather_than_read_as_an_empty_design(server):
+    """A POST with nothing in it is a request that got lost, not a design of no entities,
+    and applying the second reading would remove a project's whole topology."""
+    base, _ = server
+    assert _raw(base, "/api/plan", b"", length=0) == 400
+
+
+def test_a_body_over_the_cap_is_refused_before_it_is_read(server):
+    base, _ = server
+    assert _raw(base, "/api/plan", b"{}",
+                length=design.MAX_BODY_BYTES + 1) == 413
+
+
+def test_a_body_that_is_not_json_is_refused(server):
+    base, _ = server
+    assert _raw(base, "/api/plan", b"not json at all") == 400
+
+
+def test_a_document_whose_entities_are_not_a_list_is_refused(server):
+    base, _ = server
+    assert _refused(f"{base}/api/plan",
+                    data={"document": {"version": 1, "entities": {}}}) == 400
+    assert _refused(f"{base}/api/plan",
+                    data={"document": {"version": 1, "links": "auction"}}) == 400
+
+
+def test_a_request_the_server_cannot_answer_is_answered_anyway(server, monkeypatch):
+    """A page waiting on a connection that was closed without a word is worse than a page
+    told what went wrong: the editor would sit on Review until somebody reloaded it."""
+    base, _ = server
+
+    def broken(*arguments, **named):
+        raise RuntimeError("the plan blew up")
+
+    monkeypatch.setattr(design.designplan, "compute", broken)
+    assert _refused(f"{base}/api/plan", data={"document": {"version": 1}}) == 500
+
+
+def test_a_project_whose_qml_cannot_be_read_back_is_refused_with_the_reason(server,
+                                                                           monkeypatch):
+    base, _ = server
+
+    def unreadable(*arguments, **named):
+        raise design.infer.InferError("shared/Auction.syn does not parse")
+
+    monkeypatch.setattr(design.infer, "collect", unreadable)
+    assert _refused(f"{base}/api/infer", data={}) == 400
+
+
+# Standing it up
+
+def test_a_server_with_no_token_is_refused(tmp_path):
+    """Every request carries the token, so a server without one is a server nothing can
+    reach; making that a startup error says so rather than leaving it to be discovered."""
+    project = tmp_path / "gavel"
+    shutil.copytree(EXAMPLES / "gavel", project,
+                    ignore=shutil.ignore_patterns("build", ".synqt"))
+    with pytest.raises(design.DesignError):
+        design.make_server(project, port=0, token="")
+
+
+def test_a_port_already_taken_is_a_message_rather_than_a_traceback(tmp_path):
+    project = tmp_path / "gavel"
+    shutil.copytree(EXAMPLES / "gavel", project,
+                    ignore=shutil.ignore_patterns("build", ".synqt"))
+    held = design.make_server(project, port=0, token=TOKEN)
+    try:
+        with pytest.raises(design.DesignError) as refused:
+            design.make_server(project, port=held.server_port, token=TOKEN)
+        assert str(held.server_port) in str(refused.value)
+    finally:
+        held.server_close()
+
+
+def test_serve_prints_where_it_is_and_stops_when_it_is_asked_to(tmp_path, capsys,
+                                                                monkeypatch):
+    """The URL is printed once and nowhere else, so this is the only place a reader gets
+    the token, and it carries the token in the fragment even here."""
+    project = tmp_path / "gavel"
+    shutil.copytree(EXAMPLES / "gavel", project,
+                    ignore=shutil.ignore_patterns("build", ".synqt"))
+    made = {}
+    real = design.make_server
+
+    def remember(*arguments, **named):
+        made["httpd"] = real(*arguments, **named)
+        return made["httpd"]
+
+    monkeypatch.setattr(design, "make_server", remember)
+
+    opened = []
+
+    def opening(address):
+        # serve_forever blocks, so what ends it has to come from somewhere else. Asking the
+        # real server to stop, rather than faking the loop, keeps shutdown and server_close
+        # doing what they do: a shutdown() on a loop that never ran waits for ever.
+        opened.append(address)
+        threading.Thread(target=made["httpd"].shutdown, daemon=True).start()
+
+    monkeypatch.setattr(design.webbrowser, "open", opening)
+
+    assert design.serve(project, port=0) == "synqt design: stopped."
+    printed = capsys.readouterr().out
+    assert "http://127.0.0.1:" in printed and "#token=" in printed
+    assert opened and "#token=" in opened[0]
 
 
 if __name__ == "__main__":
