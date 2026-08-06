@@ -249,8 +249,32 @@
   }
 }
 
-.synqt-hero__actions .md-button {
+.synqt-actions .md-button {
   margin: 0;
+}
+
+/* A row of call-to-action buttons. `.synqt-hero__actions` above sizes the pair in the
+   hero to the column they sit in; this is the same pair used anywhere else on the page,
+   where there is no column to match and the row centres itself under what it follows.
+   The button styling below is shared by both, which is why it hangs off this class and
+   not off the hero's. */
+.synqt-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.synqt-section > .synqt-actions {
+  margin-top: 2.5rem;
+}
+
+@media screen and (max-width: 26.25em) {
+  .synqt-section > .synqt-actions {
+    flex-direction: column;
+    gap: 1rem;
+  }
 }
 
 /* The primary "Get started" call to action (adapted from a Uiverse.io design by
@@ -259,7 +283,7 @@
    both read cleanly on the deep-purple hero gradient. On hover the fill deepens to
    #0079b8 (keeping the white label high-contrast) and the green shadow grows, so
    the button lifts toward the viewer. */
-.synqt-hero__actions .cta {
+.synqt-actions .cta {
   display: flex;
   align-items: center;
   padding: 11px 33px;
@@ -276,11 +300,11 @@
   cursor: pointer;
 }
 
-.synqt-hero__actions .cta:focus {
+.synqt-actions .cta:focus {
   outline: none;
 }
 
-.synqt-hero__actions .cta:hover {
+.synqt-actions .cta:hover {
   transition: 0.5s;
   color: #fff;
   background: #0079b8;
@@ -289,7 +313,7 @@
 
 /* Fixed-width arrow slot: the chevrons spread inside it via transform on hover, so
    the button never changes size and the "Explore" link beside it stays put. */
-.synqt-hero__actions .cta .second {
+.synqt-actions .cta .second {
   transition: 0.5s;
   width: 50px;
   margin-left: 24px;
@@ -298,38 +322,38 @@
   display: inline-flex;
 }
 
-.synqt-hero__actions .cta .span {
+.synqt-actions .cta .span {
   transform: skewX(15deg);
 }
 
 /* Chevrons stay white at rest and on hover; only their position animates:
    stacked at rest, spreading out to the right when hovered. */
-.synqt-hero__actions .cta svg path {
+.synqt-actions .cta svg path {
   fill: #fff;
 }
 
-.synqt-hero__actions .cta .one {
+.synqt-actions .cta .one {
   transition: 0.4s;
   transform: translateX(-60%);
 }
 
-.synqt-hero__actions .cta .two {
+.synqt-actions .cta .two {
   transition: 0.5s;
   transform: translateX(-30%);
 }
 
 /* On hover the chevrons spread out and pulse through a lighter blue (#5cc8f5,
    distinct from the #0079b8 hover fill), staggered so the pulse ripples outward. */
-.synqt-hero__actions .cta:hover .three {
+.synqt-actions .cta:hover .three {
   animation: synqt-cta-arrow 1s infinite 0.2s;
 }
 
-.synqt-hero__actions .cta:hover .two {
+.synqt-actions .cta:hover .two {
   transform: translateX(0);
   animation: synqt-cta-arrow 1s infinite 0.4s;
 }
 
-.synqt-hero__actions .cta:hover .one {
+.synqt-actions .cta:hover .one {
   transform: translateX(0);
   animation: synqt-cta-arrow 1s infinite 0.6s;
 }
@@ -339,7 +363,7 @@
    deliberately quieter: an outline instead of a fill, one size down, and no
    chevrons, since it does not leave the page. Declared after the rules above so
    its own hover wins over theirs at equal specificity. */
-.synqt-hero__actions .cta--quiet {
+.synqt-actions .cta--quiet {
   padding: 9px 24px;
   font-size: 1rem;
   color: #d5e9fb;
@@ -348,7 +372,7 @@
   border: 2px solid rgba(0, 166, 237, .6);
 }
 
-.synqt-hero__actions .cta--quiet:hover {
+.synqt-actions .cta--quiet:hover {
   color: #fff;
   background: rgba(0, 166, 237, .22);
   border-color: #00a6ed;

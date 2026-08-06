@@ -12,6 +12,15 @@ serves.
 The other half is what the hosted copy may contain. It runs on a page nobody sets a header
 for, so an off-origin reference there is not refused by a policy the way it is under the CLI:
 it is simply fetched. The hook refuses to publish one, and this asserts it refuses.
+
+The third is that no page of the site may build to the URL the editor is published at. That
+one shipped: `docs/designer.md` built to /designer/, the hook overwrote it after, and the URL
+stayed in sitemap.xml, which is the list Material's instant navigation intercepts links
+against. A reader clicking through to the editor got its markup swapped into the
+documentation shell and a page that only came right after a reload. A direct load looked
+fine, so nothing caught it, including a browser test served from a local directory: instant
+navigation reads the sitemap from the site's absolute `site_url` and never engages on a local
+copy at all. The guard is therefore where it can actually run, in the build.
 """
 
 from __future__ import annotations
@@ -77,6 +86,39 @@ def test_an_off_origin_reference_fails_the_build(tmp_path, monkeypatch):
         hook.on_post_build({"site_dir": str(tmp_path / "site")})
     assert "design.js" in str(refused.value)
     assert not (tmp_path / "site" / "designer").exists()
+
+
+class _File:
+    """The two attributes the guard reads off a MkDocs File."""
+
+    def __init__(self, src_uri, dest_uri):
+        self.src_uri = src_uri
+        self.dest_uri = dest_uri
+
+
+def test_a_page_claiming_the_editors_url_fails_the_build():
+    files = [_File("index.md", "index.html"), _File("designer.md", "designer/index.html")]
+    with pytest.raises(Exception) as refused:
+        _hook().on_files(files, {})
+    assert "designer.md" in str(refused.value)
+    assert "sitemap" in str(refused.value)
+
+
+def test_a_page_anywhere_under_the_editors_url_fails_the_build():
+    files = [_File("designer/guide.md", "designer/guide/index.html")]
+    with pytest.raises(Exception):
+        _hook().on_files(files, {})
+
+
+def test_the_sites_own_pages_pass():
+    files = [_File("index.md", "index.html"),
+             _File("visual-editor.md", "visual-editor/index.html")]
+    assert _hook().on_files(files, {}) is files
+
+
+def test_this_site_has_no_page_under_the_editors_url():
+    """The real check, on the real docs/: the rename that fixed this must stay done."""
+    assert not (ROOT / "docs" / "designer.md").exists()
 
 
 def test_no_asset_references_an_external_host():

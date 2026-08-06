@@ -124,9 +124,28 @@ async function request(method, path, body) {
     return payload;
 }
 
-function tokenFromHash() {
+function fromHash(key) {
     const hash = window.location.hash.replace(/^#/, "");
-    return new URLSearchParams(hash).get("token") || "";
+    return new URLSearchParams(hash).get(key) || "";
+}
+
+// A project named in the fragment, for a link that wants to hand somebody a system to look
+// at rather than an empty canvas. Only ever consulted with nothing behind the page: over a
+// real project the document is that project's, and a fragment must not quietly replace it.
+async function exampleNamed(name) {
+    if (!name) {
+        return null;
+    }
+    try {
+        const response = await fetch("examples.json");
+        if (!response.ok) {
+            return null;
+        }
+        const found = (await response.json()).examples[name];
+        return found || null;
+    } catch (error) {
+        return null;
+    }
 }
 
 // Saying things
@@ -667,7 +686,7 @@ function buildPalette() {
     }
 }
 
-function goOffline(reason) {
+async function goOffline(reason) {
     state.backend = false;
     // Nothing to read back: inference reads the QML in a project on a disk, and there is
     // no project on the other end of this page.
@@ -675,12 +694,19 @@ function goOffline(reason) {
     page.review.hidden = true;
     page.apply.textContent = "Download";
     page.apply.disabled = false;
-    adopt({version: 1, project: "app", entities: [], links: []});
+    const example = await exampleNamed(fromHash("example"));
+    adopt(example || {version: 1, project: "app", entities: [], links: []});
+    if (example) {
+        fit();
+        say("This is the project the home page reads. Move anything, add anything, and "
+            + "press Download when it is yours.");
+        return;
+    }
     say(reason);
 }
 
 async function load() {
-    state.token = tokenFromHash();
+    state.token = fromHash("token");
     try {
         const answer = await request("GET", "api/project");
         state.backend = true;
@@ -698,9 +724,9 @@ async function load() {
             say(`${error.message}`, "error");
             return;
         }
-        goOffline("No SynQt on the other end of this page, so this is a drawing board: "
-                  + "design a project here and download it, or run `synqt design` in a "
-                  + "project to edit that one in place.");
+        await goOffline("No SynQt on the other end of this page, so this is a drawing "
+                        + "board: design a project here and download it, or run `synqt "
+                        + "design` in a project to edit that one in place.");
     }
 }
 

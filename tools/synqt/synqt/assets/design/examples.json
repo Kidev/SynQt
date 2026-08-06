@@ -1,0 +1,47 @@
+{
+  "_comment": [
+    "Projects the editor can open cold, named in the fragment: /designer/#example=feed.",
+    "They exist so a link can hand somebody a system to look at rather than an empty",
+    "canvas. Each one is an ordinary design document, so it is edited, checked and",
+    "downloaded exactly like something drawn by hand; nothing here is a special case",
+    "once it is loaded.",
+    "",
+    "`feed` is the project the home page of synqt.org reads out file by file, so the",
+    "diagram there and the canvas here are the same system. Keep them in step: the",
+    "suite asserts the entities, the links and the contract members match the",
+    "synqt.yaml and the .syn sources that page shows."
+  ],
+  "examples": {
+    "feed": {
+      "version": 1,
+      "project": "my-app",
+      "entities": [
+        {"name": "client", "kind": "client", "targets": ["wasm"], "x": 40, "y": 40},
+        {"name": "web", "kind": "service", "capability": "web_edge", "x": 360, "y": 40},
+        {"name": "database", "kind": "service", "blueprint": "persistence",
+         "provider": "sqlite", "x": 680, "y": 40},
+        {"name": "api", "kind": "service", "blueprint": "gateway", "x": 680, "y": 200}
+      ],
+      "links": [
+        {"name": "feed", "contract": "Feed", "owner": "web", "consumers": ["client"],
+         "instance": "per_session", "members": [
+           {"kind": "prop", "name": "loaded", "type": "bool", "params": [], "roles": []},
+           {"kind": "model", "name": "rows", "type": "", "params": [],
+            "roles": [{"type": "int", "name": "id"}, {"type": "string", "name": "title"}]},
+           {"kind": "slot", "name": "load", "type": "", "params": [], "roles": []},
+           {"kind": "signal", "name": "denied", "type": "",
+            "params": [{"type": "string", "name": "reason"}], "roles": []}
+         ]},
+        {"name": "access", "contract": "Access", "owner": "database", "consumers": ["web"],
+         "instance": "per_peer", "members": [
+           {"kind": "slot", "name": "allows", "type": "bool",
+            "params": [{"type": "string", "name": "sub"}], "roles": []}
+         ]},
+        {"name": "upstream", "contract": "Upstream", "owner": "api", "consumers": ["web"],
+         "instance": "per_peer", "members": [
+           {"kind": "slot", "name": "fetch", "type": "var", "params": [], "roles": []}
+         ]}
+      ]
+    }
+  }
+}

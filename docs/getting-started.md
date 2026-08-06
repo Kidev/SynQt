@@ -98,7 +98,7 @@ nodes, the connect points between them as lines, and the topology rules running 
 work, so a link the deployment would refuse goes red on the canvas rather than in a build
 four steps later. Nothing is written until you have read the change set it offers. Both
 routes run the same scaffolder, so you can draw one entity and type the next without
-either half noticing. The [visual editor](designer.md) covers it, and there is a copy of
+either half noticing. The [visual editor](visual-editor.md) covers it, and there is a copy of
 the editor [on this site](/designer/) that needs nothing installed at all.
 
 ## Pick a tutorial

@@ -19,6 +19,14 @@ The one thing checked before copying is that nothing here names another host. Un
 that is held down by the policy the server sends with every response; nobody sends a header
 over a static site, so on this copy an off-origin reference is not refused, it is fetched.
 The docs build is the last place that can still say no.
+
+The other thing checked is that no page of the site claims this URL, because that is not a
+collision anybody sees. A `docs/designer.md` builds to `site/designer/index.html`, this hook
+runs after and overwrites it, and the page is simply gone; worse, the URL stays in
+sitemap.xml, and Material's instant navigation only intercepts links whose URL is in the
+sitemap. So a reader clicking through to the editor got its markup swapped into the
+documentation shell and a page that only came right after a reload, while a direct load
+looked fine and every test passed. The guard is in on_files, before any of that happens.
 """
 
 import logging
@@ -51,6 +59,20 @@ def _off_origin(path):
     text = path.read_text(encoding="utf-8", errors="replace").replace(_SVG_NAMESPACE, "")
     found = _OFF_ORIGIN.search(text)
     return text[found.start():found.start() + 60].split()[0] if found else None
+
+
+def on_files(files, config, **kwargs):
+    """Refuse to build a site with a page under the URL the editor is published at."""
+    claimed = sorted(file.src_uri for file in files
+                     if file.dest_uri == f"{PUBLISHED_AT}/index.html"
+                     or file.dest_uri.startswith(f"{PUBLISHED_AT}/"))
+    if claimed:
+        raise _Refused(
+            f"{', '.join(claimed)} builds to /{PUBLISHED_AT}/, which is where the design "
+            "editor is published. The page would be overwritten and its URL would stay in "
+            "sitemap.xml, so links to the editor would be swapped into the documentation "
+            "shell by instant navigation. Give the page another name.")
+    return files
 
 
 def on_post_build(config, **kwargs):

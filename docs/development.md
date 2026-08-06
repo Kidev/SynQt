@@ -112,7 +112,7 @@ browser.
   project actually declared. Nothing declared gets a line, so the defaults stay where they
   belong, in `WebEdgeConfig` and `IdentityConfig`, rather than being copied into Python
   where they could drift out of step with the structs they fill.
-- The [visual editor](designer.md) and the inference behind it are the same project read
+- The [visual editor](visual-editor.md) and the inference behind it are the same project read
   two ways, and they share one shape. `designdoc` is that shape: a project as entities,
   links and members, read from `synqt.yaml` and `shared/*.syn` and written back to them.
   `design` serves the page and answers it, `designplan` turns an edited document into the
@@ -207,7 +207,7 @@ five commits without ever running.
 | [`graphics`](https://github.com/Kidev/SynQt/tree/main/tests/graphics)               | The fallback for a browser with no WebGL: what the runtime net recognises, that it chains to the handler already installed, the notice, and the route guard. Its `tst_softwarebackend` renders each candidate type on the raster adaptation and counts pixels, which is what decides whether a type needs the accelerated pipeline rather than a reading of Qt's source. |
 | [`memory`](https://github.com/Kidev/SynQt/tree/main/tests/memory)                 | What a repeated workload leaves behind: browser connections, page loads, sessions and mesh reconnects, each run many times over one long lived object, with the heap required to come back to where it started. Its `run-leakcheck.sh` runs the rest of the tree and the benchmarks under LeakSanitizer. |
 | [`wasm-quick3dphysics`](https://github.com/Kidev/SynQt/tree/main/tests/wasm-quick3dphysics)    | Qt Quick 3D Physics builds and loads on the WebAssembly kit. |
-| [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [visual editor](designer.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and is what proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium; run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
+| [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [visual editor](visual-editor.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and is what proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium; run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
 | [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which is what makes `split_origin` a measurement rather than folklore. No Qt at all: two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
 
 One directory there is not a suite.
@@ -277,7 +277,7 @@ the editor's rule fixture, none of which the CLI itself depends on.
 
 ### Adding a rule to the visual editor
 
-The [editor](designer.md) paints a subset of the `synqt check` rules in the page, live, as
+The [editor](visual-editor.md) paints a subset of the `synqt check` rules in the page, live, as
 you draw. Being a subset is the claim the fixtures hold it to: the canvas must never reach
 a verdict the command line would not. So a rule lives in two places, and it moves in two
 places.
