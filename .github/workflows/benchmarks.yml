@@ -14,8 +14,8 @@
 # So what runs here is the machine-independent half: ratios, orderings, and invariants
 # that hold on any hardware because they are statements about the code's shape rather
 # than the machine's speed. "Interest management holds the per-session payload flat."
-# "Minting a session is amortized O(1)." "The contended SQLite writer stays far under the
-# busy timeout." "Calls pipeline rather than serialising on the round trip." Each one is
+# "Minting a session is amortized O(1)." "A held write lock is what the SQLite busy timeout
+# waits out." "Calls pipeline rather than serialising on the round trip." Each one is
 # a claim the README makes and a regression that would matter, and none of them cares how
 # fast the CPU is. benchmarks/baselines.py holds the full list, and the rule that decides
 # what is asserted rather than merely reported: a claim is enforced only where the

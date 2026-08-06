@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <thread>
 
@@ -121,13 +122,13 @@ struct Scalar
     }
 };
 
-ProviderConfig sqliteConfig(const QString &file)
+ProviderConfig sqliteConfig(const QString &file, int busyTimeoutMs = 5000)
 {
     ProviderConfig config;
     config.name = QStringLiteral("sqlite");
     config.file = file;
     config.journalMode = QStringLiteral("wal");
-    config.busyTimeoutMs = 5000;
+    config.busyTimeoutMs = busyTimeoutMs;
     config.release = true;
     return config;
 }
@@ -282,7 +283,7 @@ int main(int argc, char *argv[])
             long n{0};
             while (!stop.load(std::memory_order_relaxed)) {
                 rival.exec(QStringLiteral("INSERT INTO bench (k, v) VALUES (?, ?)"),
-                           {QStringLiteral("rival-%1").arg(n), int(n)});
+                           {QStringLiteral("rival-%1").arg(n), static_cast<int>(n)});
                 ++n;
             }
             competitorWrites.store(n, std::memory_order_relaxed);
@@ -292,11 +293,12 @@ int main(int argc, char *argv[])
         Distribution contended;
         contended.name = QStringLiteral("sqlite_write_contended");
         contended.samples.reserve(contendedRows);
-        // The safety claim is that the busy-timeout retry always wins the lock in the end,
-        // so count the writes it gave up on rather than inferring them from a wall clock. A
-        // statement that outlasts QSQLITE_BUSY_TIMEOUT comes back SQLITE_BUSY, which the
-        // provider reports as a failed DbResult; anything else is a write that got through,
-        // however long it waited for its turn.
+        // How often a write comes back refused here is a reading, not a claim: whether the
+        // rival happens to be holding the lock at the moment this writer asks is up to the
+        // scheduler, and SQLite's busy handler is not a queue, so on a loaded machine a
+        // rival writing in a tight loop can hold this one off past any timeout. That is
+        // SQLite's documented shape rather than a regression, which is why what is asserted
+        // about the busy timeout is the deliberate experiment below and not this count.
         int abandoned{0};
         for (int i{0}; i < contendedRows; ++i) {
             QElapsedTimer clock;
@@ -332,10 +334,104 @@ int main(int argc, char *argv[])
         scalars.append(attempted);
 
         out << "contended writer: " << abandoned << " of " << contendedRows
-            << " writes abandoned, max latency "
-            << QString::number(contended.max(), 'f', 3) << " ms "
-            << (abandoned == 0 ? "(every write got its turn)"
-                               : "(THE BUSY TIMEOUT FIRED)")
+            << " writes refused, max latency "
+            << QString::number(contended.max(), 'f', 3) << " ms" << Qt::endl;
+    }
+
+    // What QSQLITE_BUSY_TIMEOUT actually buys, as an experiment rather than a race. A third
+    // connection takes the WAL write lock and holds it for a known interval; during that
+    // interval two writers ask for it. The one carrying the timeout waits and its write
+    // lands; the one without it is refused at once. That contrast is the same on a quiet
+    // workstation and on a loaded runner, because the blocked interval is arranged rather
+    // than waited for, which is what the rival above could never promise.
+    {
+        const int holdMs{1000};
+        std::atomic<bool> locked{false};
+        std::atomic<bool> holding{false};
+        std::thread holder{[&]() {
+            SqliteProvider keeper{sqliteConfig(dbFile)};
+            QString keeperError;
+            if (!keeper.connect(&keeperError)) {
+                locked.store(true, std::memory_order_release);
+                return;
+            }
+            // BEGIN alone is deferred and takes no lock; the write inside it is what makes
+            // this connection the WAL's one writer until the commit.
+            if (keeper.begin(&keeperError)
+                && keeper.exec(QStringLiteral("INSERT INTO bench (k, v) VALUES (?, ?)"),
+                               {QStringLiteral("holder"), 0}).ok) {
+                holding.store(true, std::memory_order_release);
+            }
+            locked.store(true, std::memory_order_release);
+            std::this_thread::sleep_for(std::chrono::milliseconds{holdMs});
+            keeper.commit(&keeperError);
+            keeper.disconnect();
+        }};
+        while (!locked.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
+
+        bool refusedWithoutTimeout{false};
+        {
+            SqliteProvider impatient{sqliteConfig(dbFile, 0)};
+            QString impatientError;
+            if (impatient.connect(&impatientError)) {
+                refusedWithoutTimeout = !impatient
+                    .exec(QStringLiteral("INSERT INTO bench (k, v) VALUES (?, ?)"),
+                          {QStringLiteral("impatient"), 0}).ok;
+                impatient.disconnect();
+            }
+        }
+
+        double waited{0.0};
+        bool refusedWithTimeout{false};
+        {
+            SqliteProvider patient{sqliteConfig(dbFile)};
+            QString patientError;
+            if (patient.connect(&patientError)) {
+                QElapsedTimer clock;
+                clock.start();
+                refusedWithTimeout = !patient
+                    .exec(QStringLiteral("INSERT INTO bench (k, v) VALUES (?, ?)"),
+                          {QStringLiteral("patient"), 0}).ok;
+                waited = clock.nsecsElapsed() / 1.0e6;
+                patient.disconnect();
+            }
+        }
+        holder.join();
+
+        Scalar held;
+        held.name = QStringLiteral("sqlite_held_lock_ms");
+        held.unit = QStringLiteral("ms");
+        held.value = holding.load(std::memory_order_acquire) ? holdMs : 0.0;
+        scalars.append(held);
+
+        Scalar refusedWithout;
+        refusedWithout.name = QStringLiteral("sqlite_held_lock_refused_without_timeout");
+        refusedWithout.unit = QStringLiteral("writes");
+        refusedWithout.value = refusedWithoutTimeout ? 1.0 : 0.0;
+        scalars.append(refusedWithout);
+
+        Scalar refusedWith;
+        refusedWith.name = QStringLiteral("sqlite_held_lock_refused_with_timeout");
+        refusedWith.unit = QStringLiteral("writes");
+        refusedWith.value = refusedWithTimeout ? 1.0 : 0.0;
+        scalars.append(refusedWith);
+
+        Scalar waitedFor;
+        waitedFor.name = QStringLiteral("sqlite_held_lock_wait_ms");
+        waitedFor.unit = QStringLiteral("ms");
+        waitedFor.value = waited;
+        scalars.append(waitedFor);
+
+        out << "write lock held for " << holdMs << " ms:" << Qt::endl;
+        out << "  no busy timeout:      "
+            << (refusedWithoutTimeout ? "refused" : "let straight through") << Qt::endl;
+        out << "  5000 ms busy timeout: "
+            << (refusedWithTimeout
+                    ? QStringLiteral("refused")
+                    : QStringLiteral("waited %1 ms, then the write landed")
+                          .arg(QString::number(waited, 'f', 0)))
             << Qt::endl;
     }
     db.disconnect();

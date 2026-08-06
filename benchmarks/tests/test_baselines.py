@@ -12,8 +12,8 @@ written from the same numbers it validates is exactly the kind that quietly cann
 So most of what follows takes a real baseline, breaks one thing in it the way a genuine
 regression would, and asserts the checker says so and names the right invariant. The
 mutations are deliberately the real historical shapes: `createSession` going back to a
-full-table purge, interest management silently publishing the whole world, the contended
-SQLite writer drifting toward the busy timeout.
+full-table purge, interest management silently publishing the whole world, a SQLite
+connection losing its busy timeout.
 """
 
 from __future__ import annotations
@@ -115,21 +115,37 @@ def test_interest_costing_more_than_naive_is_caught():
     assert any(name.startswith("fanout.interest_is_cheaper_to_publish") for name in names)
 
 
-def test_a_contended_write_the_busy_timeout_refused_is_caught():
-    """One refusal is the whole failure: the write did not happen, and the claim the
-    provider makes to an entity is that it does."""
+def test_a_held_lock_the_busy_timeout_did_not_wait_out_is_caught():
+    """The shape of QSQLITE_BUSY_TIMEOUT going missing: the lock is held, and the write that
+    should have waited for it comes back refused like the one with no timeout at all."""
     document = load_kind("persistence")
-    baselines._by_name(document["scalars"], "sqlite_contended_writes_abandoned")["value"] = 1
-    assert_fails(document, "persistence.contended_writer_never_gives_up")
+    baselines._by_name(document["scalars"],
+                       "sqlite_held_lock_refused_with_timeout")["value"] = 1
+    assert_fails(document, "persistence.the_busy_timeout_is_what_lands_the_write")
 
 
-def test_a_baseline_recorded_before_the_refusal_counter_is_caught():
-    """Fail closed rather than quietly dropping the safety check: a baseline with no count
-    is one nobody measured this on."""
+def test_a_held_lock_that_let_the_impatient_writer_through_is_caught():
+    """The control failing is the experiment failing: if a connection with no busy timeout
+    was let through, the lock was not really held and the run evidences nothing."""
+    document = load_kind("persistence")
+    baselines._by_name(document["scalars"],
+                       "sqlite_held_lock_refused_without_timeout")["value"] = 0
+    assert_fails(document, "persistence.the_busy_timeout_is_what_lands_the_write")
+
+
+def test_a_held_lock_experiment_that_never_took_the_lock_is_caught():
+    document = load_kind("persistence")
+    baselines._by_name(document["scalars"], "sqlite_held_lock_ms")["value"] = 0
+    assert_fails(document, "persistence.the_busy_timeout_is_what_lands_the_write")
+
+
+def test_a_baseline_recorded_before_the_held_lock_experiment_is_caught():
+    """Fail closed rather than quietly dropping the safety check: a baseline with no
+    experiment in it is one nobody measured this on."""
     document = load_kind("persistence")
     document["scalars"] = [scalar for scalar in document["scalars"]
-                           if scalar["name"] != "sqlite_contended_writes_abandoned"]
-    assert_fails(document, "persistence.contended_writer_never_gives_up")
+                           if not scalar["name"].startswith("sqlite_held_lock_")]
+    assert_fails(document, "persistence.the_busy_timeout_is_what_lands_the_write")
 
 
 def test_contention_moving_the_tail_is_caught():

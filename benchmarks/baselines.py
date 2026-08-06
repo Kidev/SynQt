@@ -381,6 +381,7 @@ def _ratio(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator else math.inf
 
 
+
 def _by_name(rows: Sequence[Mapping[str, Any]], name: str) -> Optional[Mapping[str, Any]]:
     for row in rows:
         if row.get("name") == name:
@@ -627,33 +628,82 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
     contended = _by_name(latency, "sqlite_write_contended")
     plain = _by_name(latency, "sqlite_write_autocommit")
     if contended:
-        # The safety claim: with a second connection hammering the same WAL file, the
-        # busy-timeout retry always wins the lock in the end and no write is refused. The
-        # harness counts the refusals rather than inferring them from a wall clock, so this
-        # is a count and not a duration, and it means the same thing on any machine. It used
-        # to compare the worst single write against the 5 s timeout, which read like a safety
-        # bound but was really a claim about one outlier on a quiet workstation: a shared CI
-        # runner that descheduled the writer once produced 3.9 s while every other write was
-        # sub-millisecond and none of them failed.
-        abandoned = _by_name(scalars, "sqlite_contended_writes_abandoned")
-        attempted = _by_name(scalars, "sqlite_contended_writes_attempted")
-        if abandoned is None:
+        # What QSQLITE_BUSY_TIMEOUT buys, from the harness's arranged experiment rather than
+        # from a race: a third connection holds the WAL write lock for a known interval, and
+        # during it one writer carrying the timeout and one without it both ask for the lock.
+        # The one with it waits and its write lands; the one without it is refused at once.
+        # Both readings come from the same machine in the same run and neither depends on the
+        # scheduler, because the blocked interval is arranged instead of waited for.
+        #
+        # This claim has been two other things, and both were facts about the author's
+        # workstation wearing a safety bound's clothes. First the worst single write against
+        # the 5 s timeout, which a CI runner broke by descheduling the writer once. Then a
+        # flat "no write was refused" under a rival writing in a tight loop, which the same
+        # runner broke by starving it: SQLite's busy handler is not a queue, so a rival that
+        # never pauses can hold a second writer off past any timeout. That is SQLite's
+        # documented shape rather than a regression. The regression worth catching is the
+        # option not being set at all, and against a lock that is genuinely held, that is
+        # the difference between a write that lands and a write that does not.
+        held = _by_name(scalars, "sqlite_held_lock_ms")
+        refused_without = _by_name(scalars, "sqlite_held_lock_refused_without_timeout")
+        refused_with = _by_name(scalars, "sqlite_held_lock_refused_with_timeout")
+        waited = _by_name(scalars, "sqlite_held_lock_wait_ms")
+        if held is None or refused_without is None or refused_with is None:
             checks.append(
                 Check(
-                    "persistence.contended_writer_never_gives_up",
+                    "persistence.the_busy_timeout_is_what_lands_the_write",
                     False,
-                    "this baseline predates sqlite_contended_writes_abandoned; re-run "
+                    "this baseline predates the held-lock experiment; re-run "
                     "benchmarks/persistence/run-bench.sh to record it",
                 )
             )
+        elif held["value"] <= 0:
+            checks.append(
+                Check(
+                    "persistence.the_busy_timeout_is_what_lands_the_write",
+                    False,
+                    "the experiment never took the write lock, so this run says nothing "
+                    "about the busy timeout either way",
+                )
+            )
         else:
+            landed = refused_with["value"] == 0 and refused_without["value"] == 1
+            checks.append(
+                Check(
+                    "persistence.the_busy_timeout_is_what_lands_the_write",
+                    landed,
+                    f"with the write lock held for {held['value']:.0f} ms, the connection "
+                    f"carrying QSQLITE_BUSY_TIMEOUT "
+                    + ("waited and its write landed" if refused_with["value"] == 0
+                       else "was refused")
+                    + " and the one without it "
+                    + ("was refused" if refused_without["value"] == 1
+                       else "was let straight through"),
+                )
+            )
+            if waited:
+                checks.append(
+                    Check(
+                        "persistence.held_lock_wait",
+                        True,
+                        f"the write that waited took {waited['value']:.0f} ms of the "
+                        f"{held['value']:.0f} ms the lock was held for",
+                        enforced=False,
+                    )
+                )
+
+        if abandoned := _by_name(scalars, "sqlite_contended_writes_abandoned"):
+            attempted = _by_name(scalars, "sqlite_contended_writes_attempted")
             total = attempted["value"] if attempted else 0
             checks.append(
                 Check(
-                    "persistence.contended_writer_never_gives_up",
-                    abandoned["value"] == 0,
-                    f"{abandoned['value']:.0f} of {total:.0f} contended writes were refused "
-                    f"by the 5 s busy timeout",
+                    "persistence.contended_writes_refused",
+                    True,
+                    f"{abandoned['value']:.0f} of {total:.0f} writes came back refused with "
+                    f"a rival writing in a tight loop (whether it ever holds the lock when "
+                    f"this writer asks is the scheduler's to decide, so this is reported; "
+                    f"the enforced claim is the held-lock experiment)",
+                    enforced=False,
                 )
             )
         if plain:
@@ -683,7 +733,7 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
                 True,
                 f"worst contended write {contended['max']:.3g} ms against a 5000 ms busy "
                 f"timeout (one sample, and it moves with the scheduler; the enforced claim "
-                f"is that none was refused)",
+                f"is the held-lock experiment)",
                 enforced=False,
             )
         )

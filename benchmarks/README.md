@@ -30,7 +30,7 @@ python benchmarks/baselines.py compare old.json new.json --tolerance 0.25
 
 The claims those numbers support are machine-independent, and those are enforced
 everywhere. "Interest management holds the per-session payload flat." "Minting a session
-is amortized O(1)." "The contended SQLite writer never has a write refused." "Calls
+is amortized O(1)." "A held write lock is what the SQLite busy timeout waits out." "Calls
 pipeline rather than serialising on the round trip." Each is a ratio, an ordering, or an
 invariant, each is a claim this file makes in prose below, and none of them cares how fast
 the CPU is. `check` enforces them, on a committed baseline or on a run that just finished:
@@ -247,25 +247,40 @@ CPU is the load-bearing number; it is where the O(N^2) lives:
 
 | N | mode | slice (rows/session) | rows/tick | publish CPU p50 | publish CPU p99 |
 |---|------|----------------------|-----------|-----------------|-----------------|
-| 25 | per_session_naive | 25 | 625 | 2.09 ms | 2.31 ms |
-| 25 | per_session_interest | 16 | 400 | 1.38 ms | 1.46 ms |
-| 50 | per_session_naive | 50 | 2 500 | 8.34 ms | 9.26 ms |
-| 50 | per_session_interest | 16 | 800 | 2.66 ms | 3.03 ms |
-| 100 | per_session_naive | 100 | 10 000 | **34.6 ms** | 38.9 ms |
-| 100 | per_session_interest | 16 | 1 600 | **5.62 ms** | 6.64 ms |
+| 25 | per_session_naive | 25 | 625 | 0.73 ms | 0.90 ms |
+| 25 | per_session_interest | 16 | 400 | 0.49 ms | 0.62 ms |
+| 50 | per_session_naive | 50 | 2 500 | 3.32 ms | 3.64 ms |
+| 50 | per_session_interest | 16 | 800 | 1.24 ms | 1.77 ms |
+| 100 | per_session_naive | 100 | 10 000 | **12.4 ms** | 14.6 ms |
+| 100 | per_session_interest | 16 | 1 600 | **2.37 ms** | 2.80 ms |
 
-The naive per-session CPU is quadratic in N; 0.37 -> 2.09 -> 8.34 -> 34.6 ms across N = 10 -> 25 ->
-50 -> 100 (a 10x N is a ~ 95x cost, i.e. N^2); exactly the O(N^2) the tutorial flags, because each
+The naive per-session CPU is quadratic in N; 0.17 -> 0.73 -> 3.32 -> 12.4 ms across N = 10 -> 25 ->
+50 -> 100 (a 10x N is a ~ 75x cost, i.e. N^2); exactly the O(N^2) the tutorial flags, because each
 of N sessions rebuilds a slice of all N entities. Interest management flattens it: capping each
 slice at the k = 16 nearest holds the per-session payload constant, so total work is O(N*k) and the
-publish CPU grows *linearly* (0.36 -> 1.38 -> 2.66 -> 5.62 ms). At N = 100 that is a 6.2x cheaper
+publish CPU grows *linearly* (0.16 -> 0.49 -> 1.24 -> 2.37 ms). At N = 100 that is a 5.3x cheaper
 publish and 6.25x less payload (1 600 vs 10 000 rows/tick), and it keeps the tick inside a frame
-budget the naive path (34.6 ms) blows past. This is where the arena saturates on a single edge, and
-the number that justifies the `per_session` + interest-management design. `shared` is cheapest of
-all (one model, 4.5 ms at N = 100) but cannot filter per player, so it is only viable when every
-client legitimately needs the whole world. Propagation latency is reported alongside (and tracks
-the same ordering; interest lowest, naive highest, at every N >= 25); its low-N floor reflects
-QtRO's outbound property-change coalescing, so the CPU columns are the primary characterization.
+budget the naive path (12.4 ms) is already eating half of. This is where the arena saturates on a
+single edge, and the number that justifies the `per_session` + interest-management design.
+`shared` is cheapest of all (one model, 1.58 ms at N = 100) but cannot filter per player, so it is
+only viable when every client legitimately needs the whole world. Propagation latency is reported
+alongside (and tracks the same ordering; interest lowest, naive highest, at every N >= 25); its
+low-N floor reflects QtRO's outbound property-change coalescing, so the CPU columns are the primary
+characterization.
+
+A note on how the harness publishes, because it changed the numbers above. Each tick builds the
+row items, resets the model, and appends them, which is what the generated `set<Model>(rows)` does
+and therefore what an owner's publish actually costs. It used to call `removeRows()` and
+`insertRows()` with a `setData()` per cell instead, which is both more expensive and not a thing
+the framework ever does: a SynQt owner reaches its remoted model only through `set<Model>(rows)`,
+and the model itself is private to the generated helper. It is also not safe. QtRO's model replica
+keeps its vertical header cache as a flat list, grown by `onRowsInserted` and cut by
+`onRowsRemoved`, while the initial size arrives asynchronously in `handleModelResetDone` and
+overwrites it (Qt 6.11.1, `qremoteobjectabstractitemmodelreplica.cpp:293`). Cycle rows fast enough
+across enough consumers and the two disagree; the next removal erases past the end of that list
+and the process dies in the `CacheEntry` destructor. On two cores that was seven runs in eight.
+The framework's own shape does not reach it, and sixteen runs under the same constraint confirm
+that.
 
 ## persistence: the default providers (M9)
 
@@ -279,9 +294,9 @@ thread; the entity's serialized single-writer loop) and the `MemoryCacheProvider
 ```
 
 What it measures: autocommit vs single-transaction write throughput, indexed point-read latency,
-the single writer's tail latency while a second connection contends on the same WAL file (the
-busy-timeout path, which must stay bounded and never deadlock), and the memory cache's
-hit/miss/set cost plus that its bounded LRU holds its bound under overfill.
+the single writer's tail latency while a second connection contends on the same WAL file, what
+`QSQLITE_BUSY_TIMEOUT` buys against a write lock the harness holds deliberately, and the memory
+cache's hit/miss/set cost plus that its bounded LRU holds its bound under overfill.
 
 ### Baseline captured on this checkout
 
@@ -289,25 +304,36 @@ hit/miss/set cost plus that its bounded LRU holds its bound under overfill.
 
 | Metric | Value |
 |--------|-------|
-| `sqlite_write_autocommit` | p50 8 us, p99 12 us (~ 119 k rows/s) |
-| `sqlite_write_batched` (one txn) | ~ 461 k rows/s |
-| `sqlite_read_point` (indexed) | p50 4 us, p99 6 us |
-| `sqlite_write_contended` (2nd writer active) | p50 8 us, p99 12 us, **0 of 2000 writes refused** |
-| `cache_get_hit` / `cache_get_miss` / `cache_set` | 90 / 66 / 98 ns/op |
-| `cache_set_under_eviction` | ~ 1.4 us/op |
+| `sqlite_write_autocommit` | p50 9 us, p99 18 us (~ 103 k rows/s) |
+| `sqlite_write_batched` (one txn) | ~ 418 k rows/s |
+| `sqlite_read_point` (indexed) | p50 4 us, p99 5 us |
+| `sqlite_write_contended` (2nd writer active) | p50 8 us, p99 13 us, 0 of 2000 writes refused |
+| write lock held 1000 ms | **no busy timeout: refused. 5000 ms busy timeout: waited, landed** |
+| `cache_get_hit` / `cache_get_miss` / `cache_set` | 93 / 68 / 98 ns/op |
+| `cache_set_under_eviction` | ~ 1.3 us/op |
 
 Reading it: WAL with the default `synchronous=NORMAL` does not fsync per commit, so autocommit
-writes are cheap (single-digit microseconds) and a single bulk transaction reaches ~ 461 k
-rows/s. The contended-writer clause is the important safety one; with a second connection
-hammering the same file, the single writer's median and p99 are unchanged (8 and 12 us) and
-every one of its 2000 writes got its turn: the busy-timeout retry does its job and nothing
-deadlocks. That count is what the harness asserts, and it is deliberately a count rather than
-a duration. The worst single write is also recorded, but it is reported and not enforced: it
-is one sample, it moves with whatever else the machine was doing, and a shared CI runner that
-descheduled the writer once has produced 3.9 s of it while every other write stayed
-sub-millisecond and none of them failed. The memory cache is ~90 ns/op on the hot path and holds its
+writes are cheap (single-digit microseconds) and a single bulk transaction reaches ~ 418 k
+rows/s. With a second connection hammering the same file, the single writer's median is
+unchanged (8 us against 9), which is the contention reading worth having.
+
+The safety claim is the row under it, and it is an arranged experiment rather than a race: a third
+connection takes the WAL write lock and holds it for a second, and during that second two writers
+ask for it. The one carrying `QSQLITE_BUSY_TIMEOUT` waits and its write lands; the one without it
+is refused at once. That contrast is what the option buys, it is what the harness asserts, and it
+says the same thing on a quiet workstation and a loaded runner because the blocked interval is
+arranged instead of waited for.
+
+Two weaker versions of that claim came first, and both were facts about this workstation dressed
+as safety bounds. The worst single contended write against the 5 s timeout went first, when a
+shared runner descheduled the writer once and produced 3.9 s of it while every other write stayed
+sub-millisecond and none failed. A flat "no write was refused" went next, when the same runner
+starved the writer for the whole timeout: SQLite's busy handler is not a queue, so a rival writing
+in a tight loop can hold a second writer off indefinitely, and that is SQLite's documented shape
+rather than a regression. Both the refusal count and the worst single write are still recorded;
+they are reported and not enforced. The memory cache is ~93 ns/op on the hot path and holds its
 bound exactly under 2x overfill (oldest evicted, newest kept). `cache_set_under_eviction` is more
-expensive (~ 1.2 us) because the LRU recency list evicts from the front; O(bound) per evicting
+expensive (~ 1.3 us) because the LRU recency list evicts from the front; O(bound) per evicting
 set; it is cheap at the default bound but a note for very large cache bounds.
 
 ## client: bundle weight and frame time (M6)
