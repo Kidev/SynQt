@@ -73,18 +73,28 @@ function duplicateLinks(design) {
     }));
 }
 
+// A desktop-only client is left alone here, exactly as `synqt check` leaves it alone: it is
+// not served by an edge, it dials the one build.desktop.edge_url names, and that edge can
+// belong to another project. Drawing one is not a mistake to paint red.
+function inBrowser(entity) {
+    const targets = entity.targets && entity.targets.length ? entity.targets : ["wasm"];
+    return targets.includes("wasm");
+}
+
 function clientWithoutEdge(design) {
     const entities = entitiesOf(design);
     if (entities.some(isWebEdge)) {
         return [];
     }
-    return entities.filter((entity) => entity.kind === "client").map((entity) => ({
-        rule: "no-web-edge-for-client",
-        level: "error",
-        entity: nameOf(entity),
-        message: `'${nameOf(entity)}' is a client and this project has no web edge for it to `
-            + `connect to.`,
-    }));
+    return entities
+        .filter((entity) => entity.kind === "client" && inBrowser(entity))
+        .map((entity) => ({
+            rule: "no-web-edge-for-client",
+            level: "error",
+            entity: nameOf(entity),
+            message: `'${nameOf(entity)}' is a client and this project has no web edge for `
+                + `it to connect to.`,
+        }));
 }
 
 function linkFindings(design, link) {

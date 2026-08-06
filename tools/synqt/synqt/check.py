@@ -75,8 +75,16 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     # A browser reaches a web edge or it reaches nothing: it holds no mesh certificate and
     # the mesh is not routable from it. A client in a project with no web_edge entity has
     # nowhere to connect, so it is a client that cannot run rather than one not wired yet.
-    if clients and not web_edges:
+    #
+    # A desktop-only client is the one exception, and it is not a loophole: it is not served
+    # by an edge, it dials the one `build.desktop.edge_url` names, and that edge can be
+    # deployed from another project entirely. Requiring one here would refuse a shape the
+    # framework supports (docs/desktop.md), and `_desktop_client_messages` already holds a
+    # desktop client to naming an edge at all.
+    if not web_edges:
         for name in sorted(clients):
+            if "wasm" not in (entities[name].get("targets") or ["wasm"]):
+                continue
             messages.append(
                 f"error: client '{name}' has no web_edge entity to reach; the browser can "
                 "only reach a web edge (see https://synqt.org/entities/)")

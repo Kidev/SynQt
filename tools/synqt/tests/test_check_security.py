@@ -218,6 +218,29 @@ class DesktopClientTest(unittest.TestCase):
         config["entities"][1]["tls"] = {"cert_file": "c.pem", "key_file": "k.pem"}
         self.assertEqual(errors(config, release=True), [])
 
+    def test_a_desktop_only_client_needs_no_web_edge_in_this_project(self):
+        """A native client is not served by an edge; it dials the one `edge_url` names,
+        which may well be deployed from somewhere else entirely. Requiring a web edge here
+        would refuse a project the framework supports, and the edge_url rule above is
+        already what holds a desktop client to naming an edge at all."""
+        config = {
+            "project": {"name": "app"},
+            "entities": [{"name": "client", "kind": "client", "path": "client",
+                          "targets": ["desktop"]}],
+            "build": {"desktop": {"edge_url": "wss://app.example/sync"}},
+        }
+        self.assertEqual(errors(config), [])
+
+    def test_a_client_built_for_the_browser_as_well_still_needs_one(self):
+        config = {
+            "project": {"name": "app"},
+            "entities": [{"name": "client", "kind": "client", "path": "client",
+                          "targets": ["wasm", "desktop"]}],
+            "build": {"desktop": {"edge_url": "wss://app.example/sync"}},
+        }
+        found = errors(config)
+        self.assertTrue(any("no web_edge entity" in m for m in found), found)
+
 
 class IdentityTest(unittest.TestCase):
     def identity(self, **provider):

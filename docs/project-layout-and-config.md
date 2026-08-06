@@ -1066,6 +1066,9 @@ fast. Non negotiable checks:
   `web_edge` capability is rejected (the browser can only reach a web edge). So is a
   `client` entity in a project that declares no `web_edge` entity at all: a browser
   reaches a web edge or it reaches nothing, so that client has no address to open.
+  A client built only for the `desktop` target is exempt, because it is not served by
+  an edge and dials the one [`build.desktop.edge_url`](#builddesktop) names, which may
+  belong to another deployment entirely; that key is required of it instead.
 - A connect point that lists its own `owner` among its `consumers` is rejected. The
   owner holds the Source and does not acquire a replica of what it already has, and
   the entry only makes the consumer list look wider than it is.

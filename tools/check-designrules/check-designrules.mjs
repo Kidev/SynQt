@@ -62,6 +62,24 @@ for (const rule of covered) {
     }
 }
 
+// The shared cases can only say "this topology draws this rule", so a rule that has learned
+// to stay quiet needs asserting here. A desktop-only client is not served by an edge and
+// dials the one build.desktop.edge_url names, which `synqt check` accepts with no web edge
+// in the project; a page that painted it red would be the drift these fixtures exist to
+// stop, in the direction that matters (the canvas refusing what the deployment allows).
+const desktopOnly = {
+    version: 1,
+    project: "rules",
+    entities: [{name: "client", kind: "client", targets: ["desktop"]}],
+    links: [],
+};
+for (const finding of findings(desktopOnly)) {
+    if (finding.rule === "no-web-edge-for-client") {
+        fail("no-web-edge-for-client",
+            "rules.js paints a desktop-only client red; synqt check does not");
+    }
+}
+
 if (failed > 0) {
     console.error(`\ndesign rules: ${failed} problem(s)`);
     process.exit(1);
