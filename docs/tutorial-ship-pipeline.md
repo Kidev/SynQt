@@ -133,7 +133,9 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # A named image rather than ubuntu-latest, so the machine this runs on next year is
+    # the machine it runs on today. Move it when you decide to, not when GitHub does.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7

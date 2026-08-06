@@ -112,7 +112,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -121,7 +121,7 @@ jobs:
           node-version: "20"
 
       - name: Install build tools (CMake + Ninja)
-        uses: lukka/get-cmake@latest
+        uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies the host Qt kit needs to configure
         # Every proof here builds a native host binary too (the edge that serves the bundle),
@@ -311,12 +311,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install build tools (CMake + Ninja)
-        uses: lukka/get-cmake@latest
+        uses: lukka/get-cmake@v4.4.2
 
       - name: Install the native dependencies the host Qt kit needs to configure
         # See the job above: Qt6Gui needs the OpenGL dev files or find_package(Qt6) fails on
