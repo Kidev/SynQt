@@ -164,7 +164,9 @@ def test_a_signed_macos_tree_is_told_the_one_step_synqt_does_not_run(monkeypatch
                                     "Developer ID Application: Someone")
     assert "notarytool submit" in note
     assert "stapler staple" in note
-    assert "/out/app.app" in note
+    # Composed the way the note composes it: the separator is the one this platform
+    # writes, and asserting a literal "/out/app.app" only passes off Windows.
+    assert str(Path("/out") / "app.app") in note
 
 
 def test_a_signed_tree_anywhere_else_needs_nothing_further(monkeypatch):

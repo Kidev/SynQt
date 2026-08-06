@@ -33,6 +33,7 @@ import hmac
 import json
 import os
 import secrets
+import socket
 import threading
 import webbrowser
 from http import HTTPStatus
@@ -393,6 +394,23 @@ def _asset_path(path: str) -> Optional[Path]:
 # Serving
 
 
+def _already_answering(port: int) -> bool:
+    """Whether something is already listening on that loopback port.
+
+    Asked rather than left to bind() because bind() does not give the same answer on every
+    platform. `HTTPServer` sets `SO_REUSEADDR`, which on Windows means a second socket may
+    take an address another socket already holds; there the bind succeeds, two servers split
+    the port between them, and which one a request reaches is up to the operating system. A
+    connection attempt is the same question on all three, and the answer arrives immediately
+    on loopback whether it is accepted or refused.
+    """
+    if port == 0:
+        return False  # the operating system is picking a free one
+    with socket.socket() as probe:
+        probe.settimeout(0.25)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
 def make_server(project_dir: os.PathLike[str] | str, *, port: int, token: str,
                 profile: Optional[str] = None) -> ThreadingHTTPServer:
     """A server for one project, bound to the loopback address and not yet serving.
@@ -405,6 +423,9 @@ def make_server(project_dir: os.PathLike[str] | str, *, port: int, token: str,
         raise DesignError(f"{root} is not a SynQt project (no synqt.yaml)")
     if not token:
         raise DesignError("a design server needs a token")
+    if _already_answering(port):
+        raise DesignError(f"cannot serve the editor on port {port}: something is already "
+                          "listening there. Pass --port to pick another one.")
     try:
         return _DesignServer(("127.0.0.1", port), root, token, profile)
     except OSError as error:
