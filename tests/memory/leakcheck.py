@@ -1,30 +1,18 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""Ask the suites and benchmarks that already exist what they leave behind.
+"""Ask the existing suites and benchmarks what they leave behind.
 
-Two questions, because one tool cannot answer both.
+`soak` runs a binary at two workloads and compares peak resident set, which catches memory
+that is still reachable. It is noisy, so it is printed for every binary and gated only far
+past healthy growth.
 
-`soak` runs a binary at two workloads and compares the peak resident set. Memory that is
-still reachable is memory a leak checker will not report and this will: a container the
-process keeps appending to is the shape of every leak this framework has had. The
-answer is noisy by construction (the allocator keeps pages, caches warm up), so it is
-printed for every binary and gated only where the growth is far past anything a healthy
-suite measures.
+`sanitize` reads the LeakSanitizer reports from the same runs. A record is charged to this
+repository when a repository frame is near the top of its stack. A leaked graph whose
+members all point at each other has no direct record; such processes are listed with what
+they lost, and `soak` gates them.
 
-`sanitize` reads the reports LeakSanitizer wrote while the same binaries ran and asks who
-allocated what was lost. Precise where the other is broad, and blind where the other sees:
-it reports only what is unreachable at exit. A leak record is charged to this repository
-when a repository frame appears near the top of its stack. One whose repository frame is
-thirty frames down, under a font library loading its cache, is not the repository's no matter whose
-main() is at the bottom.
-
-There is a shape it can see but cannot attribute, and it says so rather than passing it
-over: a leaked graph whose members all point at each other has no root, so LeakSanitizer
-names none, and no allocation site in it is the culprit. Those processes are listed with
-what they lost, and `soak` is what gates them.
-
-Stdlib only, so this runs on whatever interpreter is on the machine.
+Stdlib only.
 """
 
 from __future__ import annotations
@@ -37,29 +25,19 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-# Where a repository frame has to appear in a leak's stack for the leak to be the repository's. Deeper
-# than this and the allocation belongs to whatever library the frames above it name: every
-# leak in a process has this repository's main() at the bottom of its stack, so "a frame of
-# the repository is present" charges the repository with the C library's font cache.
+# How near the top of a leak's stack a repository frame must be for the leak to count. Every
+# stack has the repository main() at the bottom.
 NEAR_FRAMES = 12
 
-# Frames that end the search before it reaches a repository frame, however close one is underneath.
-#
-# A signal dispatch is a change of author. Above one, the code running is a slot somebody
-# else wrote, reacting to an event. Below it is whoever emitted. Emitting a signal is not
-# allocating, and charging the emitter for what a slot kept turns every `emit readyRead()`
-# in a transport into the owner of whatever the framework above it built. That is not a
-# hypothetical: QtRO builds a dynamic Replica's metaobject inside onClientRead and keeps
-# it, and the only repository frame in that stack is the `emit` five frames below the
-# allocation.
+# Frames that stop the search: a signal dispatch changes author, so code above it belongs to
+# the slot, not the emitter (QtRO builds a dynamic Replica metaobject in onClientRead, above
+# an `emit`).
 DISPATCH_FRAMES = ("doActivate", "QSlotObjectBase::call", "QMetaObject::activate",
                    "QMetaMethod::invoke", "QMetaObject::invokeMethod")
 
-# How much a binary may grow per repetition of its whole workload before this is called a
-# finding rather than a number. It is loose, because a suite repetition here builds and tears
-# down entire QML engines, TLS servers and QtRO nodes, and Qt retains a little of each. It
-# is a net for the case nobody thought to write a steady-state test for, not the gate;
-# tests/memory/tst_memory.cpp is the gate, and it measures in bytes.
+# Allowed growth per workload repetition before it is a finding. Loose: a repetition builds
+# and tears down QML engines, TLS servers and QtRO nodes. tests/memory/tst_memory.cpp is the
+# byte-level gate.
 SOAK_LIMIT_KB_PER_RUN = 4096
 
 
@@ -82,11 +60,9 @@ def _run(command: Sequence[str], env: Optional[Dict[str, str]] = None,
 
 
 class Suite:
-    """One test as ctest would run it. Its command, and the properties that decide
-    whether it can run at all. A suite that asserts on QT_QUICK_BACKEND, or reads a
-    fixture next to its binary, is written for the ENVIRONMENT and WORKING_DIRECTORY its
-    CMakeLists gave it. Run bare, it fails at its first case and this reports it as a
-    suite that will not run twice, which is not what happened."""
+    """One test as ctest would run it: its command and the ENVIRONMENT and WORKING_DIRECTORY
+    its CMakeLists gives it.
+    """
 
     def __init__(self, name: str, command: List[str], env: Dict[str, str],
                  cwd: Optional[str]) -> None:
@@ -123,10 +99,7 @@ def _tests_of(build_dir: Path) -> List[Suite]:
 def soak(build_dir: Path, low: int, high: int, only: Optional[str]) -> int:
     """Run each suite at two repeat counts and report what it kept per repetition."""
     tests = _tests_of(build_dir)
-    # tst_memory is this file's sibling gate, not a soak subject. It measures byte drift
-    # over its own repeated cycles internally, so a QTest `-repeat` over it re-runs those
-    # cycles and drifts the absolute baseline it is built to hold still. The soak asks the
-    # same question of everything else. The gate answers its own, on its own ctest run.
+    # tst_memory is the sibling gate and measures its own drift; it is not soaked.
     tests = [t for t in tests if t.name != "memory"]
     if only:
         tests = [t for t in tests if only in t.name]
@@ -144,17 +117,27 @@ def soak(build_dir: Path, low: int, high: int, only: Optional[str]) -> int:
         high_status, high_rss = _run([*suite.command, "-repeat", str(high), "-silent"],
                                      suite.env, suite.cwd)
         if low_status != 0 or high_status != 0:
-            # A suite that fails when run twice in one process is not a memory result: it
-            # is a suite whose fixture does not survive its own second run (a table it
-            # creates, a port it holds). Named rather than dropped, since a suite silently
-            # missing from this table would read as one that passed it.
+            # A suite that fails when run twice is reported by name, not as a memory result.
             unrepeatable.append(name)
             continue
         per_run = (high_rss - low_rss) / (high - low)
-        flag = "  <-- grows" if per_run > SOAK_LIMIT_KB_PER_RUN else ""
-        print(f"{name:<24} {low_rss:>10} {high_rss:>10} {per_run:>10.0f}{flag}")
+        note = ""
         if per_run > SOAK_LIMIT_KB_PER_RUN:
-            findings += 1
+            # Over the limit, the suite is asked again from `high` to twice as deep; only a
+            # slope that holds there is a finding (a high-water mark divides down).
+            deeper = high * 2 + low
+            deep_status, deep_rss = _run([*suite.command, "-repeat", str(deeper), "-silent"],
+                                         suite.env, suite.cwd)
+            if deep_status != 0:
+                unrepeatable.append(name)
+                continue
+            deep_per_run = (deep_rss - high_rss) / (deeper - high)
+            if deep_per_run > SOAK_LIMIT_KB_PER_RUN:
+                note = f"  <-- grows (x{deeper}: {deep_per_run:.0f} KB/run)"
+                findings += 1
+            else:
+                note = f"  (settles: x{deeper}: {deep_per_run:.0f} KB/run)"
+        print(f"{name:<24} {low_rss:>10} {high_rss:>10} {per_run:>10.0f}{note}")
     if unrepeatable:
         print(f"\nnot measured, will not run twice in one process: {', '.join(unrepeatable)}")
     return 1 if findings else 0
@@ -178,19 +161,14 @@ def _records(log_dir: Path, repo: Path) -> List[dict]:
             depth = None
             where = ""
             for index, frame in enumerate(frames):
-                # A build directory holds generated code. It is the repository's, but naming the source
-                # it was generated from is not something a stack can do, so it is reported
-                # by the path it has.
+                # Generated code in a build directory is reported by its path.
                 if here in frame:
                     depth = index
                     where = frame[frame.index(here) + len(here) + 1:].split()[0]
                     break
                 if any(marker in frame for marker in DISPATCH_FRAMES):
                     break   # upstream reacting to a repository event, see DISPATCH_FRAMES
-            # Which suite this was. A log is named after a pid, which tells a reader
-            # nothing. The deepest test path in the stack does. Taken over the whole
-            # block rather than from `where`, because the frame that names the repository is often
-            # library code it called, several frames above main().
+            # Name the suite by the deepest test path in the whole block.
             suite = ""
             for frame in reversed(frames):
                 marker = here + "/tests/"
@@ -215,8 +193,7 @@ def sanitize(log_dir: Path, repo: Path) -> int:
         print("no leak reports: every binary exited clean")
         return 0
 
-    # Read each process on its own. Whether its records can be attributed at all depends on
-    # the shape of that process's leaked graph, and the two shapes want different answers.
+    # Read each process on its own; the two leaked-graph shapes need different answers.
     by_log: Dict[str, List[dict]] = {}
     for record in records:
         by_log.setdefault(record["log"], []).append(record)
@@ -236,11 +213,8 @@ def sanitize(log_dir: Path, repo: Path) -> int:
         label = max(set(named), key=named.count).split(":")[0] if named else log
         rootless.append((label, len(rest), sum(r["bytes"] for r in rest)))
 
-    # Direct records only. An indirect record is a block reachable from another leaked
-    # block, so it names a child, not a culprit. The QSslServer a leaked edge owns is
-    # allocated in src/ and lost because a test never freed the edge. Charging those to the
-    # framework would report one leak as a hundred and point at the wrong file for all of
-    # them. The root of every one of them is a direct record, which is what is read here.
+    # Direct records only. An indirect record is a child of a leaked block and would charge
+    # one leak many times to the wrong file.
     ours = [r for r in direct if r["depth"] is not None and r["depth"] <= NEAR_FRAMES]
     framework = [r for r in ours if r["where"].startswith("src/")]
     suites = [r for r in ours if not r["where"].startswith("src/")]
@@ -262,32 +236,16 @@ def sanitize(log_dir: Path, repo: Path) -> int:
           f"below a signal dispatch): {upstream} roots")
 
     if rootless:
-        # The blind spot, named rather than counted as zero.
-        #
-        # LeakSanitizer calls a block direct only when no other leaked block points at it,
-        # and it walks out from every unreachable block tagging what it reaches. A leaked
-        # graph whose members all point at each other therefore has no direct record at
-        # all. Every block is somebody's child. A QObject tree is that shape by
-        # construction, since a child holds a pointer back to its parent, and a two-node
-        # cycle in ten lines of C reproduces it.
-        #
-        # A process in that shape reaches the lines above with nothing to contribute
-        # and would read as clean, whatever it had lost. It is not charged per site,
-        # because in a graph lost whole any member can turn up at any stack depth: the
-        # largest site in m5 is fifteen to thirty frames down inside OpenSSL, and its
-        # shallowest, `new QTcpSocket{this}`, is an object parented into the same tree.
-        # Both name where a block was born, not what dropped it. So this is reported and
-        # not gated. The soak pass is the gate that sees this shape, because memory a
-        # process still holds is exactly what a peak-RSS comparison measures.
+        # A process with no direct record: every leaked block is pointed at by another (a
+        # QObject tree, or any cycle). It is reported, not gated per site, since any member
+        # can appear at any stack depth. The soak pass gates this shape.
         print("\nleaked whole, so LeakSanitizer named no root and no site here can be "
               f"charged ({len(rootless)} processes); the soak pass is what gates these:")
         for label, count, size in sorted(rootless, key=lambda entry: -entry[2]):
             print(f"  {count:>5} records {size:>9} bytes  {label}")
 
-    # Reported, never gated. An indirect record is a child of a leaked root, and a root can
-    # be a region LeakSanitizer scanned conservatively, which is how a repository object ends
-    # up filed under somebody else's arena. Read as evidence. A repository allocation here is
-    # a pointer someone dropped, and worth looking at even though it is not proof.
+    # Reported, never gated. An indirect record may sit under a conservatively scanned
+    # region.
     evidence = [r for r in children
                 if r["depth"] is not None and r["depth"] <= NEAR_FRAMES]
     summarize("held by a leaked root, allocated by us (evidence, not a verdict)", evidence)
