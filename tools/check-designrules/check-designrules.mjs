@@ -13,12 +13,13 @@
 
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const design = path.resolve(here, "..", "synqt", "synqt", "assets", "design");
 
-const { findings } = await import(path.join(design, "rules.js"));
+// As a URL, not a path: the loader reads a Windows drive letter as a scheme it does not know.
+const { findings } = await import(pathToFileURL(path.join(design, "rules.js")).href);
 const cases = JSON.parse(fs.readFileSync(path.join(design, "topologies.json"), "utf8")).cases;
 
 let failed = 0;

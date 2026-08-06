@@ -72,6 +72,16 @@ def _text(name):
     return (DESIGN / name).read_text(encoding="utf-8")
 
 
+def _module(name):
+    """The JSON string literal to import `name` from, as a URL rather than a path.
+
+    Node's ES module loader takes URLs, and a Windows path starts with a drive letter it
+    reads as a scheme it does not know ("Received protocol 'd:'"). A file:// URL is the
+    same address written the way the loader accepts on all three platforms.
+    """
+    return json.dumps((DESIGN / name).as_uri())
+
+
 def _node(script):
     """Run `script` as an ES module and read back the JSON it prints."""
     if shutil.which("node") is None:
@@ -86,8 +96,8 @@ def _node(script):
 def rendered():
     """The project the page would write for DOCUMENT, rendered by the page's own module."""
     return _node(f"""
-        import {{ projectFiles }} from {json.dumps(str(DESIGN / 'project.js'))};
-        import {{ zipBytes }} from {json.dumps(str(DESIGN / 'zip.js'))};
+        import {{ projectFiles }} from {_module('project.js')};
+        import {{ zipBytes }} from {_module('zip.js')};
         const design = {json.dumps(DOCUMENT)};
         const files = projectFiles(design);
         process.stdout.write(JSON.stringify({{
