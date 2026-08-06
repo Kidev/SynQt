@@ -30,7 +30,7 @@ python benchmarks/baselines.py compare old.json new.json --tolerance 0.25
 
 The claims those numbers support are machine-independent, and those are enforced
 everywhere. "Interest management holds the per-session payload flat." "Minting a session
-is amortized O(1)." "The contended SQLite writer stays far under the busy timeout." "Calls
+is amortized O(1)." "The contended SQLite writer never has a write refused." "Calls
 pipeline rather than serialising on the round trip." Each is a ratio, an ordering, or an
 invariant, each is a claim this file makes in prose below, and none of them cares how fast
 the CPU is. `check` enforces them, on a committed baseline or on a run that just finished:
@@ -289,19 +289,23 @@ hit/miss/set cost plus that its bounded LRU holds its bound under overfill.
 
 | Metric | Value |
 |--------|-------|
-| `sqlite_write_autocommit` | p50 9 us, p99 13 us (~ 106 k rows/s) |
-| `sqlite_write_batched` (one txn) | ~ 412 k rows/s |
-| `sqlite_read_point` (indexed) | p50 5 us, p99 7 us |
-| `sqlite_write_contended` (2nd writer active) | p50 9 us, p99 16 us, **max 18 ms** |
-| `cache_get_hit` / `cache_get_miss` / `cache_set` | 89 / 66 / 98 ns/op |
-| `cache_set_under_eviction` | ~ 1.2 us/op |
+| `sqlite_write_autocommit` | p50 8 us, p99 12 us (~ 119 k rows/s) |
+| `sqlite_write_batched` (one txn) | ~ 461 k rows/s |
+| `sqlite_read_point` (indexed) | p50 4 us, p99 6 us |
+| `sqlite_write_contended` (2nd writer active) | p50 8 us, p99 12 us, **0 of 2000 writes refused** |
+| `cache_get_hit` / `cache_get_miss` / `cache_set` | 90 / 66 / 98 ns/op |
+| `cache_set_under_eviction` | ~ 1.4 us/op |
 
 Reading it: WAL with the default `synchronous=NORMAL` does not fsync per commit, so autocommit
-writes are cheap (single-digit microseconds) and a single bulk transaction reaches ~ 412 k
+writes are cheap (single-digit microseconds) and a single bulk transaction reaches ~ 461 k
 rows/s. The contended-writer clause is the important safety one; with a second connection
-hammering the same file, the single writer's median is unchanged (9 us) and its worst case is a
-bounded 18 ms, far under the 5 s busy timeout: the busy-timeout retry does its job and nothing
-deadlocks (the harness asserts this). The memory cache is ~90 ns/op on the hot path and holds its
+hammering the same file, the single writer's median and p99 are unchanged (8 and 12 us) and
+every one of its 2000 writes got its turn: the busy-timeout retry does its job and nothing
+deadlocks. That count is what the harness asserts, and it is deliberately a count rather than
+a duration. The worst single write is also recorded, but it is reported and not enforced: it
+is one sample, it moves with whatever else the machine was doing, and a shared CI runner that
+descheduled the writer once has produced 3.9 s of it while every other write stayed
+sub-millisecond and none of them failed. The memory cache is ~90 ns/op on the hot path and holds its
 bound exactly under 2x overfill (oldest evicted, newest kept). `cache_set_under_eviction` is more
 expensive (~ 1.2 us) because the LRU recency list evicts from the front; O(bound) per evicting
 set; it is cheap at the default bound but a note for very large cache bounds.

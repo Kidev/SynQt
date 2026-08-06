@@ -627,17 +627,35 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
     contended = _by_name(latency, "sqlite_write_contended")
     plain = _by_name(latency, "sqlite_write_autocommit")
     if contended:
-        # The safety claim, and the only absolute threshold in the whole file: a bounded
-        # worst case far under QSQLITE_BUSY_TIMEOUT is what "nothing deadlocks" means.
-        # 5000 ms is the configured timeout; the baseline peaks at 18 ms.
-        checks.append(
-            Check(
-                "persistence.contended_writer_stays_far_under_the_busy_timeout",
-                contended["max"] < 5000.0 / ASSERT_MARGIN,
-                f"worst contended write {contended['max']:.3g} ms against a 5000 ms "
-                f"busy timeout",
+        # The safety claim: with a second connection hammering the same WAL file, the
+        # busy-timeout retry always wins the lock in the end and no write is refused. The
+        # harness counts the refusals rather than inferring them from a wall clock, so this
+        # is a count and not a duration, and it means the same thing on any machine. It used
+        # to compare the worst single write against the 5 s timeout, which read like a safety
+        # bound but was really a claim about one outlier on a quiet workstation: a shared CI
+        # runner that descheduled the writer once produced 3.9 s while every other write was
+        # sub-millisecond and none of them failed.
+        abandoned = _by_name(scalars, "sqlite_contended_writes_abandoned")
+        attempted = _by_name(scalars, "sqlite_contended_writes_attempted")
+        if abandoned is None:
+            checks.append(
+                Check(
+                    "persistence.contended_writer_never_gives_up",
+                    False,
+                    "this baseline predates sqlite_contended_writes_abandoned; re-run "
+                    "benchmarks/persistence/run-bench.sh to record it",
+                )
             )
-        )
+        else:
+            total = attempted["value"] if attempted else 0
+            checks.append(
+                Check(
+                    "persistence.contended_writer_never_gives_up",
+                    abandoned["value"] == 0,
+                    f"{abandoned['value']:.0f} of {total:.0f} contended writes were refused "
+                    f"by the 5 s busy timeout",
+                )
+            )
         if plain:
             inflation = _ratio(contended["p50"], plain["p50"])
             checks.append(
@@ -648,6 +666,27 @@ def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None
                     f"(band: < 3x)",
                 )
             )
+            # The tail, as a ratio rather than a wall clock. A writer that starts losing to
+            # the competitor systematically shows up here; one descheduled sample does not,
+            # which is the difference between this and the max it replaced.
+            tail = _ratio(contended["p99"], plain["p99"])
+            checks.append(
+                Check(
+                    "persistence.contention_does_not_move_the_tail",
+                    tail < 5.0,
+                    f"p99 write under contention is {tail:.2f}x the quiet one (band: < 5x)",
+                )
+            )
+        checks.append(
+            Check(
+                "persistence.contended_worst_case",
+                True,
+                f"worst contended write {contended['max']:.3g} ms against a 5000 ms busy "
+                f"timeout (one sample, and it moves with the scheduler; the enforced claim "
+                f"is that none was refused)",
+                enforced=False,
+            )
+        )
 
     hit = _by_name(scalars, "cache_get_hit")
     evicting = _by_name(scalars, "cache_set_under_eviction")
