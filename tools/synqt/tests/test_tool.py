@@ -24,22 +24,14 @@ class ToolchainTest(unittest.TestCase):
         resolved = toolchain.resolve(tempfile.mkdtemp())
         self.assertEqual(resolved["qt_version"], "6.12.0")
         self.assertEqual(resolved["emscripten_version"], "5.0.5")
-        # On a host with a system Qt these resolve. Otherwise the report gives the exact
-        # aqtinstall/emsdk command. Either way the shape is stable.
+        # Resolves with a system Qt; otherwise the report gives the provisioning command.
         if not resolved["host_qt"]:
             self.assertTrue(any("aqt install-qt" in h for h in toolchain.provision_hints(resolved)))
         self.assertIn("Toolchain (Qt 6.12.0", toolchain.report(tempfile.mkdtemp()))
 
     def test_provision_hints_carry_the_coordinates_aqt_actually_accepts(self):
-        # A developer copies these out of `synqt doctor` and runs them, so a hint that does not
-        # parse is a broken instruction, not cosmetic. Both were wrong. The host arch was named
-        # by its install directory (gcc_64) rather than its arch (linux_gcc_64), and the WASM kit
-        # was requested under the desktop target, which fails with "Failed to locate XML data for
-        # Qt version": an error about the version, for a mistake in the coordinates.
-        #
-        # The host hint is per platform. It named the Linux kit on every host, so `synqt
-        # doctor` on a Mac printed a command that installs the wrong Qt. The WASM hint is
-        # host-independent by design and must stay all_os/wasm everywhere.
+        # Hints are run as printed. The host hint uses the aqt arch (linux_gcc_64), per
+        # platform; the WASM hint is all_os/wasm everywhere.
         cases = [("win32", "install-qt windows desktop 6.12.0 win64_msvc2022_64"),
                  ("darwin", "install-qt mac desktop 6.12.0 clang_64"),
                  ("linux", "install-qt linux desktop 6.12.0 linux_gcc_64")]
@@ -55,10 +47,7 @@ class ToolchainTest(unittest.TestCase):
                 self.assertIn("install-qt all_os wasm 6.12.0 wasm_singlethread", wasm)
 
     def test_host_kit_directory_is_the_hosts_own_never_a_hard_coded_linux_one(self):
-        # The kit directory Qt installs into differs per platform. It was hard-coded to
-        # gcc_64, so on macOS and Windows the resolver looked for a Linux kit, never found
-        # one, and every `synqt build` reported "toolchain incomplete" and skipped the
-        # compile. Reporting a missing toolchain on a machine where Qt was installed.
+        # The host kit directory differs per platform.
         for platform, expected in [("win32", "msvc2022_64"), ("darwin", "macos"),
                                    ("linux", "gcc_64"), ("freebsd14", "gcc_64")]:
             with self.subTest(sys_platform=platform):
@@ -76,26 +65,19 @@ class ToolchainTest(unittest.TestCase):
         with unittest.mock.patch.object(toolchain.sys, "platform", "linux"), \
                 unittest.mock.patch.dict(os.environ, {"QTDIR": str(qt / "gcc_64")}):
             resolved = toolchain.resolve(project)
-            # QTDIR is an explicit choice, so it beats whatever system Qt happens to exist
-            # on the machine running this test.
+            # QTDIR beats a system Qt.
             self.assertEqual(resolved["host_qt"], str(qt / "gcc_64"))
-            # The WASM kit is found as QTDIR's sibling, which is how one kit dir locates
-            # the other.
+            # The WASM kit is found as QTDIR's sibling.
             self.assertEqual(resolved["wasm_qt"], str(qt / "wasm_singlethread"))
 
-            # ...but QTDIR must never be handed back AS the WASM kit. Accepting it for any
-            # kit asked for would silently build the browser client against the host kit.
+            # QTDIR is never returned as the WASM kit.
             shutil.rmtree(qt / "wasm_singlethread")
             self.assertNotEqual(toolchain.resolve(project)["wasm_qt"], str(qt / "gcc_64"))
 
 
     def _kit(self, modules, extra_kits=()):
-        """A Qt installation on disk, carrying exactly the modules named.
-
-        The package config file is what is written, and not merely the directory, because
-        that file is what `find_package(Qt6 COMPONENTS Foo)` looks for. A test that wrote
-        the directory alone would pass against a resolver asking a weaker question than
-        the build asks.
+        """A Qt installation on disk carrying exactly the named modules, as package config
+        files: the files `find_package(Qt6 COMPONENTS Foo)` looks for.
         """
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
@@ -111,12 +93,9 @@ class ToolchainTest(unittest.TestCase):
         return qt, project
 
     def test_a_kit_short_of_a_module_synqt_links_is_not_a_complete_toolchain(self):
-        # This is what a stock installation looks like. Aqt installs qtbase and
-        # qtdeclarative and nothing else without -m, and there is no prebuilt WebAssembly
-        # QtRemoteObjects at any coordinates at all. The resolver reported both kits as
-        # found and the toolchain as complete, so `synqt doctor` was green and `synqt
-        # build` then died inside CMake, minutes in, with a message naming Qt6RemoteObjects
-        # and nothing naming the kit it was missing from.
+        # A stock installation: aqt without -m installs only qtbase and qtdeclarative, and
+        # no WebAssembly QtRemoteObjects exists prebuilt. Both kits are found, and
+        # incomplete.
         qt, project = self._kit({"gcc_64": ["RemoteObjects", "WebSockets", "HttpServer"],
                                  "wasm_singlethread": ["WebSockets"]})
         with unittest.mock.patch.object(toolchain.sys, "platform", "linux"), \
@@ -125,21 +104,17 @@ class ToolchainTest(unittest.TestCase):
             self.assertEqual(resolved["host_qt_missing"], ["NetworkAuth"])
             self.assertEqual(resolved["wasm_qt_missing"], ["RemoteObjects"])
             self.assertFalse(toolchain.is_complete(resolved))
-            # ...and complete for a service-only build, which needs no WASM kit at all.
-            # The host kit's own gap still counts against it.
+            # Complete for a service-only build, which needs no WASM kit; the host kit's own
+            # gap still counts.
             self.assertFalse(toolchain.is_complete(resolved, need_wasm=False))
 
-            # The report names the gap under the kit that has it. A path with no note
-            # beside it, and a find_package failure ten minutes later, read as two
-            # unrelated facts.
+            # The report names each gap under its kit.
             report = toolchain.report(project)
             self.assertIn("missing module: Qt6RemoteObjects", report)
             self.assertIn("missing module: Qt6NetworkAuth", report)
 
     def test_a_complete_kit_is_reported_complete_and_asks_for_nothing(self):
-        # The other half of the gate. A resolver that can refuse is only useful if it
-        # accepts. Every module SynQt links is here, so there is nothing to install and
-        # nothing to say.
+        # A kit carrying every module is accepted with nothing to report.
         qt, project = self._kit({
             "gcc_64": ["RemoteObjects", "WebSockets", "HttpServer", "NetworkAuth"],
             "wasm_singlethread": ["RemoteObjects", "WebSockets"]})
@@ -154,11 +129,7 @@ class ToolchainTest(unittest.TestCase):
             self.assertEqual(toolchain.provision_hints(resolved), [])
 
     def test_the_host_hint_installs_the_modules_synqt_links(self):
-        # A hint is copied out of `synqt doctor` and run. This one installed qtbase and
-        # qtdeclarative and called it a Qt kit, so following the instruction exactly
-        # produced a machine that cannot build SynQt: no QtRemoteObjects for the connect
-        # points, no QtWebSockets for the browser link, no QtHttpServer or QtNetworkAuth
-        # for the edge.
+        # The host hint installs every module SynQt links.
         with unittest.mock.patch.object(toolchain.sys, "platform", "linux"):
             hints = toolchain.provision_hints({"wasm_kit": "wasm_singlethread",
                                                "wasm_qt": None, "host_qt": None,
@@ -168,12 +139,8 @@ class ToolchainTest(unittest.TestCase):
             self.assertIn(archive, host)
 
     def test_the_wasm_remoteobjects_hint_is_a_source_build_never_an_aqt_module(self):
-        # aqt publishes no WebAssembly build of qtremoteobjects, so `-m qtremoteobjects`
-        # under all_os/wasm is not a flag anyone forgot. It fails, and it fails saying the
-        # archive does not exist, which reads like a broken mirror rather than like the
-        # module never having been built for this platform. The kit's own qt-cmake
-        # compiles it from the pinned source, with QT_HOST_PATH named because a
-        # cross-compiled Qt carries the host tool path of the machine it was built on.
+        # aqt has no WebAssembly qtremoteobjects; the hint builds it with the kit's qt-cmake
+        # from the pinned source, naming QT_HOST_PATH.
         qt, project = self._kit({"gcc_64": [], "wasm_singlethread": ["WebSockets"]})
         with unittest.mock.patch.object(toolchain.sys, "platform", "linux"), \
                 unittest.mock.patch.dict(os.environ, {"QTDIR": str(qt / "gcc_64")}):
@@ -185,21 +152,14 @@ class ToolchainTest(unittest.TestCase):
         source = next(h for h in hints if "install-src" in h)
         self.assertIn("--archives qtremoteobjects", source)
         build = next(h for h in hints if "qt-cmake" in h)
-        # Against the resolved kit, so the command can be pasted as printed rather than
-        # edited into place, and installed back into that same kit. Compared as posix
-        # paths because that is what the hint prints. A Windows str(Path) is backslashed,
-        # and a backslash is an escape to every shell the hint is pasted into and to CMake,
-        # which takes forward slashes on Windows too.
+        # Against the resolved kit, compared as posix paths as the hint prints them
+        # (backslashes are escapes to shells and CMake).
         self.assertIn((qt / "wasm_singlethread" / "bin" / "qt-cmake").as_posix(), build)
         self.assertIn(f"QT_HOST_PATH={(qt / 'gcc_64').as_posix()}", build)
         self.assertIn(f"-DCMAKE_INSTALL_PREFIX={(qt / 'wasm_singlethread').as_posix()}", build)
 
     def test_adding_a_module_lands_in_the_kit_that_is_short_of_it(self):
-        # aqt lays out <outputdir>/<version>/<kit>, so adding a module to an installed kit
-        # means naming that kit's grandparent. The hint named the project's own toolchain
-        # directory instead, which installs a second Qt beside the one the resolver just
-        # reported. The module arrives in a kit nothing builds against, and the same hint
-        # prints again on the next run.
+        # aqt lays out <outputdir>/<version>/<kit>, so the hint names the kit's grandparent.
         qt, project = self._kit({"gcc_64": ["RemoteObjects", "WebSockets", "HttpServer"],
                                  "wasm_singlethread": ["RemoteObjects", "WebSockets"]})
         with unittest.mock.patch.object(toolchain.sys, "platform", "linux"), \
@@ -222,8 +182,7 @@ class PrecompressTest(unittest.TestCase):
         self.assertTrue((client / "app.wasm.br").exists())
 
     def test_every_critical_path_asset_is_compressed_not_only_the_wasm(self):
-        # The Emscripten glue .js is the second-largest asset on a first visit, so
-        # compressing only the wasm leaves real bytes on the table.
+        # The Emscripten glue .js is compressed too.
         client = Path(tempfile.mkdtemp())
         (client / "client.wasm").write_bytes(b"\x00asm" + b"x" * 5000)
         (client / "client.js").write_text("// glue\n" + "x" * 5000)
@@ -236,10 +195,7 @@ class PrecompressTest(unittest.TestCase):
             self.assertTrue((client / (name + ".br")).exists(), name)
 
     def test_an_unchanged_asset_is_not_compressed_again(self):
-        # Brotli over a 30 MB .wasm is tens of seconds of one core, and running it on
-        # every build whether or not the bundle changed is 38 s of a 38.7 s no-op build,
-        # with the compiler doing nothing at all. The variants carry the asset's timestamp,
-        # so an asset the build did not rebuild is left alone.
+        # Variants newer than their source are not recompressed.
         client = Path(tempfile.mkdtemp())
         asset = client / "client.wasm"
         asset.write_bytes(b"\x00asm" + b"x" * 5000)
@@ -256,8 +212,7 @@ class PrecompressTest(unittest.TestCase):
         self.assertGreater((client / "client.wasm.gz").stat().st_mtime_ns, stamped)
 
     def test_compressing_twice_does_not_compress_the_compressed(self):
-        # The variants live beside their source, so a second pass must not pick them up
-        # and produce client.wasm.gz.gz.
+        # A second pass does not compress the variants (no client.wasm.gz.gz).
         client = Path(tempfile.mkdtemp())
         (client / "client.wasm").write_bytes(b"\x00asm" + b"x" * 5000)
         buildmod.precompress(client)
@@ -312,9 +267,8 @@ class AssembleBundleTest(unittest.TestCase):
         self.assertNotIn("onload=", index)
         self.assertIn('src="synqt-boot.js"', index)
         self.assertIn('src="client.js"', index)
-        # The document itself carries the loading background, not only the overlay: the
-        # overlay is hidden a frame or two before the first QML paint, and the browser's
-        # default white would flash through that gap.
+        # The document carries the loading background too, so no white flashes between the
+        # overlay and the first QML paint.
         self.assertIn("html, body {", index)
         self.assertEqual(index.count(loadingpage.DEFAULT_BACKGROUND), 2)
         # The boot script calls the target's entry symbol.
@@ -332,12 +286,9 @@ class BuildLayoutTest(unittest.TestCase):
         config["entities"][0]["targets"] = ["wasm", "desktop"]
         (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 
-        # Desktop (host kit) only. The browser client compiles through the separate wasm
-        # kit and is covered compile-free by AssembleBundleTest.
+        # Desktop (host kit) only; AssembleBundleTest covers the browser client.
         buildmod.build(root, profile_name="release", client="desktop")
-        # The host's own folder, not a hard-coded "linux": a desktop build is native, so it lands
-        # under the platform it was built on. This test previously asserted linux/ and so could
-        # only ever have passed on Linux.
+        # The host's own folder: a desktop build lands under the platform it was built on.
         platform_dir = root / "build" / "client-desktop" / buildmod.desktop_platform()
         self.assertTrue((root / "build" / "process-manifest.json").exists())
         self.assertTrue((platform_dir / "THIRD-PARTY-LICENSES").exists())
@@ -346,14 +297,8 @@ class BuildLayoutTest(unittest.TestCase):
         self.assertIn("LGPL-3.0-only", (platform_dir / "THIRD-PARTY-LICENSES").read_text())
 
     def test_desktop_platform_names_the_host_folder_docs_promise(self):
-        # docs/desktop.md names exactly these three folders. Asserted per platform rather than
-        # against the current host, because the bug this pins was invisible on Linux: the folder
-        # was hard-coded to linux/, so a Windows or macOS desktop build wrote its app into a
-        # directory named after someone else's operating system.
-        #
-        # Patched on toolchain, which is where the host name is now decided: build and the
-        # toolchain resolver each had their own copy of this, and the second copy is what
-        # went stale.
+        # docs/desktop.md names these three folders. Asserted per platform, patched on
+        # toolchain, where the host name is decided.
         for platform, expected in [("win32", "windows"), ("darwin", "macos"),
                                    ("linux", "linux"), ("freebsd14", "linux")]:
             with self.subTest(sys_platform=platform):
@@ -361,9 +306,9 @@ class BuildLayoutTest(unittest.TestCase):
                     self.assertEqual(buildmod.desktop_platform(), expected)
 
     def test_desktop_edge_url_extracted_for_baking(self):
-        # A native desktop client has no serving origin, so build.desktop.edge_url must reach the
-        # compile as SYNQT_EDGE_URL. _desktop_edge_url is the seam that pulls it out of the config
-        # (the compile-level guard is tests/desktop-client). Absent/blank means keep the default.
+        # build.desktop.edge_url reaches the compile as SYNQT_EDGE_URL through
+        # _desktop_edge_url (tests/desktop-client guards the compile). Absent or blank keeps
+        # the default.
         self.assertEqual(
             buildmod._desktop_edge_url(
                 {"build": {"desktop": {"edge_url": "wss://edge.example:9443/sync"}}}),
@@ -379,8 +324,7 @@ class AppGenTest(unittest.TestCase):
         newproject.scaffold(parent, "app")
         root = parent / "app"
         cmake = (root / "generated" / "synqt.cmake").read_text()
-        # The client is always a target. Services are guarded behind the WASM check so a
-        # WebAssembly configure builds only the client.
+        # The client is always a target; services are guarded by the WASM check.
         self.assertIn("qt_add_executable(app", cmake)
         self.assertIn("if(NOT EMSCRIPTEN)", cmake)
         self.assertIn("qt_add_executable(edge", cmake)
@@ -412,12 +356,10 @@ class AppGenTest(unittest.TestCase):
         self.assertIn("synqt_add_contract(web ROLE source", cmake)
         client_main = maingen.render_client_main(config, appmodel.qml_uri(config["project"]["name"]))
         self.assertIn("synqtRegisterWebReplicas();", client_main)
-        # The client also registers the consumer surface, so `Server` is the facade
-        # (returning-slot promises) and `Web.on<Signal>` handlers resolve.
+        # The client registers the consumer surface: `Server` is the facade and
+        # `Web.on<Signal>` resolves.
         self.assertIn("synqtRegisterWebConsumers();", client_main)
-        # An application compiles under the rules the framework compiles under: the same
-        # file, included from the same root, rather than a copy of its contents that would
-        # drift the first time one of them changed.
+        # An application includes the framework's own compile rules file.
         self.assertIn('include("${SYNQT_ROOT}/cmake/SynQtBuildFlags.cmake")', cmake)
         self.assertNotIn("CMAKE_CXX_STANDARD", cmake)
         edge_main = maingen.render_edge_main(config, config["entities"][1])
@@ -426,8 +368,7 @@ class AppGenTest(unittest.TestCase):
         self.assertIn('pointWeb.contract = QStringLiteral("Web");', edge_main)
 
     def test_client_main_defaults_logging_by_build_type(self):
-        # With build.client_logging unset, the generated main installs Console in a debug
-        # build and Silent in a release build. So console.log works in dev, stripped in prod.
+        # build.client_logging unset: Console in debug, Silent in release.
         config = {
             "project": {"name": "shop", "qt_version": "6.12.0"},
             "entities": [{"name": "client", "type": "client", "targets": ["wasm"]}],
@@ -451,11 +392,8 @@ class AppGenTest(unittest.TestCase):
         self.assertNotIn("#ifdef QT_NO_DEBUG", client_main)
 
     def test_client_main_normalizes_the_router_fallback(self):
-        # `synqt check` treats "/c" and "/c//" as one route (RoutePattern skips empty
-        # segments), so a fallback spelled "/c//" passes. The client, though, looks the
-        # fallback up with RoutePattern::matches(), which tolerates only one trailing
-        # slash. The raw "/c//" would match nothing and blank the page. The generator
-        # writes the fallback through the same collapse rule so the two agree.
+        # A fallback spelled "/c//" is written as "/c": RoutePattern::matches() tolerates
+        # only one trailing slash.
         config = {
             "project": {"name": "shop", "qt_version": "6.12.0"},
             "router": {"fallback": "/c//"},
@@ -466,9 +404,8 @@ class AppGenTest(unittest.TestCase):
         self.assertNotIn('QStringLiteral("/c//")', client_main)
 
     def test_mains_emit_scopes_hierarchical(self):
-        # scopes.hierarchical must reach BOTH generated mains. The edge is the authoritative
-        # check, so a set-based-scope project (false) that only told the client would still
-        # have the edge grant a lower scope to any holder of a higher-ranked one. Default true.
+        # scopes.hierarchical reaches both mains; the edge is the authoritative check.
+        # Default true.
         base = {
             "project": {"name": "gate", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user", "moderator"]},
@@ -490,13 +427,7 @@ class AppGenTest(unittest.TestCase):
         self.assertIn("config.scopesHierarchical = false;", edge_set)
 
     def test_edge_hosts_its_points_whatever_the_client_is_called(self):
-        """A browser-facing point is one a client entity consumes, not one whose consumer
-        list holds the word "client".
-
-        The edge that hosts nothing is the worst shape this can take, because it builds and
-        starts and serves the bundle: the browser connects, acquires nothing, and every
-        accessor it reads is undefined. Nothing about that says which of the two ends is
-        wrong, so it is asserted here on the name a scaffolded project uses."""
+        """A browser-facing point is one a client entity consumes, whatever the client is called."""
         config = {
             "project": {"name": "shop"},
             "entities": [
@@ -513,9 +444,8 @@ class AppGenTest(unittest.TestCase):
         self.assertNotIn("No client-facing connect points yet", main)
 
     def test_edge_main_composes_entity_runtime_for_its_mesh_side(self):
-        # A web edge that consumes a database connect point over the mesh reaches it through
-        # an EntityRuntime (WebEdge keeps the browser side). Each acquired accessor is injected
-        # into the owner Sources' QML context by name, so a Source can delegate over the mesh.
+        # An edge consuming a mesh point uses an EntityRuntime and injects each accessor
+        # into its Sources' QML context by name.
         config = {
             "project": {"name": "gavel", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
@@ -538,17 +468,14 @@ class AppGenTest(unittest.TestCase):
         self.assertIn(
             'edge.setContextObject(EntityRuntime::accessorName(QStringLiteral("database")),',
             edge_main)
-        # accessor() returns a QObject*, the entity's one connect point, behind its
-        # consumer facade, rather than a map.
+        # accessor() returns the connect point facade as a QObject*.
         self.assertNotIn("#include <QQmlPropertyMap>", edge_main)
         # It still owns and hosts its browser-facing side through WebEdge.
         self.assertIn("synqtRegisterWebSources();", edge_main)
         self.assertIn("WebEdgeConnectPoint pointWeb;", edge_main)
 
     def test_service_main_includes_qjsonobject_for_the_topology(self):
-        # The service main builds a const QJsonObject from the topology file; QJsonDocument's
-        # header only forward-declares QJsonObject, so it must be included in its own right or
-        # the entity does not compile.
+        # QJsonDocument only forward-declares QJsonObject, so the service main includes it.
         config = {
             "project": {"name": "gavel", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
@@ -564,9 +491,8 @@ class AppGenTest(unittest.TestCase):
         self.assertIn("#include <QJsonObject>", service_main)
 
     def test_root_cmake_guards_the_providers_subdirectory(self):
-        # SynQtService already pulls SynQtProviders in (it PUBLIC-links it), so the root CMake
-        # must guard its own add_subdirectory on the target or it claims the same binary
-        # directory twice and configuration fails.
+        # SynQtService links SynQtProviders PUBLIC, so the root CMake guards its
+        # add_subdirectory on the target.
         config = {
             "project": {"name": "gavel", "qt_version": "6.12.0"},
             "scopes": {"order": ["anonymous", "user"]},
@@ -583,12 +509,8 @@ class AppGenTest(unittest.TestCase):
         self.assertEqual(cmake.count('src/providers" "${CMAKE_BINARY_DIR}/SynQtProviders"'), 1)
 
     def test_a_topology_with_no_edge_never_reaches_a_gpl_only_module(self):
-        """Qt HTTP Server and Qt Network Authorization are GPLv3-only.
-
-        A project of pure services must neither link them nor require them installed, so the
-        CMake must not add src/edge, must not find_package either component, and must link
-        every entity against SynQtService alone. Without this the LGPLv3 line in each
-        entity's THIRD-PARTY-LICENSES is a claim the build contradicts.
+        """A project of pure services never adds src/edge, never finds HttpServer or
+        NetworkAuth (GPLv3-only), and links every entity against SynQtService alone.
         """
         config = {
             "project": {"name": "batch", "qt_version": "6.12.0"},
@@ -653,9 +575,8 @@ class AppGenTest(unittest.TestCase):
         self.assertEqual(appmodel.qml_uri(""), "App")
 
     def test_entity_singletons_are_auto_registered(self):
-        # A pragma-Singleton QML alongside an entity's Sources (the arena's World) is not a
-        # QML-module member, so the entity's main.cpp must register it as a singleton type
-        # for a Source that consumes it (World.steer(...)) to resolve it by name.
+        # A pragma Shared QML beside the Sources (the arena World) is registered as a
+        # singleton type in the entity main.
         root = Path(tempfile.mkdtemp())
         (root / "web" / "web").mkdir(parents=True)
         (root / "web" / "web" / "World.qml").write_text(
@@ -681,8 +602,8 @@ class AppGenTest(unittest.TestCase):
         self.assertIn('QStringLiteral("/web/web/World.qml")', edge_main)
         self.assertIn('"SynQt", 1, 0, "World"', edge_main)
         self.assertIn("#include <QUrl>", edge_main)
-        # A service that declares a singleton gains a --qml-dir and registers it too. A
-        # service without one stays minimal (no qml-dir option, no registration).
+        # A service with a singleton gains --qml-dir and registers it; one without stays
+        # minimal.
         svc = {"name": "sim", "type": "service"}
         with_singleton = maingen.render_service_main(config, svc, ["World"])
         self.assertIn("qmlRegisterSingletonType", with_singleton)
@@ -724,9 +645,7 @@ class DevReloadHarnessTest(unittest.TestCase):
 
 class DeployedBinaryTest(unittest.TestCase):
     def test_the_deployed_binary_is_found_whatever_suffix_the_host_adds(self):
-        # A `synqt serve` that names build/<entity>/<entity> directly finds nothing on
-        # Windows and reports every entity of a perfectly good build as "Not yet built",
-        # the same defect host_binary() carries a docstring about.
+        # `synqt serve` resolves the binary suffix (Windows adds .exe).
         root = Path(tempfile.mkdtemp())
         (root / "build" / "web").mkdir(parents=True)
         (root / "build" / "web" / "web.exe").write_text("MZ")  # what Windows leaves on disk
@@ -741,10 +660,9 @@ class DeployedBinaryTest(unittest.TestCase):
 
 
 class LaunchEnvTest(unittest.TestCase):
-    """What an entity binary is launched with. Windows has no RPATH, so a built entity cannot
-    see Qt6Core.dll in the kit's bin and dies before main(), behind an error dialog, which
-    on CI reads as a hang rather than a failure. Linux and macOS bake the path in at link
-    time, which is why this is invisible on two hosts out of three."""
+    """What an entity binary is launched with. On Windows the kit bin directory goes on PATH
+    (there is no RPATH).
+    """
 
     def test_a_windows_launch_carries_the_qt_kit_bin_on_path(self):
         old = os.environ.get("PATH", "")
@@ -752,9 +670,7 @@ class LaunchEnvTest(unittest.TestCase):
              unittest.mock.patch.object(runmod, "resolved_host_qt",
                                         return_value=r"C:\Qt\6.12.0\msvc2022_64"):
             env = runmod.launch_env(Path("/proj"))
-        # Asserted os-agnostically. This test runs on a host whose os.pathsep and Path
-        # flavour are not Windows's, so splitting on the separator would be testing the
-        # harness rather than the code.
+        # Asserted without the host's path separator.
         prepended = env["PATH"][:-(len(old) + len(os.pathsep))]
         self.assertIn("msvc2022_64", prepended)
         self.assertTrue(prepended.endswith("bin"), prepended)
@@ -766,21 +682,36 @@ class LaunchEnvTest(unittest.TestCase):
             env = runmod.launch_env(Path("/proj"))
         self.assertEqual(env["PATH"], os.environ.get("PATH", ""))
 
-    def test_the_other_hosts_are_left_exactly_as_they_are(self):
+    def test_the_other_hosts_are_left_as_they_are_but_headless(self):
+        without = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
         for host in ("linux", "macos"):
             with self.subTest(host=host):
-                with unittest.mock.patch.object(toolchain, "host_platform", return_value=host):
-                    self.assertEqual(runmod.launch_env(Path("/proj")), dict(os.environ))
+                with unittest.mock.patch.object(toolchain, "host_platform", return_value=host), \
+                     unittest.mock.patch.dict(os.environ, without, clear=True):
+                    self.assertEqual(runmod.launch_env(Path("/proj")),
+                                     {**without, "QT_QPA_PLATFORM": "offscreen"})
+
+    def test_an_entity_needs_no_display_on_any_host(self):
+        # An edge runs a QGuiApplication; with no display Qt aborts unless offscreen is set.
+        without = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+        for host in ("linux", "macos", "windows"):
+            with self.subTest(host=host):
+                with unittest.mock.patch.object(toolchain, "host_platform", return_value=host), \
+                     unittest.mock.patch.object(runmod, "resolved_host_qt", return_value=None), \
+                     unittest.mock.patch.dict(os.environ, without, clear=True):
+                    self.assertEqual(runmod.launch_env(Path("/proj"))["QT_QPA_PLATFORM"],
+                                     "offscreen")
+
+    def test_a_platform_the_developer_chose_is_kept(self):
+        with unittest.mock.patch.dict(os.environ, {"QT_QPA_PLATFORM": "xcb"}), \
+             unittest.mock.patch.object(toolchain, "host_platform", return_value="linux"):
+            self.assertEqual(runmod.launch_env(Path("/proj"))["QT_QPA_PLATFORM"], "xcb")
 
 
 class HotReloadTest(unittest.TestCase):
     def test_a_failed_rebuild_reports_and_keeps_the_dev_server_up(self):
-        # `synqt build` raises on a failed compile, because it must never claim an artifact it
-        # did not produce. The watcher wants the opposite. You fix the typo and save again, so
-        # a broken rebuild is news, not the end of the session. Both behaviours come from the
-        # same _cmake_build, so this pins the seam between them. Without it the two are one
-        # edit away from collapsing into each other, and the failure mode (a traceback that
-        # kills a running dev server on a syntax error) is a miserable one to rediscover.
+        # `synqt build` raises on a failed compile; the watcher reports it and keeps
+        # running. Both use _cmake_build.
         state = {"config": {"entities": []}, "processes": []}
         with unittest.mock.patch.object(
                 buildmod, "compile_incremental",
@@ -790,13 +721,8 @@ class HotReloadTest(unittest.TestCase):
         self.assertEqual(state["processes"], [])  # nothing was torn down
 
     def test_a_config_the_generator_refuses_keeps_the_dev_server_up(self):
-        # compile_incremental regenerates before it compiles, and the generator refuses a
-        # config it cannot lower (a route saved before its `view` is typed). That is
-        # exactly the edit the watcher exists for, so it has to be news like a failed
-        # compile. Letting AppGenError out of here escapes into _watch_loop, whose finally
-        # terminates every child process, and the whole dev system goes down on a
-        # half-finished save. The change set is a non-yaml source (Main.qml) so the rebuild
-        # path is reached, not the load_config early return the sibling test covers.
+        # compile_incremental regenerates first, so a half-written route raises AppGenError,
+        # which the watcher reports. A non-yaml change (Main.qml) reaches the rebuild path.
         state = {"config": {"entities": []}, "processes": [("web", object())]}
         with unittest.mock.patch.object(
                 buildmod, "compile_incremental",
@@ -809,12 +735,8 @@ class HotReloadTest(unittest.TestCase):
         self.assertEqual(len(state["processes"]), 1)  # nothing was torn down
 
     def test_a_structurally_wrong_config_keeps_the_dev_server_up(self):
-        # A synqt.yaml that parses as valid YAML but puts a scalar where the generator
-        # expects a mapping (`router: /home` before its indented `fallback:` is typed)
-        # reaches appgen and raises a bare AttributeError, in neither the BuildError nor the
-        # AppGenError tuple. It is the same half-finished save the watcher exists for, so it
-        # must be news too. The broad fallback catch pins this and stops the tuple from
-        # narrowing back and killing a running dev server on a mid-edit save.
+        # Valid YAML with a scalar where a mapping belongs (`router: /home`) raises
+        # AttributeError in appgen; the watcher's broad catch reports it.
         state = {"config": {"entities": []}, "processes": [("web", object())]}
         with unittest.mock.patch.object(
                 buildmod, "compile_incremental",
@@ -826,8 +748,7 @@ class HotReloadTest(unittest.TestCase):
         self.assertEqual(len(state["processes"]), 1)  # nothing was torn down
 
     def test_a_synqt_yaml_that_does_not_parse_keeps_the_dev_server_up(self):
-        # The same half-finished save, one step earlier. The topology is re-read before
-        # the rebuild, and a YAML error there would escape the same way.
+        # A YAML error while re-reading the topology is reported the same way.
         root = Path(tempfile.mkdtemp())
         (root / "synqt.yaml").write_text("entities: [\n")
         state = {"config": {"entities": []}, "processes": [("web", object())]}
@@ -851,9 +772,8 @@ class SourceWatcherTest(unittest.TestCase):
         (root / "build" / "wasm" / "client.js").write_text("// runtime")
         self.assertEqual(watcher.poll(), set())
 
-        # A QML edit and a change to the configuration are both seen. Nothing watches for
-        # a `.syn`: an app writes none, and the one the build makes of a connect point's
-        # `export:` lands under generated/, which is ignored here.
+        # A QML edit and a configuration change are seen. No `.syn` is watched: contracts
+        # are generated under generated/.
         import os as _os
         _os.utime(qml, ns=(2 ** 40, 2 ** 40))
         (root / "synqt.yaml").write_text("entities: []\n")
