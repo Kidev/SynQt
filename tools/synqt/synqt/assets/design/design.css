@@ -96,14 +96,57 @@ h2 {
   border-bottom: 1px solid var(--line);
 }
 
+/* The mark is the site's own logo file, shipped beside this page rather than fetched: the
+   policy allows an image from this origin and nothing else, and the hosted copy has no
+   policy at all, which is the stronger reason to keep every byte local. Sized by height so
+   the bar decides how big it is and the file's own dimensions do not. */
 .bar__mark {
-  font-weight: 700;
-  letter-spacing: .04em;
+  height: 2rem;
+  width: auto;
+  display: block;
+}
+
+/* Empty until there is a project to name. `synqt design` always has one; the copy on the
+   site starts on a blank canvas, where a placeholder name is something to correct rather
+   than something to read. */
+.bar__project {
+  font-family: var(--mono);
+}
+
+.bar__project[hidden] {
+  display: none;
+}
+
+/* A hairline between the panes' toggles and the three buttons that act on the project. */
+.bar__rule {
+  width: 1px;
+  align-self: stretch;
+  margin: .6rem .15rem;
+  background: var(--line);
+}
+
+.button--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.button--icon[aria-pressed="true"] {
+  border-color: var(--accent);
   color: var(--accent);
 }
 
-.bar__project {
-  font-family: var(--mono);
+.button__icon {
+  display: flex;
+  width: 1rem;
+  height: 1rem;
+}
+
+.button__icon svg {
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+  fill: none;
 }
 
 .bar__gap {
@@ -209,22 +252,54 @@ h2 {
   background: var(--panel-high);
 }
 
-/* The same three colours the canvas gives a node, so the button and what it adds are
-   recognisably the same thing. */
-.palette__swatch {
-  width: .55rem;
-  height: .55rem;
-  border-radius: 50%;
+.palette__item:active {
+  cursor: grabbing;
+}
+
+/* Mid-drag, so the row a pointer is carrying is visibly the one that left. */
+.palette__item.is-dragging {
+  opacity: .4;
+}
+
+.rail__hint {
+  margin: 0 0 .25rem;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+
+/* The entity's own glyph, the one the canvas draws it with, at list size. Coloured like
+   the disc it becomes, so a row and the node it adds are recognisably the same thing. */
+.palette__glyph {
   flex: none;
-  background: var(--service);
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--service);
 }
 
-.palette__swatch--client {
-  background: var(--client);
+.palette__glyph--client {
+  color: var(--client);
 }
 
-.palette__swatch--edge {
-  background: var(--edge);
+.palette__glyph--edge {
+  color: var(--edge);
+}
+
+.glyph {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* The canvas while an entity is being dragged onto it. */
+.stage.is-target .stage__canvas::after {
+  content: "";
+  position: absolute;
+  inset: .5rem;
+  border: 2px dashed var(--accent);
+  border-radius: .4rem;
+  pointer-events: none;
 }
 
 .findings {
@@ -268,9 +343,20 @@ h2 {
 
 /* The canvas */
 
+/* The middle column: the canvas, and under it the dock that looks at the project instead
+   of editing it. The dock takes a share of the height only while it is open, so a closed
+   dock leaves the canvas exactly the column. */
 .stage {
   position: relative;
   min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+}
+
+.stage__canvas {
+  position: relative;
+  min-height: 0;
   background:
     radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 32px 32px,
     var(--page);
@@ -491,6 +577,15 @@ h2 {
   font-size: 15px;
 }
 
+.inspector__help {
+  margin: -.4rem 0 .9rem;
+  padding-left: .6rem;
+  border-left: 2px solid var(--line);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+
 .field {
   display: block;
   margin-bottom: .6rem;
@@ -672,4 +767,207 @@ select:focus {
   font-size: 12px;
   line-height: 1.45;
   white-space: pre;
+}
+
+/* The two panes under the canvas
+
+   Both look at the project rather than edit it, and both are rebuilt from the document on
+   every change, so neither can be showing an older design than the canvas above it. One
+   dock holds them because they answer the same question from two sides: what have I drawn,
+   and what would that be on disk. */
+
+.dock {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 38vh;
+  min-height: 0;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.dock[hidden] {
+  display: none;
+}
+
+.dock__bar {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .35rem .75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  padding: .3rem .7rem;
+  border: 1px solid transparent;
+  border-radius: .25rem;
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--ink);
+}
+
+.tab.is-open {
+  color: var(--accent);
+  border-color: var(--line);
+  background: var(--panel-high);
+}
+
+.dock__pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dock__pane[hidden] {
+  display: none;
+}
+
+/* The diagram: the same drawing as the canvas, without the handles that only mean
+   something where it can be edited, and always fitted rather than wherever the canvas
+   happens to be scrolled to. */
+#pane-diagram {
+  background:
+    radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 32px 32px,
+    var(--page);
+}
+
+.preview {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.preview .node {
+  cursor: default;
+}
+
+/* The files: the tree on the left, the file being read on the right. The same arrangement
+   the guide's front page uses for the same job. */
+#pane-project {
+  display: grid;
+  grid-template-columns: 15rem 1fr;
+}
+
+.tree {
+  margin: 0;
+  padding: .5rem 0;
+  list-style: none;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.tree__dir {
+  padding: .2rem 1rem;
+  color: var(--ink-dim);
+}
+
+.tree__file {
+  display: block;
+  width: 100%;
+  padding: .2rem 1rem .2rem 1.75rem;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree__file:hover {
+  background: var(--panel-high);
+}
+
+.tree__file.is-open {
+  color: var(--accent);
+  background: var(--panel-high);
+}
+
+.tree__empty {
+  padding: .5rem 1rem;
+  color: var(--ink-dim);
+  font-family: var(--text);
+}
+
+.source {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: 0;
+}
+
+.source__name {
+  margin: 0;
+  padding: .4rem .75rem;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.source__text {
+  margin: 0;
+  padding: .75rem;
+  overflow: auto;
+  background: var(--page);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+/* What a right click opens */
+
+.menu {
+  position: fixed;
+  z-index: 10;
+  margin: 0;
+  padding: .25rem;
+  min-width: 9rem;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: .3rem;
+  box-shadow: 0 6px 20px var(--shadow);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu__what {
+  padding: .3rem .6rem .4rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: .25rem;
+}
+
+.menu__item {
+  display: block;
+  width: 100%;
+  padding: .35rem .6rem;
+  border: none;
+  border-radius: .2rem;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu__item:hover {
+  background: var(--panel-high);
+}
+
+.menu__item--danger {
+  color: var(--error);
 }

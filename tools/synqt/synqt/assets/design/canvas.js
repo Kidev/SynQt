@@ -98,6 +98,36 @@ export function element(tag, attributes) {
     return node;
 }
 
+// What each role is for, in the words somebody choosing between them needs. Kept beside
+// roleOf because it answers the same question the role does, and read from three places:
+// the palette row, the tooltip on the node, and the panel once one is selected.
+export const ROLE_HELP = {
+    client: "The app people use. Built to WebAssembly for the browser, and from the same "
+        + "QML as a native desktop app. It holds no secret and no mesh certificate, so it "
+        + "reaches the rest of the system only through a web edge.",
+    edge: "The one entity allowed to face the internet. It serves the client, terminates "
+        + "TLS, runs sign-in, and is the only thing a browser can talk to. Everything a "
+        + "client needs arrives through a connect point this owns.",
+    persistence: "A database entity. SQLite by default, with PostgreSQL or MySQL behind "
+        + "the same interface for one config value. Reachable only by the entities you "
+        + "list, never by the browser; use it for anything that has to survive a restart.",
+    cache: "A bounded key-value store that forgets. In-process memory by default, Redis "
+        + "behind the same interface. Use it for what is expensive to work out and cheap "
+        + "to lose: rendered pages, rate counters, a third party's last answer.",
+    document: "Storage for records with no fixed columns. Memory by default, MongoDB "
+        + "behind the same interface. Use it where the shape is the caller's rather than "
+        + "yours: event payloads, imported feeds, per-user settings.",
+    gateway: "Where the system talks to somebody else's. Outbound only unless you say "
+        + "otherwise, over verified TLS, with the third party's keys held here and nowhere "
+        + "else. Use it to keep an upstream API out of every other entity.",
+    jobs: "Work on a timer or a queue, with nothing listening on a port. Use it for what "
+        + "should not happen while somebody waits: nightly rollups, retries, cleanup, "
+        + "anything that would otherwise sit inside a request.",
+    service: "An entity with no blueprint: your own logic, its own binary, reachable only "
+        + "by the entities you list. Use it when a piece of the system deserves to fail, "
+        + "scale and be deployed on its own.",
+};
+
 // What an entity is, as one word: the column it belongs in and the glyph it carries.
 export function roleOf(entity) {
     if ((entity.kind || "service") === "client") {
@@ -119,9 +149,25 @@ function glyph(entity) {
     return group;
 }
 
+// The same glyph on its own, as a standalone SVG for a button or a list row. One drawing
+// for both places: a palette that invented its own icons would be a second answer to what
+// an entity looks like, and the two would part company the first time one of them changed.
+export function glyphSvg(role) {
+    const svg = element("svg", {class: "glyph", viewBox: "-10 -10 20 20",
+                                "aria-hidden": "true", focusable: "false"});
+    for (const shape of GLYPHS[GLYPHS[role] ? role : "service"]) {
+        const {tag, ...attributes} = shape;
+        svg.append(element(tag, attributes));
+    }
+    return svg;
+}
+
 function titled(group, lines) {
     const title = element("title");
-    title.textContent = lines.filter(Boolean).join("\n");
+    // A blank line is kept, an absent one is not: the separator between what a thing is and
+    // what it is for is deliberate, and `undefined` from a caller is not.
+    title.textContent = lines.filter((line) => line !== undefined && line !== null)
+        .join("\n").trim();
     group.append(title);
     return group;
 }
@@ -151,9 +197,11 @@ function describe(entity) {
     return parts.join(" / ");
 }
 
-function node(entity, {selected, level, messages}) {
+function node(entity, {selected, level, messages, plain}) {
     const group = element("g", {
-        class: classes("node", {selected, level}),
+        // The role is a class as well as a glyph, so a client disc is the green a client
+        // is everywhere else on this page and in the guide's drawing.
+        class: `${classes("node", {selected, level})} node--${roleOf(entity)}`,
         transform: `translate(${entity.x || 0},${entity.y || 0})`,
     });
     group.dataset.entity = entity.name;
@@ -171,15 +219,19 @@ function node(entity, {selected, level, messages}) {
     group.append(kind);
 
     // The handle a link is pulled out of, with a mark on it so it reads as somewhere to
-    // start rather than as part of the drawing.
-    const rim = element("circle", {class: "node__rim", cx: NODE_RADIUS, cy: 0, r: 7});
-    rim.dataset.rim = entity.name;
-    group.append(rim);
-    group.append(element("path", {class: "node__rim-mark",
-                                  d: `M ${NODE_RADIUS - 3},0 H ${NODE_RADIUS + 3} `
-                                     + `M ${NODE_RADIUS},-3 V 3`}));
+    // start rather than as part of the drawing. The preview has none: nothing is dragged
+    // there, and a handle offering a gesture that does nothing is worse than no handle.
+    if (!plain) {
+        const rim = element("circle", {class: "node__rim", cx: NODE_RADIUS, cy: 0, r: 7});
+        rim.dataset.rim = entity.name;
+        group.append(rim);
+        group.append(element("path", {class: "node__rim-mark",
+                                      d: `M ${NODE_RADIUS - 3},0 H ${NODE_RADIUS + 3} `
+                                         + `M ${NODE_RADIUS},-3 V 3`}));
+    }
 
-    return titled(group, [entity.name, describe(entity), ...messages]);
+    return titled(group, [entity.name, describe(entity), "",
+                          ROLE_HELP[roleOf(entity)], ...messages]);
 }
 
 // The two ends of a link, trimmed to the rims of the discs it runs between, and shifted
@@ -297,7 +349,9 @@ function textOf(messages) {
 // Draw `design` into `layers`, which are the two groups the page keeps for links and nodes.
 // `problems` maps an entity or link name to the findings against it, `selected` is what the
 // inspector has open.
-export function draw(layers, design, {problems, selected}) {
+// `plain` draws the same picture without the affordances that only make sense where it can
+// be edited, which is what the preview pane shows.
+export function draw(layers, design, {problems, selected, plain}) {
     layers.links.replaceChildren();
     layers.nodes.replaceChildren();
 
@@ -352,6 +406,7 @@ export function draw(layers, design, {problems, selected}) {
             selected: selected && selected.kind === "entity" && selected.name === entity.name,
             level: levelOf(found),
             messages: textOf(found),
+            plain,
         }));
     }
 }

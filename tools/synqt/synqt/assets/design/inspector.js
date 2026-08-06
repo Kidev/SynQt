@@ -11,6 +11,7 @@
 // not there.
 
 import { INSTANCE_MODES } from "./rules.js";
+import { ROLE_HELP, roleOf } from "./canvas.js";
 
 // The .syn type vocabulary, from synqtc/types.py. `var` is in it because a model role may
 // carry anything, and the roles are where that comes up.
@@ -102,6 +103,9 @@ function renameEntity(design, entity, wanted) {
 function entityPanel(design, entity, actions) {
     const panel = document.createDocumentFragment();
     panel.append(tag("h2", {class: "inspector__title"}, entity.name || "this entity"));
+    // What this kind of entity is for, which changes as the fields below change it: pick
+    // `cache` under Blueprint and the line becomes the one about a store that forgets.
+    panel.append(tag("p", {class: "inspector__help"}, ROLE_HELP[roleOf(entity)]));
 
     panel.append(field("Name", text(entity.name, (value) => {
         renameEntity(design, entity, value);

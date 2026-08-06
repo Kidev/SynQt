@@ -31,7 +31,7 @@ import pytest
 import yaml
 
 from synqt import check as checkmod
-from synqt import designdoc, toolchain
+from synqt import addcontract, designdoc, toolchain
 
 DESIGN = Path(checkmod.__file__).parent / "assets" / "design"
 
@@ -196,11 +196,24 @@ def test_the_downloaded_contract_is_what_the_member_table_said(rendered):
     assert members == DOCUMENT["links"][0]["members"]
 
 
+def test_the_downloaded_source_is_the_one_the_cli_would_have_written(rendered):
+    """A connect point is two halves, and the download holds both: an entity with a point
+    and no Source for it does not start. The CLI writes that file for the same gesture, so
+    the page writing a different one would make a project that differs from itself the
+    moment somebody runs `synqt design` on it."""
+    for link in DOCUMENT["links"]:
+        relative = addcontract.source_path(link["owner"], link["contract"])
+        written = next(file["text"] for file in rendered["files"]
+                       if file["name"] == f"gavel/{relative}")
+        assert written == addcontract.source_stub(link["contract"], link["name"])
+
+
 def test_the_download_is_a_zip_holding_the_configuration_and_every_contract(rendered):
     archive = zipfile.ZipFile(io.BytesIO(base64.b64decode(rendered["zip"])))
     assert archive.testzip() is None
     assert archive.namelist() == ["gavel/synqt.yaml", "gavel/shared/Auction.syn",
-                                  "gavel/shared/Records.syn"]
+                                  "gavel/shared/Records.syn", "gavel/web/Auction.qml",
+                                  "gavel/database/Records.qml"]
     for file in rendered["files"]:
         assert archive.read(file["name"]).decode("utf-8") == file["text"]
 

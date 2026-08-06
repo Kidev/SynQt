@@ -300,8 +300,79 @@ async function theCopyOnTheSite() {
     }
 }
 
+// The parts of the editor that are only a browser: a project opened from the fragment, the
+// two panes that read it, and the menu a right click opens. None of them can be reached from
+// Python, and all of them are how somebody arriving from the site meets the editor.
+async function theProjectALinkHandsYou() {
+    console.log("\nA project opened from a link, and the panes that read it");
+    const server = await serveAssets();
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const refused = [];
+    page.on("pageerror", (error) => refused.push(String(error)));
+    page.on("console", (message) => {
+        const from = (message.location() || {}).url || "";
+        if (message.type() === "error" && !from.endsWith("/api/project")) {
+            refused.push(`${message.text()} (${from})`);
+        }
+    });
+    try {
+        await page.goto(`${origin}/index.html#example=feed`);
+        await page.waitForFunction(
+            () => document.querySelectorAll("#nodes [data-entity]").length === 4);
+        check(await page.locator("#project").textContent() === "my-app",
+              "the fragment named a project and the page opened it");
+        check(await page.locator("#links > *").count() === 3,
+              "with the connect points it declares");
+        check(await page.locator(".palette__glyph svg").count() === 8,
+              "every palette row carries the glyph the canvas draws that entity with");
+        check(Boolean(await page.locator(".palette__item").first().getAttribute("title")),
+              "and says what that kind of entity is for");
+
+        await page.click("#show-diagram");
+        await page.waitForSelector("#preview-nodes [data-entity]");
+        check(await page.locator("#preview-nodes [data-entity]").count() === 4,
+              "the diagram pane draws the same entities as the canvas");
+        check(await page.locator("#preview-nodes [data-rim]").count() === 0,
+              "without the handle you drag a link out of, which it has no use for");
+
+        await page.click("#show-project");
+        await page.waitForSelector(".tree__file");
+        const named = await page.locator(".tree__file").allTextContents();
+        check(named.includes("synqt.yaml") && named.includes("Feed.syn")
+              && named.includes("Feed.qml"),
+              `the files pane holds the configuration, the contracts and the QML `
+              + `(${named.join(", ")})`);
+        await page.locator(".tree__file", { hasText: "Feed.qml" }).click();
+        const source = await page.locator("#source-text").textContent();
+        check(source.includes("FeedSource {"),
+              "and reading one shows the Source the owner would host");
+
+        await page.click("#dock-close");
+        check(await page.locator("#dock").isHidden(), "both panes hide again");
+
+        await page.locator("#nodes [data-entity='web']").click({ button: "right" });
+        await page.waitForSelector(".menu__item");
+        check(await page.locator(".menu__what").textContent() === "web",
+              "a right click opens a menu over what it was opened on");
+        await page.locator(".menu__item", { hasText: "Delete" }).click();
+        await page.waitForFunction(
+            () => !document.querySelector("#nodes [data-entity='web']"));
+        check(await page.locator("#nodes [data-entity]").count() === 3,
+              "and Delete there removes it");
+
+        check(refused.length === 0,
+              `the policy refuses nothing on the page (${refused.join(" | ") || "no errors"})`);
+    } finally {
+        await browser.close();
+        server.close();
+    }
+}
+
 await editorOverAProject();
 await theCopyOnTheSite();
+await theProjectALinkHandsYou();
 
 console.log("");
 if (failures.length) {

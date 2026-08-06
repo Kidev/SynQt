@@ -20,14 +20,23 @@ The second is the one to open first if you have not installed anything yet. Unzi
 gives you over a project made with `synqt new`, or keep it as a sketch and open the real
 thing later.
 
+A link can hand you a system rather than an empty canvas: the button under
+["what it looks like"](index.md) on the front page opens
+[that project](/designer/#example=feed) in the editor, laid out and ready to be pulled
+apart.
+
 ## What you can draw
 
 The rail on the left is the entity palette, and it is the list from
 [entities](entities.md): a client, a web edge, the four blueprints that come with an engine
 behind them (persistence, cache, document, gateway), the jobs blueprint, and a plain service
-you write yourself. Adding one drops it in the column it belongs in, because the layout says
-something: the browser on the left, the edge it reaches in the middle, and everything it
-must not reach on the right.
+you write yourself. Each row carries the glyph the canvas draws that entity with, and hovering
+one says what that kind of entity is for and when you would reach for it; the same line
+appears in the panel once one is on the canvas.
+
+Drag a row onto the canvas to put an entity where you dropped it, or click it to drop one in
+the column it belongs in. The columns say something: the browser on the left, the edge it
+reaches in the middle, and everything it must not reach on the right.
 
 A connect point is drawn from the entity that **owns** it to the one that **consumes** it.
 Drag the handle on the owner's rim and drop the line on the consumer. That direction is the
@@ -37,6 +46,24 @@ Selecting a node or a line opens the panel on the right, which is where the rest
 entity's blueprint and provider, a connect point's name and contract, its consumer list, and
 what crosses it. The consumer list is the authorization, not a hint; an entity that is not
 on it is refused the replica. [Security](security.md) is where that is spelled out.
+
+Right-clicking a node or a line opens the same three things over it: edit, rename, delete.
+Renaming an entity carries the new name into every connect point that referred to the old
+one, and deleting one takes the connect points it owned with it.
+
+## Two ways to look at what you have drawn
+
+Two buttons in the bar open a pane under the canvas, and both are rebuilt from the drawing on
+every edit, so neither can be showing an older design than the canvas above it.
+
+**Diagram** is the same picture without the handles, always fitted to the pane. It is the
+drawing to read rather than the one to edit, which is what you want when the question is
+whether the shape is right.
+
+**Files** is the project this drawing would be: `synqt.yaml`, one contract per connect point
+under `shared/`, and the owner-side QML that hosts each one. Pick a file to read it. The QML
+is the same empty Source the CLI writes for the same gesture, rooted at the right type and
+carrying the note about authorizing the caller, so what you read here is what lands on disk.
 
 ## The rules are live
 

@@ -134,6 +134,31 @@ function memberLine(member) {
     return `slot ${returned}${member.name}(${params(member.params)})`;
 }
 
+// Where the owner-side Source for a connect point lives when nothing says otherwise, and
+// what goes in it. Both mirror addcontract.source_path and addcontract.source_stub, which
+// is what the CLI writes for the same gesture; the suite asserts the two agree, because a
+// download whose QML the CLI would not have written is a project that starts differing from
+// itself the moment somebody runs `synqt design` on it.
+export function sourcePath(owner, contract) {
+    return `${owner}/${contract}.qml`;
+}
+
+export function sourceQml(contract, point) {
+    return `${CONTRACT_HEADER}
+import QtQuick
+import SynQt
+
+// Owner of the "${point}" connect point, and empty for now. Its props, models and signals
+// are the ones declared in shared/${contract}.syn, and nothing undeclared ever reaches a
+// consumer. A slot a consumer calls arrives here with \`Caller\` set to whoever called it:
+// authorize that caller first, then act. This file is where the rule lives; a check in a
+// consumer's UI is a courtesy, not a guard.
+${contract}Source {
+    id: root
+}
+`;
+}
+
 // One `.syn` source, matching what designdoc.render_contract writes on the server side.
 export function renderContract(name, members) {
     const lines = [CONTRACT_HEADER, `contract ${name} {`];
@@ -145,8 +170,14 @@ export function renderContract(name, members) {
 }
 
 // Every file the download holds, each under a directory named after the project: the
-// configuration, and one contract per link that names one. A link whose contract has no
-// members yet still gets its file, because the connect point already refers to it.
+// configuration, one contract per link that names one, and the owner-side QML that hosts
+// each connect point. A link whose contract has no members yet still gets both files,
+// because the connect point already refers to them and an entity with a connect point and
+// no Source for it does not start.
+//
+// A `qml` written on the link wins over the empty one. That is what the editor stores when
+// somebody types into the Source pane, so the download holds what they wrote rather than
+// the stub it started from.
 export function projectFiles(design) {
     const root = String(design.project || "app");
     const files = [{name: `${root}/synqt.yaml`, text: renderYaml(design)}];
@@ -159,6 +190,21 @@ export function projectFiles(design) {
         written.add(contract);
         files.push({name: `${root}/shared/${contract}.syn`,
                     text: renderContract(contract, link.members)});
+    }
+    const sources = new Set();
+    for (const link of design.links || []) {
+        const contract = String(link.contract || "");
+        const owner = String(link.owner || "");
+        if (!contract || !owner) {
+            continue;
+        }
+        const relative = link.server || sourcePath(owner, contract);
+        if (sources.has(relative)) {
+            continue;
+        }
+        sources.add(relative);
+        files.push({name: `${root}/${relative}`,
+                    text: link.qml || sourceQml(contract, link.name)});
     }
     return files;
 }
