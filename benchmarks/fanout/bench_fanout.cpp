@@ -93,8 +93,8 @@ struct Distribution
         QList<double> sorted{samples};
         std::sort(sorted.begin(), sorted.end());
         const double rank{fraction * (sorted.size() - 1)};
-        const int low{int(std::floor(rank))};
-        const int high{int(std::ceil(rank))};
+        const int low{static_cast<int>(std::floor(rank))};
+        const int high{static_cast<int>(std::ceil(rank))};
         if (low == high) {
             return sorted.at(low);
         }
@@ -169,15 +169,34 @@ QStandardItemModel *makeSliceModel(QObject *parent)
 // Rebuild a session's visible slice to `rows` entities; the per-tick work of turning the world
 // into what one player can see. This is the O(slice) cost that, summed over sessions, is the
 // publish() growth the benchmark characterizes.
+//
+// Shaped exactly like the generated `set<Model>(rows)` an owner actually calls: build the items
+// first, reset the model, then append them. The obvious alternative, removeRows() followed by
+// insertRows() and a setData() per cell, is not what the framework does and is not safe to do
+// either. QtRO's model replica keeps its vertical header cache as a flat list grown by
+// onRowsInserted and cut by onRowsRemoved, while the initial size arrives asynchronously in
+// handleModelResetDone and overwrites it (Qt 6.11.1,
+// qremoteobjectabstractitemmodelreplica.cpp:293). Under a fast remove/insert cycle across many
+// consumers the two disagree, the next removal erases past the end of that list, and the
+// process dies in the CacheEntry destructor: reliably, on two cores, within a few seconds.
 void rebuildSlice(QStandardItemModel *model, int rows, quint64 revision)
 {
-    model->removeRows(0, model->rowCount());
-    model->insertRows(0, rows);
+    QList<QStandardItem *> items;
+    items.reserve(rows);
     for (int row{0}; row < rows; ++row) {
-        const QModelIndex index{model->index(row, 0)};
-        model->setData(index, row, Qt::UserRole);
-        model->setData(index, static_cast<double>(row) + static_cast<double>(revision), Qt::UserRole + 1);
-        model->setData(index, static_cast<double>(row) * 2.0 + static_cast<double>(revision), Qt::UserRole + 2);
+        auto *item{new QStandardItem{}};
+        item->setData(row, Qt::UserRole);
+        item->setData(static_cast<double>(row) + static_cast<double>(revision), Qt::UserRole + 1);
+        item->setData(static_cast<double>(row) * 2.0 + static_cast<double>(revision),
+                      Qt::UserRole + 2);
+        items.append(item);
+    }
+    model->clear();
+    model->setItemRoleNames({{Qt::UserRole, QByteArrayLiteral("id")},
+                             {Qt::UserRole + 1, QByteArrayLiteral("x")},
+                             {Qt::UserRole + 2, QByteArrayLiteral("y")}});
+    for (QStandardItem *item : std::as_const(items)) {
+        model->appendRow(item);
     }
 }
 
