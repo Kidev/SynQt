@@ -21,6 +21,10 @@ import { chromium } from "playwright";
 
 const base = process.env.PLAZA_URL || "http://127.0.0.1:8097";
 const speed = 350;             // web/edge/Edge.qml and client/app/Main.qml agree on it
+// client/app/Main.qml's reconcile() leaves a prediction alone within this of the edge's
+// answer. Physics steps with rendering, so how far a tab predicts depends on its frame rate;
+// under SwiftShader the gap reached 65 on a run that was otherwise right.
+const tolerance = 120;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let failures = 0;
 
@@ -136,7 +140,7 @@ try {
     const seen = await until(bob, (line) => line.others.some((o) => o.name === "alice"));
     const drawn = seen && seen.others.find((o) => o.name === "alice");
     const apart = drawn ? Math.hypot(drawn.x - own.x, drawn.z - own.z) : Infinity;
-    check(apart < 60, `Bob draws Alice where her own physics put her (${apart.toFixed(0)} apart)`);
+    check(apart <= tolerance, `Bob draws Alice where her own physics put her (${apart.toFixed(0)} apart)`);
 
     for (const state of [alice, bob]) {
         check(state.errors.length === 0, `no script errors in ${state.name}'s tab`
