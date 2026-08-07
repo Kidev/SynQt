@@ -307,12 +307,11 @@ async function editorOverAProject() {
         check(await inspector.locator("input[type=text]").count() === 0,
               "and the panel offers no name for it, because there is none to give");
 
-        // OWNER and CONSUMER are about one link, and only ever one. `edge` is now the middle
-        // of a chain (it consumes the point `service` owns and owns the point `app`
-        // consumes), so with one of those selected and the pointer on the other it wore
-        // both words at once, of nothing in particular, because the two were about two
-        // different links. A point that is not the selection says where the pointer is and
-        // no more.
+        // OWNER and CONSUMER are about one link, and only ever one. `edge` is the middle of
+        // a chain (it consumes the point `service` owns and owns the point `app` consumes),
+        // so with one of those selected and the pointer on the other it could wear both
+        // words at once, about two different links. A point that is not the selection says
+        // where the pointer is and no more.
         const roleOn = (name) => page.locator(`[data-entity="${name}"]`).evaluate(
             (node) => [...node.classList].filter((one) => one.startsWith("is-")).join(" "));
         // Off the drawing between the two, because the card the pointer opens is over
@@ -647,7 +646,7 @@ async function theFrontThatSplitsCallers() {
         check(await page.locator('[data-break="service"] .link__break-word')
                         .first().textContent() === "broken",
               "and says it is broken, on the line, at the end it fails to reach");
-        // Said by the whole line, not only by the cross on it. The cross is one mark near the
+        // Said by the whole line as well as by the cross on it. The cross is one mark near the
         // far end of a curve crossing the canvas, and the line is what a pointer reaching for
         // it lands on. Answering the line with the ordinary card had the drawing describe a
         // link that carries nobody as though it worked.
@@ -655,8 +654,8 @@ async function theFrontThatSplitsCallers() {
         await page.waitForSelector("#tip:not([hidden])");
         check((await page.locator("#tip .tip__kind").first().textContent()) === "broken",
               "and pointing anywhere along it says the same thing the cross does");
-        // The travelling dash stops there too. It draws travel, and past the break nothing
-        // travels. Running it the whole way was the animation contradicting the line under it.
+        // The travelling dash stops there too: it draws travel, and past the break nothing
+        // travels.
         const carried = await page.evaluate(() => {
             const of = (name) => Math.round(document
                 .querySelector(`[data-link="service"] ${name}`).getTotalLength());
@@ -764,9 +763,9 @@ async function theCopyOnTheSite() {
         // It is still an editor. The palette works and the rules paint.
         await dropEntity(page, "Client", { x: 300, y: 200 });
         await page.waitForSelector('[data-entity="client"]');
-        // Under Review in the rail, which is the only place a finding is said: the bar
-        // carries the project's name and no verdict, because a count there was the same news
-        // with nowhere to click through to.
+        // Under Review in the rail, the only place a finding is said: the bar carries the
+        // project's name and no verdict, because a count there would be the same news with
+        // nowhere to click through to.
         const findings = await page.locator("#findings").textContent();
         check(/web edge/.test(findings),
               `a client with no web edge is a problem the page paints for itself: ${findings}`);
@@ -792,7 +791,7 @@ async function theCopyOnTheSite() {
                               "client/ops-console/Main.qml"]) {
             check(written.includes(wanted), `and the download carries ${wanted}`);
         }
-        // The console it carries is the console, not a placeholder standing in for one.
+        // The console it carries is the real one.
         check(written.includes("ApplicationWindow") && written.length > 12000,
               `and the console in it is the real one (${written.length} bytes)`);
 
@@ -1032,8 +1031,8 @@ async function theProjectALinkHandsYou() {
               && says.includes("'edge'") && says.includes("'app'"),
               `and what it is, is said in those names (${says.slice(0, 56)}...)`);
 
-        // The pane is open with the page. The files are what is being designed, not a second
-        // opinion about it that has to be asked for.
+        // The pane is open with the page. The files are the design itself, so they show
+        // without being asked for.
         await page.waitForSelector(".tree__file");
         check(!(await page.locator("#dock").evaluate(
                   (dock) => dock.classList.contains("is-collapsed"))),
@@ -1090,10 +1089,9 @@ async function theProjectALinkHandsYou() {
         // Read-only until it is opened for editing. The pane holds the entities' own code.
         await fileRow(page, "web/edge/Edge.qml").click();
         check(await sourceIsLocked(page), "a file opens read-only");
-        // And what the button opens is the project, not the file that happened to be on
-        // screen when it was pressed. Following a declaration from one entity into another is
-        // three files in a minute, and a lock to pick again on each of them was three
-        // interruptions in the middle of one thought.
+        // And what the button opens is the project, not the file on screen when it was
+        // pressed. Following a declaration from one entity into another is three files in a
+        // minute, and a lock per file would interrupt that three times.
         await unlock(page);
         await fileRow(page, "synqt.yaml").click();
         const alsoOpen = !(await sourceIsLocked(page));
@@ -1155,11 +1153,11 @@ async function theProjectALinkHandsYou() {
         check(before && !(await sourceText(page)).includes("// undo me"),
               "and what was typed can be undone, the way any editor undoes");
 
-        // Backspace over a file being typed into is a character, never the entity whose file
-        // it is. The page's answer to who has focus stops at a shadow host, and the pane is
-        // an editor inside one, so what it answered with was the plain <div> the editor is
-        // built into, which is not a field, so the canvas took the keystroke and deleted the
-        // entity that was selected. Typed at the end of the file, where there is something to erase.
+        // Backspace over a file being typed into is a character, never the entity whose
+        // file it is. The page's answer to who has focus stops at a shadow host, and the
+        // pane is an editor inside one, so a page-level check sees the plain <div> the
+        // editor is built into, not a field, and the canvas would delete the selected
+        // entity. Typed at the end of the file, where there is something to erase.
         const held = await page.locator("#nodes [data-entity]").count();
         await clickIntoSource(page);
         await page.keyboard.press("Control+End");
@@ -1234,10 +1232,10 @@ async function theProjectALinkHandsYou() {
               "and builds its own styles as a sheet the policy has no opinion about");
 
         // Pressed twice, because closing and opening again are two different failures. A
-        // chevron rebuilt as part of closing detaches the element the click
-        // landed on. The click then carries on to the strip, finds no button above it,
-        // takes itself for a click on the strip and opens the pane again in the same turn. That
-        // works every other time, which is the shape of bug a single press never catches.
+        // chevron rebuilt as part of closing detaches the element the click landed on; the
+        // click then carries on to the strip, finds no button above it, takes itself for a
+        // click on the strip and opens the pane again in the same turn. That fails only
+        // every other press, which one press never catches.
         await page.click("#dock-toggle");
         check(await page.locator("#dock").evaluate(
                   (dock) => dock.classList.contains("is-collapsed")),
@@ -1256,12 +1254,12 @@ async function theProjectALinkHandsYou() {
               && await page.locator("#source-lock").isHidden(),
               "carrying only Files and the control that opens it again");
 
-        // Folded, that bar is the last inch of the page, which on a phone is the one place a
-        // page measured in `vh` cannot put anything. `100vh` is the window with the browser's
-        // own bars retracted, so a body exactly that tall, hiding its overflow, ends below the
-        // screen with nothing to scroll to reach it, and what was below the screen was the
-        // whole bar. The word saying what is behind it and the only control that brings it
-        // back. The page is measured in `dvh` now, which is the window as it stands.
+        // Folded, that bar is the last inch of the page, which on a phone is the one place
+        // a page measured in `vh` cannot put anything. `100vh` is the window with the
+        // browser's own bars retracted, so a body exactly that tall, hiding its overflow,
+        // ends below the screen with nothing to scroll to, and the bar (the word saying
+        // what is behind it and the only control that brings it back) would be below the
+        // screen. The page is measured in `dvh`, the window as it stands.
         await page.setViewportSize({ width: 390, height: 844 });
         check(await page.evaluate(() => {
                   for (const sheet of document.styleSheets) {
@@ -1514,9 +1512,10 @@ async function typingIntoTheProject() {
               `a model is declared on the entity too (${withModel.join(" | ")})`);
 
         // Every part of a declaration that comes out of a fixed list is chosen from that
-        // list. The type is a drop-down over the contract vocabulary, not a word to be typed
-        // into the file afterwards. The name is the one part that has to be typed, because
-        // nothing could offer it. Both edits go back into the line they were read from.
+        // list. The type is a drop-down over the contract vocabulary. The name is the one
+        // part that has to be typed, because nothing could offer it. Both edits go back into
+        // the line they were read from.
+        //
         // The property that was added, picked out by its kind. The entity's own file
         // already declares a function, so "the first one" is whatever the file happens to
         // open with rather than the row this is about.
@@ -1755,12 +1754,27 @@ async function theMonitorStandsApart() {
               "with no handle on it to pull a line from");
         check(/ops-console\/Main/.test(await monitor.locator(".node__file").textContent()),
               "and its console written under it");
+        check(!(await monitor.locator(".node__file").isVisible()),
+              "which is hidden until the monitor is hovered");
         check(await page.locator(".zone--ops .zone__title").count() === 1
               && await page.locator(".zone--ops .zone__title").textContent()
                  === "Watches every entity",
-              "in a box of its own, outside the mesh");
-        check((await page.locator(".zone--ops").getAttribute("data-inside")) === "ops",
-              "which holds the monitor and nothing else");
+              "in a box of its own");
+        const inside = String(await page.locator(".zone--ops").getAttribute("data-inside"))
+            .split(" ");
+        check(["ops", "app", "edge", "store"].every((name) => inside.includes(name)),
+              "which holds every entity");
+        const outer = await page.locator(".zone--ops .zone__box").boundingBox();
+        const boxes = await page.locator(".zone:not(.zone--ops) .zone__box").evaluateAll(
+            (all) => all.map((one) => one.getBoundingClientRect().toJSON()));
+        check(boxes.length > 0 && boxes.every((box) => box.left >= outer.x
+                                                  && box.top >= outer.y
+                                                  && box.right <= outer.x + outer.width
+                                                  && box.bottom <= outer.y + outer.height),
+              "and is drawn round every other box");
+        check(await page.locator(".zone--ops .zone__box").evaluate(
+                  (box) => getComputedStyle(box).fill) === "none",
+              "with no fill, so the boxes inside keep their own colours");
         const square = await discCentre(page, "ops");
         await page.mouse.click(square.x, square.y);
         await page.waitForTimeout(300);
@@ -1771,6 +1785,41 @@ async function theMonitorStandsApart() {
         await dragLink(page, "store", "ops");
         await waitForHint(page, "'ops' is a monitor");
         check(true, "a line dropped on it is refused, and says why");
+    });
+}
+
+// Every box's name is a handle, the mesh's included, and an entity lists its files only
+// while it is hovered.
+async function theBoxesAndFilesAnswerAlike() {
+    await onTheChatRoom("Every box answers alike, and files show on hover", async (page) => {
+        const cursors = await page.locator(".zone__title").evaluateAll(
+            (all) => all.map((one) => getComputedStyle(one).cursor));
+        check(cursors.length === 3 && cursors.every((one) => one === "grab"),
+              `every box's name is a handle (${cursors.join(", ")})`);
+        const title = await page.locator('[data-zone-title="mesh"]').boundingBox();
+        const before = await discCentre(page, "store");
+        await page.mouse.move(title.x + 10, title.y + (title.height / 2));
+        await page.mouse.down();
+        await page.mouse.move(title.x + 90, title.y + 60, { steps: 6 });
+        await page.mouse.up();
+        const after = await discCentre(page, "store");
+        check(after.x - before.x > 40 && after.y - before.y > 20,
+              "dragging the mesh's name moves what is in the mesh");
+        const files = page.locator('[data-entity="app"] .node__file');
+        check(!(await files.isVisible()), "the client's files are hidden at rest");
+        await hoverOn(page, '[data-entity="app"] .node__disc');
+        const listed = await files.locator("tspan").allTextContents();
+        check(await files.isVisible()
+              && ["client/app/", "Main.qml", "User.qml", "Message.qml", "Admin.qml"]
+                  .every((name) => listed.includes(name)),
+              `hovering it lists every file in its folder (${listed.join(" ")})`);
+        const chips = await page.locator(".tip .tip__files .tip__ident").allTextContents();
+        check(chips.includes("client/app/Message.qml") && chips.length === 4,
+              "and its card names each of them");
+        await page.mouse.move(5, 5);
+        await hoverOn(page, 'text.link__member[data-member="messages"]');
+        check(await page.locator(".tip .tip__ident .tip__tok--name").count() >= 4,
+              "a member's card writes each role as the typed name it is");
     });
 }
 
@@ -1836,6 +1885,7 @@ await part(theProjectsScopes);
 await part(theMonitorStandsApart);
 await part(theSignInIsExplained);
 await part(theScopeIsWrittenAsTheRowWritesIt);
+await part(theBoxesAndFilesAnswerAlike);
 
 console.log("");
 if (failures.length) {

@@ -3,17 +3,13 @@
 
 // The card that opens over whatever the pointer is on.
 //
-// It is a function of the design document and nothing else. What is under the pointer, read
-// off the drawing's own data attributes, and the document that drawing was made from. Which
-// is why it is here rather than in the editor. The home page draws the same picture with
-// the same `draw`, and a second, thinner tooltip written for it would be a second answer to
-// what an entity is. The editor hands it the findings it has and the palette rows it draws;
-// a page with neither passes neither, and every card that does not depend on them is the
-// same card.
+// A function of what is under the pointer (read off the drawing's data attributes) and the
+// design document, and nothing else, so the home page, which draws the same picture with the
+// same `draw`, shows the same cards. The editor also passes its findings and palette rows; a
+// page without them passes neither.
 //
-// Nothing here reads the editor's state, opens anything, or writes anywhere: it builds a
-// detached element and hands it back. Where it is put and how it is placed belong to
-// whoever asked.
+// Nothing here reads the editor's state or writes anywhere: it builds a detached element and
+// returns it, and the caller places it.
 
 import { frontsOf, gatesOf, runsSignIn } from "./rules.js";
 import { MEMBER_KINDS, ROLE_HELP, aboveTheScope, accessorName, describe, endsOfPoint,
@@ -21,13 +17,55 @@ import { MEMBER_KINDS, ROLE_HELP, aboveTheScope, accessorName, describe, endsOfP
          seatsOfFront, signInSvg } from "./canvas.js";
 import { entityFiles, isShared } from "./project.js";
 
-// A page with no checker behind it has no findings, which is not the same as having none to
-// show. The two maps are what the card reads, so it is handed empty ones rather than asked
-// to test for them.
+// The findings of a page with no checker behind it: two empty maps, so the card never tests
+// for them.
 const NO_PROBLEMS = {entities: new Map(), links: new Map()};
 
 function entityNamed(design, name) {
     return (design.entities || []).find((one) => one.name === name) || null;
+}
+
+// A sentence with its code set apart. A run between backticks is a chip: a scope written
+// `<admin>` takes the scope chip below, and anything else (a name, `Session.login()`, a file)
+// takes the code chip. Everything outside the backticks is plain text.
+export function said(text) {
+    const parts = String(text || "").split("`");
+    const out = document.createDocumentFragment();
+    parts.forEach((part, index) => {
+        if (!part) {
+            return;
+        }
+        if (index % 2 === 0) {
+            out.append(part);
+            return;
+        }
+        const scope = /^<([\w-]+)>$/.exec(part);
+        out.append(scope ? scopeChip(scope[1], false) : codeChip(part));
+    });
+    return out;
+}
+
+// A name or a line of code inside a sentence, in a box of its own.
+function codeChip(text) {
+    const chip = document.createElement("code");
+    chip.className = "tip__ident";
+    chip.textContent = text;
+    return chip;
+}
+
+// One typed name, as a contract declares it (`int id`), in the syntax colours the member rows
+// use.
+function typedChip(type, name) {
+    const chip = document.createElement("code");
+    chip.className = "tip__ident";
+    const kind = document.createElement("span");
+    kind.className = "tip__tok tip__tok--type";
+    kind.textContent = type;
+    const called = document.createElement("span");
+    called.className = "tip__tok tip__tok--name";
+    called.textContent = name;
+    chip.append(kind, " ", called);
+    return chip;
 }
 
 function tipRow(label, value) {
@@ -36,10 +74,10 @@ function tipRow(label, value) {
     const name = document.createElement("span");
     name.className = "tip__label";
     name.textContent = label;
-    const said = document.createElement("span");
-    said.className = "tip__value";
-    said.textContent = value;
-    row.append(name, said);
+    const shown = document.createElement("span");
+    shown.className = "tip__value";
+    shown.append(said(value));
+    row.append(name, shown);
     return row;
 }
 
@@ -52,9 +90,7 @@ function tipRowOf(label, ...parts) {
     return row;
 }
 
-// A scope, written the way the `export:` block gates a member (`<admin>`) and set apart as a
-// chip. In a sentence ("Callers holding 'admin', and nobody else") the scope was one quoted
-// word among ten, and the notation the canvas writes beside the member was never tied to it.
+// A scope, written as the `export:` block gates a member (`<admin>`), set apart as a chip.
 // `raised` is a member gated above its connect point, which takes the warning colour the row
 // on the canvas takes.
 function scopeChip(scope, raised) {
@@ -73,9 +109,7 @@ function scopeKey() {
     return note;
 }
 
-// A rule across the tip with a word on it, so the parts of a card are parts and not one column
-// of lines that happen to be in an order. Ten rows in one grey face
-// are a paragraph with the punctuation taken out.
+// A labelled rule across the card, between its parts.
 function tipSection(label) {
     const row = document.createElement("div");
     row.className = "tip__section";
@@ -83,9 +117,8 @@ function tipSection(label) {
     return row;
 }
 
-// One end of a link, named and coloured as the role it plays. The same two colours the drawing
-// puts on the entities themselves at the same moment, so the word here and the disc out there
-// are one statement. This one owns it, that one consumes it.
+// One end of a link, named and coloured as the role it plays, in the colours the drawing puts
+// on the entities at the same moment.
 function tipParty(design, role, names) {
     const row = document.createElement("div");
     row.className = `tip__party tip__party--${role}`;
@@ -119,10 +152,8 @@ function quietName(text) {
     return said;
 }
 
-// One member of a contract, painted the way the canvas paints it. The mark that says which of
-// the four kinds it is, then the declaration in the same three syntax colours the file pane
-// uses. A list of these read as one grey block before, which is the one part of a link tip
-// somebody is following the line to find.
+// One member of a contract, painted as the canvas paints it: the mark for its kind, then the
+// declaration in the file pane's syntax colours.
 function tipMember(member, link) {
     const row = document.createElement("div");
     row.className = `tip__member${aboveTheScope(member, link) ? " is-scoped" : ""}`;
@@ -146,36 +177,29 @@ function tipMember(member, link) {
     return row;
 }
 
-// What one member carries, written out in full. The canvas has room for the types alone, so
-// this is where the names that go with them live. A row's roles are what a consumer's delegate
-// reads by name, and a call's parameters are what somebody writing the call has to supply, so
-// neither is decoration.
+// What one member carries, in full. The canvas has room for the types only, so the names are
+// here: a row's roles are what a consumer's delegate reads, and a call's parameters are what
+// a caller supplies.
 function partsRow(member) {
     if (member.kind === "prop") {
-        return tipRow("holds", `One ${member.type || "var"}`);
+        return tipRowOf("holds", "One ", typedChip(member.type || "var", member.name || ""));
     }
+    const typed = (member.kind === "model" ? member.roles : member.params) || [];
+    const chips = typed.flatMap((part, index) => [index ? ", " : "",
+                                                  typedChip(part.type || "var", part.name)]);
     if (member.kind === "model") {
-        return (member.roles || []).length
-            ? tipRow("rows carry", (member.roles || [])
-                .map((role) => `${role.type} ${role.name}`).join(", "))
-            : tipRow("rows carry", "No roles yet, so no part of a row crosses");
+        return typed.length ? tipRowOf("rows carry", ...chips)
+                            : tipRow("rows carry", "No roles yet, so no part of a row crosses");
     }
-    const params = member.params || [];
-    return tipRow("takes", params.length
-        ? params.map((part) => `${part.type} ${part.name}`).join(", ")
-        : "Nothing");
+    return typed.length ? tipRowOf("takes", ...chips) : tipRow("takes", "Nothing");
 }
 
 export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}) {
     const box = document.createElement("div");
-    // One member of one contract, asked for by pointing anywhere on its row: the mark that
-    // says which of the four kinds it is, or the name and prototype beside it. Both, because
-    // pointing at `placeBid` is the obvious way to ask what `placeBid` is, and for as long as
-    // only the mark answered, the obvious way did nothing.
-    //
-    // The canvas writes the row short. Types without their names, and no word for the kind.
-    // Everything it left out is here, said about the two entities at the ends of
-    // this link rather than about owners and consumers in general.
+    // One member of one contract, asked for by pointing anywhere on its row: the mark or the
+    // name and prototype beside it. The canvas writes the row short (types without names, no
+    // word for the kind), and this says the rest, about the two entities at the ends of this
+    // link.
     if (what.kind === "member") {
         const link = (design.links || []).find((one) => one.name === what.link);
         const member = ((link || {}).members || [])
@@ -183,35 +207,31 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         if (!member) {
             return null;
         }
-        const said = MEMBER_KINDS[member.kind] || MEMBER_KINDS.prop;
+        const meaning = MEMBER_KINDS[member.kind] || MEMBER_KINDS.prop;
         const ends = endsOfPoint(link);
         const head = document.createElement("div");
         head.className = "tip__head tip__head--link";
         head.append(memberMarkSvg(member.kind));
-        // The member as the line of code it is, in the same runs the file pane and the row on
-        // the canvas are painted in. It was one grey string, which is a card titled with the
-        // one thing on it a reader can already see spelled out below.
+        // The member as its line of code, painted as the file pane and the canvas paint it.
         head.append(memberCode(member));
         const kind = document.createElement("span");
         kind.className = "tip__kind";
-        kind.textContent = said.name;
+        kind.textContent = meaning.name;
         head.append(kind);
         box.append(head);
-        // The two ends of this particular member's journey, in the same two colours the
-        // drawing puts on the entities while it is hovered.
+        // The two ends this member travels between, in the colours the drawing uses while it
+        // is hovered.
         box.append(tipParty(design, "owner", link.owner ? [link.owner] : []));
         box.append(tipParty(design, "consumer", link.consumers || []));
         box.append(tipSection("what it carries"));
         box.append(partsRow(member));
         if (member.kind === "slot") {
             box.append(tipRow("answers", member.type
-                ? `${member.type}, so the call resolves with a value`
+                ? `\`${member.type}\`, so the call resolves with a value`
                 : "Nothing, so the call is made and not waited on"));
         }
-        // What reaches this member is its own gate, or the point's where it names none. The
-        // second half is the ordinary case and is not news. A member that only inherits the
-        // point's scope is not "held back" from anything, and saying so of every member of a
-        // gated point is saying it of nothing.
+        // What reaches this member is its own gate, or the point's where it names none. Only a
+        // member gated above its point is described as held back.
         const raised = aboveTheScope(member, link);
         const gate = member.scope || link.scope;
         box.append(raised
@@ -221,20 +241,18 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
                 ? tipRowOf("scope", scopeChip(gate, false),
                            " from the connect point, the same as its other members.")
                 : tipRow("scope", "None. Any caller reaches it, anonymous included.")));
-        box.append(tipHelp(said.says(ends.owner, ends.consumers)));
+        box.append(tipHelp(meaning.says(ends.owner, ends.consumers)));
         if (raised) {
             const note = tipHelp("");
             note.append("Raised above ",
                         link.scope ? scopeChip(link.scope, false) : "the connect point's scope",
-                        `, so this member alone is held back from callers the rest of `
-                        + `'${link.owner}' answers.`);
+                        ", so only this member is held back from callers of ",
+                        codeChip(link.owner), ".");
             box.append(note);
         }
         return box;
     }
-    // One scope on a front's back. Who answers callers holding it, and what reaching them
-    // costs a browser. The seat is the whole routing on the canvas, so the one thing it
-    // cannot say in a word (what happens to a caller of this scope) is said here.
+    // One scope on a front's back: who answers callers holding it.
     if (what.kind === "seat") {
         const front = frontsOf(design).get(what.name);
         const seat = (seatsOfFront(front) || []).find((one) => one.scope === what.scope);
@@ -251,7 +269,7 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         kind.textContent = "scope";
         head.append(kind);
         box.append(head);
-        box.append(tipRow("on", `'${what.name}', which fronts for the entities behind it`));
+        box.append(tipRow("on", `\`${what.name}\`, which fronts for the entities behind it`));
         if (seat.tier) {
             box.append(tipParty(design, "owner", [seat.tier]));
             box.append(tipParty(design, "consumer", [what.name]));
@@ -260,16 +278,15 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
                               "Nobody yet, so a caller of this scope is handed nowhere"));
         }
         box.append(tipHelp(seat.tier
-            ? `A browser holding '${what.scope}' reaches '${what.name}' and is served by `
-              + `'${seat.tier}'. It never learns that '${seat.tier}' exists: the accessor it `
-              + `writes is ${accessorName(what.name)}, whoever is behind it.`
-            : `Drag from here to the entity that serves callers holding '${what.scope}', or `
-              + "from that entity to here. Either way round draws the same routing."));
+            ? `A browser holding \`<${what.scope}>\` reaches \`${what.name}\` and is served `
+              + `by \`${seat.tier}\`. It never learns that \`${seat.tier}\` exists: it `
+              + `writes \`${accessorName(what.name)}\`, whoever is behind it.`
+            : `Drag from here to the entity that serves callers holding \`<${what.scope}>\`, `
+              + "or from that entity to here. Both draw the same routing."));
         return box;
     }
-    // The sign-in mark, on an edge or beside a line from one to a browser. What it means, in
-    // the order somebody new to it asks: what happens, where the secrets stay, what the
-    // browser ends up holding, and who decides what a signed-in person may reach.
+    // The sign-in mark, on an edge or beside a line from one to a browser: what happens,
+    // where the secrets stay, what the browser holds, and who decides the scope.
     if (what.kind === "signin") {
         const edge = entityNamed(design, what.name);
         if (!edge) {
@@ -283,10 +300,10 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         head.append(title);
         const kind = document.createElement("span");
         kind.className = "tip__kind";
-        kind.textContent = `on '${edge.name}'`;
+        kind.textContent = `on ${edge.name}`;
         head.append(kind);
         box.append(head);
-        box.append(tipRow("started by", "Session.login() in a client, which sends the "
+        box.append(tipRow("started by", "`Session.login()` in a client, which sends the "
                                         + "browser to this edge"));
         box.append(tipRow("runs", "The OAuth exchange with the provider (PKCE, a state it "
                                   + "checks, the ID token verified), here on the edge"));
@@ -294,17 +311,15 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
                                    + "ever reaches a browser"));
         box.append(tipRow("hands back", "A session cookie the page script cannot read, and "
                                         + "nothing else"));
-        box.append(tipRow("decides the scope", "The identity mapping hook that "
-                                               + "identity.mapping names in synqt.yaml"));
-        box.append(tipHelp("Every scope above the default is reached through here, so every "
-                           + "gated connect point, every gated member and every bundle past "
-                           + "the first hangs off this mark. Under synqt dev, the development "
-                           + "sign-in and the scope picker stand in for the provider."));
+        box.append(tipRow("decides the scope", "The mapping hook that `identity.mapping` "
+                                               + "names in `synqt.yaml`"));
+        box.append(tipHelp("Every scope above the default is reached through here. Every "
+                           + "gated connect point, gated member and extra bundle depends on "
+                           + "this mark. Under `synqt dev`, the development sign-in and the "
+                           + "scope picker replace the provider."));
         return box;
     }
-    // A box around a group of entities. Its name is on the canvas and what it means is here,
-    // because the meaning is the same three sentences on every glance and the arrangement is
-    // what somebody is looking at.
+    // A box around a group of entities. Its name is on the canvas and its meaning is here.
     if (what.kind === "zone") {
         const head = document.createElement("div");
         head.className = "tip__head tip__head--link";
@@ -315,8 +330,8 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         box.append(tipHelp(what.note));
         return box;
     }
-    // The break on a line that reaches a front nothing routes to. What has stopped being true
-    // about it, and the one gesture that puts it back.
+    // The break on a line that reaches a front nothing routes to: what is wrong, and the
+    // gesture that fixes it.
     if (what.kind === "break") {
         const link = (design.links || []).find((one) => one.name === what.name);
         if (!link) {
@@ -332,17 +347,15 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         box.append(head);
         box.append(tipParty(design, "owner", link.owner ? [link.owner] : []));
         box.append(tipParty(design, "consumer", what.consumer ? [what.consumer] : []));
-        box.append(tipHelp(`'${what.consumer}' hands its callers to the entities behind it, `
-                           + `and no scope is handed to '${link.owner}'. The link is still `
-                           + `there and nothing travels down it: nobody is ever routed to `
-                           + `this end of it.`));
+        box.append(tipHelp(`\`${what.consumer}\` hands its callers to the entities behind `
+                           + `it, and no scope is handed to \`${link.owner}\`. Nothing travels `
+                           + "down this link, because nobody is ever routed to its end."));
         box.append(tipHelp("Drag from the cross onto a scope on the front's back to say whose "
                            + "callers it serves. Press it to select the line."));
         return box;
     }
-    // A row in the rail is the entity it would add, so it says what the node on the canvas
-    // says, in the same box. A `title` attribute said the same words in the browser's own
-    // tooltip, which arrives a second late and looks like it belongs to a different program.
+    // A row in the rail describes the entity it adds, in the same card the node on the canvas
+    // opens.
     if (what.kind === "role") {
         const item = palette.find((one) => one.role === what.name);
         if (!item) {
@@ -364,8 +377,7 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
             return null;
         }
         const role = roleOf(entity);
-        // A gate keeps a client's colour and takes the barrier's glyph, exactly as the node
-        // on the canvas does, so the card that opens over it is the thing that was pointed at.
+        // A gate keeps a client's colour and takes the barrier's glyph, as its node does.
         const gate = gatesOf(design).get(entity.name) || "";
         const head = document.createElement("div");
         head.className = `tip__head tip__head--${role}`;
@@ -376,43 +388,37 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         box.append(head);
         const kind = document.createElement("span");
         kind.className = "tip__kind";
-        // `web_edge` is what the configuration writes; `web edge` is what a card set in small
-        // capitals should read as.
+        // `web_edge` as the configuration writes it, read as `web edge`.
         kind.textContent = describe(entity).replace(/_/g, " ");
         head.append(kind);
         if (gate) {
-            box.append(tipRow("the gate", `What '${gate}' serves a session that has signed `
-                                          + "in as nobody. A signed-in session is served a "
-                                          + "different bundle, and cannot fetch a file of "
-                                          + "this one."));
+            box.append(tipRow("the gate", `What \`${gate}\` serves a session that has not `
+                                          + "signed in. A signed-in session is served another "
+                                          + "bundle and cannot fetch a file of this one."));
         }
         box.append(tipRow("reachable from",
                           role === "client" ? "The person using it"
                           : (role === "edge" ? "The internet, and only over TLS"
                                              : "The entities on its consumer lists, and "
                                                + "nothing else")));
-        // The mark the canvas draws on this node, said in words. It is the switch a whole
-        // project hangs off: without it nobody ever leaves the default scope, so every
-        // member gate refuses everybody and every bundle above the first is unreachable.
+        // The mark the canvas draws on this node, in words. Without it nobody leaves the
+        // default scope, so every member gate refuses everybody.
         if (runsSignIn(entity)) {
             box.append(tipRow("signs people in",
                               "It runs the OAuth exchange, keeps the tokens and the "
-                              + "sessions, and hands the browser a cookie. This is what "
-                              + "makes Session.login() in a client reach anything."));
+                              + "sessions, and hands the browser a cookie. `Session.login()` "
+                              + "in a client reaches this."));
         }
-        // How many of it there are, which is the entity's own answer and decides whether a
-        // Source holds one caller's state or everybody's. It is a setting on this node, so it
-        // is a fact about this node.
+        // How many of it there are, which decides whether a Source holds one caller's state or
+        // everybody's.
         if (role !== "client") {
             box.append(tipRow("how many", isShared(entity)
-                ? "One, for everybody, and every caller still arrives with a Caller of "
+                ? "One, for everybody. Every caller still arrives with a `Caller` of "
                   + "their own"
                 : "One per caller, holding only what is theirs"));
         }
-        // What this entity is at either end of, said in the same two role colours a hovered
-        // link paints its ends with. Which end
-        // of a link an entity is on is the one question about it that a list answers and a
-        // comma-joined sentence does not.
+        // The links this entity is at either end of, in the role colours a hovered link
+        // paints its ends with.
         const owns = (design.links || [])
             .filter((link) => link.owner === entity.name);
         const uses = (design.links || [])
@@ -425,7 +431,8 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
             box.append(tipParty(design, "consumer", link.consumers || []));
         }
         if (uses.length) {
-            box.append(tipRow("consumes", uses.map((link) => link.owner).join(", ")));
+            box.append(tipRow("consumes",
+                              uses.map((link) => `\`${link.owner}\``).join(", ")));
         }
         if (!owns.length && !uses.length) {
             box.append(tipRow("on the mesh", "Nothing reaches it and it reaches nothing"));
@@ -434,12 +441,11 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         if (front) {
             const wired = seatsOfFront(front).filter((seat) => seat.tier);
             box.append(tipRow("hands on", wired.length
-                ? wired.map((seat) => `${seat.scope} to '${seat.tier}'`).join(", ")
+                ? wired.map((seat) => `\`<${seat.scope}>\` to \`${seat.tier}\``).join(", ")
                 : "Nothing yet, so it hands nobody anywhere"));
         }
         const files = entityFiles(design, entity);
-        box.append(tipRow("files", files.length
-            ? files.map((file) => file.name).join(", ") : "None yet"));
+        box.append(files.length ? tipFiles(files) : tipRow("files", "None yet"));
         box.append(tipHelp(ROLE_HELP[role]));
         box.append(...tipFindings(problems.entities.get(entity.name) || []));
         return box;
@@ -457,10 +463,7 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
     head.append(kind);
     box.append(head);
 
-    // The two ends first, in the two role colours, because which entity decides and which one
-    // only asks is what somebody follows a line to find out. As two of eight grey
-    // rows, each carrying a clause of explanation, the pair is harder to pick out rather
-    // than easier.
+    // The two ends first, in the two role colours.
     box.append(tipParty(design, "owner", link.owner ? [link.owner] : []));
     // One line is one consumer of a contract they all share, so a hovered line names that one
     // and says how many others there are. The icon names all of them.
@@ -473,11 +476,15 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
 
     box.append(tipSection("how"));
     box.append(tipRow("written as", link.owner
-        ? `${accessorName(link.owner)}, in every consumer's QML`
+        ? `\`${accessorName(link.owner)}\`, in every consumer's QML`
         : "Nothing yet: the owner is the name"));
-    box.append(tipRow("carried over", link.transport === "local"
-        ? "A local socket, so the caller is trusted by colocation"
-        : "Mutual TLS, verified against the project CA"));
+    const browser = (what.consumer ? [what.consumer] : consumers).some(
+        (name) => roleOf(entityNamed(design, name) || {}) === "client");
+    box.append(tipRow("carried over", browser
+        ? "The browser link, over TLS the edge terminates"
+        : (link.transport === "local"
+            ? "A local socket, so the caller is trusted by colocation"
+            : "Mutual TLS, verified against the project CA")));
     box.append(link.scope
         ? tipRowOf("scope", scopeChip(link.scope, false),
                    " on the whole point. A browser below it never acquires it.")
@@ -486,7 +493,8 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         .filter((seat) => seat.tier);
     if (behind.length) {
         box.append(tipRow("handed on to",
-                          behind.map((seat) => `${seat.scope} to '${seat.tier}'`).join(", ")));
+                          behind.map((seat) => `\`<${seat.scope}>\` to \`${seat.tier}\``)
+                              .join(", ")));
     }
 
     const members = link.members || [];
@@ -503,18 +511,29 @@ export function tipFor(design, what, {problems = NO_PROBLEMS, palette = []} = {}
         }
     } else {
         box.append(tipHelp(link.owner
-            ? `Nothing crosses it yet. Tick what '${link.owner}' declares onto the contract, `
-              + "and nothing undeclared will ever cross whatever anyone writes."
+            ? `Nothing crosses it yet. Tick what \`${link.owner}\` declares onto the `
+              + "contract. Nothing undeclared ever crosses, whatever anyone writes."
             : "Nothing crosses it yet. Nothing undeclared ever will."));
     }
     box.append(...tipFindings(problems.links.get(link.name) || []));
     return box;
 }
 
+// Every file an entity is made of, one per line, each a code chip.
+function tipFiles(files) {
+    const row = tipRow("files", "");
+    const value = row.querySelector(".tip__value");
+    value.classList.add("tip__files");
+    for (const file of files) {
+        value.append(codeChip(file.name));
+    }
+    return row;
+}
+
 function tipHelp(text) {
     const note = document.createElement("p");
     note.className = "tip__help";
-    note.textContent = text;
+    note.append(said(text));
     return note;
 }
 
@@ -527,45 +546,54 @@ function tipFindings(found) {
     });
 }
 
+// Where the card opens, beside the pointer and inside the window. `card` is already shown, so
+// its size can be measured. An entity's card opens beside the whole node, so it does not cover
+// the files the node lists. `root` is the drawing the node is found in.
+export function placeTip(card, what, at, root) {
+    const box = card.getBoundingClientRect();
+    const node = what && what.kind === "entity" && root
+        ? root.querySelector(`[data-entity="${CSS.escape(what.name)}"]`) : null;
+    const around = node ? node.getBoundingClientRect()
+                        : {left: at.x, right: at.x, top: at.y};
+    const gap = node ? 12 : 18;
+    const x = around.right + gap + box.width > window.innerWidth
+        ? around.left - gap - box.width : around.right + gap;
+    const y = Math.min(node ? around.top : at.y + 12, window.innerHeight - box.height - 8);
+    card.style.left = `${Math.max(8, x)}px`;
+    card.style.top = `${Math.max(8, y)}px`;
+}
+
 // What the pointer is on, as the card's own question.
 //
-// Read off the drawing rather than off the document. Every part of it carries the name of
-// what it is, so this is one `closest` per kind, in the order of what is the smaller thing
-// under the pointer. The order is the whole of it. A member's row is on a line, and a line
+// Read off the drawing, not the document: every part of it carries the name of what it is,
+// so this is one `closest` per kind, smallest first. A member's row is on a line, and a line
 // is in a box.
 export function whatIsUnder(target) {
     if (!target || !target.closest) {
         return null;
     }
-    // One member of a contract, before the link it is written beside. The row is the smaller
-    // thing under the pointer, and it is answered by anywhere on it. The mark that says
-    // which of the four kinds it is, or the name and prototype next to it.
+    // One member of a contract, before the link it is written beside.
     const member = target.closest("[data-member]");
     if (member) {
         const holder = member.closest("[data-link]");
-        // Which line the row is written beside, as well as which point it belongs to: the
-        // block is drawn once per consumer, and lighting the point without the line left the
-        // one line the pointer was on unlit.
+        // Which line the row is written beside, as well as its point: the block is drawn
+        // once per consumer, and the line under the pointer lights too.
         return {kind: "member", name: member.dataset.member,
                 link: holder ? holder.dataset.link : "",
                 consumer: holder ? (holder.dataset.consumer || "") : ""};
     }
-    // The break on a line that reaches a front nothing routes to. Before the link it sits on,
-    // because it is the smaller thing under the pointer and it answers a different question:
-    // the line says what crosses, and this says why none of it arrives.
+    // The break on a line that reaches a front nothing routes to, before the link it sits on.
     const broke = target.closest("[data-break]");
     if (broke) {
         return {kind: "break", name: broke.dataset.break,
                 consumer: broke.dataset.breakConsumer || ""};
     }
-    // The sign-in mark, before the node it rides on and the line it is written beside. It is
-    // the smaller thing under the pointer, and it answers a question neither of them does.
+    // The sign-in mark, before the node it rides on and the line it is written beside.
     const signin = target.closest("[data-signin]");
     if (signin && signin.dataset.signin) {
         return {kind: "signin", name: signin.dataset.signin};
     }
-    // A scope on a front's back, before the node it is drawn in. It is the seat, and what it
-    // says is where callers of that scope go.
+    // A scope on a front's back, before the node it is drawn in.
     const seat = target.closest("[data-seat]");
     if (seat) {
         return {kind: "seat", name: seat.dataset.seat, scope: seat.dataset.scope};
@@ -574,26 +602,23 @@ export function whatIsUnder(target) {
     if (entity) {
         return {kind: "entity", name: entity.dataset.entity};
     }
-    // The contract icon before the lines, because it is drawn over them and is the whole
-    // point rather than one consumer of it.
+    // The contract icon before the lines it is drawn over.
     const contract = target.closest("[data-contract]");
     if (contract) {
         return {kind: "contract", name: contract.dataset.contract};
     }
     const link = target.closest("[data-link]");
     if (link) {
-        // A broken line is the break, wherever on it the pointer is. The cross is one mark
-        // near the far end and the line is what a reader's pointer finds first: answering the
-        // line with the ordinary card would have it describe a link as though it worked.
+        // A broken line answers as its break wherever the pointer is on it, so its card never
+        // describes it as working.
         if (link.dataset.broken) {
             return {kind: "break", name: link.dataset.link,
                     consumer: link.dataset.consumer || ""};
         }
         return {kind: "link", name: link.dataset.link, consumer: link.dataset.consumer || ""};
     }
-    // A box's name, last, because everything drawn inside a box answers for itself first.
-    // What the box means is written on the name rather than under it, so this is where it is
-    // read from.
+    // A box's name, last, because everything inside a box answers first. The box's meaning
+    // is stored on its name.
     const zone = target.closest("[data-zone-title]");
     return zone
         ? {kind: "zone", name: zone.textContent, note: zone.dataset.note || ""}

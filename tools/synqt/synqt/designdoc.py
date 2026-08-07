@@ -279,6 +279,42 @@ def _read_text(path: Path) -> str:
         return ""
 
 
+#: What a companion file may be. Source an author writes and the pane can show as text.
+COMPANION_SUFFIXES = (".qml", ".js", ".mjs", ".sql", ".html", ".css", ".json")
+
+#: Larger than this is not a file anybody reads in the pane, so it is left on disk.
+_COMPANION_LIMIT = 64 * 1024
+
+
+def _companions(root: Path, entity: Dict[str, Any]) -> List[Dict[str, str]]:
+    """The files in an entity's folder other than its own QML and its schema.
+
+    Each is ``{"path": ..., "text": ...}``, the path relative to the entity's folder, sorted.
+    Hidden directories are skipped, and so is anything too large or not text.
+    """
+    folder = root / appmodel.entity_dir(entity)
+    if not folder.is_dir():
+        return []
+    carried = {Path(appmodel.entity_file_path(entity)).name}
+    if appmodel.entity_type(entity) == "relational":
+        carried.add("schema.sql")
+    found = []
+    for path in sorted(folder.rglob("*")):
+        relative = path.relative_to(folder)
+        if (not path.is_file() or path.suffix not in COMPANION_SUFFIXES
+                or relative.as_posix() in carried
+                or any(part.startswith(".") for part in relative.parts)):
+            continue
+        try:
+            if path.stat().st_size > _COMPANION_LIMIT:
+                continue
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        found.append({"path": relative.as_posix(), "text": text})
+    return found
+
+
 def _link(point: Dict[str, Any], root: Path, seats: Dict[str, Dict[str, Any]],
           owners: Dict[str, Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
     owner = str(point.get("owner") or "")
@@ -411,6 +447,12 @@ def read(project_dir: os.PathLike[str] | str, *,
         # and typing into it wrote nowhere.
         if appmodel.entity_type(entity) == "relational":
             entity["schema"] = _read_text(root / appmodel.entity_dir(entity) / "schema.sql")
+        # Every other file in the entity's folder, so the editor lists the whole entity: a
+        # client's window opens the QML files beside Main.qml, and an edge's sign-in reads its
+        # mapping hook from identity/. Carried only where there are some.
+        companions = _companions(root, entity)
+        if companions:
+            entity["files"] = companions
     document = {
         "version": VERSION,
         "project": name,

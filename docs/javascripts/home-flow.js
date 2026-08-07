@@ -4,20 +4,20 @@
 /* The home page's "What it looks like" project.
  *
  * The section is one small system, seen the way the design editor sees it: the mesh drawn
- * across the top, a project tree of its five files under it, and beside the tree the one
- * file being read. Every part of the drawing has a file behind it. One QML file per
- * entity, and the configuration behind each contract mark, since what crosses a link is
- * written there. Pointing at a file in either the tree or the drawing opens it, and lights
- * it in the other, so the two are one set of triggers over the same five files.
- * A file stays until another is pointed at, so the reader can move the pointer into the
- * file and read it. The configuration is shown to begin with, since it is what the rest is
- * generated from.
+ * across the top, the project tree under it, and beside the tree the file being read. Each
+ * entity in the drawing opens its QML file, and each contract mark opens the configuration,
+ * where what crosses a link is written. Pointing at a file in the tree or the drawing opens
+ * it and lights it in the other, so both are one set of triggers over the same files. A file
+ * stays open until another is pointed at, so the reader can move the pointer into it. The
+ * configuration is open to begin with, since the rest is generated from it.
  *
  * This script is the whole of that behavior, plus the glossary. Each file in
  * docs/index.md is followed by a hidden list whose entries name a fragment of it and say
  * what that line does. This wraps every line of the highlighted code in its own element,
  * hands each gloss to the first line that contains its fragment, and shows the text
- * under the file while that line is hovered. It reads the fragments rather than line
+ * under the file while that line is hovered. A run between backticks in a gloss is shown
+ * as code, and a scope written `<admin>` as a scope chip, the way the drawing's cards show
+ * them. It reads the fragments rather than line
  * numbers so that editing a snippet does not silently shift every explanation in it by
  * one. A gloss that also carries a `data-href` turns its line into a link to the page
  * that documents it, which is where the section hands the reader on. To the class in the
@@ -114,6 +114,28 @@
     return lines;
   }
 
+  /* A gloss as text with its code set apart: a run between backticks becomes a code chip,
+   * or a scope chip when it is a scope written `<admin>`. The rest is plain text. */
+  function rich(text) {
+    var out = document.createDocumentFragment();
+    var parts = text.split("`");
+    for (var at = 0; at < parts.length; at++) {
+      if (!parts[at]) {
+        continue;
+      }
+      if (at % 2 === 0) {
+        out.appendChild(document.createTextNode(parts[at]));
+        continue;
+      }
+      var chip = document.createElement("code");
+      chip.className = /^<[\w-]+>$/.test(parts[at])
+        ? "synqt-flow__chip synqt-flow__chip--scope" : "synqt-flow__chip";
+      chip.textContent = parts[at];
+      out.appendChild(chip);
+    }
+    return out;
+  }
+
   function applyGlossary(file, lines) {
     var list = file.querySelector(".synqt-flow__glossary");
     if (!list) {
@@ -150,8 +172,8 @@
    * It lives in a shadow root because the editor's stylesheet is the editor's whole look,
    * `html`, `body` and `*` included, and this page has a look of its own. Inside a shadow
    * root none of those match, so the file can be adopted whole rather than picked over: the
-   * one edit is `:root` to `:host`, since `:root` is the document element and there is no
-   * document element in here. It has to be adopted whole. A hand-picked subset of it is a
+   * edits are `:root` to `:host`, since `:root` is the document element and there is no
+   * document element in here, and the light palette switched off, since the site is dark. It has to be adopted whole. A hand-picked subset of it is a
    * second answer to what an entity looks like, and the drawing this replaced was exactly
    * that, kept by hand, and it had already drifted.
    */
@@ -180,6 +202,12 @@
     // ring of dots that answer no gesture this page has.
     ".node__slot, .node__slot-grab { display: none; }",
     ".node:focus-visible, .link__doc:focus-visible { outline: 2px solid var(--accent); }",
+    // A box's name is a handle in the editor, where it picks the box up. Nothing moves here,
+    // so every name takes the same plain pointer, and no box looks draggable.
+    ".zone__title, .zone--held .zone__box { cursor: default; }",
+    // The files listed under a hovered entity carry a halo in the page's own colour, which
+    // is darker than the editor's canvas.
+    ".node__file { stroke: #0d1224; }",
     // The card the editor opens over whatever the pointer is on, opening here over the same
     // drawing. It is `position: fixed` in the editor's own stylesheet, which is the viewport
     // either way, so all this page owes it is a place in the stack. Above the section, below
@@ -236,7 +264,11 @@
       }
       var shadow = stage.attachShadow({ mode: "open" });
       var style = document.createElement("style");
-      style.textContent = parts[3].split(":root").join(":host") + "\n" + MESH_CSS;
+      // The site is always dark, so the editor's light palette is switched off here: a reader
+      // whose system asks for light would otherwise get dark names on a dark page.
+      style.textContent = parts[3].split(":root").join(":host")
+        .split("@media (prefers-color-scheme: light)").join("@media not all")
+        + "\n" + MESH_CSS;
       shadow.appendChild(style);
 
       var svg = svgNode("svg", { "class": "canvas", "aria-hidden": "true" });
@@ -381,14 +413,8 @@
         card.replaceChildren(body);
         card.hidden = false;
       }
-      // Measured after it is shown, so what is flipped is the size it has, and it
-      // opens on the other side of the pointer rather than off the edge of the window.
-      var box = card.getBoundingClientRect();
-      var x = event.clientX + 18 + box.width > window.innerWidth
-        ? event.clientX - 18 - box.width : event.clientX + 18;
-      var y = Math.min(event.clientY + 12, window.innerHeight - box.height - 8);
-      card.style.left = Math.max(8, x) + "px";
-      card.style.top = Math.max(8, y) + "px";
+      // Placed by the editor's own rule, after it is shown so its size is measured.
+      tip.placeTip(card, what, { x: event.clientX, y: event.clientY }, svg);
     });
 
     svg.addEventListener("pointerleave", function () {
@@ -428,26 +454,18 @@
     }
 
     function explain(text) {
-      hint.textContent = text || "";
+      hint.replaceChildren(rich(text || ""));
       hint.classList.toggle(SHOWN, !!text);
     }
 
-    // What a trigger names, as one string. Most name one file. The database names two,
-    // its QML and the schema.sql the query in it reads, because they are one thing to
-    // point at. The pair is written on the diagram's database and on both of its rows in
-    // the tree. A directory row names everything under it, which is what makes shared/
-    // open its three contracts while each contract still opens on its own.
+    // What a trigger names, as one string. A trigger may name several files, separated by
+    // spaces, and opens them stacked in the panel.
     function nameOf(element) {
       return element.getAttribute("data-file").trim().split(/\s+/).join(" ");
     }
 
-    // A trigger lights when every file it names is open, rather than when it names
-    // exactly what is open. For all but the directories those are the same thing. Where
-    // they differ. Shared/ opens its three contracts, and each of the three rows under it
-    // and each of the three glyphs on the drawing is showing one of the files now open,
-    // so all of them light with it. Pointing at one of those instead opens that one
-    // contract and leaves the directory dark, since two of the files it names are not
-    // open. One reading, both directions. What is lit is exactly what is on screen.
+    // A trigger lights when every file it names is open, so a row naming one of several
+    // open files lights with them, and what is lit is exactly what is on screen.
     function lit(open, named) {
       for (var at = 0; at < named.length; at++) {
         if (open.indexOf(named[at]) === -1) {

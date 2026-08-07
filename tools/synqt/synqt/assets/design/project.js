@@ -98,15 +98,12 @@ function entityLines(entity) {
                    `      max_age_days: ${MONITOR_SCAFFOLD.retention.max_age_days}`,
                    `      max_bytes: ${MONITOR_SCAFFOLD.retention.max_bytes}`);
     }
-    // Which scope is served which bundle, which is the delivery gate. A caller is served
-    // the bundle their scope maps to and no file of any other, so an unauthorized visitor
-    // does not have the privileged bundle on their disk to read. A monitor's is the
-    // scaffolder's, because hiding a console behind a sign-in page is not a choice anybody
-    // makes per project. Every other entity writes what the drawing says.
-    //
-    // This wrote nothing at all until a project needed it, which the panel did not know:
-    // it read `bundles` and showed the mapping, so an edge with a gate displayed one here
-    // and downloaded without one, when the gate is the reason to draw it at all.
+    // Which scope is served which bundle, the delivery gate. A caller is served the bundle
+    // their scope maps to and no file of any other, so an unauthorized visitor does not
+    // have the privileged bundle on their disk to read. A monitor's is the scaffolder's,
+    // because hiding a console behind a sign-in page is not a per-project choice. Every
+    // other entity writes what the drawing says; the panel shows the mapping from
+    // `bundles`, so a download without it would drop the gate the drawing shows.
     const bundles = Object.entries(bundlesOf(entity));
     if (bundles.length) {
         lines.push("    bundles:");
@@ -428,6 +425,24 @@ ApplicationWindow {
 // anything. An entity that is on the canvas and in synqt.yaml with an empty directory beside it
 // is an entity nobody can open.
 export function entityFiles(design, entity) {
+    const files = ownFiles(design, entity);
+    // Every other file in the entity's folder, as the project on disk has it: the QML files a
+    // client's window opens, the mapping hook an edge's sign-in reads. `companion` is the path
+    // inside the folder, which is what an edit to one is stored under.
+    const named = new Set(files.map((file) => file.name));
+    for (const companion of entity.files || []) {
+        const name = `${entityDir(entity)}/${companion.path}`;
+        if (!named.has(name)) {
+            files.push({name, owner: entity.name, companion: companion.path,
+                        text: companion.text || ""});
+        }
+    }
+    return files;
+}
+
+// The files an entity is made of whatever else is in its folder: its own QML, or the Source of
+// the point it exports, and a relational entity's table.
+function ownFiles(design, entity) {
     const link = (design.links || []).find(
         (one) => one.owner === entity.name && contractOf(one));
     const files = [];
@@ -580,8 +595,8 @@ export function projectFiles(design) {
     const files = [{name: `${root}/synqt.yaml`, text: renderYaml(design)}];
     for (const entity of allEntities(design)) {
         for (const file of entityFiles(design, entity)) {
-            files.push({name: `${root}/${file.name}`, text: file.text,
-                        owner: file.owner, link: file.link, own: file.own});
+            files.push({name: `${root}/${file.name}`, text: file.text, owner: file.owner,
+                        link: file.link, own: file.own, companion: file.companion});
         }
     }
     return files;

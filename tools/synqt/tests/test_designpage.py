@@ -892,6 +892,15 @@ def test_the_example_carries_the_home_pages_own_files():
     # And every entity that has a file, not a sample of them, so an entity added to the
     # example is an entity the page has to show rather than one it can quietly omit.
     assert {name for name, entity in files.items() if entity.get("qml")} == set(panes)
+    # And every other file in those entities' folders, which the drawing lists under a hovered
+    # entity and the page has to show as panes of their own.
+    companions = {"app": {"User.qml": "user", "Message.qml": "message", "Admin.qml": "admin"},
+                  "edge": {"identity/map.qml": "mapping"}}
+    for name, entity in files.items():
+        carried = {one["path"]: one["text"] for one in entity.get("files", [])}
+        assert set(carried) == set(companions.get(name, {})), name
+        for path, block in companions.get(name, {}).items():
+            assert carried[path] == notice + shown[block], f"{name}/{path}"
 
 
 def test_the_file_panel_can_scroll_a_file_taller_than_it_is():

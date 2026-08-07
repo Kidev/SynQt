@@ -30,7 +30,7 @@
     {
       "id": "one-console-question-asks-for-the-whole-table",
       "what": "A console asks the monitor for its history with a row limit of its own choosing. The limit crosses as a plain integer -- the contract vocabulary sizes strings and lists and says nothing about integers -- and every row it asks for is built into a list in memory and serialized back over the link, so one question could make the monitor materialize its whole table at once.",
-      "defended_by": "The store clamps the limit to a range it decides, so the largest answer it can be made to produce is a property of the store rather than of the number it was sent. Every other stage of this pipeline is already bounded; this was the one that was not.",
+      "defended_by": "The store clamps the limit to a range it decides, so the largest answer it can be made to produce is a property of the store rather than of the number it was sent.",
       "file": "tests/monitor/tst_store.cpp",
       "test": "oneQuestionCannotAskForTheWholeTable"
     },
@@ -44,7 +44,7 @@
     {
       "id": "nested-callbacks-exhaust-the-stack",
       "what": "Callbacks are fired at the open /auth/callback route faster than the token exchanges behind them finish. Each one waits in a nested event loop that goes on serving requests, so every arrival nests inside the last and the depth follows the request rate until the stack runs out.",
-      "defended_by": "At most sixty-four callbacks are exchanged at once, whether identity runs on the edge or on an auth entity, and the nesting may spend at most a quarter of the running thread's stack, whichever comes first. The ceiling used to cover the auth-entity path alone, which is the one an attacker is least likely to be talking to; and a count on its own turned out to be a guess at what a stack holds, since sixty-four levels fit the eight megabytes Linux and macOS give the main thread and not the megabyte Windows gives it.",
+      "defended_by": "At most sixty-four callbacks are exchanged at once, whether identity runs on the edge or on an auth entity, and the nesting may spend at most a quarter of the running thread's stack, whichever comes first. The stack bound matters on Windows, whose main thread gets one megabyte where Linux and macOS give eight.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "concurrentCallbacksAreBoundedWithIdentityInProcess"
     },
@@ -355,6 +355,13 @@
       "defended_by": "The Host header has to be this server, and a request that says where it came from has to say this editor.",
       "file": "tools/synqt/tests/test_design_server.py",
       "test": "test_a_host_header_that_is_not_this_server_is_refused"
+    },
+    {
+      "id": "design-document-writes-outside-an-entity",
+      "what": "A design document names a companion file with a path that climbs out of its entity's folder, or a file kind the document never carries, to overwrite another file in the project.",
+      "defended_by": "A companion is written only when its resolved path is inside its entity's folder and its suffix is one the document reads.",
+      "file": "tools/synqt/tests/test_designplan.py",
+      "test": "test_a_companion_path_cannot_leave_its_entitys_folder"
     },
     {
       "id": "under-scoped-caller-reads-a-gated-member",
@@ -842,7 +849,7 @@
     {
       "id": "a-shipped-edge-carries-the-development-sign-in",
       "what": "The stub identity provider signs anybody in as a preconfigured person with no password, and it was compiled into every SynQtEdge, held back only by runtime checks: a --dev flag, an allowDevStub field, and a tag type on its constructor. Three runtime gates are three chances to be wrong about a binary that still contains the thing. A bug in any check, an argument someone passes, or a reader of the artifact strings reaches a login that mints any identity.",
-      "defended_by": "The sources are named in src/edge/CMakeLists.txt only under SYNQT_DEV_TOOLS, which synqt dev sets and synqt build never does; the header refuses to be included by a build that did not set it; and the generated edge main does not emit the construction for a release profile. The runtime gates all remain, but they are now the third layer rather than the only one, and what a release artifact contains no longer depends on any of them.",
+      "defended_by": "The sources are named in src/edge/CMakeLists.txt only under SYNQT_DEV_TOOLS, which synqt dev sets and synqt build never does; the header refuses to be included by a build that did not set it; and the generated edge main does not emit the construction for a release profile. The runtime gates remain as a third layer.",
       "file": "tests/dev-exclusion/run-dev-exclusion.sh",
       "test": "aReleaseEdgeDoesNotContainTheDevelopmentSignIn"
     },
@@ -939,14 +946,14 @@
     },
     {
       "id": "one-slow-login-holds-every-other-login-on-the-auth-entity",
-      "what": "On a promoted auth entity (identity.provider_entity) the `exchangeCode` slot drove the provider round trip in a nested event loop and returned when it had an answer. A nested loop keeps serving, so the entity looked healthy; what it did was put every caller that arrived meanwhile UNDER the earlier one on the stack, and none of them could be answered until the slowest one below them had been. Anyone who can reach an edge can start a login and complete its callback, so a handful of concurrent sign-ins against a slow provider made everybody else's sign-in wait on the slowest of them, with a chain of stack frames per concurrent login and nothing on the entity bounding how many (the edge bounds its own waits; the entity bounded none, and a replicated edge multiplies them).",
+      "what": "On a promoted auth entity (identity.provider_entity) the `exchangeCode` slot drove the provider round trip in a nested event loop and returned when it had an answer. A nested loop keeps serving, so every caller that arrived meanwhile stacked under the earlier one, and none could be answered before the slowest below it. Anyone who can reach an edge can start a login and complete its callback, so a handful of concurrent sign-ins against a slow provider made everybody else's sign-in wait on the slowest of them, with a chain of stack frames per concurrent login and nothing on the entity bounding how many (the edge bounds its own waits; the entity bounded none, and a replicated edge multiplies them).",
       "defended_by": "Nothing on the entity waits. OAuthBackend::exchangeAsync drives the token exchange and the identity lookup behind it as replies arrive, and IdentityService answers the Source that asked through its own emitExchangeResult, held as a QPointer so an edge whose link dropped meanwhile is simply not answered. The test measures it as ordering, which is a fact about the entity rather than about a timer: the first login's provider answers in 150 ms and the second's in 800, and the first must finish first.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "aSlowLoginDoesNotHoldUpTheOneBehindIt"
     },
     {
       "id": "tokens-of-a-login-no-session-was-bound-to",
-      "what": "A finished exchange stores the access and refresh tokens the provider issued under the login's state key and waits for the caller to bind a session to them. When that never happened, because the edge that asked went away in between, the entry stayed for the life of the process: a live refresh token belonging to somebody who was never signed in, and, with the refresh sweep on, one spent against the provider once an interval forever on their behalf. Measured before the fix: still held after a sweep.",
+      "what": "A finished exchange stores the access and refresh tokens the provider issued under the login's state key and waits for the caller to bind a session to them. When that never happened, because the edge that asked went away in between, the entry stayed for the life of the process: a live refresh token belonging to somebody who was never signed in, and, with the refresh sweep on, one spent against the provider once an interval forever on their behalf.",
       "defended_by": "An entry is stored unclaimed and is marked claimed only by rekeyTokens, which is what binding a session does. A sweep of its own, on always rather than with the optional refresh sweep, lets go of anything still unclaimed past its window (five minutes, the same window a pending login already gets). An entry a session was bound to is never swept.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "aLoginNoSessionWasBoundToDoesNotKeepItsTokens"
@@ -1010,27 +1017,27 @@
     {
       "id": "a-trace-that-borrowed-another-persons-requests",
       "what": "The trace a piece of work belongs to is the thread's, which is right while a thread runs one caller's call at a time. A nested event loop breaks that: a bounded wait keeps serving, so the calls delivered inside it are other people's, arriving on a thread that still has the waiting caller's span installed. Every one of them would be recorded as a child of that span, and an operator following a trace to ask who did something would be shown one story made of several people's requests, with nothing in the record saying so. The identity routes wait this way on an open route, so ordinary login traffic would be enough. Hardening: no slot in the framework spins a loop (the auth slot takes the asynchronous exchange for this reason), so the waits that exist are reached from a route handler or a timer and had no span to lend.",
-      "defended_by": "Every bounded wait in the runtime detaches the thread's trace for the length of its loop and restores it after, so a call served inside one starts its own story. The invariant that a slot must not spin a loop at all is stated on SynQt::CallSpan, and the test below reads the runtime for a loop that spins without detaching first, so a wait added later is refused rather than discovered in a record somebody reads days afterwards.",
+      "defended_by": "Every bounded wait in the runtime detaches the thread's trace for the length of its loop and restores it after, so a call served inside one starts its own story. The invariant that a slot must not spin a loop at all is stated on SynQt::CallSpan, and the test below reads the runtime for a loop that spins without detaching first, so a wait added later is refused.",
       "file": "tools/synqt/tests/test_nested_loops_detach.py",
       "test": "test_every_nested_loop_in_the_runtime_detaches_the_trace_first"
     },
     {
       "id": "a-revocation-that-read-the-credential-it-freed",
-      "what": "Revoking a session by its handle (SessionManager::revokeByKey) is the one caller that hands SessionManager::revoke a reference into the very hash node it is about to erase: it walks the table and calls revoke(it.key()). revoke() erased that entry and then went on reading what it was handed -- the name it emits as sessionRemoved, the handle it traces, and the id it tells the authoritative store to drop -- out of a QByteArray whose heap block QHash::erase had already freed (confirmed with __asan_address_is_poisoned: the block reads poisoned while revoke still reads it). It stayed benign because the emitted token is snapshotted before the erase-adjacent work runs and the trace is dropped, and it is invisible to AddressSanitizer because the reads are inside precompiled Qt; but it is undefined behaviour, reachable from IdentityProvider::onReuseDetected -- the response to a stolen device credential replayed -- which is exactly when the id that crosses to the auth entity has to be the right one. With no session TTL (identity.session.ttl_minutes: 0) the table holds the only reference, so the erase frees it outright.",
+      "what": "Revoking a session by its handle (SessionManager::revokeByKey) is the one caller that hands SessionManager::revoke a reference into the very hash node it is about to erase: it walks the table and calls revoke(it.key()). revoke() erased that entry and then went on reading what it was handed -- the name it emits as sessionRemoved, the handle it traces, and the id it tells the authoritative store to drop -- out of a QByteArray whose heap block QHash::erase had already freed. The reads are inside precompiled Qt, so AddressSanitizer cannot see them; it is undefined behaviour, reachable from IdentityProvider::onReuseDetected -- the response to a stolen device credential replayed -- which is exactly when the id that crosses to the auth entity has to be the right one. With no session TTL (identity.session.ttl_minutes: 0) the table holds the only reference, so the erase frees it outright.",
       "defended_by": "revoke() copies the id into a local QByteArray before the erase and reads only the copy afterwards, so nothing reads the freed block. The test revokes a session by key with no TTL, through a recording stand-in for the authoritative store, and asserts the session actually removed is the one named to both the sessionRemoved signal and the store.",
       "file": "tests/m7-caller/tst_sessions.cpp",
       "test": "revokingByKeyEndsExactlyTheSessionItNamed"
     },
     {
       "id": "a-monitor-batch-that-touched-a-replica-off-its-thread",
-      "what": "The tracer's writer thread reports each batch to the monitor through IngestClient::send, which read the Ingest Replica's raw pointer under a mutex, released it, and then called QMetaObject::invokeMethod on it from that thread. A Replica belongs to the thread that acquired it -- the entity's -- and a reconnect retires the previous one there (EntityRuntime deleteSoon). In the window between the mutex read and the metacall, that Replica can be freed under the writer thread, and invokeMethod then dereferences freed memory: a crash in QMetaObject::invokeMethodImpl, reproduced under a stress that retires the Replica while the writer publishes, and invisible to AddressSanitizer because the read is inside precompiled Qt. deleteLater narrows the window rather than closing it.",
+      "what": "The tracer's writer thread reports each batch to the monitor through IngestClient::send, which read the Ingest Replica's raw pointer under a mutex, released it, and then called QMetaObject::invokeMethod on it from that thread. A Replica belongs to the thread that acquired it -- the entity's -- and a reconnect retires the previous one there (EntityRuntime deleteSoon). In the window between the mutex read and the metacall, that Replica can be freed under the writer thread, and invokeMethod then dereferences freed memory: a crash in QMetaObject::invokeMethodImpl. deleteLater narrows the window rather than closing it.",
       "defended_by": "send() marshals the hand-off through the IngestClient itself, which lives on the entity's thread, and touches the Replica only inside that posted call, where the Replica's deletion is serialized against the touch and a QPointer resolves to nothing if it has been retired. The serialization still runs on the writer thread. The test drives the exact shape: one thread publishes without pause while another swaps and frees the Replica on its own thread, and the process must survive.",
       "file": "tests/monitor/tst_ingest.cpp",
       "test": "publishingWhileTheReplicaIsRetiredNeverTouchesItOffItsThread"
     },
     {
       "id": "one-visitor-behind-a-balancer-spends-the-sites-socket-ceiling",
-      "what": "The socket ceiling is counted at accept, where there is no request to read a forwarding header from, so it was keyed by the peer's own address whatever public.trusted_proxies said. Behind a balancer the peer is one address for everybody, so max_connections_per_ip * SocketsPerLink sockets (160 at the defaults) was the ceiling for the whole site, and one visitor holding that many sockets through the balancer had every other visitor refused at accept. The link ceiling had been taught to count the visitor the header names; the socket ceiling underneath it had not.",
+      "what": "The socket ceiling is counted at accept, where there is no request to read a forwarding header from, so it was keyed by the peer's own address whatever public.trusted_proxies said. Behind a balancer the peer is one address for everybody, so max_connections_per_ip * SocketsPerLink sockets (160 at the defaults) was the ceiling for the whole site, and one visitor holding that many sockets through the balancer had every other visitor refused at accept.",
       "defended_by": "WebEdge::trackPendingUpgrade applies the per-address socket ceiling only to a peer public.trusted_proxies does not name, the same rule ApiServer::start applies to its own per-host ceiling; the global socket ceiling still holds for everybody, and the link ceiling still counts the visitor the forwarding header names.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "theSocketCeilingIsNotCountedAgainstABalancer"

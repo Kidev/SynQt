@@ -3,31 +3,23 @@
 
 // The drawing. One design document turned into the SVG the page shows.
 //
-// The same picture the guide's front page uses, because it is the same system. A disc with a
-// glyph per entity, and per link a line from the owner to each consumer, leaving the contract
-// the two share. What a reader recognises from the drawing there they can point at here.
+// The same picture the guide's front page uses: a disc with a glyph per entity, and per link
+// a line from the owner to each consumer, leaving the contract the two share.
 //
-// What a line carries beside it is what crosses it, and nothing else. It carried a padlock
-// and the accessor's name too: the padlock said mutual TLS, which is every link, so it marked
-// nothing, and the name is the owner's own capitalised, which the disc at the end of the line
-// is already labelled with. Both stood over the one thing the line has to say.
+// A line carries beside it what crosses it, and nothing else: no padlock (every link is
+// authenticated) and no accessor name (the disc at the end already carries the name).
 //
-// Three things the drawing states rather than leaves to be worked out, because getting any
-// of them wrong is how a system ends up insecure:
+// The drawing states three things that matter for security:
 //
-// * which side of the wire an entity is on, drawn as the box it sits in. One box is the
-//   browser, one is the entity facing the internet, and one is the mesh nothing outside can
-//   reach. Dragging a database into the middle box does not make it reachable. The boxes are
-//   drawn from what each entity *is*, so an entity that has wandered out of its box is the
-//   drawing telling you the arrangement no longer reads left to right.
-// * who owns what, drawn as a filled cap at the owner's end of every link and an arrowhead
-//   at the consumer's. The owner is the entity that decides. A consumer only ever asks.
-// * what each entity's QML is called, written under its name, because that is the file
-//   somebody opens next.
+// * which side of the wire an entity is on, as the box it sits in: the browser, the entity
+//   facing the internet, or the mesh nothing outside can reach. The boxes come from what each
+//   entity is, so dragging a database into the middle box does not make it reachable;
+// * who owns what: a filled cap at the owner's end of every link and an arrowhead at the
+//   consumer's. The owner decides; a consumer only asks;
+// * what each entity's QML file is called, under its name.
 //
-// Everything is rebuilt from the document on every change rather than patched in place. A
-// mesh is tens of nodes, not thousands, and a drawing that is a function of the document
-// cannot fall out of step with it.
+// Everything is rebuilt from the document on every change. A mesh is tens of nodes, and a
+// drawing that is a function of the document cannot fall out of step with it.
 
 import { SCOPES, entityType, frontsOf, gatesOf, runsSignIn } from "./rules.js";
 import { consoleQmlPath, linkEnds } from "./project.js";
@@ -36,26 +28,22 @@ const SVG = "http://www.w3.org/2000/svg";
 
 export const NODE_RADIUS = 26;
 
-// How far a zone's edge sits from the discs inside it. The top pad is a band rather than a
-// margin. The box's name lives in it, so it has to clear the tallest disc as well as the
-// text. The bottom is the top less the height of the two lines under a node, which is what
-// puts the discs in the middle of the box rather than high in it.
+// How far a zone's edge sits from the discs inside it. The top pad holds the box's name; the
+// bottom is the top less the two lines of text under a node, which centres the discs.
 const ZONE_PAD = {x: 72, top: 84, bottom: 88};
 
 // Where the name in a box's corner sits inside that band.
 const ZONE_TITLE_Y = 22;
 
-// The sides of a system, in the order a request travels, and the monitor watching all of them. `of` is the question each box
-// answers about an entity, and the order here is the order they are drawn and read.
-// `held` is whether the box itself can be picked up and moved, carrying everything inside it.
-// The browser and the entity facing the internet are one or two entities each, so their box is
-// a block somebody arranges. The mesh is everything else and its box covers most of the
-// canvas, where a press has to stay a pan.
+// The sides of a system, in the order a request travels, and the monitor watching all of them.
+// `of` decides which entities a box holds; the order here is the drawing order.
 //
-// `note` is what the box means, and it is not drawn. Hovering the name is what says it. It
-// was a second line under every title, three sentences printed permanently over a drawing
-// whose whole job is the arrangement, and a reader who already knows what the mesh is reads
-// them on every glance.
+// `held` is whether pressing inside the box picks it up with everything in it. The mesh box
+// covers most of the canvas, where a press has to stay a pan. Every box's name is a handle.
+//
+// `wraps` is a box drawn around every other box.
+//
+// `note` is what the box means, shown when its name is hovered.
 const ZONES = [
     {name: "browser", title: "Clients",
      note: "The browser. Holds no secret and no certificate, and reaches the rest of the "
@@ -66,25 +54,20 @@ const ZONES = [
          + "client and runs sign-in.",
      of: (role) => role === "edge", held: true},
     {name: "mesh", title: "Mesh",
-     note: "Mutual TLS on every link, verified against the project CA. No browser reaches "
+     note: "Mutual TLS on every link unless one opts into a local socket. No browser reaches "
          + "any of it.",
      of: (role) => role !== "client" && role !== "edge" && role !== "monitor", held: false},
-    // A box of its own, outside the other three. Inside the mesh box it read as one more
-    // service in the mesh, and the mesh box ends where the edge begins, so a monitor drawn
-    // there looked like something the edge was not reporting to. It watches all three boxes,
-    // the edge included, and it is held like the two small boxes because it is one entity
-    // somebody puts wherever the drawing has room.
+    // The monitor watches every entity, so its box is drawn around all of them, the edge
+    // included. It has no fill, so the boxes inside it keep their own colours.
     {name: "ops", title: "Watches every entity",
      note: "The monitor. Every other entity reports to it over its own mutual TLS link, "
-         + "because monitoring.entity names it, so none of those links is drawn. Its "
+         + "because `monitoring.entity` names it, so none of those links is drawn. Its "
          + "console is served on a loopback port.",
-     of: (role) => role === "monitor", held: true},
+     of: (role) => role === "monitor", held: false, wraps: true},
 ];
 
-// Roughly how wide a zone's name is, per character, at the size it is set in. Estimated
-// rather than measured. Measuring means laying the text out and reading it back for every
-// zone on every redraw, and what this is for is making sure a box is not narrower than its
-// own label, where being a little too wide costs nothing.
+// Roughly how wide a zone's name is per character. Estimated, not measured on every redraw:
+// it only keeps a box from being narrower than its label.
 const TITLE_WIDTH = 7.6;
 
 // Where the pointer still counts as being on a node when a link is dropped: a little wider
@@ -95,14 +78,8 @@ const DROP_SLACK = 8;
 // each one answers a click of its own.
 const LANE_GAP = 26;
 
-// How far a link bows out of the straight line, per lane. Two entities that talk both ways,
-// or one entity owning three points another consumes, was previously several straight lines
-// laid side by side with their names competing for the same strip of canvas. Bowing them
-// apart separates the names as well as the lines, and it says which line is which end to end
-// rather than only in the middle.
-// Twice the lane gap, near enough. A quadratic passes half way to its control point, so this
-// is what puts the midpoints of neighbouring links far enough apart for each to carry its own
-// name, its lock and its contract mark without touching the next one's.
+// How far a link bows out of the straight line, per lane, so parallel links stay apart end to
+// end. About twice the lane gap, since a quadratic passes half way to its control point.
 const BOW = 4.4;
 
 // Each entity's permanent glyph, drawn in a box roughly 16 across and scaled up on use.
@@ -114,19 +91,8 @@ const GLYPHS = {
         {tag: "circle", cx: 0, cy: -3.2, r: 3.2, fill: "currentColor"},
         {tag: "path", d: "M -6,7.5 a 6,6.5 0 0 1 12,0 z", fill: "currentColor"},
     ],
-    // The client an edge hands to a session that has signed in as nobody: a lock standing
-    // in the way, with the way running up to it on both sides and missing where it stands.
-    // Not the client's own glyph, because the whole of what a gate is, is what a visitor
-    // cannot get past, and a person-shaped disc says the opposite.
-    //
-    // Two things have to be in it, and both are. That it is on the way somewhere: the line
-    // arrives, stops, and goes on out the other side, so this is a place a visitor is
-    // already travelling through rather than an object beside the road. And what it opens
-    // for. A keyhole, which is the one mark that reads as "sign in" with no word next to it.
-    //
-    // Drawn twice before. A boom barrier read as a flag on a pole at the size a disc gives
-    // a glyph, and a shut field gate read as a crate. Both said "a thing", and neither said
-    // what the thing is doing there or what gets somebody past it.
+    // The client an edge hands to an anonymous session: a padlock with a keyhole, standing
+    // across a path that runs up to it on both sides.
     gate: [
         {tag: "path", d: "M -9,1.6 H -5.6 M 5.6,1.6 H 9", fill: "none",
          stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round"},
@@ -179,8 +145,8 @@ const GLYPHS = {
         {tag: "path", d: "M 0,-3.5 V 0.5 L 3,2.5", fill: "none", stroke: "currentColor",
          "stroke-width": 1.4, "stroke-linecap": "round", "stroke-linejoin": "round"},
     ],
-    // An eye, because what a monitor does is watch. It was a pulse trace, which read as
-    // "health" and said nothing about the entity being the one place every other reports to.
+    // An eye, because what a monitor does is watch: it is the one place every other entity
+    // reports to.
     monitor: [
         {tag: "path", d: "M -7.5,0 Q 0,-7.4 7.5,0 Q 0,7.4 -7.5,0 Z", fill: "none",
          stroke: "currentColor", "stroke-width": 1.4, "stroke-linejoin": "round"},
@@ -202,9 +168,7 @@ export function element(tag, attributes) {
     return node;
 }
 
-// What each role is for, in the words somebody choosing between them needs. Kept beside
-// roleOf because it answers the same question the role does, and read from three places:
-// the palette row, the tooltip on the node, and the panel once one is selected.
+// What each role is for, read by the palette row, the card on the node and the panel.
 export const ROLE_HELP = {
     client: "The app people use. Built to WebAssembly for the browser, and from the same "
         + "QML as a native desktop app. It holds no secret and no mesh certificate, so it "
@@ -236,7 +200,7 @@ export const ROLE_HELP = {
         + "scale and be deployed on its own.",
 };
 
-// What an entity is, as one word. The column it belongs in and the glyph it carries.
+// What an entity is, as one word: the box it belongs in and the glyph it carries.
 export function roleOf(entity) {
     if (entityType(entity) === "client") {
         return "client";
@@ -248,25 +212,16 @@ export function roleOf(entity) {
     return GLYPHS[type] ? type : "service";
 }
 
-// A monitor's links are derived, never drawn.
-//
-// Every service opens its link to the monitor because `monitoring.entity` names it, and the
-// console client consumes the monitor's console point because it is marked `console: true`.
-// Both come from a line of configuration rather than from a line on the canvas, which is
-// also why `rules.js` leaves a monitor out of the unwired-entity warning: unwired is the
-// wired state. So a line somebody draws to or from one is not a link that would be built.
-// It is worse than nothing. A monitor made to own a drawn point would own two connect
-// points, its own and that one, and a monitor made to consume somebody else's would start
-// pulling application data into the operations record, which is the one store that is
-// meant to hold the shape of what happened and not the substance of it.
+// A monitor's links are derived, never drawn: every service reports to it because
+// `monitoring.entity` names it, and the console consumes its console point because it is
+// marked `console: true`. A drawn link to or from a monitor would give it a second connect
+// point, or pull application data into the operations record.
 export function linksAreDerived(entity) {
     return entityType(entity) === "monitor";
 }
 
-// Why a line was refused, in the words somebody drawing it needs, or "" when it is fine.
-// One function for the three places a link can be made (the canvas, the menu a line dropped
-// on empty canvas opens, and the panel's own lists), so all three refuse the same thing for
-// the same stated reason.
+// Why a line is refused, or "" when it is fine. One function for the three places a link can
+// be made (the canvas, the menu a line dropped on empty canvas opens, and the panel's lists).
 export function linkRefusal(from, to) {
     const monitor = [from, to].find((entity) => entity && linksAreDerived(entity));
     if (!monitor) {
@@ -280,13 +235,10 @@ export function linkRefusal(from, to) {
 
 // The names a panel may offer at one end of a drawn link, keeping whoever is already there.
 //
-// Two rules, and they are not the same rule. A monitor is never *offered*, because its links
-// are configuration and the editor does not propose what it will not build. But a project can
-// already have one at an end. `synqt check` allows a monitor to own a declared connect point,
-// and a hand-written project can name one as a consumer, which the findings report as an error
-// and somebody then has to be able to take off. A list that quietly omitted either would open
-// the project showing something its author never wrote, and rewrite it that way on the first
-// touch of a control. Offer nothing new. Lose nothing given.
+// A monitor is never offered, since the editor does not propose what it will not build. A
+// project can already have one at an end (a hand-written consumer, which the findings report,
+// or a declared point it owns, which `synqt check` allows), and that one is kept, so the list
+// never rewrites the project on the first touch of a control.
 //
 // `kept` is one name or several, so the same function serves the owner and the consumers.
 export function endsToOffer(entities, kept) {
@@ -297,17 +249,14 @@ export function endsToOffer(entities, kept) {
 }
 
 function glyph(entity, front, gate) {
-    // A front's glyph rides in its nose at a smaller size. The scope column holds the rest of
-    // the shape, and at a disc's size the glyph reached out through the sloped edges.
+    // A front's glyph sits in its nose at a smaller size, clear of the sloped edges.
     const group = element("g", {
         class: "node__glyph",
         transform: front ? `translate(${FRONT_GLYPH.at},0) scale(${FRONT_GLYPH.scale})`
                          : "scale(1.45)",
     });
-    // A gate is a client, and keeps a client's colour and a client's place in the browser
-    // box. What it does not keep is the client's glyph. `roleOf` is left alone for both of
-    // those reasons. It answers which column an entity belongs in and which colour it takes,
-    // and neither changes because a bundle is the one a signed-out visitor gets.
+    // A gate keeps a client's colour and place (`roleOf` says client) and takes the gate
+    // glyph.
     for (const shape of GLYPHS[gate ? "gate" : roleOf(entity)]) {
         const {tag, ...attributes} = shape;
         group.append(element(tag, attributes));
@@ -315,9 +264,8 @@ function glyph(entity, front, gate) {
     return group;
 }
 
-// The same glyph on its own, as a standalone SVG for a button or a list row. One drawing
-// for both places. A palette that invented its own icons would be a second answer to what
-// an entity looks like, and the two would part company the first time one of them changed.
+// The same glyph as a standalone SVG for a button or a list row, so the palette and the
+// canvas share one drawing.
 export function glyphSvg(role) {
     const svg = element("svg", {class: "glyph", viewBox: "-10 -10 20 20",
                                 "aria-hidden": "true", focusable: "false"});
@@ -328,13 +276,9 @@ export function glyphSvg(role) {
     return svg;
 }
 
-// One member of a contract as the line of code it is: the vocabulary of the `export:` block
-// (`prop`, `model`, `signal`, `slot`), painted in the same runs the pane and the canvas paint.
-//
-// One reading, everywhere a full member is written out. The panel's list of what crosses, the
-// picker a right click opens, and the card that hovering a row on a link opens. Three
-// strings built three times would let a reader following one member across the page see
-// it spelled three ways.
+// One member of a contract as its line of code, in the vocabulary of the `export:` block
+// (`prop`, `model`, `signal`, `slot`), painted as the pane paints it. Used by the panel's
+// list, the right-click picker and the member card, so a member is spelled one way.
 export function memberCode(member) {
     const line = codeLine();
     line.append(codeWord("kw", member.kind || "prop"), codeWord("punct", " "));
@@ -352,9 +296,7 @@ export function memberCode(member) {
     return line;
 }
 
-// A run of source, and one word of it. The three colours are the file pane's own
-// (source.js paints the same runs), so a reader with the pane open and a card open is
-// reading one colour scheme and not two.
+// A run of source, and one word of it, in the file pane's colours (source.js).
 export function codeLine(extra) {
     const line = document.createElement("span");
     line.className = `code${extra ? ` ${extra}` : ""}`;
@@ -368,8 +310,7 @@ export function codeWord(kind, text) {
     return run;
 }
 
-// A parameter list, or a model's roles. Each one a type and a name, with the comma between
-// them written as punctuation rather than glued to either side of it.
+// A parameter list, or a model's roles: each a type and a name, comma-separated.
 export function codeParts(line, held) {
     (held || []).forEach((part, index) => {
         if (index) {
@@ -381,9 +322,7 @@ export function codeParts(line, held) {
     return line;
 }
 
-// The mark a connect point is drawn with on the canvas, on its own for a heading or a row:
-// the same little document the icon every line leaves from is. One drawing, so the panel for
-// a connect point opens with the thing that was clicked to open it.
+// The mark a connect point is drawn with on the canvas, on its own for a heading or a row.
 export function contractSvg() {
     const svg = element("svg", {class: "glyph", viewBox: "-8 -8 16 16",
                                 "aria-hidden": "true", focusable: "false"});
@@ -394,10 +333,8 @@ export function contractSvg() {
     return svg;
 }
 
-// The arrow between the two ends of a link, wherever one is named. A `>`
-// typed between the names is, at this size, a piece of punctuation a reader has to
-// decide is an arrow. The drawing says which way a connect point runs with an arrowhead,
-// and this is that arrowhead.
+// The arrow between the two ends of a link, wherever one is named: the arrowhead the drawing
+// uses, not a typed `>`.
 export function arrowSvg() {
     const svg = element("svg", {class: "arrow", viewBox: "0 0 16 12",
                                 "aria-hidden": "true", focusable: "false"});
@@ -426,16 +363,11 @@ export function linkTitleNode(link, consumer) {
 
 // Where a link is pulled out of, and where the contract it made then lives.
 //
-// A slot is an index into a canonical ring of SLOT_RING positions, never into the ring being
-// drawn. A ring of eight uses every eighth index, a ring of sixteen every fourth, so when an
-// owner outgrows its ring and the ring doubles, every contract already on the rim keeps the
-// index it had and stays exactly where it was put. Storing the index in the ring drawn would
-// mean renumbering on every doubling, and renumbering is the whole drawing sliding sideways
-// the first time somebody adds a ninth connect point.
+// A slot is an index into a canonical ring of SLOT_RING positions, not into the ring drawn.
+// A ring of eight uses every eighth index, a ring of sixteen every fourth, so when the ring
+// doubles every contract on the rim keeps its index and stays where it was put.
 //
-// The ring always has a free slot in it. One that filled exactly would leave an entity with
-// nowhere to start the next link from, which is the affordance disappearing at the moment it
-// is reached for.
+// The ring always has a free slot, so an entity always has somewhere to start a link from.
 export const SLOT_RING = 64;
 const SMALLEST_RING = 8;
 
@@ -457,8 +389,7 @@ export function slotsOf(size) {
     return Array.from({length: size}, (ignored, index) => index * step);
 }
 
-// Slot 0 is at the top and the ring runs clockwise, which is how the mock reads and how
-// anybody describes a position on a dial.
+// Slot 0 is at the top and the ring runs clockwise, like a dial.
 export function slotPoint(slot, radius) {
     const angle = ((slot / SLOT_RING) * 2 * Math.PI) - (Math.PI / 2);
     return {x: radius * Math.cos(angle), y: radius * Math.sin(angle)};
@@ -472,8 +403,7 @@ export function turnsToward(from, to) {
 }
 
 // The free slot nearest the direction a link was pulled in, so a link dragged to the left
-// leaves from the left. Distance is measured the short way round, because the ring wraps and
-// a direction short of the top is next to the top, not most of a turn from it.
+// leaves from the left. Distance is measured the short way round the ring.
 export function nearestFreeSlot(taken, turns) {
     const held = new Set(taken);
     const size = ringSize(held.size);
@@ -506,17 +436,13 @@ function classes(base, {selected, level}) {
     return out.join(" ");
 }
 
-// What an entity is, spelled out. The words synqt.yaml uses for it, in the order it writes
-// them. The panel states this and the tooltip repeats it. The node itself has better use for
-// its second line.
+// What an entity is, in the words synqt.yaml uses, for the panel and the card.
 export function describe(entity) {
     const parts = [entityType(entity)];
     if (entity.provider) {
         parts.push(entity.provider);
     }
-    // An edge that serves more than one bundle says so, because who may download what is
-    // not something to discover by opening a file. The mapping itself is in the inspector:
-    // a node is a disc and not a list, the same reason `caption` counts files.
+    // An edge that serves more than one bundle says so; the mapping itself is in the panel.
     const bundles = Object.keys(entity.bundles || {});
     if (bundles.length > 1) {
         parts.push(`${bundles.length} bundles`);
@@ -524,94 +450,73 @@ export function describe(entity) {
     return parts.join(" / ");
 }
 
-// The file under an entity's name. The one somebody opens next. That is the Source for a
-// point it owns where it owns any, because that is where the behaviour is, and its own file
-// otherwise. Where there are several the first is named and the rest are counted, because a
-// node is a disc and not a list.
-function caption(files, entity) {
-    // A monitor's is its console. The file an operator opens is the console window, and the
-    // sign-in page beside it is only what an anonymous visitor is handed instead.
+// The files under an entity's name, one per line, with the folder written once on the first
+// line. A monitor's first line is its console. The stylesheet shows them only while the
+// entity is hovered.
+export function captionLines(files, entity) {
+    const paths = files.map((file) => file.name);
     if (entity && linksAreDerived(entity)) {
-        return consoleQmlPath(entity).replace(/\.qml$/, "");
+        paths.unshift(consoleQmlPath(entity));
     }
-    if (!files.length) {
-        return "";
+    if (!paths.length) {
+        return [];
     }
-    const sources = files.filter((file) => file.link);
-    const shown = sources.length ? sources : files;
-    const first = shown[0].name.replace(/\.qml$/, "");
-    return shown.length > 1 ? `${first} +${shown.length - 1}` : first;
+    const folder = paths[0].includes("/") ? paths[0].slice(0, paths[0].lastIndexOf("/") + 1)
+                                          : "";
+    if (!folder || !paths.every((path) => path.startsWith(folder))) {
+        return paths;
+    }
+    return [folder, ...paths.map((path) => path.slice(folder.length))];
 }
 
-// How far the invisible hit target for a slot reaches either side of the rim. The mark itself
-// is a dot sitting on the rim. This is only how much of a pointer's aim counts as being on it.
+// How far the invisible hit target for a slot reaches either side of the rim.
 const SLOT_DASH = 5;
 
-// How big that dot is, by how many are on the ring. A ring of eight can afford to be seen. A
-// ring of sixty-four has to read as a dial. They were dashes across the rim, which at eight of
-// them drew a second ring of ticks around the entity and looked like a scale it was measured
-// on rather than like the handles they are.
+// How big a slot's dot is, by how many are on the ring.
 const SLOT_DOT = {8: 2.6, 16: 2.2, 32: 1.8, 64: 1.4};
 
 // How far past the rim a contract's badge sits, measured to its middle.
 const BADGE_REACH = 9;
 
-// A front is drawn as a wedge rather than a disc, and the shape is the explanation: a nose
-// facing the browser, because a browser reaches one accessor whatever is behind it, and one
-// flat side facing the mesh, carrying a named seat for each scope. Read left to right it
-// says what the entity does. Everyone arrives at the nose, and which of the entities off the
-// back they are handed to is decided by the scope they hold.
+// A front is drawn as a wedge: a nose facing the browser, which reaches one accessor whatever
+// is behind it, and a flat side facing the mesh, with a named seat per scope. Everyone
+// arrives at the nose and is handed on by the scope they hold.
 //
-// The scope names are inside the outline, which is what the shape is sized for. Written
-// outside it they were four words hanging off the back of the node, competing with whatever
-// the canvas held to the right of it and with the labels on the lines arriving there. The
-// routing a front exists for read as clutter around the node rather than as part of it. So
-// the wedge is longer and taller than a disc. Long enough that the column of names clears the
-// sloped edges at the rows furthest from the middle, which is the one measurement that sets
-// its length. `test_designcanvas.py` holds it to that.
-//
-// Every corner is rounded, the nose most of all. Drawn as a bare triangle the three points
-// were the loudest thing on the canvas. A spike aimed at the client and two hard corners at
-// the back, all sharper than anything else in the drawing, on the one node that is otherwise
-// a disc like its neighbours.
+// The scope names sit inside the outline, so the wedge is long enough for the column of names
+// to clear the sloped edges at its outermost rows; `test_designcanvas.py` holds it to that.
+// Every corner is rounded, the nose most.
 const FRONT_TIP = -(NODE_RADIUS * 2.1);
 const FRONT_BACK = NODE_RADIUS * 1.55;
 const FRONT_HALF = NODE_RADIUS * 1.7;
 
-// How far the corners are rounded off. The nose more than the back, because it is the corner
-// a reader looks at and the one whose angle is sharpest. Both are well under half the edge
-// they sit on, which is what keeps the rounding from eating the shape.
+// How far the corners are rounded off, both well under half the edge they sit on.
 const FRONT_NOSE_ROUND = 8;
 const FRONT_BACK_ROUND = 7;
 
-// How much lower than a plain disc's the two lines under a front sit. The wedge is taller
-// than the disc, so without this the name is printed against the shape's own outline.
+// How much lower than a disc's the two lines under a front sit, since the wedge is taller.
 const FRONT_DROP = FRONT_HALF - NODE_RADIUS + 3;
 
-// The glyph on a front, drawn smaller than a disc's and moved into the nose, which is the
-// half of the shape the names leave free. At full size it reached past the sloped edges.
+// The glyph on a front, smaller than a disc's and moved into the nose, which the names leave
+// free.
 const FRONT_GLYPH = {at: -(NODE_RADIUS * 0.77), scale: 1.25};
 
-// One row of the scope column. The step between two of them, what a character of the name
-// costs at the size .node__seat-name is set in, and how far the right end of a name sits in
-// from the back edge. The width is counted rather than measured for the same reason the
-// member rows on a link are. The face is monospace at a fixed size, and measuring means
-// laying the text out in the document and reading it back on every redraw.
+// One row of the scope column: the step between rows, the width of a character at the size
+// .node__seat-name is set in (counted, since the face is monospace), and how far a name's
+// right end sits in from the back edge.
 const SEAT_STEP = 9.5;
 const SEAT_CHAR = 4.3;
 const SEAT_ASCENT = 5.4;
 const SEAT_DESCENT = 2;
 const SEAT_INSET = 7;
 
-// How far below the seat's own middle the name's baseline sits, which is what centres the
-// word on the dot beside it.
+// How far below the seat's middle the name's baseline sits, centring it on its dot.
 const SEAT_BASE = 2.5;
 
-// The widest scope there is, which is what the shape has to be long enough to hold.
+// The widest default scope, which the shape is long enough to hold.
 const SEAT_WIDEST = Math.max(...SCOPES.map((scope) => scope.length));
 
-// Where the seat for the scope at `index` of `count` sits. On the back edge, in a column
-// centred on the shape's own middle, one row per scope.
+// Where the seat for the scope at `index` of `count` sits: on the back edge, in a column
+// centred on the shape's middle.
 function seatPoint(index, count) {
     if (count < 2) {
         return {x: FRONT_BACK, y: 0};
@@ -619,10 +524,8 @@ function seatPoint(index, count) {
     return {x: FRONT_BACK, y: (index - ((count - 1) / 2)) * SEAT_STEP};
 }
 
-// The x of the sloped edge at height `y`: the wedge as a bare triangle, before its corners
-// are rounded off. This is what the column of scope names has to stay clear of, and it is
-// exported so the test that says the column fits is the measurement rather than a screenshot
-// somebody once looked at.
+// The x of the sloped edge at height `y`, on the wedge before its corners are rounded. The
+// column of scope names stays clear of it; exported for the test that checks it does.
 export function frontEdgeAt(y) {
     const across = Math.min(1, Math.abs(y) / FRONT_HALF);
     return FRONT_TIP + ((FRONT_BACK - FRONT_TIP) * across);
@@ -640,9 +543,8 @@ export function seatLabelBox(scope, index, count) {
     };
 }
 
-// The strip a front's scopes occupy. The column of names, and the edge their dots sit on.
-// This is what a drop lands in to mean "this scope" and what one row's handle spans, so both
-// are one measurement. In front of it is the nose, which says only "this entity".
+// The strip a front's scopes occupy: the column of names and the edge their dots sit on. A
+// drop there means "this scope"; a drop on the nose means "this entity".
 export function seatStrip() {
     return {
         left: FRONT_BACK - SEAT_INSET - (SEAT_WIDEST * SEAT_CHAR) - 2,
@@ -650,26 +552,21 @@ export function seatStrip() {
     };
 }
 
-// How far in from the construction point the rounded nose reaches. The arc inscribed
-// in a corner never touches it, and the sharper the corner the further short it stops: at a
-// front's nose that is over ten units, which would leave a gap between the shape and the
-// contract icon on its point. Worked out rather than guessed, so the icon
-// sits against the nose whatever the wedge's proportions are.
+// Where the rounded nose actually ends. The arc inscribed in a sharp corner stops well short
+// of the corner itself, so this is computed and the contract icon sits against the nose
+// whatever the wedge's proportions.
 export function frontNoseX() {
     const half = Math.atan2(FRONT_HALF, FRONT_BACK - FRONT_TIP);
     return FRONT_TIP + (FRONT_NOSE_ROUND / Math.sin(half)) - FRONT_NOSE_ROUND;
 }
 
-// How far outside that nose the contract icon's middle sits. Its own half-width and a little
-// air, so it reads as hanging off the point rather than floating away from it.
+// How far outside the nose the contract icon's middle sits: its half-width and a little air.
 const FRONT_BADGE_GAP = 7;
 
 // A closed path through `points`, with each corner rounded by the radius beside it.
 //
-// One arc per corner rather than a quadratic through it. An arc is the corner a reader
-// expects, is the same curve however sharp the angle, and never bulges past the straight
-// lines it joins. The setback along each edge is r / tan(half the interior angle), which is
-// what makes a sharper corner give up more of its edges for the same radius.
+// One arc per corner, which never bulges past the straight lines it joins. The setback along
+// each edge is r / tan(half the interior angle).
 function roundedPath(points) {
     const at = (index) => points[(index + points.length) % points.length];
     const parts = [];
@@ -713,14 +610,10 @@ function frontOutline() {
 }
 
 // The seats a front shows, lowest authority at the top, each with the entity it hands that
-// scope's callers to (empty until one is drawn). Every declared scope gets one whether or not
-// it has been wired. A seat nobody has connected is the question the drawing is asking, and
-// hiding it would make the wiring something a reader has to know to look for.
+// scope's callers to (empty until one is drawn). Every declared scope gets one, wired or not.
 export function seatsOfFront(front) {
     const tiers = (front && front.tiers) || {};
-    // The project's scopes, which `frontsOf` reads out of the document and hands over here.
-    // The four defaults are the fallback for a front built without them, never the answer
-    // for a project that named its own.
+    // The project's scopes, from `frontsOf`; the four defaults only when there are none.
     const scopes = (front && front.scopes && front.scopes.length) ? front.scopes : SCOPES;
     return scopes.map((scope, index) => ({
         scope,
@@ -729,8 +622,7 @@ export function seatsOfFront(front) {
     }));
 }
 
-// What a consumer writes to reach a point. Its owner's name capitalised. An entity owns one
-// connect point, so the owner names it and this is the whole address.
+// What a consumer writes to reach a point: its owner's name capitalised.
 export function accessorName(owner) {
     return owner ? owner[0].toUpperCase() + owner.slice(1) : "";
 }
@@ -738,12 +630,8 @@ export function accessorName(owner) {
 // The seat a point on the canvas is on, or null. `local` is relative to the front's own
 // middle, the way seatPoint answers.
 //
-// The scope names and the dots beside them are the strip where a drop says which scope it
-// meant. The nose in front of them says only "this entity", and dropping there is what opens
-// the question instead. Inside the strip the nearest seat wins outright rather than needing
-// to be hit. They tile it between them, so there is no gap to land in and be told nothing
-// happened. Aiming at the word rather than at the dot is the obvious way to hand a scope to
-// an entity, which is why the word is part of the target and not decoration beside it.
+// Inside the strip the nearest seat wins, so the seats tile it with no gap, and the scope's
+// name is part of the target. A drop on the nose returns null and asks which scope.
 export function seatAt(front, local) {
     const seats = seatsOfFront(front);
     const strip = seatStrip();
@@ -760,24 +648,16 @@ export function seatAt(front, local) {
     return closest;
 }
 
-// Where a link into a front arrives. The seat of whichever scope it serves, or the middle of
-// the flat side when it serves none. What arrives at a seat is the entity behind it, so the
-// line lands on the name of the scope it answers for and the routing needs no second drawing.
+// Where a link into a front arrives: the seat of the scope it serves, or null when it serves
+// none.
 export function seatFor(front, entityName) {
     const seat = seatsOfFront(front).find((one) => one.tier === entityName);
     return seat ? seat.at : null;
 }
 
-// The mark on something the rules have caught, over the corner of whatever it is about.
-//
-// Drawn rather than said only in the colour of a rim. A rim a shade warmer than the one beside
-// it is a difference nobody scans a canvas for, and what is wanted is a thing to point at.
-// Hovering it opens that thing's own card, which is where the finding is written out. The card
-// was always there and nothing on the drawing asked to be hovered for it.
-//
-// `at` is where its middle goes and `size` how big it is, because the same mark rides the rim
-// of a disc, the back corner of a wedge and the corner of a contract badge, and those are
-// three different sizes of thing.
+// The mark on something the rules have caught, over its corner. Hovering it opens the thing's
+// card, where the finding is written out. `at` and `size` vary because the same mark rides a
+// disc, a wedge and a contract badge.
 function alertMark(at, size) {
     const group = element("g", {class: "alert", transform: `translate(${at.x},${at.y})`});
     group.append(element("circle", {class: "alert__disc", r: size}));
@@ -797,30 +677,15 @@ function alertAt(front, square) {
                   : {x: NODE_RADIUS * 0.72, y: -NODE_RADIUS * 0.72};
 }
 
-// The mark on a web edge that runs the sign-in flow. The one entity in a project that turns
-// a visitor into somebody, and therefore the one that makes `Session.login()` in the client
-// do anything at all.
-//
-// It is on the drawing because it is the thing about an edge a reader most needs and could
-// least see: every scope in the project, every member gate, and which bundle each visitor is
-// served all hang off it, and until now the only way to find out which edge ran it was to
-// select one and read a checkbox. An arrow going in through a door rather than a key or a
-// padlock. A lock says "shut", and what this says is "this is the way through".
-//
-// Quiet, because it is a permanent fact and not an interrupt. The disc is the page punched
-// through the rim rather than a colour of its own, and everything in it is the entity's.
-// The alert rides the opposite corner, so an edge with a finding against it shows both
-// without either sitting on the other.
-//
-// It answers the pointer with a card of its own (tip.js), because a mark nobody can ask about
-// is a mark a reader has to already know. `edge` is the entity it is on, which is what the
-// card is about.
+// The mark on a web edge that runs the sign-in flow, which `Session.login()` in a client
+// reaches: an arrow going in through a door. The alert rides the opposite corner, so an edge
+// with a finding shows both. It opens a card of its own (tip.js); `edge` is the entity it is
+// on.
 function signInMark(at, size, edge) {
     const group = element("g", {class: "signin", transform: `translate(${at.x},${at.y})`});
     group.dataset.signin = edge;
     group.append(element("circle", {class: "signin__disc", r: size}));
-    // The drawing is written in a box of 4.2 either way, and the disc has to hold its
-    // corners. At size/6.6 the door frame sat on the rim rather than inside it.
+    // The drawing spans 4.2 either way, scaled to sit inside the disc.
     const unit = size / 7.6;
     const path = (d) => group.append(element("path", {class: "signin__mark",
                                                       d: scalePath(d, unit)}));
@@ -830,20 +695,17 @@ function signInMark(at, size, edge) {
     return group;
 }
 
-// Where the sign-in mark sits on a node. The top left of a disc, or the bottom of a wedge's
-// back edge. Opposite `alertAt` in both cases, which is the whole placement rule.
+// Where the sign-in mark sits on a node, opposite `alertAt`.
 function signInAt(front) {
     return front ? {x: FRONT_BACK - 4, y: FRONT_HALF - 2}
                  : {x: -NODE_RADIUS * 0.72, y: -NODE_RADIUS * 0.72};
 }
 
-// The rim slot the mark sits on, on a disc: the top left, seven eighths of the way round from
-// the top. Every ring size has it. The mark answers the pointer, so the handle under it is
-// not drawn. A handle nobody can reach is worse than none, because the ring says it is there.
+// The rim slot the mark covers on a disc (top left, on every ring size). The mark takes the
+// pointer, so that slot's handle is not drawn.
 const SIGN_IN_SLOT = (SLOT_RING * 7) / 8;
 
-// The same mark on its own, for the head of its card. One drawing, so the mark in the card is
-// the mark that was pointed at.
+// The same mark on its own, for the head of its card.
 export function signInSvg() {
     const svg = element("svg", {class: "glyph signin-glyph", viewBox: "-8 -8 16 16",
                                 "aria-hidden": "true", focusable: "false"});
@@ -853,14 +715,10 @@ export function signInSvg() {
     return svg;
 }
 
-// The mark again, written beside a line from an edge that signs people in to a client, with
-// the call that leads there. Drawn on every such line and hidden, then shown by the stylesheet
-// while the line, the edge or the mark is hovered (light.js puts `is-signin` on the line). The
-// highlight runs off pointer moves and never redraws, so what it shows has to be drawn already.
-//
-// On the other side of the line from what the link carries, so the two never sit on each
-// other. It is the answer to "what is that mark on the edge", put on the one line the answer
-// is about: the browser at the far end of it is who `Session.login()` sends to this edge.
+// The mark again, beside a line from a signing-in edge to a client, with the call that leads
+// there. Drawn hidden on every such line and shown while the line, the edge or the mark is
+// hovered (light.js puts `is-signin` on the line), since hovering never redraws. It sits on
+// the other side of the line from what the link carries.
 const SIGN_IN_HINT = "Session.login() signs in here";
 const SIGN_IN_HINT_GAP = 14;
 
@@ -869,12 +727,9 @@ function signInHint(edge, middle, across) {
                 y: middle.y + (across.y * SIGN_IN_HINT_GAP)};
     const group = element("g", {class: "link__signin"});
     group.dataset.signin = edge;
-    // Which side of the mark the words go on. Away from the line, whichever way it runs: a
-    // line running up the page has its side to the left or the right, and words centred over
-    // the mark would be written across the line itself.
+    // The words go on the side away from the line, whichever way it runs.
     const sideways = Math.abs(across.x) > Math.abs(across.y);
-    // The words are estimated at the members' own width per character, and the page this
-    // is drawn on may set the mono face a little wider, so the box keeps a margin past them.
+    // The words are estimated at the members' width per character, with a margin.
     const width = (SIGN_IN_HINT.length * MEMBER_CHAR) + 30;
     const left = sideways ? (across.x > 0 ? at.x - 8 : at.x - width + 8) : at.x - (width / 2);
     group.append(element("rect", {class: "link__signin-box", x: left, y: at.y - 8,
@@ -886,19 +741,15 @@ function signInHint(edge, middle, across) {
     return group;
 }
 
-// One path drawn at another size. The sign-in mark is written at the size it was drawn at
-// and used at whatever a disc or a wedge gives it, and a `transform: scale()` on the group
-// would scale the stroke with it, which is what turns a 1.3 stroke into a hairline.
+// One path drawn at another size, scaling its coordinates and not its stroke, which a
+// `transform: scale()` would thin.
 function scalePath(d, unit) {
     return d.replace(/-?[0-9]+(?:\.[0-9]+)?/g,
                      (number) => String(round(Number(number) * unit)));
 }
 
-// Where it sits on a contract badge. On the far side of the badge from the entity the badge
-// is pinned to. The badge sits on its owner's rim, so a fixed corner (the top right,
-// whichever side of the disc that is) would put the mark on a point drawn off the left of an
-// entity between the badge and the disc, in the busiest few pixels on the
-// canvas. Pushed outward it is always over open space.
+// Where the alert sits on a contract badge: on the far side from the owner the badge is
+// pinned to, which is always open space.
 const BADGE_ALERT_REACH = 9.5;
 
 export function badgeAlertAt(away) {
@@ -906,10 +757,8 @@ export function badgeAlertAt(away) {
     return {x: (away.x / span) * BADGE_ALERT_REACH, y: (away.y / span) * BADGE_ALERT_REACH};
 }
 
-// The one word that says which end of a hovered link this entity is. Drawn on every node and
-// hidden, then shown by the stylesheet when the page marks the node. The highlight runs off
-// pointer moves and must never rebuild the drawing, so what it can turn on has to already be
-// there. Above the disc, where nothing else is written.
+// The word that says which end of a hovered link this entity is, drawn hidden above every
+// node and shown by the stylesheet when the page marks it, since hovering never redraws.
 function roleLabels(group, front) {
     const drop = front ? -FRONT_HALF - 8 : -NODE_RADIUS - 8;
     for (const role of ["owner", "consumer"]) {
@@ -920,9 +769,7 @@ function roleLabels(group, front) {
     }
 }
 
-// The two lines under any node. What the entity is called, and the file somebody opens next.
-// A front is drawn taller than a disc, so its lines start lower and the shape above them
-// keeps its own outline to itself.
+// What is written under any node: its name and its files, lower under a taller front.
 function nameNode(group, entity, files, front) {
     const drop = front ? FRONT_DROP : 0;
     const name = element("text", {class: "node__name", y: NODE_RADIUS + 16 + drop,
@@ -930,19 +777,32 @@ function nameNode(group, entity, files, front) {
     name.textContent = entity.name;
     group.append(name);
 
-    const file = element("text", {class: "node__file", y: NODE_RADIUS + 29 + drop,
+    const lines = captionLines(files, entity);
+    if (!lines.length) {
+        return;
+    }
+    const list = element("text", {class: "node__file", y: NODE_RADIUS + 29 + drop,
                                   "text-anchor": "middle"});
-    file.textContent = caption(files, entity);
-    group.append(file);
+    lines.forEach((line, index) => {
+        const row = element("tspan", {x: 0, dy: index ? FILE_LINE : 0});
+        if (!index && lines.length > 1) {
+            row.classList.add("node__folder");
+        }
+        row.textContent = line;
+        list.append(row);
+    });
+    group.append(list);
 }
+
+// The distance between two files listed under a node.
+const FILE_LINE = 11;
 
 
 // The flat side of a wedge: one seat per declared scope, named inside the shape, and filled
 // where a link has been drawn from it to the entity that serves that scope's callers.
 //
-// The handle is the whole row, name included, and it comes first. An SVG element cannot reach
-// backwards to a sibling, so the thing that catches the pointer has to be written before the
-// things the stylesheet colours when it is hovered.
+// The handle is the whole row, name included, and comes first: the stylesheet colours the
+// siblings after a hovered element, never before it.
 function frontSeats(entity, front) {
     const group = element("g", {class: "node__seats"});
     const strip = seatStrip();
@@ -956,9 +816,8 @@ function frontSeats(entity, front) {
         });
         grab.dataset.seat = entity.name;
         grab.dataset.scope = seat.scope;
-        // Where a line pulled off this row leaves from, which is the dot rather than wherever
-        // in the row the press landed. Read off the element, because the drag is set up from
-        // the element the press hit and nothing else there knows the geometry.
+        // Where a line pulled off this row leaves from (the dot, wherever the press landed),
+        // stored on the element the drag starts from.
         grab.dataset.x = String(seat.at.x);
         grab.dataset.y = String(seat.at.y);
         group.append(grab);
@@ -966,12 +825,8 @@ function frontSeats(entity, front) {
             class: `node__seat${seat.tier ? " is-taken" : ""}`,
             cx: seat.at.x, cy: seat.at.y, r: 3,
         }));
-        // A seat always says which scope it is, wired or not. Giving the name up to
-        // the link that lands on it reads well with one seat wired and badly with two.
-        // The labels beside a line and the labels on the seats above and below it are a dozen
-        // pixels apart, and a reader cannot tell which word belongs to which. The scope
-        // is a fact about the seat, so it is written on the seat, and a filled dot is what
-        // says something is wired to it.
+        // A seat always shows its scope, wired or not; a filled dot says something is wired
+        // to it.
         const label = element("text", {
             class: "node__seat-name",
             x: seat.at.x - SEAT_INSET, y: seat.at.y + SEAT_BASE,
@@ -986,8 +841,7 @@ function frontSeats(entity, front) {
 
 function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
     const group = element("g", {
-        // The role is a class as well as a glyph, so a client disc is the green a client
-        // is everywhere else on this page and in the guide's drawing.
+        // The role is a class as well as a glyph, so each role has its colour.
         class: `${classes("node", {selected, level})} node--${roleOf(entity)}`
                + (front ? " node--front" : "") + (gate ? " node--gate" : ""),
         transform: `translate(${entity.x || 0},${entity.y || 0})`,
@@ -996,9 +850,7 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
     if (front) {
         group.append(element("path", {class: "node__disc node__wedge", d: frontOutline()}));
     } else if (linksAreDerived(entity)) {
-        // Square, because nothing is drawn to or from it. Every other entity is a disc with a
-        // ring of handles on its rim. A monitor has none (below), and a different outline
-        // says so before anybody reaches for one.
+        // Square, because nothing is drawn to or from a monitor: it has no ring of handles.
         group.append(element("rect", {class: "node__disc node__square",
                                       x: -NODE_RADIUS, y: -NODE_RADIUS,
                                       width: NODE_RADIUS * 2, height: NODE_RADIUS * 2,
@@ -1016,10 +868,8 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
         group.append(alertMark(alertAt(front, linksAreDerived(entity)), 6.5));
     }
     if (front) {
-        // A wedge has no ring to seat contracts on. Its two sides are its two jobs. The
-        // point faces the browser and the point it owns leaves from there. The flat side
-        // carries a seat per scope, and those are what a link to an entity behind it lands
-        // on. So the rim slots below are not drawn at all.
+        // A wedge has no ring: its point leaves from the nose, and links to the entities
+        // behind it land on the seats.
         group.append(frontSeats(entity, front));
         return group;
     }
@@ -1029,12 +879,8 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
         return group;
     }
 
-    // The slots a link is pulled out of. Every free one on the ring, drawn as a dot on the
-    // rim. Every one rather than the nearest, because the entity being reached for
-    // is as often to the left or below as to the right, and they are quiet enough that a ring
-    // of them reads as a dial rather than as sixteen things asking to be clicked. They are
-    // invisible until the pointer is near (the `is-near` class the page puts on this group),
-    // so an entity nobody is reaching for is a disc.
+    // The slots a link is pulled out of: every free one on the ring, as a dot on the rim,
+    // hidden until the pointer is near (the `is-near` class the page puts on this group).
     const size = ringSize(taken.length);
     const held = new Set(taken);
     for (const slot of slotsOf(size)) {
@@ -1046,16 +892,13 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
         }
         const inner = slotPoint(slot, NODE_RADIUS - SLOT_DASH);
         const outer = slotPoint(slot, NODE_RADIUS + SLOT_DASH);
-        // The hit target is its own wider line across the rim, under the dot, so a mark quiet
-        // enough to sit behind the drawing is still something a pointer can find.
+        // The hit target is a wider line across the rim, under the dot.
         const grab = element("line", {class: "node__slot-grab", x1: inner.x, y1: inner.y,
                                       x2: outer.x, y2: outer.y});
         grab.dataset.rim = entity.name;
         grab.dataset.slot = String(slot);
-        // Where a line pulled off this slot leaves from. On the element, because the drag is
-        // set up from whatever the press hit. Read off `cx`, a
-        // line has none and every link is drawn from the middle of the disc instead of from
-        // the handle that was grabbed.
+        // Where a line pulled off this slot leaves from, stored on the element the drag starts
+        // from (a line has no `cx` to read).
         const on = slotPoint(slot, NODE_RADIUS);
         grab.dataset.x = String(on.x);
         grab.dataset.y = String(on.y);
@@ -1066,18 +909,15 @@ function node(entity, {selected, level, files, taken, front, gate, signsIn}) {
     return group;
 }
 
-// Where the box around a group of entities goes. Sized to what is in it, so it is a statement
-// about those entities rather than a region of the canvas somebody could drag something into
-// and change what it means, and never narrower than the two lines written in its corner.
+// Where the box around a group of entities goes: sized to what is in it, and never narrower
+// than its name.
 function zoneBox(shape, entities) {
     const xs = entities.map((entity) => entity.x || 0);
     const ys = entities.map((entity) => entity.y || 0);
     let left = Math.min(...xs) - ZONE_PAD.x;
     let right = Math.max(...xs) + ZONE_PAD.x;
     const wanted = 24 + (shape.title.length * TITLE_WIDTH);
-    // Widened around the middle rather than off to the right. A box grown one way put its
-    // entity off to one side of it, which reads as an entity that has drifted out of place
-    // when nothing has moved. It is the label underneath that is wide.
+    // Widened around the middle, so the entities stay centred in it.
     if (right - left < wanted) {
         const middle = (left + right) / 2;
         left = middle - (wanted / 2);
@@ -1091,23 +931,48 @@ function zoneBox(shape, entities) {
     };
 }
 
+// How far a wrapping box sits outside the boxes it wraps. The top is taller, because the
+// wrapping box writes its name above the names of the boxes inside it.
+const WRAP_PAD = {x: 22, top: 40, bottom: 22};
+
+// Every box the design draws, with what is inside it and where it goes. A wrapping box holds
+// every entity, and its outline is the union of the other boxes and its own entities' box.
+export function zonesOf(entities) {
+    const found = [];
+    for (const shape of ZONES) {
+        const own = entities.filter((entity) => shape.of(roleOf(entity)));
+        if (own.length && !shape.wraps) {
+            found.push({shape, inside: own, box: zoneBox(shape, own)});
+        }
+    }
+    for (const shape of ZONES.filter((one) => one.wraps)) {
+        const own = entities.filter((entity) => shape.of(roleOf(entity)));
+        if (!own.length) {
+            continue;
+        }
+        const boxes = found.map((one) => one.box).concat([zoneBox(shape, own)]);
+        found.unshift({shape, inside: entities, box: {
+            left: Math.min(...boxes.map((box) => box.left)) - WRAP_PAD.x,
+            top: Math.min(...boxes.map((box) => box.top)) - WRAP_PAD.top,
+            right: Math.max(...boxes.map((box) => box.right)) + WRAP_PAD.x,
+            bottom: Math.max(...boxes.map((box) => box.bottom)) + WRAP_PAD.bottom,
+        }});
+    }
+    return found;
+}
+
 // The box itself, drawn behind everything.
-function zone(shape, entities) {
-    const {left, top, right, bottom} = zoneBox(shape, entities);
+function zone(shape, entities, {left, top, right, bottom}) {
     const group = element("g", {
         class: `zone zone--${shape.name}${shape.held ? " zone--held" : ""}`,
     });
-    if (shape.held) {
-        // Named on the group so the page can pick the whole block up by it. The names inside
-        // are what moves. A zone is drawn around what is in it and has no position of its own.
-        group.dataset.zone = shape.name;
-        group.dataset.inside = entities.map((entity) => entity.name).join(" ");
-    }
+    // Named on the group so the page can pick the whole block up by it; the entities inside
+    // are what moves.
+    group.dataset.zone = shape.name;
+    group.dataset.inside = entities.map((entity) => entity.name).join(" ");
     group.append(element("rect", {class: "zone__box", x: left, y: top,
                                   width: right - left, height: bottom - top, rx: 14}));
-    // The name, and what the box means carried on it rather than printed under it. The
-    // dataset is what the page's own tooltip reads, so hovering a box's name answers in the
-    // same panel every other part of the drawing answers in.
+    // The name, carrying what the box means for the card that hovering it opens.
     const title = element("text", {class: "zone__title", x: left + 14, y: top + ZONE_TITLE_Y});
     title.dataset.zoneTitle = shape.name;
     title.dataset.note = shape.note;
@@ -1116,18 +981,13 @@ function zone(shape, entities) {
     return group;
 }
 
-// Everything the drawing occupies, boxes included. What fits the canvas to the design: fitting
-// to the discs alone left a box hanging off the edge of the window, which is exactly the part
-// of the drawing that says what can reach what.
+// Everything the drawing occupies, boxes included, which is what the canvas is fitted to.
 export function extent(design) {
     const entities = design.entities || [];
     if (!entities.length) {
         return null;
     }
-    const boxes = ZONES
-        .map((shape) => [shape, entities.filter((entity) => shape.of(roleOf(entity)))])
-        .filter(([, inside]) => inside.length)
-        .map(([shape, inside]) => zoneBox(shape, inside));
+    const boxes = zonesOf(entities).map((one) => one.box);
     return {
         left: Math.min(...boxes.map((box) => box.left)),
         right: Math.max(...boxes.map((box) => box.right)),
@@ -1139,16 +999,12 @@ export function extent(design) {
 // The curve a link runs along, as one quadratic. The two ends on the rims of the discs it
 // joins, and a control point pushed `offset` sideways out of the straight line between them.
 //
-// A lane on its own has no offset and comes back as the straight line it always was. Two or
-// more sharing a pair bow away from each other in opposite directions, which separates them
-// along their whole length rather than only at the middle, and gives each one room for its
-// own name. A link's two ends leave and arrive along the curve's own direction, so the cap and
-// the arrowhead sit square on the discs however far the line bows.
-// `leaves` moves the owner's end of the line off the rim point the geometry would pick and
-// onto the slot the contract sits on, so a link leaves from its own badge rather than from
-// wherever the two centres happen to line up. `arrives` does the same at the other end, and
-// is what puts a link into a front on the seat of the scope its owner answers for. Both are
-// offsets from their own entity's centre.
+// A lone link is straight. Two or more sharing a pair bow apart in opposite directions along
+// their whole length. Both ends follow the curve's direction, so the cap and the arrowhead
+// sit square on the discs.
+//
+// `leaves` puts the owner's end on the contract's slot (an absolute point); `arrives` puts the
+// consumer's end on a front's seat (an offset from the consumer's centre).
 function ends(from, to, offset, leaves, arrives) {
     const ax = from.x || 0;
     const ay = from.y || 0;
@@ -1173,9 +1029,7 @@ function ends(from, to, offset, leaves, arrives) {
         y2,
         cx,
         cy,
-        // A quadratic's midpoint is not the midpoint of its ends, and its direction there is
-        // the direction between them. Both are what the label, the lock and the contract mark
-        // are placed by.
+        // The curve's midpoint (not the midpoint of its ends), where the members are placed.
         mid: {x: (x1 + (2 * cx) + x2) / 4, y: (y1 + (2 * cy) + y2) / 4},
         ux,
         uy,
@@ -1188,17 +1042,13 @@ function curve(edge) {
     return `M ${edge.x1},${edge.y1} Q ${edge.cx},${edge.cy} ${edge.x2},${edge.y2}`;
 }
 
-// How far along a broken line the break is drawn. Three quarters, so it sits near the end the
-// link fails to arrive at rather than in the middle, where every other mark on a line already
-// is. The break belongs to the arrival, not to the link as a whole.
+// How far along a broken line the break is drawn: near the end it fails to arrive at, clear
+// of the marks in the middle.
 export const BREAK_AT = 0.75;
 
 // The point on the curve at `t`, and the two halves either side of it.
 //
-// De Casteljau on the quadratic rather than a straight cut. A line drawn solid to a point and
-// dashed after it has to break *on* the curve, and a chord between the two ends is not on the
-// curve anywhere except at them. The two halves are quadratics of their own, so what is drawn
-// is the same shape the whole line was.
+// De Casteljau on the quadratic, so the two halves are quadratics on the same curve.
 export function splitCurve(edge, at) {
     const lerp = (a, b) => ({x: a.x + ((b.x - a.x) * at), y: a.y + ((b.y - a.y) * at)});
     const start = {x: edge.x1, y: edge.y1};
@@ -1214,30 +1064,19 @@ export function splitCurve(edge, at) {
     };
 }
 
-// The mark on a link that reaches a front no scope hands anyone to. Its owner is behind that
-// front and nothing is routed to it, so the line is drawn as what it is: a connection that
-// does not arrive.
+// The mark on a link to a front that routes no scope to the link's owner: a cross and the word
+// "broken". It is a handle: dragging from it to a seat fixes the routing.
 //
-// A cross rather than a colour, and a word rather than a legend. The line is one of several on
-// a canvas and a reader is not going to notice a hue two shades warmer at the far end of it.
-// It answers the pointer and it is a handle, because the fix is one drag away and the thing to
-// drag from is the break itself.
-//
-// `from` is the connect point on the owner, which is where the line pulled off this cross
-// starts. Not the cross. A line leaving the cross drew the cross as a connect point of its
-// own, halfway across the canvas from the entity that owns it, and what the gesture
-// does is wire this link the way it would have been wired in the first place. So it is drawn
-// the way it would have been drawn in the first place, out of the owner's own point.
+// `from` is the owner's connect point, where a line pulled off this cross starts.
 function breakMark(link, consumer, at, from) {
     const group = element("g", {class: "link__break",
                                 transform: `translate(${at.x},${at.y})`});
     group.dataset.break = link.name;
     group.dataset.breakConsumer = consumer || "";
-    // On the element, because the drag is set up from whatever the press hit and nothing else
-    // there knows the geometry.
+    // Stored on the element the drag starts from.
     group.dataset.x = String(from.x);
     group.dataset.y = String(from.y);
-    // Something square to catch the pointer, because two crossed 1px rules are not a target.
+    // A square hit target around the thin cross.
     group.append(element("rect", {class: "link__break-grab", x: -9, y: -9,
                                   width: 18, height: 18, rx: 3}));
     group.append(element("circle", {class: "link__break-disc", r: 7}));
@@ -1249,11 +1088,8 @@ function breakMark(link, consumer, at, from) {
     return group;
 }
 
-// The contract, drawn on the slot its link was pulled from and never hidden: the free slots
-// come and go with the pointer, but what an entity has already agreed to say is part of the
-// drawing. `level` is the verdict on the contract alone, which is not the verdict on the
-// link. A contract with nothing in it is not the same complaint as a consumer that cannot
-// reach its owner, and the two are drawn separately so both are legible at once.
+// The contract, drawn on the slot its link was pulled from and always shown. `level` is the
+// verdict on the contract alone, drawn apart from the verdict on each line.
 function contractBadge(link, at, level, selected, away) {
     const group = element("g", {
         class: `link__doc${level ? ` is-${level}` : ""}${selected ? " is-selected" : ""}`,
@@ -1270,12 +1106,8 @@ function contractBadge(link, at, level, selected, away) {
     return group;
 }
 
-// Where a connect point's contract sits on its owner, and therefore where every line out of
-// it starts. A front owns one point and it is the browser's, so it leaves from the tip rather
-// than from a seat on a ring the wedge does not have.
-//
-// One point, one place. This is read once per connect point to draw the icon, and again for
-// each consumer to start that consumer's line, so every line demonstrably leaves the icon.
+// Where a connect point's contract sits on its owner, and so where every line out of it
+// starts. A front's leaves from its nose.
 export function contractPoint(owner, slot, fromFront) {
     const seat = fromFront
         ? {x: frontNoseX() - FRONT_BADGE_GAP, y: 0}
@@ -1283,42 +1115,29 @@ export function contractPoint(owner, slot, fromFront) {
     return {x: (owner.x || 0) + seat.x, y: (owner.y || 0) + seat.y};
 }
 
-// How many members a line carries before it starts counting instead. A line is a line, not a
-// list. Past this they stop being readable at a glance, which is the only thing having them
-// on the canvas was for.
+// How many members a line lists before it shows a count instead.
 const MEMBERS_SHOWN = 5;
 
 // The line spacing for those, and how far the first one sits from the line itself.
 const MEMBER_STEP = 10;
 const MEMBER_FIRST = 4;
 
-// The column the kind marks sit in, and the gap between that column and the names. Every row
-// starts at the same two offsets, which is what makes the block a list rather than five
-// centred strings of different lengths.
+// The column the kind marks sit in, and the gap before the names, the same on every row.
 const MEMBER_MARK = 7;
 const MEMBER_GAP = 3;
 
-// What one character of the block costs. The rows are set in the monospace stack at a fixed
-// size, so a character count is the width. Measuring would mean laying the group out in the
-// document and reading it back, twice per line, for a number that does not vary. The padding
-// on the background absorbs the difference between the faces in the stack.
+// The width of one character of the block. The rows are monospace at a fixed size, so a
+// character count is the width; the background's padding absorbs differences between faces.
 const MEMBER_CHAR = 4.95;
 
-// The background's own room. Enough that a descender and the mark both clear its edge.
+// The background's padding, so a descender and the mark clear its edge.
 const MEMBER_PAD_X = 4;
 const MEMBER_PAD_Y = 2.5;
 const MEMBER_ASCENT = 6.4;
 const MEMBER_DESCENT = 2.4;
 
-// What each kind is called, and what it means for the two ends of the line. The mark on the
-// canvas says which of the four this is. Hovering it, or the name beside it, is what says
-// this.
-//
-// `says` takes the two ends because it can. The drawing knows which entity owns the point and
-// which consume it, and "the owner sets it" is a sentence about connect points in general
-// where "edge sets it, and app sees the new value" is a sentence about the one under the
-// pointer. A tooltip that could name the thing and does not is asking its reader to do the
-// substitution themselves.
+// What each kind is called, and what it means for the two ends of the line, written with
+// their names (`says`) for the member card.
 export const MEMBER_KINDS = {
     prop: {
         name: "property",
@@ -1340,39 +1159,25 @@ export const MEMBER_KINDS = {
     slot: {
         name: "slot",
         says: (owner, consumers) =>
-            `A call from ${consumers} arrives at ${owner}, which runs it and decides whether `
-            + "to.",
+            `A call from ${consumers} arrives at ${owner}, which runs it or refuses it.`,
     },
 };
 
-// The two ends of a link as the sentences above want them. A name where there is one, and the
-// word that stands in for it where there is not. A point can have several consumers, so every
-// sentence above is written to read the same whether this comes back as one name or three,
-// which is why they all say what arrives where rather than who does what.
+// The two ends of a link for the sentences above: the names, or a stand-in word. The
+// sentences read the same with one consumer or several.
 export function endsOfPoint(link) {
     const consumers = (link && link.consumers) || [];
     return {
-        owner: link && link.owner ? `'${link.owner}'` : "the owner",
-        consumers: consumers.length ? consumers.map((name) => `'${name}'`).join(" and ")
+        owner: link && link.owner ? `\`${link.owner}\`` : "the owner",
+        consumers: consumers.length ? consumers.map((name) => `\`${name}\``).join(" and ")
                                     : "a consumer",
     };
 }
 
-// One member as the line writes it. What it is called, and what it carries, in the runs the
-// row is coloured by.
-//
-// The kind is not written. Four words repeated down a block are four times the same news, and
-// they pushed the names out of one column. The mark at the start of the row carries it now.
-//
-// Parameter and role types without their names, which is the length a line can afford. The
-// name of a parameter is for whoever writes the body. What a reader following a line wants
-// is whether `placeBid` takes an int and answers a bool. The tooltip and the panel both
-// spell the member out in full.
-//
-// Coloured the way the file it comes from is, one step back. A type is a type and a name is a
-// name here as much as in the pane, and a reader who has both open should not have to learn
-// two colour schemes for one contract. Held back because these rows are set at 8px over
-// whatever the line happens to cross, where the pane's contrast reads as shouting.
+// One member as the line writes it, in coloured runs. The mark at the start of the row gives
+// the kind, so the word is not written. Parameters are types without names, which is what a
+// line has room for; the card and the panel spell the member out. Coloured as the file pane
+// colours it, at lower contrast.
 export function memberParts(member) {
     const kind = member.kind || "prop";
     const name = {text: member.name || "", kind: "name"};
@@ -1395,51 +1200,38 @@ export function memberParts(member) {
     return [name, {text: "(", kind: "punct"}, ...params, {text: ")", kind: "punct"}, ...answer];
 }
 
-// The same runs with a comma between each pair, which is the only separator any of these has.
+// The same runs with a comma between each pair.
 function between(parts) {
     return parts.flatMap((part, index) => (index ? [{text: ", ", kind: "punct"}, part]
                                                 : [part]));
 }
 
-// The whole of a member on one line, which is what the row is measured by. The rows are set in
-// a monospace face at a fixed size, so a character count is the width.
+// The whole of a member on one line, which the row's width is counted from.
 export function memberLabel(member) {
     return memberParts(member).map((part) => part.text).join("");
 }
 
-// The scope a caller needs to reach this member, written the way the `export:` block gates a
-// member. `<admin>`. Empty when nothing gates it, which is a point any session reaches.
-//
-// The member's own gate, or the point's where the member names none, because that is what
-// answers "who reaches this". The document carries what the author wrote: a
-// `scope: user` on the point is one line on the point, not a `<user>` on each of its members,
-// so a row reading the member alone would say nothing about three members out of four.
-// One spelling for the canvas, the tooltip and the file, so a reader meets the same word in
-// all three places.
+// The scope a caller needs to reach this member, as the `export:` block writes it
+// (`<admin>`): the member's own gate, or the point's `scope:` where it names none. Empty when
+// nothing gates it.
 export function scopeGate(member, link) {
     const gate = member.scope || (link && link.scope) || "";
     return gate ? `<${gate}>` : "";
 }
 
-// Whether this member is held above the scope its whole point is behind, which is the one
-// case worth marking. On a point gated `user`, `<admin> slot erase` is the exception and the
-// three members beside it are the ordinary case.
+// Whether this member is gated above its point's scope: on a point gated `user`,
+// `<admin> slot erase` is marked and its neighbours are not.
 export function aboveTheScope(member, link) {
     return Boolean(member.scope) && member.scope !== String((link && link.scope) || "");
 }
 
 // The mark for one kind, drawn in a 7 by 7 box whose own centre is the origin.
 //
-// Four shapes rather than four colours. The block is already carrying a colour for scoped and
-// another for selected, and a mark that changed with either would stop being the kind. A disc
-// for the one value, stacked rows for the many, and a filled head pointing out of the owner
-// against a hollow one pointing back into it for the two calls, which is the direction each
-// of them travels.
+// Shapes, not colours, since colour already marks scoped and selected: a disc for one value,
+// stacked rows for many, and a head pointing out of the owner (signal) or back into it (slot).
 function memberMark(kind) {
     const mark = element("g", {class: `link__mark link__mark--${kind}`});
-    // Something square to point at. Two of the four shapes are drawn hollow, and a hollow
-    // shape answers the pointer only on the stroke, which for three 1px rules is a target
-    // nobody could hit on purpose. The box is the mark as far as the pointer is concerned.
+    // A square hit target, since a hollow shape answers the pointer only on its stroke.
     mark.append(element("rect", {class: "link__mark-grab",
                                  x: -3.5, y: -3.5, width: 7, height: 7}));
     if (kind === "model") {
@@ -1460,9 +1252,7 @@ function memberMark(kind) {
     return mark;
 }
 
-// The same mark on its own, for a list row in the panel. One drawing for the canvas and the
-// panel, so a reader learns four shapes once. The disc that is one value, the stacked rows
-// that are many, the filled head leaving the owner and the hollow one coming back into it.
+// The same mark on its own, for a list row in the panel.
 export function memberMarkSvg(kind) {
     const svg = element("svg", {class: `mark mark--${kind}`, viewBox: "-4.5 -4.5 9 9",
                                 "aria-hidden": "true", focusable: "false"});
@@ -1472,25 +1262,12 @@ export function memberMarkSvg(kind) {
 
 // What this link carries, written along it.
 //
-// Left aligned in one column over a background of the canvas colour, because these rows land
-// on whatever the line is crossing. Without the background a name over a zone or over another
-// line was the two of them read together, and centred rows of different lengths never gave
-// the eye a left edge to come back to.
+// Flush left in one column over a background of the canvas colour, since the rows land on
+// whatever the line crosses.
 //
-// A gated member says which scope gates it, in the notation the contract writes it in:
-// `erase(int) <admin>`. An asterisk, with the scope itself only in the tooltip,
-// would make the one thing a reader wants off a gated row (gated behind what?) the
-// one thing the row does not tell them without being pointed at. It sits after the
-// declaration rather than in front of it, where the `export:` block puts it: the names stay
-// in one column that way, and the gates line up at the end where an eye going down the block
-// finds them.
-//
-// Two of them. Every row says the gate a caller has to hold to reach it, which for most rows
-// is the point's own `scope:` and is written on the row anyway, because a reader looking at
-// a row wants to know who reaches it and not to go and look somewhere else. Only a row gated
-// *above* the point's own scope is marked as the exception it is. On the room that is one
-// `<admin>` in the warning colour against three quiet `<user>`s, which is the fact the
-// drawing is for. The asterisk it replaced said neither thing.
+// Each row ends with the scope a caller must hold to reach it (`erase(int) <admin>`), after
+// the declaration so the names stay in one column; the `export:` block writes it first. Most
+// rows carry the point's own `scope:`; a row gated above it takes the warning colour.
 function memberNames(link, middle, across) {
     const group = element("g", {class: "link__members"});
     const members = link.members || [];
@@ -1537,25 +1314,21 @@ function memberNames(link, middle, across) {
             class: `link__member${aboveTheScope(member, link) ? " is-scoped" : ""}`,
             x: textAt, y, "text-anchor": "start",
         });
-        // One span per run, so a type reads as a type. The runs cover the whole row and are
-        // written in order, which is what keeps a monospace count of the string equal to the
-        // width of the spans that replaced it.
+        // One span per run, covering the whole row in order, so the character count still
+        // gives the width.
         for (const part of memberParts(member)) {
             const run = element("tspan", {class: `link__tok link__tok--${part.kind}`});
             run.textContent = part.text;
             text.append(run);
         }
-        // The gate rides on the member rather than beside it, so it is one thing to point at
-        // and the line does not grow a second column of its own.
+        // The gate is part of the member's text, one thing to point at.
         const gate = scopeGate(member, link);
         if (gate) {
             const run = element("tspan", {class: "link__tok link__tok--scope"});
             run.textContent = ` ${gate}`;
             text.append(run);
         }
-        // Answered by the whole row, not only by the mark at the start of it: pointing at
-        // `placeBid` is the obvious way to ask what `placeBid` is, and for as long as only the
-        // 7px square beside it answered, the obvious way did nothing.
+        // The whole row answers the pointer, not only the mark.
         text.dataset.kind = kind;
         text.dataset.member = member.name;
         if (member.scope) {
@@ -1579,9 +1352,7 @@ function memberNames(link, middle, across) {
 function line(link, from, to, options) {
     const group = element("g", {class: classes("link", options)});
     group.dataset.link = link.name;
-    // Which of the point's consumers this particular line runs to. Selecting a line is
-    // selecting one consumer of a shared contract, which is a narrower thing than selecting
-    // the point, and the panel needs to be able to tell the two apart.
+    // Which consumer this line runs to: selecting a line selects one consumer, not the point.
     if (options.consumer) {
         group.dataset.consumer = options.consumer;
     }
@@ -1589,16 +1360,11 @@ function line(link, from, to, options) {
     const badgeAt = contractPoint(from, options.slot, options.fromFront);
     const edge = ends(from, to, options.offset || 0, badgeAt, options.arrives);
     const path = curve(edge);
-    // A link into a front that no scope hands anyone to is drawn as the thing it is: solid out
-    // of its owner, and from the break onward a line that does not arrive. Left drawn whole it
-    // was an ordinary link into an entity that had stopped answering, which is the picture
-    // saying the opposite of what is true.
+    // A link into a front that routes no scope to its owner is solid out of the owner and
+    // severed after the break.
     const cut = options.broken ? splitCurve(edge, BREAK_AT) : null;
     if (cut) {
-        // Said on the group as well as drawn on the line, so that pointing anywhere along a
-        // broken line answers with the break rather than with the ordinary card about a link
-        // that works. The cross is one mark on a curve crossing the canvas, and the line is
-        // the part of it a reader's pointer lands on.
+        // On the group too, so pointing anywhere on the line opens the break's card.
         group.dataset.broken = "1";
         group.append(element("path", {class: "link__line", d: cut.before}));
         group.append(element("path", {class: "link__line link__line--severed", d: cut.after}));
@@ -1606,25 +1372,15 @@ function line(link, from, to, options) {
         group.append(element("path", {class: "link__line", d: path}));
     }
 
-    // The same curve again as a dashed stroke that runs, shown only while the link is hovered.
-    // Which way round a link is, is its whole meaning, and until now the drawing said it with
-    // an arrowhead nine pixels long at the far end of a curve crossing the canvas. A dash
-    // travelling from owner to consumer says it along the whole line and needs no aiming at.
-    // Stopped for anybody who asked their system for less motion.
-    //
-    // It stops at the break, because what it is drawing is travel and past the break nothing
-    // travels. Running it the whole way was the animation contradicting the line under it.
+    // The same curve as a moving dashed stroke, shown while the link is hovered, running from
+    // owner to consumer; it stands still under reduced motion and stops at the break.
     group.append(element("path", {class: "link__flow", d: cut ? cut.before : path}));
 
-    // What answers a click. The same curve again, drawn wide and transparent. A stroke has no
-    // area for anything measuring a bounding box, and a curve has no rectangle to lay
-    // along it. `pointer-events: stroke` says
-    // the band catches the pointer without asking how it is painted.
+    // What answers a click: the same curve, wide and transparent, with
+    // `pointer-events: stroke`.
     group.append(element("path", {class: "link__hit", d: path}));
 
-    // The two ends say which way round the link is without anyone hovering it: a filled cap
-    // on the entity that owns the connect point and decides, an arrowhead on the one that
-    // consumes it and can only ask.
+    // A filled cap at the owner, an arrowhead at the consumer.
     group.append(element("circle", {class: "link__owns", cx: edge.x1, cy: edge.y1, r: 3.4}));
     group.append(element("path", {
         class: "link__head",
@@ -1633,29 +1389,14 @@ function line(link, from, to, options) {
     }));
 
     const middle = edge.mid;
-    // What the link carries, written beside it. Measured across the line rather than up the
-    // page, so it does not land on the line whichever way the link runs.
-    //
-    // Nothing else is written here. A name for the point was the accessor a consumer writes,
-    // which the panel states, the tooltip states and the owner's own node is already named
-    // after. A padlock said mutual TLS on a link, which is what every link is, so it marked
-    // nothing and stood over the one thing the line has to say. What crosses is what a
-    // reader following a line came for, so it is what the line carries.
+    // What the link carries, offset across the line so it never lands on it.
     const across = {x: -edge.uy, y: edge.ux};
     group.append(memberNames(link, middle, across));
     if (options.signIn) {
         group.append(signInHint(link.owner, middle, across));
     }
 
-    // Nothing is written at the arrival end. The scope is on the seat the line lands on,
-    // where it stays whether or not anything is wired to it, and writing it a second time
-    // beside the line put it a dozen pixels from the neighbouring seat's name, which is what
-    // the two of them read as. One name per scope, on the thing that is that scope, and the
-    // line says the rest by arriving there.
-
-    // Last of everything, so it sits over the block of members as well as over the line: a
-    // break behind what the link carries is a break nobody sees, and what the link carries is
-    // the half of the drawing that has stopped being true.
+    // The break last, over the members as well as the line.
     if (cut) {
         group.append(breakMark(link, options.consumer, cut.on, badgeAt));
     }
@@ -1663,8 +1404,7 @@ function line(link, from, to, options) {
     return group;
 }
 
-// A link nobody consumes yet, drawn as a stub off its owner so it is on the canvas and can
-// be picked up. It is an ordinary state. The connect point exists before the list does.
+// A link nobody consumes yet, drawn as a stub off its owner so it can be picked up.
 function stub(link, owner, options) {
     const target = {x: (owner.x || 0) + (NODE_RADIUS * 3.4), y: owner.y || 0};
     const group = line(link, owner, target, options);
@@ -1679,19 +1419,15 @@ function levelOf(messages) {
     return messages.some((message) => message.level === "warn") ? "warn" : "";
 }
 
-// A link carries two verdicts, not one. What crosses it is the contract's business (does it
-// carry anything, does a member it holds clash with another point's instancing). Who is at
-// each end and how they reach each other is the link's. A finding says which it is by its
-// `scope`, and anything that does not say is about the link, because the link is what the
-// rules were about before contracts had a mark of their own.
+// A link carries two verdicts: the contract's (what crosses it) and the link's (who is at
+// each end). A finding names which by its `scope`, and the link's is the default.
 function levelWithin(messages, scope) {
     return levelOf(messages.filter((message) => (message.scope || "link") === scope));
 }
 
-// Draw `design` into `layers`, which are the three groups the page keeps for the zones, the
-// links and the nodes. `problems` maps an entity or link name to the findings against it,
-// `selected` is what the inspector has open, and `filesOf` answers what one entity's QML is
-// called, so the caption under a node and the name in the Files pane are one answer.
+// Draw `design` into `layers`, the page's groups for the zones, the links and the nodes.
+// `problems` maps an entity or link name to its findings, `selected` is what the panel has
+// open, and `filesOf` lists an entity's files for the caption under its node.
 export function draw(layers, design, {problems, selected, filesOf}) {
     layers.zones.replaceChildren();
     layers.links.replaceChildren();
@@ -1702,28 +1438,20 @@ export function draw(layers, design, {problems, selected, filesOf}) {
     const slots = slotIndex(design);
     const gates = gatesOf(design);
 
-    for (const shape of ZONES) {
-        const inside = entities.filter((entity) => shape.of(roleOf(entity)));
-        if (inside.length) {
-            layers.zones.append(zone(shape, inside));
-        }
+    for (const {shape, inside, box} of zonesOf(entities)) {
+        layers.zones.append(zone(shape, inside, box));
     }
 
-    // Worked out in two passes, because where a line goes depends on how many other lines
-    // run between the same two entities. An edge that owns three connect points a browser
-    // consumes would otherwise be one line with three names fighting over it.
+    // Two passes, because where a line goes depends on how many others run between the same
+    // two entities.
     const fronts = frontsOf(design);
     const wanted = [];
     for (const link of design.links || []) {
         const found = problems.links.get(link.name) || [];
-        // A contract that carries nothing is marked, and it is marked on the badge and not on
-        // the line, because nothing about who is at either end is wrong: there is just
-        // nothing to say to them yet. This is the drawing saying the point is unfinished, the
-        // same way a link with no consumer is drawn as a stub.
+        // A contract that carries nothing is marked on its badge, not on its lines.
         const carries = (link.members || []).length;
-        // Selecting the contract selects the point, and a point is every line out of it: the
-        // icon is the one thing all of them share, so picking it lights all of them. Selecting
-        // a single line is narrower and is settled per consumer below.
+        // Selecting the contract selects the point and every line out of it. A single line
+        // is settled per consumer below.
         const wholePoint = Boolean(selected && selected.name === link.name
                                    && (selected.kind === "contract"
                                        || (selected.kind === "link" && !selected.consumer)));
@@ -1736,7 +1464,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         };
         const owner = byName.get(link.owner);
         if (!owner) {
-            continue;               // nothing to draw it from. The finding is what says so
+            continue;               // nothing to draw it from; a finding says so
         }
         const targets = (link.consumers || [])
             .map((consumer) => byName.get(consumer))
@@ -1746,8 +1474,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
             continue;
         }
         for (const target of targets) {
-            // A link into a front arrives on the seat of the scope its owner serves, so the
-            // line lands on the name of the scope it answers for.
+            // A link into a front arrives on the seat of the scope its owner serves.
             wanted.push({link, owner, options, target,
                          arrives: seatFor(fronts.get(target.name), owner.name),
                          broken: isBroken(fronts.get(target.name), owner.name)});
@@ -1760,10 +1487,7 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         lanes.set(pair, [...(lanes.get(pair) || []), item]);
     }
     for (const sharing of lanes.values()) {
-        // Bowed apart in the order their slots sit in, not in the order they were written.
-        // Two links leaving one owner already start apart, so a bow assigned by document
-        // order sends the lower one over the upper one and the pair crosses in mid-air for
-        // no reason a reader could name.
+        // Bowed apart in the order their slots sit in, so two links never cross mid-air.
         const spread = [...sharing]
             .map((item) => ({item, side: sideOfSlot(item)}))
             .sort((one, other) => one.side - other.side);
@@ -1786,11 +1510,8 @@ export function draw(layers, design, {problems, selected, filesOf}) {
         });
     }
 
-    // One icon per connect point, drawn after every line and on the spot they all leave from.
-    // Drawn inside each line, it would put one copy per consumer at the same
-    // coordinate. That looks like a single icon and behaves like a stack of them, so clicking
-    // it picks whichever consumer happens to be on top. One point has one contract, and
-    // it has one thing to click.
+    // One icon per connect point, drawn after every line on the spot they all leave from, so
+    // a click on it is never a click on one consumer's copy.
     for (const link of design.links || []) {
         const owner = byName.get(link.owner);
         if (!owner) {
@@ -1824,15 +1545,9 @@ export function draw(layers, design, {problems, selected, filesOf}) {
 
 // Is this link into a front one nothing is routed to?
 //
-// A front stops answering its own connect point. From the moment the switch goes on, a caller
-// reaches whichever entity their scope is wired to and nothing else. So a point the front
-// consumes whose owner sits behind no scope is a connection that carries nobody, and the
-// drawing says so rather than leaving it looking like an ordinary link.
-//
-// A state of the drawing and not a rule. `synqt check` has no opinion about it (a front may
-// legitimately be part-way through being wired), and the editor's rules are held to the
-// command line's verdict case by case, so this belongs here, on the line, where it can be
-// dragged onto a scope and fixed.
+// A caller of a front reaches only the entity their scope is wired to, so a point the front
+// consumes whose owner sits behind no scope carries nobody. A state of the drawing, not a
+// rule: `synqt check` allows a front that is part-way through being wired.
 export function isBroken(front, owner) {
     if (!front) {
         return false;
@@ -1840,9 +1555,8 @@ export function isBroken(front, owner) {
     return !seatsOfFront(front).some((seat) => seat.tier === owner);
 }
 
-// Which side of its own line a link's slot sits on, as a signed distance across it. This is
-// what orders the lanes. A link leaving the top of its owner should stay above one leaving
-// the bottom, all the way to the other end.
+// Which side of its own line a link's slot sits on, as a signed distance across it, which
+// orders the lanes.
 function sideOfSlot(item) {
     const to = item.target || {x: (item.owner.x || 0) + 1, y: item.owner.y || 0};
     const span = Math.hypot((to.x || 0) - (item.owner.x || 0),
@@ -1853,19 +1567,15 @@ function sideOfSlot(item) {
     return (seat.x * -uy) + (seat.y * ux);
 }
 
-// Which slot every link sits on, by link name. Worked out once for the whole document and
-// read by both the rim and the badge, so the dash the ring leaves out is the same position
-// the contract is drawn at. A link written before slots existed has none of its own and is
-// placed on the first one free, which keeps an older document readable without rewriting it.
+// Which slot every link sits on, by link name, for both the rim and the badge. A link with
+// no slot of its own gets the free one nearest its first consumer.
 export function slotIndex(design) {
     const byName = new Map((design.entities || []).map((entity) => [entity.name, entity]));
     const byOwner = new Map();
     const found = new Map();
     for (const link of design.links || []) {
         const held = byOwner.get(link.owner) || [];
-        // Where a link with no slot of its own is put. Toward the entity it runs to, which is
-        // where somebody dragging it would have put it. Starting them all at the top would
-        // send half of every existing project's links back across their own owner.
+        // A link with no slot goes toward the entity it runs to.
         const owner = byName.get(link.owner);
         const consumer = byName.get((link.consumers || [])[0]);
         const toward = owner && consumer ? turnsToward(owner, consumer) : 0.25;
@@ -1879,17 +1589,11 @@ export function slotIndex(design) {
     return found;
 }
 
-// How far past the back of a front a drop still lands on it. The scope names are inside the
-// outline now, so this is slack around the dots on the edge rather than room for a column of
-// words hanging off the node. At 52 it was a strip of empty canvas half a node wide that
-// still counted as the edge.
+// How far past the back of a front a drop still lands on it.
 const SEAT_REACH = 8;
 
-// The entity under a point on the canvas, or null. Used when a link is dropped, where what
-// matters is which node the pointer is over rather than which element answered the event.
-//
-// By the node's own shape, because they are not all discs. A front is a wedge with its scope
-// seats and their names along the back, and a circle around the middle of it covers neither.
+// The entity under a point on the canvas, or null, by each node's shape. Used when a link is
+// dropped.
 export function entityAt(design, point) {
     const fronts = frontsOf(design);
     let closest = null;
@@ -1912,8 +1616,7 @@ function discReach(local) {
     return span <= NODE_RADIUS + DROP_SLACK ? span : null;
 }
 
-// The same for a front. The box its wedge and its labelled seats occupy. A box rather than
-// the outline itself, because what is being aimed at out here is a word, and a word is a box.
+// The same for a front: the box its wedge and labelled seats occupy.
 function frontReach(local) {
     const left = FRONT_TIP - DROP_SLACK;
     const right = FRONT_BACK + SEAT_REACH;

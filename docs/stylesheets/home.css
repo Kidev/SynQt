@@ -61,13 +61,11 @@
 
 /* --- Hero -------------------------------------------------------------------- */
 
-/* No background here any more (the fixed body gradient in extra.css shows
-   straight through). This is the two column layout, text left, the
-   wordmark large on the right in place of the old animated diagram (moved to
-   "What it looks like" below, where it illustrates something concrete instead
-   of being decorative). Padding is asymmetric and smaller on top than
-   the old hero, so the eyebrow/headline sit close under the header rather
-   than centered in a tall band. */
+/* The two column layout: text on the left, the wordmark large on the right (the animated
+   diagram is under "What it looks like" below, where it illustrates something concrete). No
+   background (the fixed body gradient in extra.css shows through). Padding is asymmetric
+   and smaller on top, so the eyebrow and headline sit close under the header rather than
+   centered in a tall band. */
 .synqt-hero__inner {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
@@ -152,11 +150,11 @@
   max-width: 34rem;
 }
 
-/* Each install box is now a flex row. A small platform icon (Linux / Windows)
-   marking which shell the command is for, then the command block itself. The
-   icon is a fixed-size, non-shrinking leading item. The `.highlight` takes the
-   rest of the row and keeps `min-width: 0` so its inner `code` (overflow: auto)
-   can still scroll on a narrow screen instead of forcing the box wider. */
+/* Each install box is a flex row: a small platform icon (Linux / Windows) marking which
+   shell the command is for, then the command block itself. The icon is a fixed-size,
+   non-shrinking leading item. The `.highlight` takes the rest of the row and keeps
+   `min-width: 0` so its inner `code` (overflow: auto) can still scroll on a narrow screen
+   instead of forcing the box wider. */
 .synqt-hero__install {
   display: flex;
   align-items: center;
@@ -456,7 +454,7 @@
 }
 
 /* --- The project tree -----------------------------------------------------
-   The five files as they would sit on disk, in a column down the left of the file
+   The files as they would sit on disk, in a column down the left of the file
    view, where the design editor keeps its own. It is the same set of triggers as
    the drawing above it, in the shape a reader already knows, so a file whose place
    in the mesh is not obvious (the contracts, on the lines between entities) is
@@ -685,12 +683,10 @@
   font-family: var(--md-code-font-family, "Roboto Mono", monospace);
   font-size: var(--synqt-code-size);
   min-width: 0;
-  /* And `min-height: 0` for the same reason in the other direction. A grid item's
-     default is `auto`, which means "at least as tall as what is in it", so without
-     this the longest file pushed the panel past the fixed height above and its last
-     lines were drawn below the box, on the page background, instead of scrolling
-     inside it. Every element from here down to the file already carried it. This
-     was the one that did not. */
+  /* And `min-height: 0` for the same reason in the other direction. A grid item's default
+     is `auto`, "at least as tall as what is in it", so without this the longest file would
+     push the panel past the fixed height above and draw its last lines below the box
+     instead of scrolling inside it. Every element from here down to the file carries it. */
   min-height: 0;
 }
 
@@ -776,7 +772,7 @@
 }
 
 /* Every file starts at the top of the panel. Centering a short one in the space
-   instead reads better standing still, but the five files are read one after
+   instead reads better standing still, but the files are read one after
    another: each change of file would then slide the code up or down by half the
    difference in their lengths, under a pointer that is on its way to a line.
    The file ends where the file ends. A short one leaves the rest of the panel
@@ -897,12 +893,11 @@
   border-left-color: #00a6ed;
 }
 
-/* A line whose explanation names a page (the glossary's `data-href`) opens it:
-   the runtime accessors go to their class in the C++ reference, the rest to the
-   page of the docs that covers them. The arrow appears on the line under the
-   pointer, which is the line whose explanation is being read and so the only one
-   the reader can act on. Drawn on all of them at once it was six arrows down the
-   right of a file that is meant to read as code. */
+/* A line whose explanation names a page (the glossary's `data-href`) opens it: the runtime
+   accessors go to their class in the C++ reference, the rest to the docs page that covers
+   them. The arrow appears only on the line under the pointer, the line whose explanation is
+   being read and so the only one the reader can act on; on every line at once it would
+   clutter a file that is meant to read as code. */
 .synqt-code__line--linked {
   cursor: pointer;
 }
@@ -961,10 +956,31 @@
   opacity: 1;
 }
 
-/* How to use the panel, said once, quietly, and out of the way of the box above
-   it. As the placeholder inside that box, the loudest
-   element in the panel would carry an instruction most of the time and the
-   explanations would have to share its voice. */
+/* Code in a note, as a chip: the same box the drawing's cards put a name or a scope in, so a
+   note and a card write code the same way. */
+.md-typeset .synqt-flow__chip {
+  display: inline-block;
+  padding: 0 .3em;
+  margin: 0;
+  border: 1px solid #6a5b99;
+  border-radius: .25rem;
+  background: #241848;
+  color: #c3c4e6;
+  font-family: var(--md-code-font-family, monospace);
+  font-size: .95em;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.md-typeset .synqt-flow__chip--scope {
+  color: #e5e7ff;
+  font-weight: 700;
+}
+
+/* How to use the panel, in small print below the box. As the placeholder inside
+   that box, the loudest element in the panel would carry an instruction most of
+   the time and the explanations would have to share its voice. */
 .synqt-flow__note {
   flex: none;
   font-family: var(--md-text-font-family, sans-serif);
@@ -975,9 +991,8 @@
 }
 
 /* Too narrow for a file and a tree side by side. The tree keeps its job and
-   loses its shape. The five files as a wrapped row of names above the file, with
-   the directories dropped, since a path is not worth two lines of a phone
-   screen.
+   loses its shape. The files as a wrapped row of names above the file, with the
+   directories dropped, since a path is not worth two lines of a phone screen.
 
    The width is where the tree's column stops being affordable rather than where
    it stops fitting. The longest line of these files is 83 columns (the UPDATE in
@@ -1135,15 +1150,14 @@
 
 /* --- "Why SynQt": a quiet divided row instead of Material's boxed cards ---- */
 
-/* A fixed column count (not Material's auto-fit) so which item starts a new
-   row is known up front. Auto-fit's wrap point depends on viewport width, and
-   whichever card lands first in a wrapped row would still get a hairline
-   `border-left` from the rule below with nothing to its left to divide from.
+/* A fixed column count (not Material's auto-fit) so which item starts a new row is known up
+   front. Auto-fit's wrap point depends on viewport width, and whichever card lands first in
+   a wrapped row would still get a hairline `border-left` from the rule below with nothing
+   to its left to divide from.
 
-   Three, because there are six of them. It was five, from when there were five,
-   and the sixth card then sat alone on a row four fifths empty with a hairline
-   down its left dividing it from nothing. A count that divides the number of
-   cards is the whole requirement here. The rules below key off it. */
+   Three, because there are six cards. The count must divide the number of cards, or the
+   last one sits alone on a mostly empty row with a hairline dividing it from nothing. The
+   rules below key off it. */
 .md-content--home .md-typeset .grid.cards {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   column-gap: 0;

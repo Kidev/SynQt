@@ -24,8 +24,7 @@ def _copy(tmp_path, name):
 
 
 def _feeds():
-    """A new entity to hang a new connect point off. An entity has one, so a test that
-    wants a second point in gavel wants a second entity too."""
+    """A new entity to own a second connect point (one point per entity)."""
     return {"name": "feeds", "type": "service", "provider": "", "targets": [],
             "identity": False, "shared": True, "x": 680, "y": 200}
 
@@ -52,9 +51,7 @@ def test_an_unchanged_document_changes_nothing(tmp_path):
 
 
 def test_moving_a_node_on_the_canvas_is_not_a_change_to_the_project(tmp_path):
-    """Where a box sits is a drawing. If it reached synqt.yaml, every pan of the canvas
-    would ask the author to approve a diff of their configuration.
-    """
+    """Canvas positions are layout and never reach synqt.yaml."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     for entity in document["entities"]:
@@ -63,8 +60,7 @@ def test_moving_a_node_on_the_canvas_is_not_a_change_to_the_project(tmp_path):
 
 
 def test_the_document_carries_the_qml_that_is_actually_on_disk(tmp_path):
-    """The editor's files pane shows the project as it is, so a Source somebody has already
-    implemented has to arrive as what they wrote and not as the stub it started life as."""
+    """The document carries the Source on disk, not the stub it started as."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     auction = next(link for link in document["links"] if link["owner"] == "edge")
@@ -73,9 +69,8 @@ def test_the_document_carries_the_qml_that_is_actually_on_disk(tmp_path):
 
 
 def test_qml_the_editor_only_read_is_not_written_back(tmp_path):
-    """The whole hazard of carrying a copy of every file: somebody edits the Source
-    in their own editor while this page is open, and applying anything at all reverts it to
-    what the page read when it loaded. Only text the page marked as typed is text to write.
+    """Only text the page marked as typed is written, so an edit made elsewhere while the page
+    is open is not reverted.
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
@@ -100,11 +95,49 @@ def test_qml_typed_into_the_editor_is_written(tmp_path):
     assert "was edited" in written.reason
 
 
+def test_the_document_carries_every_other_file_in_an_entitys_folder(tmp_path):
+    """The document carries every other file in an entity folder (client QML beside Main.qml,
+    the edge mapping hook in identity/).
+    """
+    project = _copy(tmp_path, "chat")
+    entities = {entity["name"]: entity for entity in designdoc.read(project)["entities"]}
+    carried = {one["path"]: one["text"] for one in entities["app"]["files"]}
+    assert set(carried) == {"Admin.qml", "Message.qml", "User.qml"}
+    assert carried["User.qml"] == (project / "client/app/User.qml").read_text(encoding="utf-8")
+    assert [one["path"] for one in entities["edge"]["files"]] == ["identity/map.qml"]
+    # The entity's own file and its table are carried under their own keys, never twice.
+    assert "files" not in entities["store"]
+
+
+def test_a_companion_file_is_written_only_when_it_was_edited(tmp_path):
+    project = _copy(tmp_path, "chat")
+    document = designdoc.read(project)
+    app = next(entity for entity in document["entities"] if entity["name"] == "app")
+    user = next(one for one in app["files"] if one["path"] == "User.qml")
+    user["text"] = user["text"].replace("clip: true", "clip: false")
+    assert designplan.compute(project, document).changes == ()
+    user["edited"] = True
+    written = next(change for change in designplan.compute(project, document).changes
+                   if change.path == "client/app/User.qml")
+    assert written.action == "edit"
+    assert "clip: false" in written.after
+
+
+def test_a_companion_path_cannot_leave_its_entitys_folder(tmp_path):
+    """A companion path from the browser cannot leave its entity folder or name a file kind the
+    document never carries.
+    """
+    project = _copy(tmp_path, "chat")
+    document = designdoc.read(project)
+    app = next(entity for entity in document["entities"] if entity["name"] == "app")
+    app["files"] = [{"path": "../../web/edge/Edge.qml", "text": "hijacked", "edited": True},
+                    {"path": "/tmp/escape.qml", "text": "hijacked", "edited": True},
+                    {"path": "run.sh", "text": "hijacked", "edited": True}]
+    assert designplan.compute(project, document).changes == ()
+
+
 def test_a_client_drawn_in_the_editor_gets_the_file_it_cannot_start_without(tmp_path):
-    """`engine.loadFromModule(uri, "Main")` is what the generated client main.cpp does, so a
-    client with no Main.qml builds, loads, logs nothing and renders a blank page. Adding one
-    in the editor must not produce that, an entity in synqt.yaml with an empty
-    directory beside it."""
+    """A client drawn in the editor gets `Main.qml`, which the generated main loads."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"].append({"id": "kiosk", "name": "kiosk", "type": "client",
@@ -136,10 +169,9 @@ def _stray_comments(text):
 
 
 def test_an_entity_dragged_onto_the_canvas_gets_a_file_with_no_commentary(tmp_path):
-    """The command line's scaffolds explain themselves in comments because a terminal has
-    nowhere else to say it. The editor is a drawing with a panel that already says what each
-    kind of entity is, so the same paragraphs would arrive a second time beside the picture
-    that made the point first. The licence header is not commentary and stays."""
+    """An entity added in the editor gets its scaffold without commentary; the licence header
+    stays.
+    """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"].append({"id": "new", "name": "entries", "type": "cache",
@@ -164,11 +196,7 @@ def test_a_source_the_plan_scaffolds_carries_no_commentary_either(tmp_path):
 
 
 def test_the_change_set_holds_nothing_out_of_generated(tmp_path):
-    """`synqt add entity` ends in appgen.generate, and so does the plan that runs it, so
-    a change set that added an entity would carry the whole generated tree, the mains,
-    the contracts, and the QML mirror. None of it is a change anybody reviews, and a diff
-    that asks for it is asking somebody to read machine output to find their own two lines.
-    """
+    """The change set holds nothing under generated/, which the scaffolders regenerate."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"].append({"id": "new", "name": "entries", "type": "cache",
@@ -190,17 +218,15 @@ def test_adding_a_link_writes_what_crosses_it_onto_the_point(tmp_path):
     config = next(c for c in plan.changes if c.path == "synqt.yaml")
     assert "export: |" in config.after
     assert "prop real spot" in config.after
-    # And no file of its own for anybody to write. The shape of a link is written on the
-    # link. The `.syn` under generated/ is the build's own copy of that block.
+    # No contract file is written; the contract lives on the link.
     assert not any(change.path.endswith(".syn")
                    and not change.path.startswith("generated/")
                    for change in plan.changes)
 
 
 def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path):
-    """The panel takes a member's name as text, and `record` opens a record declaration in
-    the grammar. Written out it is worse than a build error. The editor reads the project
-    through the same parser, so applying it left the project it had written unopenable.
+    """A member named `record` (a grammar keyword) is refused, since it would make the project
+    unreadable by the editor's own parser.
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
@@ -221,10 +247,7 @@ def test_a_member_named_after_a_keyword_is_refused_rather_than_written(tmp_path)
 
 
 def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
-    """Drawing a link is the whole gesture, so both halves of a connect point come out of
-    it: the contract that says what may cross, and the QML on the owner that implements it.
-    Leaving the second to be remembered is how a drawn topology fails at start-up.
-    """
+    """A new link gets an empty Source on its owner."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"].append(_feeds())
@@ -239,9 +262,7 @@ def test_a_new_link_gets_an_empty_source_on_its_owner(tmp_path):
 
 
 def test_a_source_typed_before_the_first_apply_is_written_as_typed(tmp_path):
-    """A link drawn and implemented in the editor in one sitting. The Source does not exist
-    on disk yet, and what was typed into the pane is what it is, not the empty stub a link
-    with nothing typed gets."""
+    """A Source typed before the first apply is written as typed."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"].append(_feeds())
@@ -257,8 +278,7 @@ def test_a_source_typed_before_the_first_apply_is_written_as_typed(tmp_path):
 
 
 def test_an_entity_whose_file_went_missing_gets_it_back(tmp_path):
-    """An entity that is in synqt.yaml with an empty directory beside it cannot be opened, and
-    applying the design is the moment to put its file back rather than leave it missing."""
+    """An entity whose file is missing gets it back on apply."""
     project = _copy(tmp_path, "gavel")
     main = project / "client" / "app" / "Main.qml"
     main.unlink()
@@ -279,8 +299,7 @@ def test_a_source_the_project_already_has_is_left_where_it_is(tmp_path):
 
 
 def test_a_link_owned_by_an_entity_being_deleted_grows_no_source(tmp_path):
-    """The owner is on its way out, so writing its Source would put back part of the
-    directory the same plan is taking away."""
+    """A link whose owner is being deleted gets no Source."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"] = [e for e in document["entities"] if e["name"] != "books"]
@@ -306,8 +325,7 @@ def test_deleting_an_entity_takes_its_points_its_directory_and_its_name_off_cons
     document["links"] = [l for l in document["links"] if l["owner"] != "books"]
     plan = designplan.compute(project, document)
     deleted = {c.path for c in plan.changes if c.action == "delete"}
-    # The whole folder goes, contract included: an entity's contracts live in it now,
-    # so retiring the entity retires what it said.
+    # The whole entity folder goes, contract included.
     assert "db/relational/books" in deleted
     assert all(c.reason for c in plan.changes)
     config = yaml.safe_load(
@@ -330,9 +348,7 @@ def test_a_deleted_entity_is_dropped_from_a_link_that_still_names_it(tmp_path):
 
 
 def test_clearing_a_field_takes_the_line_out_rather_than_writing_null(tmp_path):
-    """Unsetting is not setting to nothing. `type: null` left behind in the file
-    would read as a deliberate statement about the entity instead of the absence of one.
-    """
+    """Clearing a field removes the line instead of writing `null`."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     next(e for e in document["entities"] if e["name"] == "edge")["type"] = "service"
@@ -355,14 +371,10 @@ def test_an_illegal_topology_is_not_ok(tmp_path):
 
 
 def test_the_scope_a_document_does_not_carry_is_still_validated(tmp_path):
-    """The document draws the topology and nothing else, so the rest of the configuration
-    has to reach the validator anyway. Otherwise a plan is checked against a project more
-    permissive than the one it is about to write.
-    """
+    """Configuration the document does not model still reaches the validator."""
     project = _copy(tmp_path, "arena")
-    # The `arena` point requires scope 'player'. Take that scope out of the vocabulary and
-    # the point becomes unreachable, which check.validate can only say if the scope reached
-    # it. The document carries no scope of its own.
+    # The `arena` point requires scope 'player'. Removing that scope from the vocabulary
+    # makes it unreachable, which validate can only report if the scope reached it.
     config = (project / "synqt.yaml").read_text()
     (project / "synqt.yaml").write_text(
         config.replace("order: [anonymous, player]", "order: [anonymous]"))
@@ -433,10 +445,9 @@ def test_execute_writes_exactly_what_the_plan_said(tmp_path):
 
 
 def test_drawing_a_monitor_scaffolds_the_whole_monitor(tmp_path):
-    """A monitor is four things and the editor draws one node, so applying it has to run the
-    real scaffolder rather than write the block the node stands for. The console client, the
-    sign-in page and the `monitoring.entity` line are the three that are easy to leave out,
-    and a monitor missing any of them is a store nobody reads or a console with no gate."""
+    """Drawing a monitor runs the real scaffolder: console client, sign-in page and
+    `monitoring.entity` included.
+    """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"].append({"name": "ops", "type": "monitor", "provider": "",
@@ -456,10 +467,7 @@ def test_drawing_a_monitor_scaffolds_the_whole_monitor(tmp_path):
 
 
 def test_the_console_a_drawn_monitor_brought_is_not_removed_by_the_next_apply(tmp_path):
-    """The scaffolder adds an entity the drawing never had, so the document the editor holds
-    is behind the project the moment the plan lands. A second apply reading that document
-    would see a client nobody drew and take it out, which would delete the console and leave
-    the gate pointing at nothing."""
+    """A second apply keeps the console the scaffolder added, though the drawing never had it."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"].append({"name": "ops", "type": "monitor", "provider": "",
@@ -518,9 +526,7 @@ def test_deleting_an_entity_removes_the_directory_from_disk(tmp_path):
 
 
 def test_a_failed_deletion_puts_the_whole_directory_back(tmp_path, monkeypatch):
-    """A delete is the one change a reader cannot undo by hand, so the rollback has to
-    carry the files rather than only the fact that a directory was there.
-    """
+    """A failed deletion restores the directory's files."""
     project = _copy(tmp_path, "gavel")
     inside = {p.name: p.read_text() for p in (project / "db" / "relational" / "books").iterdir()}
     document = designdoc.read(project)
@@ -547,8 +553,7 @@ def test_the_summary_names_every_change_that_was_made(tmp_path):
 
 
 def test_taking_a_member_off_a_link_takes_it_off_the_point(tmp_path):
-    """A link's shape lives on the link, so retiring part of it is an edit to one block of
-    synqt.yaml and touches nothing else."""
+    """Removing a member from a link edits only that link's block."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     ledger = next(l for l in document["links"] if l["owner"] == "books")
@@ -567,13 +572,11 @@ def test_a_type_the_scaffolder_refuses_comes_back_as_a_plan_error(tmp_path):
         designplan.compute(project, document)
 
 
-# Every setting the panel offers has to reach the file it is written in. A control that moves
-# and changes nothing is worse than a missing one: it says the project was changed.
+# Every setting the panel offers reaches the file.
 
 
 def test_taking_the_sharing_off_an_entity_writes_it(tmp_path):
-    """`shared: false` is the only half of the field a file carries, so it was the half that
-    never arrived. The writer asked whether the value was truthy, and `False` is not."""
+    """`shared: false` is written (a truthiness test would drop it)."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     next(e for e in document["entities"] if e["name"] == "edge")["shared"] = False
@@ -585,8 +588,7 @@ def test_taking_the_sharing_off_an_entity_writes_it(tmp_path):
 
 
 def test_putting_the_sharing_back_takes_the_line_off_again(tmp_path):
-    """Shared is the default, so the file says nothing about it. A project that read back
-    `shared: true` would carry a line stating what its absence already states."""
+    """Setting shared back removes the line; shared is the default."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     next(e for e in document["entities"] if e["name"] == "edge")["shared"] = False
@@ -601,8 +603,7 @@ def test_putting_the_sharing_back_takes_the_line_off_again(tmp_path):
 
 
 def test_gating_a_point_behind_a_scope_writes_it(tmp_path):
-    """The scope a browser needs before it acquires the point at all. The panel offered it,
-    the drawing board wrote it, and the plan left it out of the fields it patches."""
+    """A point's scope set in the panel is written."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     next(l for l in document["links"] if l["owner"] == "books")["scope"] = "moderator"
@@ -627,9 +628,7 @@ def test_a_point_with_no_scope_carries_none(tmp_path):
 
 
 def test_the_routing_drawn_on_a_front_is_written(tmp_path):
-    """Dragging from a scope on an edge's back to the entity that serves it is the one
-    gesture the wedge exists for, and it reached no file at all. `behind` was neither read
-    out of the project nor patched into it."""
+    """The `behind` routing drawn on a front is written."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["entities"].append(_feeds())
@@ -644,18 +643,14 @@ def test_the_routing_drawn_on_a_front_is_written(tmp_path):
 
 
 def test_a_front_the_project_already_has_is_read_back_as_one(tmp_path):
-    """The other half. A project whose edge is already a front has to arrive at the canvas
-    as one, or opening it draws a plain disc and applying anything at all takes the routing
-    off the project."""
+    """A front already in the project reads back as one."""
     project = tmp_path / "fronted"
     shutil.copytree(Path(__file__).resolve().parents[3] / "tests" / "appgen-native"
                     / "fronted", project)
     document = designdoc.read(project)
     gate = next(l for l in document["links"] if l["owner"] == "gate")
     assert gate["behind"] == {"anonymous": "lobby", "admin": "backoffice"}
-    # Nothing to say about the configuration. What was read is what is wanted. (A front
-    # implements nothing, so this fixture has no file of its own for the edge, and the plan
-    # offering to write one is a separate matter from the routing.)
+    # Nothing to change. (A front has no Source file; that is a separate matter.)
     assert not [c for c in designplan.compute(project, document).changes
                 if c.path == "synqt.yaml"]
 
@@ -685,9 +680,7 @@ def test_an_edge_that_stops_being_a_front_loses_the_block(tmp_path):
 
 
 def test_the_document_carries_the_table_that_is_actually_on_disk(tmp_path):
-    """The pane renders a relational entity's schema.sql from the document, so an entity
-    whose schema was not carried showed the scaffold's table however far the project's own
-    had moved on."""
+    """The document carries the schema.sql on disk."""
     project = _copy(tmp_path, "gavel")
     schema = project / "db" / "relational" / "books" / "schema.sql"
     assert designdoc.read(project)
@@ -710,8 +703,7 @@ def test_a_table_typed_into_the_editor_is_written(tmp_path):
 
 
 def test_a_table_the_editor_only_read_is_not_written_back(tmp_path):
-    """The same hazard the QML has. Somebody edits schema.sql in their own editor while this
-    page is open, and applying anything at all reverts it to what the page read."""
+    """A schema the editor only read is not written back."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     schema = project / "db" / "relational" / "books" / "schema.sql"
@@ -720,15 +712,12 @@ def test_a_table_the_editor_only_read_is_not_written_back(tmp_path):
 
 
 def test_bundles_is_a_modelled_entity_field():
-    # An entity field the document does not model is one the editor drops on the next
-    # save. For `bundles:` that would silently hand a private bundle to the public.
+    # `bundles:` must survive a save.
     assert "bundles" in designplan._ENTITY_FIELDS
 
 
 def test_a_scope_added_in_the_editor_reaches_the_file(tmp_path):
-    """The vocabulary is editable now, because it has to be, since the mapping hook started
-    answering with a generated enum, `scopes.order` is that enum's members, and a project
-    whose scopes can only be typed into synqt.yaml is one the editor cannot finish."""
+    """A scope added in the editor reaches the file."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["scopes"] = list(document["scopes"]) + ["auditor"]
@@ -738,9 +727,7 @@ def test_a_scope_added_in_the_editor_reaches_the_file(tmp_path):
     written = yaml.safe_load(plan.changes[0].after)
     assert written["scopes"]["order"] == ["anonymous", "user", "moderator", "admin",
                                           "auditor"]
-    # And it is a line in the change set, not a silent rewrite. A reorder renumbers every
-    # member of the generated enum, so it is exactly the kind of edit somebody should see
-    # named before approving it.
+    # And it is named in the change set: a reorder renumbers the generated enum.
     assert "scopes are" in plan.changes[0].reason
 
 
@@ -756,10 +743,7 @@ def test_reordering_scopes_is_carried_because_the_order_is_the_ranking(tmp_path)
 
 
 def test_a_default_that_is_no_longer_declared_falls_back_to_the_first_scope(tmp_path):
-    """`scopes.default` has to name one of the declared scopes or the project will not even
-    configure, so this is the one reference an edit of the vocabulary does settle for you.
-    It settles it by rank and not by guessing at a rename. The first scope is the one a
-    caller with no session was always going to hold."""
+    """A default that is no longer declared falls back to the first scope."""
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["scopes"] = ["visitor", "user", "moderator", "admin"]
@@ -769,8 +753,7 @@ def test_a_default_that_is_no_longer_declared_falls_back_to_the_first_scope(tmp_
 
 
 def test_a_default_that_is_not_the_first_scope_survives_a_round_trip(tmp_path):
-    """A project may hold an unusual default, and reading a document and writing it back is
-    the one operation that must never be an edit."""
+    """An unusual default survives a read and write unchanged."""
     project = _copy(tmp_path, "gavel")
     config = yaml.safe_load((project / "synqt.yaml").read_text())
     config["scopes"]["default"] = "user"
@@ -781,34 +764,25 @@ def test_a_default_that_is_not_the_first_scope_survives_a_round_trip(tmp_path):
 
 
 def test_renaming_a_scope_leaves_its_uses_alone_and_the_plan_says_so(tmp_path):
-    """A rename edits the vocabulary and nothing else.
-
-    Working out that a row was typed over, rather than one scope removed and another added,
-    means guessing it from two snapshots of a list, and a guess that lands wrong rewrites a
-    gate or a mapping hook nobody pointed at. So nothing guesses. The uses keep naming the
-    old scope, `synqt check` names every one of them, and the plan is refused until somebody
-    says what they hold now.
+    """A rename edits the vocabulary only. Gates and hooks keep the old name, `synqt check`
+    names each one, and the plan is refused until they are fixed.
     """
     project = _copy(tmp_path, "gavel")
     document = designdoc.read(project)
     document["scopes"] = ["anonymous", "bidder", "moderator", "admin"]
     plan = designplan.compute(project, document)
-    # One file, and it is the vocabulary. Not the mapping hook, which still answers with the
-    # member it always did, and not the connect points it gates.
+    # One file changes: the vocabulary.
     assert [change.path for change in plan.changes] == ["synqt.yaml"]
     hook = (project / "web" / "edge" / "identity" / "map.qml").read_text()
     assert "Scope.User" in hook
-    # And the refusal is the point of the exercise. It names what is dangling, on the sheet,
-    # before there is anything to apply.
+    # The refusal names what is dangling.
     assert not plan.ok
     assert any("'user'" in finding and "scopes.order" in finding
                for finding in plan.findings), plan.findings
 
 
 def test_a_project_with_no_scopes_block_gets_a_whole_one(tmp_path):
-    """The editor draws the four a scaffold starts with for a project that declares none, so
-    editing that list has to write a section rather than a key under a parent that is not
-    there. Raising on the missing parent would take the whole change set with it."""
+    """A project with no scopes block gets a whole section written."""
     project = _copy(tmp_path, "gavel")
     config = yaml.safe_load((project / "synqt.yaml").read_text())
     del config["scopes"]
@@ -819,7 +793,6 @@ def test_a_project_with_no_scopes_block_gets_a_whole_one(tmp_path):
     plan = designplan.compute(project, document)
     written = yaml.safe_load(
         [change for change in plan.changes if change.path == "synqt.yaml"][0].after)
-    # The two settings that belong beside the order, because a section holding an order
-    # alone is one somebody has to finish by hand.
+    # With the settings that belong beside the order.
     assert written["scopes"] == {"order": ["anonymous", "user"], "hierarchical": True,
                                  "default": "anonymous"}

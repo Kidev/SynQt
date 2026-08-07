@@ -26,7 +26,7 @@ import { NODE_RADIUS, ROLE_HELP, draw, element, entityAt, extent, glyphSvg, link
 import { inspect, openWhenDrawn } from "./inspector.js";
 import { clearHighlight as unlight, highlight as applyHighlight, hoverKey,
          litSelection } from "./light.js";
-import { tipFor, whatIsUnder } from "./tip.js";
+import { placeTip, tipFor, whatIsUnder } from "./tip.js";
 import { makeEditor } from "./editor.js";
 import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
@@ -50,16 +50,15 @@ const ROW_HEIGHT = 192;
 
 const ZOOM_RANGE = [0.35, 2.4];
 
-// The coarse grid the paper is ruled at (design.css `--grid-coarse`), and the step an entity
-// settles onto. A twentieth of it. Kept in step with the CSS by hand, because the two are read
-// by different things and neither can ask the other. The node checker asserts they agree.
+// The coarse grid the paper is ruled at (design.css `--grid-coarse`), and the step an
+// entity settles onto: a twentieth of it. Kept in step with the CSS by hand, because the
+// two are read by different things and neither can ask the other. The node checker asserts
+// they agree.
 //
-// A twentieth rather than a free position, so a drawing somebody dragged together lines up
-// without anybody nudging it. It was a fifth (64), which is coarse enough that nudging an
-// entity a little threw it a quarter of the way across its own zone. The step was doing the
-// arranging instead of the person. 16 is half the fine pitch the dots are drawn at, so an
-// entity settles either on a dot or exactly between two, and it still divides the three
-// columns and the row height below.
+// A step rather than a free position, so a drawing somebody dragged together lines up
+// without nudging; fine enough that a small nudge does not throw an entity across its zone.
+// 16 is half the fine pitch the dots are drawn at, so an entity settles on a dot or exactly
+// between two, and it still divides the three columns and the row height below.
 const GRID_COARSE = 320;
 const GRID_SNAP = GRID_COARSE / 20;
 
@@ -109,22 +108,20 @@ const state = {
     token: "",
     // Whether the files pane is open, which file it is reading, and whether the project is
     // open for editing. The pane opens with the page, because the files are what is being
-    // designed rather than a second opinion about it. Editing starts off, because reading a
-    // file is the common gesture and a keystroke over one you were reading is not an edit
-    // anybody asked for.
+    // designed. Editing starts off, because reading a file is the common gesture and a
+    // keystroke over a file being read is not an edit anybody asked for.
     //
-    // Editing is the project's state and not one file's. Following a declaration from one
-    // entity into another is three files in a minute, and a lock that had to be picked again
-    // on each of them was three interruptions in the middle of one thought. So the button
-    // says Edit files, and until it is pressed again every file the pane will take a
-    // keystroke over takes one. Which files those are is `editable`, and it does not move.
+    // Editing is one switch for the whole project. Following a declaration from one
+    // entity into another is three files in a minute, and a lock per file would interrupt
+    // that three times. So the button says Edit files, and until it is pressed again every
+    // file the pane will take a keystroke over takes one. Which files those are is
+    // `editable`, and it does not move.
     //
-    // `reading` is a file's path inside the project (`web/edge/Edge.qml`) and never the whole
-    // name it is listed under (`gavel/web/edge/Edge.qml`). The project's own directory is the
-    // first segment of every one of those and says nothing about which file a file is: keyed
-    // by the whole name, renaming the project in synqt.yaml renamed every name in the list at
-    // once, so the pane lost the file it was on and the rename being typed stopped after its
-    // first letter.
+    // `reading` is a file's path inside the project (`web/edge/Edge.qml`), never the whole
+    // name it is listed under (`gavel/web/edge/Edge.qml`). The project's directory is the
+    // first segment of every listed name and says nothing about which file a file is; keyed
+    // by the whole name, renaming the project in synqt.yaml would rename every entry at
+    // once, lose the open file, and stop the rename after its first letter.
     files: true,
     reading: "",
     editing: false,
@@ -429,12 +426,12 @@ function redraw() {
     // lit has to go with them. Left behind, the next pointermove over the same thing would
     // find its key unchanged and light nothing.
     state.hover = "";
-    // The handles a link is pulled from are the one exception, because they are not a mark on
-    // the drawing. They are the target. They appear on whichever entity the pointer is nearest
-    // and only answer the pointer while they do, so a redraw between the last move and the
-    // next press took them away under a stationary pointer, and a press where a handle had
-    // been landed on the canvas behind it and panned the view. Anything that redraws
-    // (selecting a node, typing into a file, the panel changing a setting) did it.
+    // The handles a link is pulled from are the one exception, because they are not a mark
+    // on the drawing but the target. They appear on whichever entity the pointer is nearest
+    // and answer the pointer only while they do, so a redraw between the last move and the
+    // next press (selecting a node, typing into a file, the panel changing a setting) would
+    // take them away under a stationary pointer, and the press would land on the canvas and
+    // pan the view.
     if (state.pointer && !drag) {
         showSlotsNear(state.pointer);
     }
@@ -504,11 +501,11 @@ function openFile() {
 
 // What a file belongs to on the canvas, so that opening one selects it there.
 //
-// The entity, always. A file sits in an entity's folder and is that entity's own code, whether
-// or not the entity also exports a connect point out of it. Selecting the point instead put
-// the panel on the contract when what was opened was a file, and left the node the file
-// belongs to unlit on the canvas. The connect point is one click away on its own icon.
-// synqt.yaml belongs to the whole project and selects nothing.
+// The entity, always. A file sits in an entity's folder and is that entity's own code,
+// whether or not the entity also exports a connect point out of it; selecting the point
+// would put the panel on the contract and leave the file's own node unlit. The connect
+// point is one click away on its own icon. synqt.yaml belongs to the whole project and
+// selects nothing.
 function holderOf(file) {
     if (file.owner) {
         return {kind: "entity", name: file.owner};
@@ -616,9 +613,10 @@ function fillTree(list, dir, current, depth, under = "") {
         const path = under ? `${under}/${child.name}` : child.name;
         row.dataset.folder = path;
         // The glyph, in the entity's own colour, on the directory that IS the entity: the one
-        // holding its files. A directory above that is the entity's type and holds several, so
-        // it takes the plain folder mark and says only how they are grouped.
-        const entity = entityOf((child.files[0] || {}).name || "");
+        // holding its files. A directory above that is the entity's type and holds several,
+        // and one inside it is a folder of the entity's own, so both take the plain folder mark.
+        const holder = entityOf((child.files[0] || {}).name || "");
+        const entity = holder && entityDir(holder) === path ? holder : null;
         row.className = "tree__folder"
             + (entity ? ` tree__folder--${roleOf(entity)}` : " tree__folder--plain");
         row.style.setProperty("--depth", String(depth));
@@ -675,9 +673,8 @@ function renderProject() {
     const reading = isConfig(open) && state.configText
         ? {...open, text: state.configText} : open;
     if (isConfig(open)) {
-        // The way back is there before the first keystroke, not after the first one that
-        // happened to parse. A reader who cannot see it before they type is a reader who does
-        // not type.
+        // The way back is there before the first keystroke. A reader who cannot see it before
+        // they type is a reader who does not type.
         if (!state.lastGood) {
             rememberGood();
         }
@@ -685,19 +682,18 @@ function renderProject() {
         state.configText = "";
     }
     // The notice is on every file and nobody reads it twice. It comes off here and stays on
-    // everywhere the file is written. Read-only rather than not shown at all when it
-    // is locked. A file being read still has to be selectable and copyable.
-    // Named by where it sits in the project, which is what the editor keys a file by: the
-    // pane keeps a caret, an undo history and a scroll position per file, and the project's
-    // own directory changing its name is not a different file. Given the whole name, renaming
-    // the project in synqt.yaml handed the editor a new file on every keystroke, so the caret
-    // went back to the top of it and the rename stopped after one letter.
+    // everywhere the file is written. Read-only rather than hidden when the file is locked,
+    // because a file being read still has to be selectable and copyable. Named by where it
+    // sits in the project, which is what the editor keys a file by: the pane keeps a caret,
+    // an undo history and a scroll position per file, and the project's directory changing
+    // its name is not a different file. Keyed by the whole name, renaming the project in
+    // synqt.yaml would hand the editor a new file on every keystroke.
     const named = inProject(open.name);
     editor.show(named, withoutNotice(reading.text), !editable(open) || !state.editing);
     renderLock(open);
 }
 
-// The control names what pressing it does, not what the pane is doing: a button reading
+// The control names what pressing it does: a button reading
 // "Read-only" over a tree of files leaves it to be guessed whether that is the state or the
 // offer. It is never disabled, because it is about the project rather than about whichever
 // file happens to be open.
@@ -918,13 +914,13 @@ function absorb(file, text) {
 
 // What typing a declaration into an entity's own file did, said out loud.
 //
-// It does not cross by itself, so without this the page answered a line of code with nothing
-// at all and the one thing to do next was not on screen anywhere. The panel's list of what
-// the entity declares grows as it is typed. This says what that means and where the tick is.
+// It does not cross by itself, so without this the page would answer a line of code with
+// nothing and the next step would be nowhere on screen. The panel's list of what the entity
+// declares grows as it is typed; this says what that means and where the tick is.
 //
-// A rename is carried onto whatever already crosses, the same way the panel's own rename is:
-// a contract naming a member the owner no longer declares is an error the build reports and
-// never the thing anybody meant by editing the line.
+// A rename is carried onto whatever already crosses, as the panel's own rename is: a
+// contract naming a member the owner no longer declares is an error the build reports,
+// never what anybody meant by editing the line.
 function absorbDeclared(entity, declared) {
     const said = [];
     // What a file already declared when somebody first typed into it is not news. Without
@@ -940,7 +936,7 @@ function absorbDeclared(entity, declared) {
         if (opening || (before && before.member === one.name)) {
             continue;               // the line changed, the name on it did not
         }
-        // One name being typed, not two names on one line. Carried onto whatever already
+        // A name still being typed is one member. Carried onto whatever already
         // crosses, so the contract does not go on naming a member the file has renamed.
         const renamed = before
             && (before.member.startsWith(one.name) || one.name.startsWith(before.member));
@@ -966,13 +962,13 @@ function absorbDeclared(entity, declared) {
 // What the owner's own file says about the members already on its contract.
 //
 // It corrects, and it does not add. Declaring a property on an entity is writing that
-// entity's own code. It says nothing about who may see it, and a contract is exactly the list
-// of what an owner has agreed to say to somebody else. Adding here meant every line typed
-// into an owner's file walked straight out onto the wire, so a half-typed name went with it
-// and the contract collected `v`, `va`, `val` on the way to `value`.
+// entity's own code and says nothing about who may see it; a contract is the list of what
+// an owner has agreed to say to somebody else. Adding here would send every line typed into
+// an owner's file out onto the wire, half-typed names included (`v`, `va`, `val` on the way
+// to `value`).
 //
-// Two things put a member on a contract. Somebody ticks it, or a consumer's own code reaches
-// for it (absorbReferences). Both are somebody saying so.
+// Two things put a member on a contract: somebody ticks it, or a consumer's own code
+// reaches for it (absorbReferences). Both are somebody saying so.
 function absorbMembers(link, declared) {
     link.members = link.members || [];
     for (const one of declared) {
@@ -1066,10 +1062,10 @@ function renameTyped(consumer, link, one) {
 
 // The member a consumer's call site puts on a contract.
 //
-// What the owner declares, where it declares it. The call site says a name is read, called or
-// listened to, and the owner's own file says what type it is and what it takes. Guessing from
-// the call site alone gave every property `var` even where the owner said `int` two files
-// away, and left somebody correcting a type the project already knew.
+// What the owner declares, where it declares it. The call site says a name is read, called
+// or listened to, and the owner's own file says what type it is and what it takes. Guessed
+// from the call site alone, every property would be `var` even where the owner says `int`
+// two files away.
 function crossingMember(owner, reached) {
     const guess = reachedMember(reached);
     const declared = declarations(String(owner.qml || entityQml(owner)))
@@ -1168,7 +1164,7 @@ function focusFromCaret() {
 }
 
 function onSourceInput(typed) {
-    // Every keystroke into one file is one step to go back over, not one step per letter.
+    // All the keystrokes into one file make a single step to go back over.
     typingInto = state.reading;
     try {
         absorbTyped(typed);
@@ -1184,6 +1180,20 @@ function absorbTyped(typed) {
     }
     if (isConfig(open)) {
         absorbConfig(typed);
+        return;
+    }
+    // A file beside the entity's own, such as a QML file a client's window opens. Nothing on
+    // the canvas is read out of it, so it is stored and marked, and the server writes back
+    // only the ones marked.
+    if (open.companion) {
+        const entity = entityNamed(open.owner);
+        const kept = entity && (entity.files || []).find((one) => one.path === open.companion);
+        if (kept) {
+            const body = withoutNotice(open.text);
+            kept.text = open.text.slice(0, open.text.length - body.length) + typed;
+            kept.edited = true;
+            touched();
+        }
         return;
     }
     // A schema is SQL: it belongs to its entity and nothing on the canvas is read out of it,
@@ -1205,16 +1215,16 @@ function absorbTyped(typed) {
     // and only the pane ever shows a file without one.
     const notice = open.text.slice(0, open.text.length - withoutNotice(open.text).length);
     const whole = notice + text;
-    // `qmlEdited` is what tells the server this text was typed here rather than read from the
-    // disk a moment ago. Without it, a file somebody changed in their own editor since this
-    // page loaded would be written back to what it said then, and the design would have
-    // quietly reverted work nobody asked it to touch.
-    // Both of them, when the file is both. An entity and the connect point it exports are one
-    // file now, so the pane's text is the entity's own QML *and* the point's Source. The
+    // `qmlEdited` tells the server this text was typed here rather than read from the disk
+    // a moment ago. Without it, a file somebody changed in their own editor since this page
+    // loaded would be written back to what it said then, quietly reverting work nobody
+    // asked the design to touch.
+    //
+    // Both copies, when the file is both. An entity and the connect point it exports are
+    // one file, so the pane's text is the entity's own QML *and* the point's Source. The
     // panels read the entity's copy (that is where declaring writes) and the server reads
-    // whichever of the two is marked as typed. Writing only the link's copy, which is what
-    // this did, left a member typed into the file invisible to the list that ticks it onto a
-    // contract. The file said one thing and the panel offered another.
+    // whichever of the two is marked as typed; writing only the link's copy would leave a
+    // member typed into the file invisible to the list that ticks it onto a contract.
     const touchedItems = [];
     if (open.link) {
         touchedItems.push((state.design.links || []).find((one) => one.name === open.link));
@@ -1262,7 +1272,7 @@ function absorbConfig(text) {
             : String(error), "error");
         return;
     }
-    // Kept before the change, not after. What somebody wants back is the design they had
+    // Kept before the change. What somebody wants back is the design they had
     // before the edit that lost it, and it is only worth keeping when it is a design at all.
     rememberGood();
     state.design = read;
@@ -1307,13 +1317,7 @@ function showTip(what, at) {
     }
     page.tip.replaceChildren(body);
     page.tip.hidden = false;
-    // Placed after it is shown, so its measured size is the size it will have, and flipped to
-    // the other side of the pointer rather than allowed to open off the edge of the window.
-    const box = page.tip.getBoundingClientRect();
-    const x = at.x + 18 + box.width > window.innerWidth ? at.x - 18 - box.width : at.x + 18;
-    const y = Math.min(at.y + 12, window.innerHeight - box.height - 8);
-    page.tip.style.left = `${Math.max(8, x)}px`;
-    page.tip.style.top = `${Math.max(8, y)}px`;
+    placeTip(page.tip, what, at, page.canvas);
 }
 
 function hideTip() {
@@ -1462,14 +1466,14 @@ function openPicker(link, at) {
     page.picker.style.top = `${Math.max(8, y)}px`;
 }
 
-// Write one declaration into an entity's own QML, which is the same thing as typing it into
-// that file in the pane below. The entity is where a member lives, and a contract only ever
-// ticks from what is there.
+// Write one declaration into an entity's own QML, the same as typing it into that file in
+// the pane below. The entity is where a member lives, and a contract only ever ticks from
+// what is there.
 //
-// The line is built from a kind rather than typed as a string. A free-text box here asked
-// somebody to write QML into a prompt with no file around it, refused what it could not
-// parse, and left them guessing at the spelling. Every kind this page can read has a form,
-// so the form is what it offers. The name is a placeholder the panel then edits in the file.
+// The line is built from a kind rather than typed as a string, so nobody has to write QML
+// into a prompt with no file around it and guess at the spelling. Every kind this page can
+// read has a form, so the form is what it offers. The name is a placeholder the panel then
+// edits in the file.
 function declareOn(entity, member) {
     if (!entity) {
         return;
@@ -1986,16 +1990,16 @@ function select(what, follow = true) {
 
 // One line, selected the way pressing it selects it.
 //
-// A second click renames a node. A connect point has no name of its own to rename. The
+// A second click renames a node; a connect point has no name of its own to rename. The
 // consumer travels with the selection, because one line is one consumer of a contract they
 // all share, and the panel says less about a line than about the point.
 //
 // Unless it is the only line. Then the line and the point are the same selection to anybody
-// who drew them, and stopping at "this consumer" put a panel with one button on it between
+// who drew them, and stopping at "this consumer" would put a one-button panel between
 // somebody and the thing they clicked the line to edit.
 //
-// Shared with the break, so that pressing the cross on a broken line and pressing the line it
-// is drawn on are one gesture with one result.
+// Shared with the break, so pressing the cross on a broken line and pressing the line it is
+// drawn on are one gesture with one result.
 function selectLine(name, consumer) {
     const point = (state.design.links || []).find((one) => one.name === name);
     const alone = point && (point.consumers || []).length < 2;
@@ -2042,8 +2046,8 @@ function adopt(design) {
         sourceHash: design.sourceHash || "",
         entities: design.entities || [],
         // Without a `contract:` on any of them: it is the framework's own field, for the
-        // points whose contracts ship in the runtime libraries, and a project that writes it
-        // is refused. A document made before that rule carried one on every point.
+        // points whose contracts ship in the runtime libraries, and a project that writes
+        // it is refused.
         //
         // The owner is the identity, and `id`/`name` are derived from it here, once, so
         // everything downstream can go on keying by name without asking where it came from.
@@ -2139,7 +2143,7 @@ function capitalised(name) {
 function addLink(from, to, headed, at) {
     // A browser owns nothing. An owner hosts the Source and listens for consumers to
     // acquire it, and there is no WebSocket server under WebAssembly, so a line drawn from
-    // the browser is somebody saying which two entities talk, not which way the hosting
+    // the browser says which two entities talk and nothing about which way the hosting
     // goes. Turn it around and say so. The gesture works from either end, and only one of
     // the two links it could mean can be built.
     const drawnFromAClient = entityType(from) === "client" && entityType(to) !== "client";
@@ -2344,11 +2348,10 @@ function offerEntity(owner, spot, at) {
 // Deleting an entity takes every line that only existed because it was there: the points it
 // owned, and the points whose one consumer it was.
 //
-// The second half is the part that was missing. A point drops the name from its consumer list
-// and, if that list is now empty, becomes a stub drawn from its owner to nothing, which is
-// what a point deliberately disconnected looks like (disconnectLink) and is not what deleting
-// the thing at the other end means. A point that still has another consumer is left alone: it
-// lost one reader, not its reason to exist.
+// A point drops the name from its consumer list, and if that list is now empty it goes too:
+// a stub drawn from its owner to nothing is what a point deliberately disconnected looks
+// like (disconnectLink), not what deleting the thing at the other end means. A point that
+// still has another consumer is left alone: it only lost one reader.
 function removeEntity(entity) {
     const name = entity.name;
     state.design.entities = state.design.entities.filter((one) => one !== entity);
@@ -2375,14 +2378,14 @@ function removeEntity(entity) {
 
 // Every scope a front hands to somewhere it can no longer reach, taken off it.
 //
-// `behind:` names an entity, and the front reaches that entity by consuming the connect point
-// it owns. The two are one declaration, which is why drawing the routing draws the link.
-// Taking the link away has to take the routing with it. It did not, and the seat kept its
-// filled dot and went on hiding its own name, so the drawing showed a scope wired to
-// something with no line to it and no way to say which scope it was.
+// `behind:` names an entity, and the front reaches that entity by consuming the connect
+// point it owns. The two are one declaration, which is why drawing the routing draws the
+// link, and taking the link away has to take the routing with it. Otherwise the seat keeps
+// its filled dot and hides its own name, and the drawing shows a scope wired to something
+// with no line to it.
 //
 // Run after any edit that can break the pair, never while the configuration is being typed:
-// a half-written `behind:` block is somebody mid-sentence, not a routing to delete.
+// a half-written `behind:` block is still being typed and must survive.
 function pruneBehind() {
     const links = state.design.links || [];
     const known = new Set((state.design.entities || []).map((entity) => entity.name));
@@ -2527,9 +2530,8 @@ function onDown(event) {
     if (rim) {
         const from = entityNamed(rim.dataset.rim);
         // Every front's seats become visible drop targets for as long as this drag lasts. A
-        // line let go on one hands that scope to the entity it came from, and until the canvas
-        // said so, the only half of that gesture anybody found was the one that starts at the
-        // seat. The reverse worked and looked like nothing.
+        // line let go on one hands that scope to the entity it came from; without the
+        // targets shown, only the gesture that starts at the seat is discoverable.
         page.canvas.classList.add("is-linking");
         // Drawn from the handle that was grabbed rather than from the middle of the disc, so
         // a link pulled off the left of an entity leaves to the left. That is why there is a
@@ -2565,9 +2567,9 @@ function onDown(event) {
                 consumer: link.dataset.consumer || "", moved: false};
         return;
     }
-    // The block the browser is, or the one facing the internet. Pressing inside it takes the
-    // whole box and everything drawn in it. Last of the four, so a node or a link inside the
-    // box still answers for itself. Only the space around them belongs to the box.
+    // A box, pressed on its name or inside one of the two small boxes. It takes everything
+    // drawn in it. Last of the four, so a node or a link inside the box still answers for
+    // itself. Only the space around them belongs to the box.
     if (zone) {
         const inside = String(zone.dataset.inside || "").split(" ")
             .map(entityNamed).filter(Boolean);
@@ -2580,13 +2582,12 @@ function onDown(event) {
     page.canvas.classList.add("is-panning");
 }
 
-// Which entity the pointer is near enough to be reaching for, if any. Its node shows its free
-// slots. Every other node shows none.
+// Which entity the pointer is near enough to be reaching for, if any. Its node shows its
+// free slots; every other node shows none.
 //
-// This is a class toggled on nodes that are already drawn, never a redraw. The drawing is
-// rebuilt from the document on every change, and rebuilding it on every pointer move would
-// both cost more than it is worth and replace the element between a click and its partner,
-// which is how the canvas lost double-click the first time.
+// A class toggled on nodes already drawn, never a redraw. The drawing is rebuilt from the
+// document on every change, and rebuilding it on every pointer move would cost more than it
+// is worth and replace the element between a click and its partner, losing double-click.
 function showSlotsNear(at) {
     const reach = NODE_RADIUS * 2.4;
     let nearest = null;
@@ -2690,7 +2691,7 @@ function onMove(event) {
         // than by a step per event. Adding up steps drifts, and the box is redrawn around its
         // contents every frame, so a drift here is a box that slowly leaves the pointer.
         //
-        // The amount is snapped, not the destinations. Every entity in the box is already on
+        // Only the amount is snapped. Every entity in the box is already on
         // the grid, so moving them all by a multiple of the step keeps them on it and keeps
         // the arrangement inside the box exactly as it was. Snapping each one separately
         // would tidy the block into a single column the first time it was picked up.
@@ -2817,8 +2818,8 @@ function onUp(event) {
         selectLine(finished.name, finished.consumer);
         return;
     }
-    // A press on a box that went nowhere is a press on empty canvas. The box is a drawing of
-    // what is in it, not a thing with a panel of its own to select.
+    // A press on a box that went nowhere is a press on empty canvas. The box only draws
+    // what is in it and has no panel of its own to select.
     if ((finished.mode === "pan" || finished.mode === "zone") && !finished.moved) {
         select(null);
     }
@@ -3253,11 +3254,11 @@ function onStepKey(event) {
 
 // Whether the keystroke belongs to something being typed into rather than to the canvas.
 //
-// `document.activeElement` stops at a shadow host, and the file pane is an editor inside one:
-// with the caret in a file, the page's answer to who has focus was the plain <div> the editor
-// is built into, which is not a field, so Backspace over a file being edited deleted the
-// entity whose file it was. Each root is asked in turn for its own, which is how a focus that
-// is nested answers with the thing holding the caret.
+// `document.activeElement` stops at a shadow host, and the file pane is an editor inside
+// one: with the caret in a file, the page-level answer is the plain <div> the editor is
+// built into, which is not a field, so Backspace over a file would delete the entity whose
+// file it is. Each root is asked in turn for its own, which is how a nested focus answers
+// with the element holding the caret.
 function isTyping() {
     let at = document.activeElement;
     while (at && at.shadowRoot && at.shadowRoot.activeElement) {
@@ -3358,7 +3359,7 @@ async function goOffline(reason) {
     // job, and it is the same button on a project and on the drawing board.
     page.apply.hidden = true;
     // What was being drawn last time comes back first. An example named in the address is a
-    // *preset*: it is where a drawing starts, not a page that replaces one. So a design already
+    // *preset*: it is where a drawing starts. So a design already
     // in this browser wins even then, as long as it grew out of the same example: somebody
     // who opened one, moved things around and reloaded is looking for what they left, rather than
     // for the pristine example the link in the address bar names. A link
@@ -3513,12 +3514,11 @@ function wire() {
     page.sheetClose.addEventListener("click", () => {
         page.sheet.hidden = true;
     });
-    // Press, hold and sweep is how a node is dragged and how a link is pulled out of one. It
-    // is also how a browser is asked to select text, and it will happily start at the canvas
-    // and run the selection out into the rest of the page. Refused here, while a drag is in
-    // hand, rather than on the pointerdown. Refusing a pointerdown suppresses the mouse
-    // events the browser makes out of it, which took the double click that renames an entity
-    // with it.
+    // Press, hold and sweep is how a node is dragged and how a link is pulled out of one.
+    // It is also how a browser is asked to select text, and it will start at the canvas and
+    // run the selection out into the rest of the page. Refused here, while a drag is in
+    // hand, rather than on the pointerdown: refusing a pointerdown suppresses the mouse
+    // events the browser makes from it, including the double click that renames an entity.
     document.addEventListener("selectstart", (event) => {
         if (drag) {
             event.preventDefault();

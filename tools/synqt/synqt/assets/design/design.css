@@ -1,22 +1,14 @@
 /* SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
    SPDX-License-Identifier: Apache-2.0
 
-   The editor's look, which is the front page's mesh drawing made editable: entities are
-   discs with a glyph, links are lines carrying the contract they share and what crosses it,
-   and the browser sits to the left of the edge it reaches with everything it must not reach
-   to the right of that. Same palette as synqt.org (docs/stylesheets/home.css), so a reader
-   arriving from the guide recognises what they are looking at.
+   The editor's look: the front page's mesh drawing made editable, with entities as discs
+   with a glyph, links as lines carrying their contract, and the browser left of the edge it
+   reaches. Same palette as synqt.org (docs/stylesheets/home.css).
 
-   Dark is the default because that is what the site is. Light follows the reader's own
-   setting rather than a control on the page, since this window belongs to a terminal
-   session and holds nothing that needs a preference of its own. */
+   Dark by default, as the site is; light follows the reader's system setting. */
 
-/* `hidden` means hidden, whatever else an element is. The attribute's whole effect is one UA
-   rule at the weakest specificity there is, so any rule in this file that sets `display` on a
-   class beats it, and every control in the bar is `.button--icon { display: inline-flex }`.
-   The result was a Clear button that was never taken off the page. The attribute was set, the
-   element stayed, and the tests looked at the attribute rather than at the pixels. Said once,
-   here, rather than remembered at every element that carries the attribute. */
+/* `hidden` means hidden. The attribute is one UA rule at the weakest specificity, so any
+   class here that sets `display` (`.button--icon { display: inline-flex }`) would beat it. */
 [hidden] {
   display: none !important;
 }
@@ -31,17 +23,13 @@
   --panel-high: #241848;
   --line: #6a5b99;
   --accent: #00a6ed;
-  /* Where the pointer is, which is never the same question as what the panel has open. In one
-     colour the drawing lost track of the selection every time somebody moved across it. */
+  /* Hover, in a colour of its own, apart from the selection's. */
   --hover: #c39bff;
   --client: #46f477;
   --service: #8890c0;
   --edge: #e5e7ff;
-  /* The two halves of every link, and the one pair of colours on this page that means a role
-     rather than a state. An owner decides what crosses and who may ask. A consumer acquires
-     a replica and can only read it. Which of the two an entity is, is the first thing anybody
-     wants off a line, and the drawing said it only in the direction of an arrowhead. Warm
-     against cool, and far enough apart to survive being colour-blind. */
+  /* The two roles at the ends of a link: owner and consumer. Warm against cool, far enough
+     apart for colour-blind readers. */
   --owner: #ff9d5c;
   --consumer: #62d0ff;
   --error: #ff6b6b;
@@ -52,9 +40,8 @@
   --grid-dot: rgba(106, 91, 153, .3);
   --grid-rule: rgba(106, 91, 153, .14);
 
-  /* Syntax on the canvas. The same three hues the file pane paints with, held back a step.
-     A link's rows are set at 8px over whatever the line is crossing, and the pane's contrast
-     at that size reads as a row of shouting rather than as a reminder of what crosses. */
+  /* Syntax on the canvas: the file pane's three hues at lower contrast, since a link's rows
+     are 8px over whatever the line crosses. */
   --code-keyword: #6ea8d8;
   --code-type: #6cbf8b;
   --code-name: #c3c4e6;
@@ -63,26 +50,21 @@
   --bar-height: 3.5rem;
   --rail-width: 14rem;
   --inspector-width: 22rem;
-  /* The fold control, in its two shapes. Open, it is a small square button in the panel's own
-     top corner, the size the bar's arrows are. Folded, the panel is gone and the same button
-     is all that is left of it. A tab against the window's edge, narrow enough to be furniture
-     and tall enough to be aimed at. */
+  /* The fold control: a small square button in the panel's top corner while open, a tab
+     against the window's edge once folded. */
   --fold-button: 1.6rem;
   --fold-tab-width: 1.35rem;
   --fold-tab-height: 2.4rem;
-  /* Level with the first line of the panel it belongs to, which is the line that says what
-     the panel is. */
+  /* Level with the panel's first line. */
   --fold-top: 1rem;
   --dock-height: 40vh;
   --mono: ui-monospace, "Roboto Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }
 
-/* The pane opens at a share of the window, so it is measured the way the window is. Written
-   as its own rule rather than as a second line beside the token, because a custom property
-   holding a unit the browser has never heard of is still a perfectly valid property: the
-   value would survive here and be thrown out at every length computed from it, which is the
-   pane's height and the seam that drags it. */
+/* The pane opens at a share of the window. A rule of its own, not a fallback line beside the
+   token: a custom property with a unit the browser does not know is still valid, and would
+   break every length computed from it. */
 @supports (height: 100dvh) {
   :root {
     --dock-height: 40dvh;
@@ -121,8 +103,7 @@
   }
 }
 
-/* The colour lives on the root, not the body. Of a canvas background the browser paints
-   only the colour behind the scrollbar, so this is what the gutter shows. */
+/* The colour is on the root, which is what the scrollbar gutter shows. */
 html {
   background-color: var(--page);
 }
@@ -133,14 +114,9 @@ html {
 
 body {
   margin: 0;
-  /* The window as it is on screen, not as it would be with the browser's own bars out of the
-     way. On a phone `100vh` is the taller measure, the one the window has only while the
-     address bar is retracted, so a page that is exactly `100vh` and hides its overflow puts
-     its last inch behind the browser's chrome with nothing to scroll to reach it. That inch
-     is the files bar once the pane is folded, and the files bar is the only thing on the page
-     that brings the pane back, so it was the one strip that could not afford to be there.
-     `dvh` is the window as it stands right now, and the `vh` line above it is what a browser that
-     does not know the unit is left with. */
+  /* The window as it is on screen now (`dvh`), not with the address bar retracted (`vh`),
+     or on a phone the folded files bar would sit behind the browser's chrome. `vh` above is
+     the fallback. */
   height: 100vh;
   height: 100dvh;
   display: grid;
@@ -162,12 +138,9 @@ h2 {
 
 /* The bar */
 
-/* `min-width: 0`, and the same on the work below it: a grid track is at least as wide as its
-   content, and this bar's content is a logo and eight controls. On a phone that made the row
-   wider than the window, which made the page wider than the window, and since the body hides
-   its overflow, the far end of the drawing and the right-hand panel were not on screen,
-   with nothing to scroll to reach them. The bar takes the width it is given and scrolls inside
-   itself if what it holds will not fit. */
+/* `min-width: 0`, here and on the work below: a grid track is otherwise at least as wide as
+   its content, and on a phone the bar would push the page wider than the window. The bar
+   scrolls inside itself instead. */
 .bar {
   display: flex;
   align-items: center;
@@ -180,9 +153,8 @@ h2 {
   scrollbar-width: none;
 }
 
-/* Narrower than the bar's own contents. The mark stays, because it is the way out. The word
-   beside it goes, because the tab already says what this page is. The buttons keep their
-   marks and drop their words, which is what the marks are for. */
+/* Narrower than the bar's contents: the logo stays and its word goes, and the buttons keep
+   their marks and drop their words. */
 @media (max-width: 46rem) {
   .bar {
     gap: .5rem;
@@ -199,9 +171,8 @@ h2 {
   }
 }
 
-/* The mark and the word beside it are one link, back to where the rest of the site is. It
-   carries no underline and no visited colour. It is the logo in the corner of a page, and
-   every reader already knows what that does. */
+/* The logo and its word are one link back to the site, with no underline or visited
+   colour. */
 .bar__home {
   display: flex;
   align-items: center;
@@ -210,32 +181,23 @@ h2 {
   text-decoration: none;
 }
 
-/* The mark is the site's own logo file, shipped beside this page rather than fetched: the
-   policy allows an image from this origin and nothing else, and the hosted copy has no
-   policy at all, which is the stronger reason to keep every byte local. Sized from the bar
-   rather than from the file, so the two cannot disagree about how tall the bar is. */
+/* The site's logo, shipped beside this page (the policy allows images from this origin
+   only), sized from the bar. */
 .bar__mark {
   height: calc(var(--bar-height) - 0.9rem);
   width: auto;
   display: block;
 }
 
-/* What this page is, beside the mark that says whose it is. The tab title says the same,
-   and a tab title is not on screen while you work. */
+/* What this page is, beside the logo. */
 .bar__wordmark {
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 
-/* Empty until there is a project to name. `synqt design` always has one. The copy on the
-   site starts on a blank canvas, where a placeholder name is something to correct rather
-   than something to read.
-
-   It is edited where it is written rather than in a field somewhere else, which is the
-   gesture the canvas already uses for an entity's name. The hover state is the only hint
-   that it can be. A name that looked like an input would read as one more thing to fill
-   in, and this one is usually already right. */
+/* The project name, empty until there is one. Edited in place on a double click, as an
+   entity's name is; the hover state is the only hint. */
 .bar__project {
   font-family: var(--mono);
   padding: .1rem .35rem;
@@ -252,8 +214,8 @@ h2 {
   display: none;
 }
 
-/* Open for editing. A real box, because now it is one. `field-sizing` keeps it the width of
-   the name in browsers that have it, and the explicit minimum is what the rest get. */
+/* Open for editing. `field-sizing` keeps it the name's width where supported; the minimum
+   covers the rest. */
 .bar__project-input {
   font-family: var(--mono);
   font-size: inherit;
@@ -270,10 +232,7 @@ h2 {
   flex: 1;
 }
 
-/* The two steps, as one pair, at the head of the controls. The gap between them is smaller
-   than the bar's, because back and forward over the same history is one control with two ends
-   rather than two controls that happen to sit together, and the one after them is a shade
-   wider, because what follows is what happens to the project rather than to the canvas. */
+/* Undo and redo as one pair, closer together than the bar's other controls. */
 .bar__history {
   display: flex;
   align-items: center;
@@ -281,12 +240,7 @@ h2 {
   margin-right: .25rem;
 }
 
-/* Every button hovers the same way, in its own colour. `--tone` is the one thing a variant
-   changes, so a red button lights red and a blue one blue, and the treatment underneath is one
-   rule. A `border-color: var(--accent)` for all of them would turn a delete
-   button blue on the way to being pressed and do nothing at all to a button whose border
-   is already the accent, so the two loudest controls on the bar would be the two with no hover
-   at all. */
+/* Every button hovers the same way in its own colour: a variant changes only `--tone`. */
 .button {
   --tone: var(--accent);
   padding: .35rem .8rem;
@@ -331,9 +285,7 @@ h2 {
   color: var(--error);
 }
 
-/* A button that says what it does twice. The word, and the mark beside it. The mark is what
-   the eye finds in a row of six buttons, and the word is what makes it unambiguous, so
-   neither is decoration and neither is dropped on a narrow window. */
+/* A button with a word and a mark beside it. */
 .button--icon {
   display: inline-flex;
   align-items: center;
@@ -346,8 +298,7 @@ h2 {
   flex: none;
 }
 
-/* Square, because what is in it is an arrow and not a word. It points down while the pane is
-   open (press to put it away) and up while it is closed. */
+/* Square, holding an arrow: down while the pane is open, up while it is closed. */
 .button--chevron {
   padding: .25rem;
   width: 1.7rem;
@@ -367,9 +318,7 @@ h2 {
   transform: rotate(180deg);
 }
 
-/* Square, like the chevron and for the same reason. What is in it is an arrow. Quiet while
-   there is nothing to go back over, which is most of the time on a canvas nobody has touched
-   yet, and the ordinary button hover the moment there is. */
+/* Square, holding an arrow. Quiet while disabled. */
 .button--step {
   padding: .25rem;
   width: 1.7rem;
@@ -388,8 +337,7 @@ h2 {
   height: 1rem;
 }
 
-/* The one control that changes what a keystroke over the pane means. It names the action it
-   performs, so pressing it is never a guess about which of the two the word describes. */
+/* The lock on the files, named by the action it performs. */
 .button--lock {
   font-size: 11px;
   padding: .2rem .55rem;
@@ -403,16 +351,11 @@ h2 {
 
 /* The three columns */
 
-/* `minmax(0, ...)` on the middle column, not `1fr`: a grid track's automatic minimum is its
-   content's, and the stage holds an SVG that will not go below its own width. Left as `1fr`
-   the three columns add up to more than the window on a narrow one, the grid overflows, and
-   the inspector is pushed off the right-hand edge, while the grip that sizes it, which is
-   positioned against the window rather than against the grid, stays behind on top of the
-   drawing. A panel and its handle leave together or neither does.
+/* `minmax(0, ...)` on the middle column, not `1fr`: a track's automatic minimum is its
+   content's, and the SVG would push the panel off the window on a narrow one.
 
-   Either side column folds to a strip. The width each one currently is, is a variable rather
-   than a value written into the grid, because the grips and the dock are laid out against
-   the same edges and every one of them has to move when a panel does. */
+   The side columns' widths are variables, since the grips and the dock are laid out against
+   the same edges. */
 .work {
   --rail-col: var(--rail-width);
   --inspector-col: var(--inspector-width);
@@ -423,11 +366,8 @@ h2 {
   min-height: 0;
 }
 
-/* Each in the column it is named for, said out loud rather than left to the order the three
-   are written in. On a narrow window a panel opens over the drawing and leaves the flow to do
-   it, and auto-placement then hands its column to whatever is left. The stage fell into the
-   rail's column, took its width, and the drawing went off the side of the page for as long as
-   the rail was open. */
+/* Each in its named column, not auto-placed: on a narrow window a panel leaves the flow, and
+   auto-placement would give its column to the stage. */
 .rail {
   grid-column: 1;
 }
@@ -440,8 +380,7 @@ h2 {
   grid-column: 3;
 }
 
-/* Folded is folded. The column goes, and the drawing gets all of it. What is left of the
-   panel is the tab, which hangs out of a column with no width in it. */
+/* Folded: the column goes, and the tab hangs out of a column with no width. */
 .work.is-rail-shut {
   --rail-col: 0px;
 }
@@ -450,11 +389,7 @@ h2 {
   --inspector-col: 0px;
 }
 
-/* Neither panel goes away when it folds, and neither is dropped from the layout: everything
-   that edits a selection is in the panel, and everything that adds an entity is in the rail,
-   so a page that can select a thing and not edit it, or draw nothing at all, is a page
-   missing half of itself. What each one leaves behind is one tab, and the tab is what brings
-   it back. */
+/* A folded panel stays in the layout and leaves a tab that brings it back. */
 .rail,
 .inspector {
   position: relative;
@@ -470,9 +405,8 @@ h2 {
   border-left: 1px solid var(--line);
 }
 
-/* Folded, there is no panel to draw: no ground, no edge, no width. The element stays for the
-   tab to hang off, and hangs it over the drawing rather than clipping it, which is the whole
-   reason the panel is not dropped from the grid. */
+/* Folded: no ground, edge or width. The element stays for the tab, which hangs over the
+   drawing. */
 .work.is-rail-shut .rail,
 .work.is-panel-shut .inspector {
   z-index: 6;
@@ -481,8 +415,7 @@ h2 {
   overflow: visible;
 }
 
-/* The panel's contents scroll, rather than the panel. The fold button is positioned against
-   the panel, and a button inside something that scrolls slides away with the text. */
+/* The contents scroll, not the panel, so the fold button stays put. */
 .rail__body,
 .inspector__body {
   height: 100%;
@@ -501,11 +434,8 @@ h2 {
   display: none;
 }
 
-/* The row the fold button sits at the end of, on each of the three things a panel can open
-   with. Both panels write from the left, so on both of them the free end is the same end, and
-   the rule is one rule. The control that puts a panel away is at the end of the line that
-   says what the panel is. The row is held to the button's own height so the two are level
-   whether the line is a heading, a heading over a list, or a glyph and a name. */
+/* The row the fold button ends, on each kind of panel opening, held to the button's height
+   so the two are level. */
 .rail__body > .rail__title:first-child,
 .inspector__head,
 .inspector__empty > .block__title {
@@ -516,14 +446,8 @@ h2 {
   padding-right: var(--fold-button);
 }
 
-/* The handle, open, is a button in the panel it belongs to, at the top of it, the size and the
-   weight of the arrows on the bar. A full-height strip down the panel's edge
-   costs a column of furniture either side of the drawing and goes on costing it once the
-   panel is folded and the strip is all that is left. A panel's own corner is where a
-   reader already is when they decide to put it away.
-
-   It carries the same chevron the dock's toggle does, turned to point the way the panel
-   would go. */
+/* The handle, open: a button at the top of its panel, the size of the bar's arrows, with the
+   dock's chevron turned the way the panel would go. */
 .panel__handle {
   position: absolute;
   top: var(--fold-top);
@@ -551,14 +475,11 @@ h2 {
   outline-offset: -2px;
 }
 
-/* The handle, folded. The tab. The panel is gone and this is the whole of what is left of it,
-   so it is drawn as a panel that has been pushed off the edge. The panel's own ground and
-   line, rounded and lifted on the side still in the room, square and borderless on the side
-   that is out of it. It holds the height it had when it was a button, so the fold and the
-   unfold are the same gesture in the same place rather than one control that moves. */
+/* The handle, folded: a tab drawn as the panel pushed off the edge, rounded on the inside,
+   square on the outside, at the height it had as a button. */
 .work.is-rail-shut .rail .panel__handle,
 .work.is-panel-shut .inspector .panel__handle {
-  /* Grown from its own middle, so the chevron does not move when the panel does. */
+  /* Grown from its middle, so the chevron stays put. */
   top: calc(var(--fold-top) + (var(--fold-button) - var(--fold-tab-height)) / 2);
   width: var(--fold-tab-width);
   height: var(--fold-tab-height);
@@ -581,8 +502,7 @@ h2 {
   box-shadow: -3px 0 12px var(--shadow);
 }
 
-/* Said again for the tab, which names its own ground and would otherwise out-rank the hover
-   that is meant to change it. */
+/* Repeated for the tab, whose own ground would otherwise out-rank the hover. */
 .work.is-rail-shut .rail .panel__handle:hover,
 .work.is-panel-shut .inspector .panel__handle:hover {
   background: var(--panel-high);
@@ -594,8 +514,7 @@ h2 {
   transition: transform 140ms ease-out;
 }
 
-/* The one thing on this page that moves when a panel folds. For a reader who has asked for
-   less of that, it arrives already turned. */
+/* The chevron turns when a panel folds, with no animation under reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   .panel__handle .glyph,
   .button--chevron .glyph {
@@ -620,10 +539,7 @@ h2 {
   transform: rotate(90deg);
 }
 
-/* Narrower than the two side columns and anything worth drawing between them. Here both
-   panels start folded and open over the canvas rather than squeezing the drawing into what
-   is left, and their grips go. A panel that is either shut or the width of the overlay has
-   no width to drag. */
+/* Too narrow for three columns: both panels open over the canvas, and their grips go. */
 @media (max-width: 62rem) {
   .work {
     --rail-col: 0px;
@@ -655,14 +571,8 @@ h2 {
   }
 }
 
-/* The one question this page asks itself, in this page's own face rather than in the
-   browser's. A browser's confirm box arrives from outside the window, in a face and a palette
-   that belong to somebody else, and says nothing about what is about to happen beyond the
-   sentence in it. This is the page: the same panel colour, the same buttons, and the drawing
-   it is about still visible behind it.
-
-   The browser's own box is kept for exactly one thing, leaving the site, where the browser is
-   the one asking and nothing on the page can hold a navigation open long enough to ask. */
+/* The page's own question dialog, in its panel colours, with the drawing visible behind it.
+   Only leaving the site uses the browser's box. */
 .modal {
   width: min(26rem, calc(100vw - 2rem));
   padding: 1.1rem 1.2rem 1rem;
@@ -691,8 +601,7 @@ h2 {
   color: var(--ink-dim);
 }
 
-/* Whatever else the question needs answering with. The one switch on the export, and nothing
-   at all on a question that is only yes or no. */
+/* Anything else the question needs, such as the export's one switch. */
 .modal__extra:not(:empty) {
   margin-top: .8rem;
 }
@@ -701,8 +610,7 @@ h2 {
   margin: 0;
 }
 
-/* The answer on the right, where the last thing read is the thing being pressed, and the way
-   out to the left of it. */
+/* The answer on the right, Cancel to its left. */
 .modal__row {
   display: flex;
   justify-content: flex-end;
@@ -710,9 +618,7 @@ h2 {
   margin-top: 1.1rem;
 }
 
-/* The seams. Each is a hair wide to look at and several pixels wide to hit, which is the
-   whole trick. A one-pixel target is a border somebody fights with, and a visibly thick one
-   is furniture nobody asked for. */
+/* The seams: a hair wide to look at, several pixels wide to hit. */
 .grip {
   position: absolute;
   z-index: 3;
@@ -763,8 +669,7 @@ h2 {
   display: none;
 }
 
-/* Nothing under a grip should take the pointer while one is being dragged, or a fast drag
-   ends up selecting text in the pane it crossed. */
+/* Nothing under a grip takes the pointer during a drag. */
 .work.is-resizing {
   user-select: none;
 }
@@ -779,8 +684,7 @@ h2 {
   gap: .25rem;
 }
 
-/* A row is dragged onto the canvas and nothing else, so it is shaped like something to pick
-   up rather than something to press. The grab cursor is the whole affordance. */
+/* A palette row is dragged, never pressed: the grab cursor says so. */
 .palette__item {
   display: flex;
   align-items: center;
@@ -803,7 +707,7 @@ h2 {
   cursor: grabbing;
 }
 
-/* Mid-drag, so the row a pointer is carrying is visibly the one that left. */
+/* The row being dragged. */
 .palette__item.is-dragging {
   opacity: .4;
 }
@@ -815,8 +719,7 @@ h2 {
   color: var(--ink-dim);
 }
 
-/* The entity's own glyph, the one the canvas draws it with, at list size. Coloured like
-   the disc it becomes, so a row and the node it adds are recognisably the same thing. */
+/* The entity's glyph at list size, coloured like the disc it becomes. */
 .palette__glyph {
   flex: none;
   width: 1.15rem;
@@ -888,9 +791,8 @@ h2 {
   cursor: default;
 }
 
-/* Under Review, the list takes the colour of the worst thing in it, so the verdict is
-   readable without reading it. Clear is earned (entities on the canvas and nothing against
-   them). An empty canvas is neither good news nor bad and stays the colour of ordinary text. */
+/* Under Review, the list takes the colour of its worst finding; clear needs entities and no
+   findings, and an empty canvas stays plain. */
 .findings--clear .finding {
   border-left-color: var(--ok);
   color: var(--ok);
@@ -909,17 +811,15 @@ h2 {
   color: var(--warn);
 }
 
-/* The rule's own name stays quiet in every colour. It is the label on the finding, not the
-   finding. */
+/* The rule's name stays quiet in every colour. */
 .findings--verdict .finding__rule {
   color: var(--ink-dim);
 }
 
 /* The canvas */
 
-/* The middle column. The canvas, and under it the dock that looks at the project instead
-   of editing it. The dock takes a share of the height only while it is open, so a closed
-   dock leaves the canvas exactly the column. */
+/* The middle column: the canvas, and the dock under it, which takes height only while
+   open. */
 .stage {
   position: relative;
   min-width: 0;
@@ -928,9 +828,8 @@ h2 {
   grid-template-rows: 1fr auto;
 }
 
-/* Where the paper's grid is measured from. design.js writes the first three from the view on
-   every pan and zoom, so the grid travels with the drawing instead of sitting still while the
-   canvas slides over it. */
+/* Where the grid is measured from: design.js writes the first three on every pan and zoom,
+   so the grid moves with the drawing. */
 .stage {
   --grid-x: 0px;
   --grid-y: 0px;
@@ -939,14 +838,12 @@ h2 {
   --grid-coarse: 320px;
 }
 
-/* Far enough out that a 32px pitch would be eleven pixels of noise, the fine layer goes. */
+/* Zoomed far out, the fine layer goes. */
 .stage.is-far {
   --grid-dot: transparent;
 }
 
-/* Two layers, both quiet. A dot at every cell to give the eye a measure, and a rule at every
-   tenth so distance is readable without a full grid being drawn over the drawing. Neither is
-   content, so neither is drawn at the strength the lines of the drawing are. */
+/* Two quiet layers: a dot at every cell and a rule at every tenth. */
 .stage__canvas {
   position: relative;
   min-height: 0;
@@ -962,10 +859,7 @@ h2 {
   background-position: var(--grid-x) var(--grid-y);
 }
 
-/* Nothing on the canvas is selectable text. Dragging a node or pulling a link out of one is a
-   click and a sweep, which is also how a browser is asked to select the writing under the
-   pointer: without this, dragging an entity across the canvas highlighted every label it
-   passed and left the drag fighting a selection nobody wanted. */
+/* Nothing on the canvas is selectable, so a drag never selects the labels it crosses. */
 .canvas {
   width: 100%;
   height: 100%;
@@ -980,12 +874,8 @@ h2 {
   cursor: grabbing;
 }
 
-/* What happened, and then gone. A pill over the canvas rather than a line ruled along the
-   bottom of it, because a line that is always there is furniture whether or not it says anything, and
-   ends up saying the same sentence for the rest of the session.
-
-   What a reader needs to know about the drawing is not here. It is on the drawing, at the
-   entity or connect point it is about, under a mark that can be pointed at. */
+/* What just happened, in a pill over the canvas that goes away. Standing problems are marked
+   on the drawing instead. */
 .stage__hint {
   position: absolute;
   left: 1rem;
@@ -1024,10 +914,7 @@ h2 {
   }
 }
 
-/* The boxes. Which side of the wire an entity is on is the thing that decides what can reach
-   it, and it was previously only readable by knowing that the left column meant browser. Now
-   it is drawn. Each box is the hull of what is in it, so an entity dragged out of its
-   neighbours drags the box with it rather than changing what the box means. */
+/* The boxes: which side of the wire an entity is on, each the hull of what is in it. */
 
 .zone__box {
   fill: var(--zone);
@@ -1037,10 +924,8 @@ h2 {
   pointer-events: none;
 }
 
-/* The name answers the pointer, whichever box it belongs to, because hovering it is what
-   says what the box means. The sentence explaining each box is a
-   tooltip rather than a line printed under every title. On the two held boxes a press still starts the drag, because the group
-   around this carries the data the press reads. */
+/* Every box's name explains it on hover and picks up its contents when pressed; on the mesh
+   and monitor boxes it is the only handle, since a press inside them pans. */
 .zone__title {
   fill: var(--ink-dim);
   font-family: var(--mono);
@@ -1048,11 +933,10 @@ h2 {
   letter-spacing: .06em;
   text-transform: uppercase;
   pointer-events: all;
-  cursor: help;
+  cursor: grab;
 }
 
-/* The one box that is a boundary rather than a grouping. Everything inside it is reachable
-   from outside the system, and nothing in the other two is. */
+/* The one box that is a boundary: what is inside it is reachable from outside the system. */
 .zone--internet .zone__box {
   stroke: var(--edge);
   stroke-dasharray: none;
@@ -1070,22 +954,24 @@ h2 {
   fill: var(--client);
 }
 
-/* The two small boxes are blocks somebody arranges, so pressing anywhere inside one picks the
-   whole thing up and moves everything in it. The mesh box is not one of them: it covers most
-   of the canvas, where a press has to stay a pan. The nodes and links are drawn over this and
-   answer first, so dragging one entity out of its block still works. */
-.zone--held .zone__box,
-.zone--held .zone__title {
+/* Pressing inside the two small boxes picks the whole block up. Nodes and links are drawn
+   over them and answer first. */
+.zone--held .zone__box {
   pointer-events: all;
   cursor: grab;
 }
 
-.canvas.is-moving-zone .zone--held .zone__box {
+.canvas.is-moving-zone .zone--held .zone__box,
+.canvas.is-moving-zone .zone__title {
   cursor: grabbing;
 }
 
-/* The box whose name is under the pointer. The name is the only part of a box that answers for
-   itself, and lighting the whole outline is what says which box that name belongs to. */
+/* The monitor's box goes round every other box, unfilled. */
+.zone--ops .zone__box {
+  fill: none;
+}
+
+/* The box whose name is under the pointer, lit along its whole outline. */
 .zone.is-hover .zone__box {
   stroke: var(--hover);
 }
@@ -1126,26 +1012,30 @@ h2 {
   font-size: 12px;
 }
 
-/* The file under the name, because that is what somebody opens next. What the entity *is*
-   the panel states and the tooltip repeats. This line is the more useful of the two here.
-
-   Smaller than it reads at, because it is a path, and a path is as long as the entity's
-   folders make it. At 9.5px `db/relational/store/Store` was wider than the box the entity
-   was standing in and ran out over the drawing on both sides of its own node. This is the
-   size at which the longest path any of the shipped examples produces sits under its node
-   rather than beside its neighbours. */
+/* The entity's files under its name, shown only while it is hovered, with a halo to stay
+   readable. */
 .node__file {
+  display: none;
   fill: var(--ink-dim);
+  stroke: var(--page);
+  stroke-width: 3;
+  paint-order: stroke fill;
   font-family: var(--mono);
   font-size: 8px;
+  pointer-events: none;
 }
 
-/* The handle you pull a link out of. Invisible until the pointer is over the node, so a
-   resting canvas is the mesh and nothing else. */
-/* The free slots on an entity's rim. A dash across the stroke at each one, shown only while
-   the pointer is near that entity, so a canvas nobody is reaching into is a canvas of discs.
-   The grab line is wider than the mark and invisible, because a dash quiet enough to sit
-   behind the drawing is not a dash a pointer can hit. */
+.node.is-hover .node__file {
+  display: inline;
+}
+
+.node__folder {
+  fill: var(--ink);
+}
+
+/* The handle a link is pulled out of, invisible until the pointer is near. */
+/* The free slots on an entity's rim, shown while the pointer is near. The grab line is wider
+   than the mark and invisible. */
 .node__slot-grab {
   stroke: transparent;
   stroke-width: 11;
@@ -1154,10 +1044,7 @@ h2 {
   pointer-events: none;
 }
 
-/* A dot on the rim, sized by how many are on the ring (canvas.js SLOT_DOT), so eight read as
-   handles and sixty-four read as a dial. They were dashes laid across the rim, which drew a
-   ring of ticks around every entity the pointer went near and made a disc look like something
-   being measured. */
+/* A dot on the rim, sized by how many are on the ring (canvas.js SLOT_DOT). */
 .node__slot {
   fill: currentColor;
   stroke: none;
@@ -1176,17 +1063,13 @@ h2 {
   pointer-events: stroke;
 }
 
-/* A front, drawn as a wedge. The point faces the browser, because a browser reaches one
-   accessor whatever is behind it, and the flat side faces the mesh with a seat on it for
-   each scope. The shape is the explanation, so it is drawn in the edge's own colour rather
-   than given one of its own. It is a web edge, doing one more thing. */
+/* A front, drawn as a wedge in the edge's colour: the point faces the browser, the flat side
+   faces the mesh with a seat per scope. */
 .node__wedge {
   stroke-linejoin: round;
 }
 
-/* The seats on the flat side. Unlike the rim slots these are always visible: a scope with
-   nothing wired to it is the question the drawing is asking, and one that fades out until
-   the pointer arrives is a question nobody is asked. */
+/* The seats on the flat side, always visible, wired or not. */
 .node__seat {
   fill: var(--panel);
   stroke: currentColor;
@@ -1198,9 +1081,8 @@ h2 {
   fill: currentColor;
 }
 
-/* Inside the outline, right-aligned against the back edge, which is what the wedge is sized
-   to hold. Set in the same monospace the rest of the drawing is, at the size canvas.js counts
-   SEAT_CHAR at. Change one and the other has to move with it, or the column stops fitting. */
+/* Inside the outline, flush right against the back edge, in monospace at the size
+   canvas.js counts SEAT_CHAR at: change one and the other moves with it. */
 .node__seat-name {
   fill: var(--ink-dim);
   font-family: var(--mono);
@@ -1208,19 +1090,16 @@ h2 {
   pointer-events: none;
 }
 
-/* The whole row, name included: aiming at the word is the obvious way to hand a scope to an
-   entity. Painted with nothing, and `transparent` rather than `none`, because a shape filled
-   with none is not there as far as hit testing is concerned. */
+/* The whole row, name included, is the target. Filled `transparent`, not `none`, which hit
+   testing ignores. */
 .node__seat-grab {
   fill: transparent;
   cursor: crosshair;
 }
 
-/* The seat under the pointer, which is the one a drag would leave from. It is coloured
-   rather than merely enlarged because on a front this is the *only* place a link can be
-   started: the wedge draws no rim slots, so without a lit seat there is nothing to say
-   where the drawing will accept a line. The rules below reach forward through the two
-   siblings the seat is drawn as, which is why the grab circle is written first. */
+/* The seat under the pointer, coloured: on a front the seats are the only place a link
+   starts. The rules reach forward through the seat's siblings, so the grab target comes
+   first. */
 .node__seat-grab:hover + .node__seat {
   fill: var(--accent);
   stroke: var(--accent);
@@ -1232,9 +1111,7 @@ h2 {
   font-weight: 600;
 }
 
-/* Lit because something the seat is about is under the pointer. The line that lands on it, or
-   the contract that line carries. The scope name is half of what that line says, and having to
-   find it by eye among four is the tracing this is here to save. */
+/* Lit while the line that lands on it, or its contract, is hovered. */
 .node__seat-grab.is-hovered + .node__seat {
   fill: var(--hover);
   stroke: var(--hover);
@@ -1246,10 +1123,7 @@ h2 {
   font-weight: 600;
 }
 
-/* While a line is being pulled, every seat on every front is somewhere it can be let go, so
-   every one of them says so. The dots come forward and the names brighten. Dragging from a
-   seat to an entity was the only half of this gesture anybody found, because the reverse
-   worked and the canvas showed nothing until the pointer was already on top of the word. */
+/* While a line is being pulled, every seat shows as a drop target. */
 .canvas.is-linking .node__seat {
   fill: var(--accent);
   fill-opacity: .25;
@@ -1261,10 +1135,8 @@ h2 {
   fill: var(--accent);
 }
 
-/* A seat is also where a line is let go to hand that scope to an entity, and the pointer is
-   captured by the canvas for the whole of that drag, so `:hover` never reaches it. design.js
-   marks the seat a line is over instead, and it lights exactly as if it were hovered: what a
-   drop is about to do has to be visible before the button comes up. */
+/* The seat a line is over during a drag (`:hover` never reaches it, since the canvas holds
+   the pointer capture), marked by design.js and lit as if hovered. */
 .node__seat-grab.is-aimed + .node__seat {
   fill: var(--accent);
   stroke: var(--accent);
@@ -1276,23 +1148,14 @@ h2 {
   font-weight: 600;
 }
 
-/* Selected, and the pointer somewhere else.
- 
-   A thicker rim was the whole of it, and a thicker rim is not visible from across a canvas:
-   the rule below lights a hovered node's rim and its name, so next to that a selected node
-   read as the dimmer of the two and, on a drawing with several entities on it, as one that
-   had faded into the paper rather than one that was chosen. The glow is the node's own
-   colour, so it still says what kind of entity it is, and it is drawn on the disc alone, so
-   it reads as the shape being lit rather than as a box around it. In user units, which means
-   it grows and shrinks with the zoom like every other part of the drawing. */
+/* Selected: a glow in the node's own colour on the disc alone, in user units so it scales
+   with the zoom. */
 .node.is-selected .node__disc {
   stroke-width: 2.5;
   filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 9px currentColor);
 }
 
-/* Under the pointer. The disc keeps its role's colour and takes the hover colour on its rim
-   alone: a node recoloured outright stopped saying what kind of entity it was, which is the
-   one thing its colour is for. */
+/* Hovered: the hover colour on the rim only, so the disc keeps its role's colour. */
 .node.is-hover .node__disc {
   stroke: var(--hover);
   stroke-width: 2.2;
@@ -1302,13 +1165,8 @@ h2 {
   fill: var(--hover);
 }
 
-/* Which end of a hovered link this node is. Two colours and two words, because the drawing
-   said it only in the direction of an arrowhead, and an arrowhead is a small thing to have to
-   find at the far end of a line crossing a canvas of a dozen others.
-
-   The word is always in the markup and shown by this rule alone. The highlight is a class put
-   on elements already drawn, never a redraw, because redrawing from a pointer move is how a
-   double click stops arriving. */
+/* Which end of a hovered link this node is, in a colour and a word. The word is always in the
+   markup and shown by this rule, since a hover never redraws. */
 .node__role {
   fill: currentColor;
   font-family: var(--mono);
@@ -1335,8 +1193,7 @@ h2 {
   color: var(--consumer);
 }
 
-/* The rim takes the role colour and the name with it. The disc keeps its own fill, so the
-   entity still says what kind of thing it is while it says which end of the link it is. */
+/* The rim and the name take the role colour; the disc keeps its own fill. */
 .node.is-owner .node__disc,
 .node.is-consumer .node__disc {
   stroke: currentColor;
@@ -1348,20 +1205,14 @@ h2 {
   fill: currentColor;
 }
 
-/* Hover wins over both. It is where the pointer is this instant, and the two role colours are
-   about a line that may run right across the canvas. */
+/* Hover wins over both role colours. */
 .node.is-hover.is-owner .node__disc,
 .node.is-hover.is-consumer .node__disc {
   stroke: var(--hover);
 }
 
-/* The mark on a node the rules have caught, and on a contract badge. A thing to point at,
-   because what was there before was a rim one shade warmer than the rim beside it, which
-   nobody scans a canvas for. Hovering it opens the card that writes the finding out. The card
-   was always there and nothing on the drawing asked to be hovered for it.
-
-   It takes the pointer, so it works as its own target, and it sits inside the node's own group
-   so the card it opens is that node's. */
+/* The mark on a node or contract badge the rules have caught. It takes the pointer and sits
+   in the node's group, so hovering it opens that node's card with the finding. */
 .alert {
   pointer-events: auto;
   cursor: help;
@@ -1380,22 +1231,17 @@ h2 {
   fill: none;
 }
 
-/* The mark on the edge that runs the sign-in flow (canvas.js signInMark). Quiet, because
-   it is a permanent fact about the entity rather than something that has gone wrong, so it is the
-   page punched through the rim with the entity's own colour on it rather than a colour of
-   its own. The alert above rides the opposite corner and is the loud one. */
+/* The mark on the edge that runs the sign-in flow (canvas.js signInMark): quiet, in the
+   entity's colour, opposite the alert. */
 .signin {
-  /* A target, with a card of its own (tip.js). The rim is the ring of handles a link is
-     pulled out of, so the one handle this sits on is not drawn (canvas.js SIGN_IN_SLOT),
-     rather than left under a mark that would answer for it. */
+  /* A target with its own card (tip.js). The rim slot under it is not drawn
+     (canvas.js SIGN_IN_SLOT). */
   pointer-events: all;
   cursor: help;
 }
 
-/* The mark again beside a line from that edge to a browser, with the call that leads there.
-   Drawn on every such line and shown only while the line, the edge or the mark is hovered,
-   because it is the answer to a question and a canvas carrying every answer at once is a
-   canvas nobody can read. light.js puts `is-signin` on the line. */
+/* The mark again beside a line from that edge to a browser, shown while the line, the edge or
+   the mark is hovered (light.js puts `is-signin` on the line). */
 .link__signin {
   display: none;
   color: var(--edge);
@@ -1419,7 +1265,7 @@ h2 {
   pointer-events: none;
 }
 
-/* The same mark at the head of its card, standing on the card rather than on a node. */
+/* The same mark at the head of its card. */
 .signin-glyph .signin {
   pointer-events: none;
 }
@@ -1457,9 +1303,8 @@ h2 {
   cursor: pointer;
 }
 
-/* Solid. A dash pattern is a difference, and every link is the same thing. A consumer on a
-   point's list, carried over mutual TLS. Drawing them all dashed spent the one distinction a
-   line has on saying nothing, and left the local-socket link below with nothing to be. */
+/* Solid. A dotted line carries a warning; a dashed one is the severed end of a broken
+   link. */
 .link__line {
   stroke: var(--line);
   stroke-width: 1.5;
@@ -1470,17 +1315,14 @@ h2 {
   fill: var(--line);
 }
 
-/* The rest of a link that does not arrive. Dashed and faded, so the eye follows it out of its
-   owner and watches it stop. A line that carries nobody drawn exactly like one that does is
-   the picture saying the opposite of what is true. */
+/* The rest of a link that does not arrive: dashed and faded after the break. */
 .link__line--severed {
   stroke-dasharray: 3 4;
   stroke-opacity: .45;
 }
 
-/* The break itself. A red cross on the line, three quarters of the way to the end it fails to
-   reach, with the word under it. It is a target and a handle both. Pointing at it says what
-   is wrong, and dragging off it onto a scope on the front's back is the fix. */
+/* The break: a red cross three quarters along, with the word under it. Hover explains it;
+   dragging it onto a scope fixes it. */
 .link__break {
   cursor: crosshair;
 }
@@ -1506,8 +1348,7 @@ h2 {
   pointer-events: none;
 }
 
-/* The word sits over whatever the line is crossing, so it carries its own ground: the halo is
-   painted first and the letters over it, which is what `paint-order` decides. */
+/* The word carries its own halo, painted first (`paint-order`). */
 .link__break-word {
   fill: var(--error);
   stroke: var(--page);
@@ -1530,10 +1371,8 @@ h2 {
   stroke: var(--page);
 }
 
-/* Which way round the link is, said along the whole of it rather than by an arrowhead at one
-   end. Painted with nothing until the link is hovered, then a dash that travels from the owner
-   towards the consumer, in the consumer's own colour. The direction is what arrives, and what
-   arrives is the replica. */
+/* Which way round the link is: while hovered, a dash travels from owner to consumer, in the
+   consumer's colour. */
 .link__flow {
   fill: none;
   stroke: none;
@@ -1543,9 +1382,7 @@ h2 {
   pointer-events: none;
 }
 
-/* And on the one that is selected, which is the line somebody is working on rather than the
-   one the pointer is crossing. It runs while the panel beside it is being read, which is
-   where the pointer has gone and is exactly when which-way-round is worth still saying. */
+/* And on the selected line, while the panel is being read. */
 .link.is-hover .link__flow,
 .link.is-selected .link__flow {
   stroke: var(--consumer);
@@ -1557,8 +1394,7 @@ h2 {
   to { stroke-dashoffset: 0; }
 }
 
-/* Somebody who asked their system for less motion gets the dash standing still: it still says
-   which way round the link is by sitting between the cap and the head, and nothing moves. */
+/* Under reduced motion the dash stands still. */
 @media (prefers-reduced-motion: reduce) {
   .link.is-hover .link__flow,
   .link.is-selected .link__flow {
@@ -1566,18 +1402,15 @@ h2 {
   }
 }
 
-/* The owner's end. A cap here and an arrowhead there is the whole of "who decides", and it
-   reads without hovering anything. */
+/* The owner's end: a cap, against the consumer's arrowhead. */
 .link__owns {
   fill: var(--line);
   stroke: none;
   pointer-events: none;
 }
 
-/* Wide, transparent, and the only part that answers a click, so a 1.5px line does not have
-   to be hit exactly. It is the link's own curve drawn again at sixteen units wide;
-   `pointer-events: stroke` is what says the band catches the pointer without asking anything
-   about how it is painted, since a transparent stroke is painted with nothing. */
+/* The click target: the link's curve again, sixteen units wide and transparent, with
+   `pointer-events: stroke`. */
 .link__hit {
   fill: none;
   stroke: transparent;
@@ -1585,11 +1418,8 @@ h2 {
   pointer-events: stroke;
 }
 
-/* The contract, drawn once on the slot its point sits on, with every line to every consumer
-   leaving from underneath it. It sits on the canvas colour rather than on nothing, so those
-   lines leave the badge instead of running through it. It answers the pointer, because this
-   icon *is* the connect point. Clicking it opens what crosses the point, and every line out
-   of it lights up to say which consumers that means. */
+/* The contract, drawn once on its slot with every line leaving from under it, on the canvas
+   colour so the lines do not run through it. Clicking it opens the point. */
 .link__doc {
   stroke: var(--ink-dim);
   fill: none;
@@ -1606,8 +1436,7 @@ h2 {
   stroke-linecap: round;
 }
 
-/* The badge's own verdict, which is about what crosses the link and not about the link. A
-   badge and a line can disagree, and when they do both say so. */
+/* The badge's own verdict, about what crosses, apart from the line's. */
 .link__doc.is-error {
   stroke: var(--error);
 }
@@ -1616,8 +1445,7 @@ h2 {
   stroke: var(--warn);
 }
 
-/* The point is open in the panel. The badge is drawn a size up as well as in the accent, so
-   which contract is being edited is legible without following the lines out of it. */
+/* The point open in the panel: the badge a size up, in the accent. */
 .link__doc.is-selected {
   stroke: var(--accent);
 }
@@ -1630,11 +1458,7 @@ h2 {
   stroke-width: 1.8;
 }
 
-/* What a link carries, written along it. The member names alone. Quiet enough that a canvas
-   full of links still reads as a diagram, because these are a reminder of what crosses and not
-   the contract itself (the panel and the tooltip are). All of it answers the pointer: pointing
-   at `placeBid` is the obvious way to ask what `placeBid` is, and while only the 7px mark at
-   the start of the row answered, the obvious way did nothing. */
+/* What a link carries, written along it, quiet. Every row answers the pointer. */
 .link__member {
   fill: var(--ink-dim);
   font-family: var(--mono);
@@ -1643,12 +1467,8 @@ h2 {
   cursor: help;
 }
 
-/* The block's own ground, and its own outline. These rows land wherever the line happens to
-   cross, and a name read together with a zone behind it or another line through it is not a
-   name. The ground separates them and the outline says where the block ends, which a fill
-   held short of opaque could not. Held short of opaque all the same, so what is underneath is
-   still visibly underneath. Left out of the pointer's way. The rows inside answer for
-   themselves, and the band along the line answers for the rest. */
+/* The block's own ground (not quite opaque) and outline, over whatever the line crosses.
+   It does not take the pointer; its rows and the line's band do. */
 .link__members-box {
   fill: var(--page);
   fill-opacity: 0.86;
@@ -1658,9 +1478,8 @@ h2 {
   pointer-events: none;
 }
 
-/* The runs one row is written in. A type reads as a type here as much as in the file pane, so
-   a reader with both open learns one colour scheme rather than two. Muted through the
-   --code-* tokens rather than by opacity, which would have taken the ground with it. */
+/* A row's runs, in the file pane's colours, muted through the --code-* tokens rather than
+   by opacity. */
 .link__tok--type {
   fill: var(--code-type);
 }
@@ -1673,24 +1492,18 @@ h2 {
   fill: var(--code-punct);
 }
 
-/* The gate on a member, written the way the `export:` block writes it: `<admin>`, at the end
-   of the declaration. Quiet by default, because most rows are showing the point's own scope
-   and say nothing about that member in particular. */
+/* The gate on a member (`<admin>`), quiet, since most rows show the point's own scope. */
 .link__tok--scope {
   fill: var(--code-punct);
 }
 
-/* The one that does say something. A member held above the scope its whole point is behind.
-   The row carries `is-scoped`, so the gate on it is the warning it is, and the rows beside it
-   showing the point's own scope stay quiet. This is the run that keeps the warning colour
-   whatever else the row is doing. */
+/* A member gated above its point's scope (`is-scoped`): its gate keeps the warning colour
+   in every state. */
 .link__member.is-scoped .link__tok--scope {
   fill: var(--warn);
 }
 
-/* The mark at the start of a row, which stands in for the word `slot` or
-   `signal` in front of every name. It answers the pointer, because a shape is only a shape
-   until something says what it stands for. */
+/* The kind mark at the start of a row. It answers the pointer. */
 .link__mark {
   fill: var(--ink-dim);
   stroke: none;
@@ -1698,16 +1511,13 @@ h2 {
   cursor: help;
 }
 
-/* The square the pointer lands on, painted with nothing. `transparent` and not
-   `none`: a shape filled with none is not there as far as hit testing is concerned, which is
-   the whole reason this exists. */
+/* The mark's hit square, filled `transparent`, not `none`, which hit testing ignores. */
 .link__mark-grab {
   fill: transparent;
   stroke: none;
 }
 
-/* The call going back into the owner, drawn hollow against the signal's filled head so the
-   pair differ by more than which way they point. */
+/* A slot, drawn hollow against the signal's filled head. */
 .link__mark--slot {
   fill: none;
   stroke: var(--ink-dim);
@@ -1722,21 +1532,15 @@ h2 {
   stroke-linecap: round;
 }
 
-/* Selecting or hovering a link says so on the line, its two ends and the outline of the block
-   beside it, and leaves the rows alone. Recolouring the rows was what the block looked like
-   before they were syntax coloured, and it threw that away in exactly the two states somebody
-   is most likely to be reading them in. The one they are working on, and the one under the
-   pointer. The mark and the name of a single row still light when that row is the thing
-   hovered, which is a statement about one member rather than about the whole contract. */
+/* Selecting or hovering a link lights the line, its ends and the block's outline, and leaves
+   the rows' syntax colours alone. A single hovered row still lights. */
 .link.is-selected .link__members-box {
   stroke: var(--accent);
   stroke-opacity: 0.9;
 }
 
-/* A member held above the scope its whole point is behind, which is the exception a reader
-   is looking for. Every row says its gate. This marks the row whose gate is not the one the
-   rest of the block is at. The name and the gate carry the warning and the types keep their
-   syntax colour, so the row is still a prototype and not a highlight. */
+/* A member gated above its point's scope: the name and the gate carry the warning, the types
+   keep their colour. */
 .link__member.is-scoped .link__tok--name {
   fill: var(--warn);
 }
@@ -1755,9 +1559,8 @@ h2 {
   fill: var(--hover);
 }
 
-/* The one row under the pointer, marked on its name and its weight so the types beside it keep
-   saying what they are. After the scoped rule above, so a gated member the pointer is on reads
-   as the row in hand rather than as the warning it also is. The tooltip on it says both. */
+/* The row under the pointer, marked on its name and weight. After the scoped rule, so it
+   wins. */
 .link__member.is-hover {
   font-weight: 600;
 }
@@ -1766,10 +1569,7 @@ h2 {
   fill: var(--hover);
 }
 
-/* The block a hovered link carries comes forward. Fully opaque over whatever the line is
-   crossing, and outlined. Left at the resting 86% it sat half-through a zone box or another
-   link's rows, which is exactly when somebody is reading it. A reader hovers a line to find
-   out what crosses it. */
+/* A hovered link's block comes forward, fully opaque and outlined. */
 .link.is-hover .link__members-box {
   fill-opacity: 1;
   stroke: var(--hover);
@@ -1777,8 +1577,7 @@ h2 {
   stroke-width: 1;
 }
 
-/* The kind mark of the one row under the pointer. Two of the four shapes are drawn hollow, and
-   giving those a fill would fill in the shape whose whole meaning is being hollow. */
+/* The hovered row's mark, keeping hollow shapes hollow. */
 .link__mark.is-hover {
   fill: var(--hover);
 }
@@ -1789,9 +1588,7 @@ h2 {
   stroke: var(--hover);
 }
 
-/* The contract icon, when the pointer is on it or on any line out of it. Both, because the
-   icon is the point and a line is one consumer of that point. Pointing at either is asking
-   about the same contract. */
+/* The contract icon, lit while it or any line out of it is hovered. */
 .link__doc.is-hover {
   stroke: var(--hover);
 }
@@ -1818,9 +1615,8 @@ h2 {
   fill: var(--error);
 }
 
-/* A local socket is not a mistake and is not drawn as one. It is drawn as what it is: a link
-   whose caller is trusted by colocation rather than by certificate, so it is the one line on
-   the canvas that is not solid, and the only thing a dash pattern here means. */
+/* A link with a warning on it, such as a local socket (its caller trusted by colocation, not
+   by certificate): dotted, in the warning colour. */
 .link.is-warn .link__line {
   stroke: var(--warn);
   stroke-dasharray: 1 4;
@@ -1841,8 +1637,7 @@ h2 {
   line-height: 1.5;
 }
 
-/* The two gestures, as things to do. A paragraph saying the same words read as something to
-   skip, and this panel is the only place with room to say them at all. */
+/* The gestures, listed in the empty panel. */
 .inspector__how {
   margin: 0;
   padding: 0;
@@ -1867,10 +1662,8 @@ h2 {
   background: var(--accent);
 }
 
-/* The project's scope vocabulary, in the panel with nothing picked. One row per scope: the
-   name typed in place, the two arrows that move it in the ranking, and the remover. A grid
-   rather than a flex row so the three controls line up down the column however long a scope
-   name is. A name is the only part that should take the slack. */
+/* The project's scopes in the empty panel: per row the name, two arrows and the remover, in a
+   grid so the controls line up. */
 .scopes__row {
   display: grid;
   grid-template-columns: 1fr auto auto auto;
@@ -1879,9 +1672,7 @@ h2 {
   margin-bottom: .35rem;
 }
 
-/* Only the remover is destructive, so only it wears the destructive hover the shared rule
-   gives every icon button. The arrows reorder, which is an edit somebody may want to make
-   twice in a row. */
+/* Only the remover takes the destructive hover. */
 .scopes__row .icon-button:not(:last-child):hover {
   color: var(--ink);
   border-color: var(--accent);
@@ -1893,8 +1684,7 @@ h2 {
   cursor: default;
 }
 
-/* The entity's own glyph beside its name. The same mark the canvas draws it with, so the
-   panel and the drawing are recognisably about the same thing. */
+/* The entity's glyph beside its name. */
 .inspector__head {
   display: flex;
   align-items: center;
@@ -1920,10 +1710,7 @@ h2 {
   margin: 0;
 }
 
-/* What this kind of entity is for. The panel's own opening statement, in the colour of
-   ordinary text. It was set as a dim quotation down one side, which read as something
-   borrowed from elsewhere and worth less attention than the controls under it, when it is
-   the one line that says what the thing on the canvas is. */
+/* What this kind of entity is for, in ordinary text colour. */
 .inspector__help {
   margin: 0 0 1rem;
   font-size: 12.5px;
@@ -1946,9 +1733,7 @@ h2 {
   color: var(--ink-dim);
 }
 
-/* The two labels on a connect point, in the two colours the drawing and the tip use for the
-   same two words. A reader who has hovered one line already knows which half of this panel is
-   which without reading either heading. */
+/* The owner and consumer labels, in the role colours. */
 .field__label--owner {
   color: var(--owner);
   font-weight: 700;
@@ -1966,13 +1751,8 @@ h2 {
   color: var(--ink-dim);
 }
 
-/* What the contract adds to a member, under the member it is added to. Small, and quiet
-   until it says something. These are two settings most members never need, and printed at
-   the size of the member itself four of them turned a contract of four lines into a column
-   of drop-downs with the contract hidden between them.
-
-   Each one is a label and its control on one line, so a member with nothing set costs a
-   single short line under it rather than a block. */
+/* What the contract adds to a member, under it: small and quiet, each a label and its
+   control on one line. */
 .tick__extras {
   display: flex;
   flex-wrap: wrap;
@@ -2001,18 +1781,12 @@ h2 {
   font-size: 11px;
 }
 
-/* The same line, under a heading or a button rather than under a field. The tight form pulls
-   itself up into the control above it, which under a heading reads as one line printed over
-   another. */
+/* The same note under a heading or a button, without the tight form's pull-up. */
 .field__note--loose {
   margin-top: .55rem;
 }
 
-/* A fact about the entity rather than a control over it. Not styled as a
-   disabled input. A greyed-out drop-down reads as something that will become editable.
-   It is a sentence, so it is set as one and wraps. In the code face at a fixed size it ran
-   off the side of the panel, and what it ran off with was the half that said what the
-   entity is. */
+/* A fact, not a control: set as wrapping text, not as a disabled input. */
 .field__fixed {
   margin: 0;
   font-size: 12.5px;
@@ -2020,9 +1794,7 @@ h2 {
   color: var(--ink);
 }
 
-/* The entities at the other end of this one's lines, each one a way to get there. Set in the
-   code face, because every one of them is a name out of the project, and wrapping rather than
-   scrolling: a wide entity with six consumers is a list to read, not a row to drag. */
+/* The entities at the other end of this one's lines, as buttons in the code face that wrap. */
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -2053,8 +1825,7 @@ select:focus {
   border-color: var(--accent);
 }
 
-/* A switch and its line. Aligned to the top rather than the middle, so a label that wraps
-   keeps its box beside its first line instead of floating to the middle of the paragraph. */
+/* A switch and its label, from the top, so the box stays by a wrapped label's first line. */
 .check {
   display: flex;
   align-items: flex-start;
@@ -2078,18 +1849,14 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
-/* A label that is a name out of the project. An entity, or a member as its own file declares
-   it. Those are code and are set as code. A sentence about the entity is not. */
+/* A label that is a name from the project, set as code. */
 .check--code .check__label {
   font-family: var(--mono);
   font-size: 12px;
 }
 
-/* A line of the project's own code, wherever one is written outside the pane. A member on a
-   contract, the signature of a declaration, the title of a card. The same three colours the
-   pane paints with (editor.css) and the canvas paints its rows with, held back one step for a
-   surface that is not the file itself. One scheme, so a reader following a member from the
-   file to the panel to the card is reading one thing painted the same way three times. */
+/* A line of the project's code outside the pane (a contract member, a signature, a card
+   title), in the pane's colours (editor.css) held back a step. */
 .code {
   font-family: var(--mono);
   min-width: 0;
@@ -2112,10 +1879,8 @@ select:focus {
   color: var(--code-punct);
 }
 
-/* The two ends of a link, wherever one is named: the owner, an arrow, and whoever is at the
-   other end. The names take the two role colours the drawing puts on the entities themselves,
-   so the panel and the canvas say which end is which the same way. The arrow was a `>` typed
-   between them, which at this size is punctuation a reader has to decide is an arrow. */
+/* The two ends of a link wherever one is named: the owner, an arrow and the consumers, in
+   the role colours. */
 .ends {
   display: inline-flex;
   align-items: center;
@@ -2154,19 +1919,14 @@ select:focus {
   opacity: .75;
 }
 
-/* A block of the panel, ruled off from the one above it. The panel is a column of settings
-   with a paragraph under most of them, and without a rule the heading of the next block was
-   one more line of text in the same flow as the last block's explanation: eleven controls,
-   no edges, and nothing to scan for. */
+/* A block of the panel, ruled off from the one above it. */
 .block {
   margin-top: 1.1rem;
   padding-top: .85rem;
   border-top: 1px solid var(--line);
 }
 
-/* The heading, and the `?` that holds what this section is. A row, so the mark sits beside
-   the words rather than under them, and the anchor the explanation hangs from. It is a block
-   the width of the panel, which is exactly the width the explanation wants to be. */
+/* The heading and its `?`, in a row the panel's width that the explanation hangs from. */
 .block__head {
   position: relative;
   display: flex;
@@ -2188,12 +1948,8 @@ select:focus {
   font-size: 13px;
 }
 
-/* Out of sight until the pointer is on the section it belongs to. A panel of eleven settings
-   with a mark on every one of them is eleven marks to read past. The marks of the section the
-   pointer is already on are marks nobody has to read past at all. Each keeps its space either
-   way, so nothing moves when they arrive.
-
-   Where there is no pointer to hover with, they are always there. */
+/* Hidden until the pointer is on their section, keeping their space so nothing moves. Always
+   shown where there is no hover. */
 .ask {
   width: 1rem;
   height: 1rem;
@@ -2235,13 +1991,9 @@ select:focus {
   }
 }
 
-/* What the thing beside it is, over whatever is under it. The width of the panel, because
-   that is what a paragraph in this column has always been, and above the controls it covers
-   rather than pushing them down the page. Opening an explanation must not move the thing it
-   explains out from under the pointer.
-
-   Positioned against whichever ancestor is the width of the panel. A field, a block's heading
-   row, or the wrapper a switch is put in for exactly this. */
+/* The explanation, the panel's width, over the controls rather than pushing them down.
+   Positioned against the ancestor that is the panel's width (a field, a heading row, or a
+   switch's wrapper). */
 .ask__tip {
   position: absolute;
   z-index: 6;
@@ -2264,10 +2016,7 @@ select:focus {
   visibility: visible;
 }
 
-/* In here the paragraphs are the whole content, so they space themselves against each other
-   rather than against a control. Set as ordinary prose, because they are
-   sentences, and the label above them is the only thing in this column wearing small capitals
-   for a reason. */
+/* The explanation's paragraphs, set as ordinary prose. */
 .ask__line {
   margin: 0;
   padding: 0;
@@ -2283,9 +2032,7 @@ select:focus {
   margin-top: .45rem;
 }
 
-/* A switch with a mark of its own. The wrapper is what the explanation is measured against,
-   and what holds the mark out at the end of the line rather than inside the words of the
-   switch, where it would be part of what clicking the switch means. */
+/* A switch with its own mark, held at the end of the line, outside the clickable label. */
 .helped {
   position: relative;
   display: flex;
@@ -2301,9 +2048,8 @@ select:focus {
   margin-top: .1rem;
 }
 
-/* One member of the contract, ticked out of what its owner declares, with the two things
-   about it that are not in the owner's file: the size the boundary holds it to, and the
-   scope it is held behind. */
+/* One member of the contract, ticked from what its owner declares, with its size and
+   scope. */
 .ticks {
   display: flex;
   flex-direction: column;
@@ -2311,10 +2057,8 @@ select:focus {
   margin: .5rem 0 .6rem;
 }
 
-/* One member. The declaration it is, and under it whatever this contract adds to it. A
-   column, because those are two different things and the second one only appears once the
-   first is ticked. Positioned, because it is the width an explanation of anything in it
-   wants to be. The two controls under a ticked member are a few words wide each. */
+/* One member: its declaration, and under it what the contract adds once it is ticked.
+   Positioned, for the explanations inside it. */
 .tick {
   position: relative;
   display: flex;
@@ -2326,10 +2070,8 @@ select:focus {
   margin-bottom: 0;
 }
 
-/* What the point adds to a ticked member, in a line, until somebody presses it. A value that
-   is set is coloured and a default is not, so what the eye finds down the column is the
-   exception: most members are gated on the point's own scope and have no limit, and saying
-   that eight times in a drop-down is eight ways to miss the ninth. */
+/* What the point adds to a ticked member, as a line until pressed. A set value is coloured
+   and a default is not. */
 .tick__summary {
   display: flex;
   flex-wrap: wrap;
@@ -2365,18 +2107,14 @@ select:focus {
   color: var(--ink-dim);
 }
 
-/* What this member costs on the wire. Dim, like the other things about it that were not
-   chosen: it is a consequence of the type beside it, not a setting, and it belongs on the
-   same line because it is the answer to the question that type raises. It sits at the end of
-   the line, so a column of members reads down its names first and its sizes second. */
+/* What this member costs on the wire: dim, at the end of the line, since it follows from the
+   type. */
 .tick__bytes {
   color: var(--ink-dim);
   font-variant-numeric: tabular-nums;
 }
 
-/* The whole contract's size, beside the heading that says what the contract carries. Pushed
-   to the far end of the head, which is the width of the panel, so it lines up with the sizes
-   down the column under it. */
+/* The whole contract's size, at the far end of the heading, over the members' sizes. */
 .block__bytes {
   margin-left: auto;
   color: var(--ink-dim);
@@ -2386,20 +2124,18 @@ select:focus {
   white-space: nowrap;
 }
 
-/* A contract with a member nobody put a limit on has no ceiling, and the number beside it is
-   a floor. Marked, because a floor read as a ceiling is the one way this can mislead. */
+/* A contract with an unbounded member has no ceiling, so its number is a floor, marked as
+   one. */
 .block__bytes--open {
   color: var(--warn);
 }
 
-/* Everything the point adds sits under a member that is on it, so the ones that are on it
-   are the ones that stand out. */
+/* A ticked member stands out. */
 .tick:has(.tick__extras) {
   padding-bottom: .4rem;
 }
 
-/* What the point carries that is not edited here. A model, which is declared on its owner
-   with everything else that owner declares, and shown here as the line it is. */
+/* What the point carries that is not edited here, such as a model, shown as its line. */
 .declares {
   display: flex;
   flex-direction: column;
@@ -2418,10 +2154,7 @@ select:focus {
   white-space: pre;
 }
 
-/* One declaration. Closed, it is the line of code it is. Open, it is the controls over that
-   line. A finished member and a member being typed drawn the same way make a panel
-   of eight of them a wall of drop-downs with no way to tell which decision is still
-   being made. */
+/* One declaration: its line of code while closed, its controls while open. */
 .member {
   margin-top: .35rem;
   border: 1px solid var(--line);
@@ -2441,8 +2174,7 @@ select:focus {
   padding: .1rem .3rem .1rem 0;
 }
 
-/* The whole line is what opens it. A row of code with one small control at the end asks a
-   reader to aim at the control. The thing they want to change is the line. */
+/* The whole line opens it. */
 .member__summary {
   flex: 1;
   min-width: 0;
@@ -2470,9 +2202,7 @@ select:focus {
   outline-offset: -2px;
 }
 
-/* The same four shapes the canvas draws a contract's rows with. A disc for the one value,
-   stacked rules for the many, a filled head leaving the owner and a hollow one coming back
-   into it. One drawing, so a reader learns them once. */
+/* The canvas's four kind marks. */
 .member__summary .mark {
   flex: none;
   width: .7rem;
@@ -2489,9 +2219,7 @@ select:focus {
   stroke-width: 1;
 }
 
-/* The name never breaks. `recordWinner` split over three lines as "recor dWinn er" is not a
-   name anybody can read back against the file. What gives up the width is the signature
-   beside it, which ellipsises. */
+/* The name never breaks; the signature beside it ellipsises instead. */
 .member__name {
   flex: none;
   color: var(--code-name);
@@ -2499,16 +2227,14 @@ select:focus {
   white-space: nowrap;
 }
 
-/* A member added a second ago and not yet named. Said in words rather than left blank, so an
-   unfinished row reads as unfinished instead of as a line with a hole in it. */
+/* A member not yet named, shown as `unnamed`. */
 .member__name--empty {
   color: var(--warn);
   font-style: italic;
   font-weight: 400;
 }
 
-/* Everything after the name. What it holds, what it takes, what it answers. Quieter, because
-   two members of one kind are told apart by their names. */
+/* Everything after the name, quieter. */
 .member__signature {
   min-width: 0;
   color: var(--code-punct);
@@ -2527,9 +2253,7 @@ select:focus {
   margin-top: .5rem;
 }
 
-/* One declaration's controls. They wrap rather than squeeze. The panel is draggable down to
-   a width where a name, a type, a size and a remover cannot all sit on one line, and three
-   of them clipped is worse than two rows. */
+/* One declaration's controls, wrapping rather than squeezing on a narrow panel. */
 .member__row {
   display: flex;
   flex-wrap: wrap;
@@ -2552,8 +2276,7 @@ select:focus {
   min-width: 0;
 }
 
-/* What a declaration is, stated rather than chosen from a drop-down. A property is not a
-   function with a different word in front of it, so the word is not a choice. */
+/* The declaration's kind, stated, not chosen. */
 .member__kind {
   flex: none;
   font-family: var(--mono);
@@ -2563,12 +2286,8 @@ select:focus {
   color: var(--ink-dim);
 }
 
-/* A type and, where the type takes one, the limit the owner-side boundary refuses anything
-   longer than. Two controls, because they are two decisions. */
-/* A type and, where the type takes one, its size. Two controls that only mean anything
-   together, so they are never separated and never squeezed. Everything on the row that can
-   give up width does. This cannot, because a size box narrowed to nothing is a limit nobody
-   can see they have set. */
+/* A type and, where it takes one, its size: kept together and never squeezed, so a set
+   limit stays visible. */
 .typed {
   display: inline-flex;
   flex: none;
@@ -2620,8 +2339,8 @@ select:focus {
   flex: none;
 }
 
-/* The name gives up the width, and wraps onto its own line before it disappears. As
-   the greedy one on the row it pushes the size box off the end. */
+/* The name gives up width and wraps onto its own line, rather than pushing the size box
+   off. */
 .member__part input[type="text"] {
   flex: 1 1 5rem;
   width: auto;
@@ -2653,8 +2372,7 @@ select:focus {
   outline-offset: 1px;
 }
 
-/* What deleting the selection is, kept away from the settings above it. The last control in
-   a column of controls should not be the destructive one by accident of scrolling. */
+/* Deleting the selection, set apart from the settings above. */
 .inspector__actions {
   margin-top: 1.25rem;
   padding-top: 1rem;
@@ -2719,12 +2437,8 @@ select:focus {
   white-space: pre;
 }
 
-/* The files pane under the canvas
-
-   The same project the canvas draws, seen as the text it would be. Rebuilt from the document
-   on every change, so it cannot be showing an older design than the canvas above it, and the
-   QML in it is typed into rather than read. A property declared here is a member of a
-   contract, which is why this is a pane and not a preview. */
+/* The files pane under the canvas: the project as text, rebuilt from the document on every
+   change, and editable. */
 
 .dock {
   display: grid;
@@ -2733,16 +2447,11 @@ select:focus {
   min-height: 0;
   background: var(--panel);
   border-top: 1px solid var(--line);
-  /* How wide the tree is. Named once here because the bar and the pane are both laid out
-     from it. The bar is split where the pane is split, so each half of it is the heading of
-     the half beneath it rather than a row of controls that happens to sit on top. */
+  /* The tree's width, which the bar and the pane are both split at. */
   --tree-width: 17rem;
 }
 
-/* Hidden means collapsed to its own bar along the bottom, not gone. The pane is where the
-   project is, so the way back to it is the strip it left behind rather than a control
-   somewhere else on the page. The bar is also what names the file that is still open, so a
-   collapsed pane still says what you were reading. */
+/* Hidden means collapsed to its bar along the bottom, which brings it back. */
 .dock.is-collapsed {
   grid-template-rows: auto;
   height: auto;
@@ -2759,9 +2468,7 @@ select:focus {
   border-bottom: 1px solid var(--line);
 }
 
-/* The left half. What the pane below it is, and the one control over all of it. The button
-   sits at the far end of the tree's own width, so it reads as the heading of the tree rather
-   than as something about whichever file is open on the other side of the rule. */
+/* The left half, over the tree, with the lock at its far end. */
 .dock__files {
   display: flex;
   align-items: center;
@@ -2770,9 +2477,7 @@ select:focus {
   padding: .35rem .75rem;
 }
 
-/* The right half, which file is open. Its own left padding rather than the bar's, so the
-   name starts exactly where the file below it starts and the rule between the two halves
-   runs through the bar and the pane as one line. */
+/* The right half, naming the open file, starting where the file below it starts. */
 .dock__file {
   display: flex;
   align-items: center;
@@ -2782,8 +2487,7 @@ select:focus {
   border-left: 1px solid var(--line);
 }
 
-/* Collapsed, the pane is gone and there is no tree for the left half to be the heading of,
-   so the bar stops pretending to be split and reads as one strip again. */
+/* Collapsed, the bar is one strip. */
 .dock.is-collapsed .dock__bar {
   grid-template-columns: auto minmax(0, 1fr);
 }
@@ -2792,11 +2496,7 @@ select:focus {
   border-left: none;
 }
 
-/* Collapsed, the bar is a strip that says what is behind it and offers the one control that
-   brings it back. The file's name and the button that unlocks the project go with the pane: a
-   name with no pane under it is a file nobody can see, and an Edit files button over a pane
-   that is not there opens the files for a caret that has nowhere to go. The chevron does not
-   move, because it is the thing being reached for. */
+/* Collapsed, the file's name and the lock go with the pane, and the chevron stays put. */
 .dock.is-collapsed .dock__name,
 .dock.is-collapsed .button--lock {
   display: none;
@@ -2815,8 +2515,7 @@ select:focus {
   color: var(--ink-dim);
 }
 
-/* The file the pane has open, named once, on the bar, so a collapsed pane still says where
-   it is and an open one does not say it twice. */
+/* The open file's name, on the bar. */
 .dock__name {
   font-family: var(--mono);
   font-size: 11px;
@@ -2826,8 +2525,7 @@ select:focus {
   white-space: nowrap;
 }
 
-/* The tree on the left, the file being read on the right. The same arrangement the guide's
-   front page uses for the same job. */
+/* The tree on the left, the file on the right. */
 .dock__pane {
   min-height: 0;
   overflow: hidden;
@@ -2835,8 +2533,7 @@ select:focus {
   grid-template-columns: var(--tree-width) minmax(0, 1fr);
 }
 
-/* Sunk a shade below the file it opens, so the pane reads as a sidebar and a document
-   rather than as two halves of one flat box. */
+/* The tree, a shade below the file. */
 .tree {
   margin: 0;
   padding: .5rem 0;
@@ -2848,18 +2545,9 @@ select:focus {
   font-size: 12px;
 }
 
-/* Directories nest, the way the project's own folders do. An entity lives under its type, so
-   two web edges are two rows inside one `web/` rather than two unrelated headings that happen
-   to start with the same word. A chain with no fork in it is drawn joined (`db/relational/books`
-   on one row), because a directory holding only one directory offers nothing to choose.
-
-   The row carries the entity's own glyph, in the entity's own colour, where the directory IS
-   an entity. The tree and the drawing above it are then two views of one thing rather than a
-   picture and a list of paths to read against each other. A directory holding several entities
-   is a type, and takes a plain folder mark.
-
-   `--depth` is how far in the row sits, set per row by design.js and read by the padding below,
-   so an indent never depends on how the markup happens to nest. */
+/* Directories nest as the project's folders do, and a chain with no fork is joined
+   (`db/relational/books` on one row). An entity's directory carries its glyph and colour; any
+   other takes a plain folder mark. `--depth`, set per row by design.js, sets the indent. */
 .tree__folder {
   --depth: 0;
   color: var(--ink-dim);
@@ -2892,8 +2580,7 @@ select:focus {
   color: var(--edge);
 }
 
-/* A type folder holding entities is a grouping and not a heading of its own, so it sits
-   tighter above what is in it than an entity's own row does. */
+/* A type folder sits tighter above its contents than an entity's row does. */
 .tree__folder--plain > .tree__folder-name {
   padding-top: .35rem;
   font-weight: 500;
@@ -2933,9 +2620,7 @@ select:focus {
   background: var(--panel-high);
 }
 
-/* The file of whatever is selected on the canvas. Selecting an entity opens its file and
-   opening a file selects its entity, so the two views never disagree about what is in hand;
-   this is the half of that the tree shows. */
+/* The file of whatever is selected on the canvas. */
 .tree__file.is-current {
   box-shadow: inset 2px 0 0 var(--accent);
 }
@@ -2946,8 +2631,7 @@ select:focus {
   font-family: var(--text);
 }
 
-/* One box holding one thing. The file. Which file it is, whether it is unlocked and what
-   typing into it would do are all said once, up on the dock bar. */
+/* The box holding the file. */
 .source {
   display: grid;
   grid-template-rows: 1fr;
@@ -2955,29 +2639,19 @@ select:focus {
   min-height: 0;
 }
 
-/* The box the editor is built into, and everything this stylesheet has to say about it: what
-   is inside is a shadow root, so the rest is editor.css, which that root adopts. It sizes
-   itself to this box, so this is the one that has to be told it may be shorter than its
-   content. Without the minimum a grid item is as tall as what is in it, and a long file
-   pushed the pane off the bottom of the window. */
+/* The box the editor is built into; inside is a shadow root styled by editor.css. The
+   minimum lets it be shorter than a long file, which would otherwise push the pane off the
+   window. */
 .source__view {
   min-height: 0;
   overflow: hidden;
   background: var(--page);
 }
 
-/* What hovering the canvas opens
+/* The card hovering the canvas opens, structured where a native tooltip is one paragraph.
+   It never takes the pointer. */
 
-   Its own thing rather than the browser's <title> tooltip, because what there is to say about
-   an entity is a structure. What it is, what can reach it, what it owns, what it consumes and
-   what the rules have against it. A native tooltip can only be a paragraph, it arrives after a
-   delay nobody chose, and it cannot be coloured, so half of the above would have gone unread.
-   It never answers the pointer itself. This is something to read, not something to hit. */
-
-/* Renaming, over the thing being renamed. Centred on where it was double-clicked and no
-   wider than the name in it, so the drawing underneath stays readable while a name is being
-   changed. A dialog in the middle of the window hides exactly the part somebody is renaming
-   against. */
+/* The rename field, centred where it was double-clicked and as wide as the name. */
 .rename {
   position: fixed;
   z-index: 13;
@@ -3044,8 +2718,7 @@ select:focus {
   color: var(--error);
 }
 
-/* What kind of thing the card is about, on the same line as its name. Right-aligned and quiet:
-   it is the caption on the title, not a fact of its own. */
+/* The kind of thing the card is about, at the right end of its title line, quiet. */
 .tip__kind {
   margin-left: auto;
   flex: none;
@@ -3056,9 +2729,7 @@ select:focus {
   color: var(--ink-dim);
 }
 
-/* A rule across the card with a word on it. Without one, ten label-and-value rows in one grey
-   face are a paragraph with the punctuation taken out. Nothing says where the two ends of the
-   link stop and how it is carried begins. */
+/* A labelled rule across the card, between its parts. */
 .tip__section {
   display: flex;
   align-items: center;
@@ -3084,10 +2755,7 @@ select:focus {
   margin-bottom: .15rem;
 }
 
-/* Small capitals rather than a capital letter. These are the labels down the left of a
-   two-column list, not sentences, and a list of them reading Is / Owns / Consumes looks like
-   eight headings. Set as small caps they read as one column of labels, which is what they
-   are, and the value beside each one stays the thing being read. */
+/* The labels down the left of the card, in small capitals. */
 .tip__label {
   color: var(--ink-dim);
   font-variant-caps: all-small-caps;
@@ -3100,9 +2768,7 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
-/* One end of a link. The label takes the role's own colour, which is the colour the drawing
-   has put on that entity out on the canvas, so the word and the disc are one statement
-   rather than two things to match up by name. */
+/* One end of a link, its label in the role's colour. */
 .tip__party {
   display: grid;
   grid-template-columns: 6.5rem 1fr;
@@ -3127,8 +2793,7 @@ select:focus {
   gap: .25rem .4rem;
 }
 
-/* The entity itself, with the glyph the canvas draws it with. Named in the code face, because
-   it is a name out of the project and not a word about it. */
+/* An entity, with its glyph, named in the code face. */
 .tip__chip {
   display: inline-flex;
   align-items: center;
@@ -3164,9 +2829,8 @@ select:focus {
   gap: .1rem;
 }
 
-/* One member, painted the way the canvas paints it beside the line. The mark for its kind and
-   then the declaration in the file pane's own three colours. A list of these was one grey
-   block, which is the part of a link tip somebody followed the line to read. */
+/* One member, painted as the canvas paints it: its kind mark, then the declaration in the
+   pane's colours. */
 .tip__member {
   display: flex;
   align-items: baseline;
@@ -3210,8 +2874,7 @@ select:focus {
   color: var(--code-punct);
 }
 
-/* The gate on a member, quiet by default and a warning where it is above the scope the whole
-   point is behind. The same split the canvas makes, so the row and its card agree. */
+/* A member's gate: quiet, or a warning when above its point's scope, as on the canvas. */
 .tip__tok--scope {
   color: var(--code-punct);
 }
@@ -3220,8 +2883,7 @@ select:focus {
   color: var(--warn);
 }
 
-/* A scope in a sentence, as the chip it is: the notation the canvas writes beside a member,
-   in a box, so it reads as the scope and not as one more word. */
+/* A scope in a sentence, as a chip in the canvas's notation. */
 .tip__scope {
   display: inline-block;
   padding: 0 .3rem;
@@ -3233,6 +2895,33 @@ select:focus {
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+/* A name or code in a sentence, boxed like a scope; a typed name carries its type in the type
+   colour. */
+.tip__ident {
+  display: inline-block;
+  padding: 0 .3rem;
+  border: 1px solid var(--line);
+  border-radius: .25rem;
+  background: var(--panel-high);
+  color: var(--code-name);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tip__ident .tip__tok--name {
+  font-weight: 600;
+}
+
+/* An entity's files, one chip per line. */
+.tip__files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .15rem;
 }
 
 .tip__scope.is-scoped {
@@ -3312,8 +3001,7 @@ select:focus {
   background: var(--panel-high);
 }
 
-/* The line under a row's name, where the name is not the whole of what the row is. Dim and
-   smaller, so a list of them reads down the names first and the explanations second. */
+/* The note under a menu row's name, dim and smaller. */
 .menu__note {
   display: block;
   margin-top: .1rem;
@@ -3327,9 +3015,7 @@ select:focus {
   color: var(--error);
 }
 
-/* What crosses a link, opened on the link the moment it is drawn. A floating card rather
-   than a panel section. The question belongs to the line that was pulled, and it is
-   answered and gone. */
+/* The picker for what crosses a link, a floating card opened when the link is drawn. */
 .picker {
   position: fixed;
   z-index: 30;
@@ -3362,8 +3048,7 @@ select:focus {
   color: var(--ink-dim);
 }
 
-/* The two ends of the point, in its heading. Set as the names they are rather than in the
-   small capitals the rest of the heading wears. */
+/* The point's two ends in the heading, as names, not small capitals. */
 .picker__head .ends {
   text-transform: none;
   letter-spacing: normal;
@@ -3399,8 +3084,7 @@ select:focus {
   background: var(--panel-high);
 }
 
-/* A member here is the line of code it is, painted by the same reader as everywhere else. All
-   this sets is the size it is set at. */
+/* A member's line of code, at the picker's size. */
 .picker__row .code {
   font-size: 12px;
 }

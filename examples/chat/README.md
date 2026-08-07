@@ -3,9 +3,9 @@
 
 # chat: a room everybody in it sees at once
 
-The project the front page of synqt.org reads out file by file. Three entities, four
-files, and the whole model in miniature: an owner that decides, a consumer that asks, a
-contract that says what may cross, and a database the browser has no way to reach.
+The project the front page of synqt.org shows file by file. It has three entities and nine
+files. An owner decides, a consumer asks, a contract says what may cross, and the browser
+has no way to reach the database.
 
 ```
 browser ---wss+session---> web edge ---mesh mTLS---> store
@@ -13,7 +13,7 @@ browser ---wss+session---> web edge ---mesh mTLS---> store
 ```
 
 Somebody types a line, the database appends it and reassigns one list, and every window open
-on the room redraws. Nothing polls, and nobody wrote a broadcast.
+on the room redraws, with no polling and no broadcast code.
 
 ## Two gates, neither of them in the client
 
@@ -45,8 +45,8 @@ not told about.
 
 | Entity | Type | File |
 | --- | --- | --- |
-| `app` | client | `client/app/Main.qml`, `User.qml`, `Admin.qml` |
-| `edge` | web_edge | `web/edge/Edge.qml` |
+| `app` | client | `client/app/Main.qml`, `User.qml`, `Message.qml`, `Admin.qml` |
+| `edge` | web_edge | `web/edge/Edge.qml`, `identity/map.qml` |
 | `store` | relational | `db/relational/store/Store.qml`, `schema.sql` |
 
 ## Running it

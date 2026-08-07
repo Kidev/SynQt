@@ -3,16 +3,11 @@
 
 """What applying a design document would do to a project, worked out before any of it runs.
 
-The editor may do anything a person can do to a topology, deletions included, so what keeps
-it safe is not a short list of permitted verbs. It is that nothing happens until somebody has
-read what is about to happen. :func:`compute` turns a document into a change set, :func:`diff`
-renders that change set as one unified diff, and :func:`digest` fingerprints it so the thing
-finally applied is provably the thing that was shown.
-
-Nothing here writes into the project. The changes are worked out in a throwaway copy of it,
-by running the same scaffolders `synqt add entity` and `synqt add connect-point` run, so the
-files a plan promises are the files those commands would produce rather than a
-second guess at their output.
+The editor may make any change, deletions included, and nothing runs until the plan has been
+shown. :func:`compute` turns a document into a change set, :func:`diff` renders it as one
+unified diff, and :func:`digest` fingerprints it so what is applied is what was shown. The
+changes are computed in a throwaway copy of the project, with the same scaffolders `synqt
+add entity` and `synqt add connect-point` use.
 """
 
 from __future__ import annotations
@@ -32,18 +27,11 @@ from . import (addcontract, addentity, appmodel, check as checkmod, config as co
 from . import designdoc, newproject, qmlcomments, yamledit
 
 # Copied into the working tree and compared afterwards. Everything else is build output, a
-# repository, or the editor's own layout file, and none of it is the project's source.
-#
-# `generated/` is on this list because the scaffolders regenerate it (`synqt add entity` ends
-# in appgen.generate, and so does the plan that runs it), so every change set that added an
-# entity carried the whole generated tree along with it: the mains, the contracts, and now the
-# QML mirror too. None of that is a change anybody reviews. It is written from synqt.yaml by
-# the next build whatever this plan does, and a diff that asks somebody to approve it is
-# asking them to read machine output to find the two lines that were theirs.
+# repository, or the editor layout file. `generated/` is excluded: the scaffolders
+# regenerate it and the next build rewrites it, so it is not a change to review.
 _IGNORED = ("build", "generated", ".git", ".synqt", "__pycache__", "node_modules", ".venv")
 
-# The entity fields the document models. Anything else in an entity block (TLS files,
-# provider settings, an env file) is the author's and is left where it is.
+# The entity fields the document models. Everything else in an entity block stays.
 _ENTITY_FIELDS = ("type", "provider", "targets", "identity", "shared", "bundles")
 _LINK_FIELDS = ("owner", "consumers", "transport", "scope", "behind", "export")
 
@@ -65,8 +53,9 @@ class Change:
 
 @dataclass(frozen=True)
 class Plan:
-    """A whole change set. What it would do, what validation says of the result, and
-    whether the project has moved under the document since it was read."""
+    """A whole change set: what it would do, what validation says of the result, and whether
+    the project changed since the document was read.
+    """
 
     changes: Tuple[Change, ...]
     findings: Tuple[str, ...]
@@ -104,17 +93,10 @@ def compute(project_dir: os.PathLike[str] | str, document: Dict[str, Any], *,
 def _with_scaffolded_monitors(config: Dict[str, Any]) -> Dict[str, Any]:
     """`config` as it will be once the monitor scaffolder has run over the drawn monitors.
 
-    The editor draws one node and a monitor is four things: the entity, the console client,
-    the sign-in gate the console is hidden behind, and the `monitoring.entity` line that
-    makes every service report. `_scaffold_entity` runs the real scaffolder for all four,
-    but that happens while the change set is being worked out, and what the plan validates
-    is the configuration the document describes. Validated as drawn, a monitor somebody had
- dropped read as a monitor with no gate and no wiring, and the plan refused the
-    thing it was itself about to write correctly.
-
-    So the same three functions the scaffolder calls are called here, and nothing is
-    predicted twice. This is the scaffolder's own answer, asked one step earlier. A monitor
-    that is already wired keeps what it has.
+    A drawn monitor becomes four things: the entity, the console client, its sign-in gate,
+    and the `monitoring.entity` line. The plan validates the configuration, so the
+    scaffolder's own three functions are applied first. A monitor that is already wired
+    keeps what it has.
     """
     entities = appmodel.entities(config)
     drawn = [entity for entity in entities
@@ -143,13 +125,9 @@ def _with_scaffolded_monitors(config: Dict[str, Any]) -> Dict[str, Any]:
 def _uncompilable_contracts(wanted: Dict[str, Any]) -> List[str]:
     """Every drawn contract the compiler would refuse to read back.
 
-    The panel takes a member's name as text, and some of that text is not a name the
-    grammar has. `record` opens a record declaration, and a slot called one is a file that
-    parses as something else. Written out, it is worse than a build error, because the
-    editor reads the project through the same parser. Applying one left the project it had
- written unopenable. So the contract is rendered and parsed here, in the plan,
-    which is the last point where the answer is still "no" rather than "no, and also your
-    project is broken now".
+    A member name typed in the panel may not be a valid name (`record` opens a record
+    declaration). Written out, it would leave a project the editor cannot open, so each
+    contract is rendered and parsed here.
     """
     problems: List[str] = []
     for link in wanted.get("links", []):
@@ -167,8 +145,7 @@ def _uncompilable_contracts(wanted: Dict[str, Any]) -> List[str]:
 
 
 def _note(reasons: Dict[str, List[str]], path: str, why: str) -> None:
-    """Record why `path` is in the change set. A file can be there for several reasons at
-    once, and a reader deciding whether to apply the plan needs all of them."""
+    """Record why `path` is in the change set. A file can be there for several reasons."""
     causes = reasons.setdefault(path, [])
     if why not in causes:
         causes.append(why)
@@ -182,11 +159,8 @@ def _reason(reasons: Dict[str, List[str]], path: str, fallback: str) -> str:
 
 def _settled(current: Dict[str, Any],
              document: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, List[str]]]:
-    """The document with names that no longer exist taken off every consumer list.
-
-    Deleting an entity in the editor is one gesture, and the links that named it are not
-    expected to be tidied up by hand afterwards. The tidying is recorded as a reason so it
-    shows up in the plan rather than happening quietly.
+    """The document with deleted names taken off every consumer list, each removal recorded as
+    a reason.
     """
     reasons: Dict[str, List[str]] = {}
     alive = {entity["name"] for entity in document.get("entities", [])}
@@ -222,13 +196,7 @@ def _apply(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
 
 def _apply_project(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
                    reasons: Dict[str, List[str]]) -> None:
-    """Carry a renamed project into `project.name`.
-
-    The editor writes the name where it is displayed, so this is the one field of the
-    document that is not about an entity or a link. An empty name is not a rename: it is
-    what a field looks like halfway through being retyped, and writing it would leave the
-    project with no name at all.
-    """
+    """Carry a renamed project into `project.name`. An empty name is ignored."""
     was = str(current.get("project") or "")
     now = str(wanted.get("project") or "").strip()
     if not now or now == was:
@@ -241,19 +209,11 @@ def _apply_scopes(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
                   reasons: Dict[str, List[str]]) -> None:
     """Carry an edited scope vocabulary into `scopes:`.
 
-    The order matters twice over. It is the authority ranking under
-    `scopes.hierarchical`, and since the mapping hook started answering with a generated
-    enum it is that enum's member values, so a reorder renumbers the vocabulary and every
-    hook is regenerated against the new numbers. That is why the editor is allowed to make
-    this edit at all, and why it gets a line of its own in the change set.
-
-    A rename is a rename of the list and nothing else. Nothing here goes looking for the
-    gates, the bundle keys or the mapping hook that named the old scope, because working out
-    that a name was retyped rather than removed and another added means guessing from two
-    snapshots, and a wrong guess rewrites a file nobody asked it to touch. So the references
-    are left exactly as they are and `synqt check` names each one that no longer resolves.
-    What this does write, and only when it has to, is `default:`, because a default that
-    named a scope the project no longer declares is a project that will not even configure.
+    The order is the authority ranking and the generated Scope enum values, so a reorder
+    renumbers every hook; it gets its own line in the change set. A rename changes the list
+    only: gates, bundle keys and mapping hooks are left as they are, and `synqt check`
+    reports each one that no longer resolves. `default:` is rewritten when it names a
+    removed scope.
     """
     was = [str(scope) for scope in current.get("scopes") or [] if str(scope)]
     now = [str(scope) for scope in wanted.get("scopes") or [] if str(scope)]
@@ -261,10 +221,7 @@ def _apply_scopes(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
         return
     declared = configmod.load(work).get("scopes")
     if not isinstance(declared, dict):
-        # A project that never wrote the section. Written whole rather than one key at a
-        # time, because there is no parent for the keys to go under yet, and with the two
-        # settings that belong beside the order: a `scopes:` holding nothing but an order is
-        # a section somebody has to finish by hand.
+        # No section yet: write it whole, with the settings that belong beside the order.
         _edit_config(work, lambda text: yamledit.set_scalar(text, "scopes", {
             "order": now, "hierarchical": True, "default": now[0]}))
         _note(reasons, "synqt.yaml", "the project declares its scopes now: " + ", ".join(now))
@@ -308,6 +265,7 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
                _entity_field, reasons)
         _write_entity_qml(work, entity, reasons)
         _write_entity_schema(work, entity, reasons)
+        _write_entity_companions(work, entity, reasons)
 
     for name in was:
         if name in now:
@@ -324,11 +282,8 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
 
 
 def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
-    """Add one entity the way `synqt add entity` would, whatever type it is.
-
-    The scaffolder is run rather than imitated. An entity the editor draws has to be the
-    same entity the command line produces, down to the schema file and the credential name
-    written into .env.example, or the two ways into a project drift apart.
+    """Add one entity the way `synqt add entity` would, whatever type it is, by running that
+    scaffolder.
     """
     entity_type = appmodel.entity_type(entity)
     if entity_type in addentity.TYPES:
@@ -339,15 +294,11 @@ def _scaffold_entity(work: Path, entity: Dict[str, Any]) -> None:
             raise DesignPlanError(f"'{entity['name']}': {error}") from error
         _uncomment(work, appmodel.entity_dir(entity))
     else:
-        # A client or a web edge. One of each per project, so there is nothing to scaffold
-        # beyond the block and the entity file written below. The client's is the one file
-        # it cannot start without. Without it the entity is on the canvas, is in
-        # synqt.yaml, and has an empty directory, and the browser shows nothing.
+        # A client or a web edge: the block and the entity file written below. The client
+        # cannot start without its file.
         block = {"name": entity["name"], "type": entity_type}
         _edit_config(work, lambda text: yamledit.append_item(text, "entities", block))
-    # Every entity gets its own file, whichever of the three ways it arrived. `synqt add
-    # entity` writes one too, so an entity drawn here and one added from the command line are
-    # the same entity.
+    # Every entity gets its own file, as `synqt add entity` writes.
     written = newproject.write_entity_qml(work, entity)
     if written:
         _uncomment_file(work / written)
@@ -366,9 +317,7 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
     now = _by_name(wanted["links"])
     points = {appmodel.point_name(point): point for point in appmodel.connect_points(base)}
     alive = {entity["name"] for entity in wanted["entities"]}
-    # Where a link's two files go is decided by the entity that owns it, so the owners are
-    # resolved once here. Both the drawing's entities (an owner added in the same edit is
-    # not in the config yet) and the ones already configured.
+    # Resolve the owners once, from the drawing (new owners) and the configuration.
     owners = {str(entity.get("name") or ""): entity
               for entity in list(appmodel.entities(base)) + list(current["entities"])
               + list(wanted["entities"])}
@@ -376,8 +325,7 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
     for name, link in now.items():
         _write_source(work, link, points, alive, owners, reasons)
         if name not in was:
-            # No `name:`. An entity has one connect point, so the owner names it, and
-            # `owner` is the first field in _LINK_FIELDS so the entry opens on it.
+            # No `name:`: the owner names the point, and `owner` is first in _LINK_FIELDS.
             block = {key: _link_field(link, key) for key in _LINK_FIELDS
                      if _link_field(link, key) is not None}
             _edit_config(work, lambda text: yamledit.append_item(
@@ -393,25 +341,17 @@ def _apply_links(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
         _edit_config(work, lambda text: yamledit.remove_item(text, "connect_points", name))
         _note(reasons, "synqt.yaml", f"connect point '{name}' removed")
 
-    # Nothing to clean up for a link that went. What crossed it was written on it, so
-    # removing the point took the shape with it.
+    # A removed link needs no cleanup: its contract was written on it.
 
 
 def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, Any]],
                   alive: Set[str], owners: Dict[str, Dict[str, Any]],
                   reasons: Dict[str, List[str]]) -> None:
-    """Give a link an owner-side Source file: the one that was edited, or an empty one.
+    """Give a link an owner-side Source file: the edited one, or an empty one.
 
-    A connect point is two halves. The contract that says what may cross it, and the QML on
-    the owner that implements it. Drawing the link is the whole gesture in the editor, so the
-    second half is written here rather than left as an entity that fails to start.
-
-    A file nobody typed into is only ever created, never rewritten. What somebody has already
-    implemented is theirs, and the document carrying a copy of it is not a reason to write
-    that copy back over it. That is what ``qmlEdited`` marks, and why it is not enough for the
-    document's copy to merely differ from the disk's. The same page holds a copy read when it
-    loaded, and a file changed in somebody's own editor since then would otherwise be reverted
-    to what it said at that moment.
+    A file nobody typed into is only created, never rewritten. Only text marked
+    ``qmlEdited`` overwrites a file, because the document also carries copies read at page
+    load that may be older than the disk.
     """
     contract, owner = appmodel.contract_of(link), link.get("owner")
     owning = owners.get(str(owner or ""))
@@ -423,9 +363,7 @@ def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, 
     target = work / relative
     edited = _edited_qml(link)
     existing = _text_of(target) if target.exists() else None
-    # An entity arrives with a file of its own, and exporting a point turns that same file
-    # into the Source. Still exactly what the scaffolder wrote means nobody has touched it,
-    # which is the whole licence to write over it. Anything else is somebody's work.
+    # Overwrite the entity file only if it is still exactly what the scaffolder wrote.
     if existing is not None and not addcontract.untouched_scaffold(existing, owning):
         if edited is not None and edited != existing:
             _note(reasons, relative, f"the Source for '{link['name']}' was edited")
@@ -447,30 +385,21 @@ def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, 
 
 
 def _edited_qml(item: Dict[str, Any]) -> Optional[str]:
-    """The QML somebody typed into this item in the editor, or None if nobody did.
-
-    The document carries every QML file it draws so the editor can show the project as it is,
-    which means most of what arrives here is a copy of what is already on the disk. Only text
-    the page marked as typed is text to write.
-    """
+    """The QML typed into this item in the editor, or None. Only text marked as typed is written."""
     text = item.get("qml")
     return text if item.get("qmlEdited") and isinstance(text, str) and text else None
 
 
 def _write_entity_qml(work: Path, entity: Dict[str, Any],
                       reasons: Dict[str, List[str]]) -> None:
-    """Keep an entity's own file: write what was typed into it, or give it one if it has none.
-
-    An entity that already existed when the design was read has its file on disk, and most of
-    what arrives here is the copy the page read from it. Only text the page marked as typed is
-    text to write. See :func:`_edited_qml`.
+    """Keep an entity file: write what was typed into it, or create it if missing (see
+    :func:`_edited_qml`).
     """
     relative = appmodel.entity_file_path(entity)
     target = work / relative
     edited = _edited_qml(entity)
     if edited is None:
-        # Not an edit but a gap. An entity that predates the file having existed at all, or
-        # one whose directory somebody emptied. Written fresh rather than left missing.
+        # Missing: write it fresh.
         written = newproject.write_entity_qml(work, entity)
         if written:
             _uncomment_file(work / written)
@@ -485,12 +414,8 @@ def _write_entity_qml(work: Path, entity: Dict[str, Any],
 
 def _write_entity_schema(work: Path, entity: Dict[str, Any],
                          reasons: Dict[str, List[str]]) -> None:
-    """The table a relational entity queries, when somebody typed into it.
-
-    Held to the same rule the QML is. The document carries a copy so the pane can show the
-    file that is there, and only text the page marked as typed is text to write. Nothing is
-    created here, because `synqt add entity` writes the schema with the entity and a project
-    without one is not a project this can guess a table for.
+    """The relational schema, when somebody typed into it. Same rule as the QML. Never created
+    here: `synqt add entity` writes it with the entity.
     """
     if appmodel.entity_type(entity) != "relational" or not entity.get("schemaEdited"):
         return
@@ -504,6 +429,32 @@ def _write_entity_schema(work: Path, entity: Dict[str, Any],
     _note(reasons, relative, f"the schema for '{entity['name']}' was edited")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
+
+
+def _write_entity_companions(work: Path, entity: Dict[str, Any],
+                             reasons: Dict[str, List[str]]) -> None:
+    """The other files in an entity folder, where somebody typed into one. Same rule as the
+    QML. A path outside the entity folder, or of a kind the document never carries, is
+    refused.
+    """
+    folder = (work / appmodel.entity_dir(entity)).resolve()
+    for companion in entity.get("files") or []:
+        if not isinstance(companion, dict) or not companion.get("edited"):
+            continue
+        path = companion.get("path")
+        text = companion.get("text")
+        if (not isinstance(path, str) or not isinstance(text, str)
+                or Path(path).suffix not in designdoc.COMPANION_SUFFIXES):
+            continue
+        target = (folder / path).resolve()
+        if folder not in target.parents:
+            continue
+        if target.exists() and text == _text_of(target):
+            continue
+        relative = f"{appmodel.entity_dir(entity)}/{path}"
+        _note(reasons, relative, f"'{path}' in '{entity['name']}' was edited")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
 
 
 def _patch(work: Path, list_path: str, name: str, was: Dict[str, Any],
@@ -542,11 +493,8 @@ def _entity_field(entity: Dict[str, Any], key: str) -> Any:
     if key == "type":
         return appmodel.entity_type(entity)
     if key == "shared":
-        # The one field whose interesting value is false, and so the one the truthiness test
-        # below dropped. An entity marked per-caller in the panel reached no file at all.
-        # Written only when it is not what the entity resolves to on its own, the same rule
-        # designdoc applies, so a drawing that says nothing about sharing leaves the file
-        # saying nothing about it either.
+        # `shared: false` is the interesting value, so it is not a truthiness test. Written
+        # only when it differs from what the entity resolves to, as designdoc does.
         default = appmodel.is_shared({"type": appmodel.entity_type(entity)})
         return value if isinstance(value, bool) and value is not default else None
     return str(value) if value else None
@@ -556,25 +504,21 @@ def _link_field(link: Dict[str, Any], key: str) -> Any:
     value = link.get(key)
     if key == "consumers":
         return list(value or [])
-    # Which entity serves each scope on a front. A mapping rather than a scalar, and empty
-    # means the edge answers its own point, so an edge that stops being a front loses the
-    # block rather than keeping an empty one.
+    # Which entity serves each scope on a front. Empty means no front, so the block is
+    # removed.
     if key == "behind":
         wired = {str(scope): str(name)
                  for scope, name in (value or {}).items() if scope and name}
         return wired or None
-    # What crosses the link, written on the link. The document carries it as members, which
-    # is what the panel edits. The file carries it as the lines they render to.
+    # The contract, rendered from the document members into lines.
     if key == "export":
         return designdoc.render_export(link.get("members") or []) or None
     return str(value) if value else None
 
 
 def _uncomment_file(target: Path) -> None:
-    """Take the commentary out of one file this plan scaffolded.
-
-    Only ever called on text a scaffolder produced a moment ago, never on a file somebody
-    wrote: what an author put in their own file is theirs, comments included.
+    """Take the commentary out of one file this plan scaffolded. Only called on scaffolder
+    output.
     """
     if not target.is_file():
         return
@@ -585,11 +529,8 @@ def _uncomment_file(target: Path) -> None:
 
 
 def _uncomment(work: Path, folder: str) -> None:
-    """The same, for every QML file a blueprint scaffolder wrote into an entity's folder.
-
-    A blueprint writes more than one file and writes them itself, so this reaches for the
-    result rather than for the templates. The command line's copies keep their comments,
-    which are the only explanation a terminal gets.
+    """The same, for every QML file a blueprint scaffolder wrote into an entity folder. The
+    command line's copies keep their comments.
     """
     directory = work / folder
     if not directory.is_dir():
@@ -688,12 +629,11 @@ def digest(plan: Plan) -> str:
 
 
 def execute(project_dir: os.PathLike[str] | str, plan: Plan) -> str:
-    """Apply `plan` to the project, or leave the project exactly as it was.
+    """Apply `plan` to the project, or leave it untouched.
 
-    There is no half-applied state to explain. Everything the plan touches is held in
-    memory first, and any failure puts all of it back before the error is raised. A plan
-    that does not validate, or that was computed against a synqt.yaml somebody has since
-    edited, is refused rather than applied and reported on afterwards.
+    Everything the plan touches is held in memory, and any failure restores it before the
+    error is raised. A plan that does not validate, or was computed against a changed
+    synqt.yaml, is refused.
     """
     root = Path(project_dir)
     if plan.stale:
