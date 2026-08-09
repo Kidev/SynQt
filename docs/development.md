@@ -850,7 +850,8 @@ manual and takes no version. You pick `patch`, `minor` or `major`, and it bumps 
 `v*` tag accordingly, with an optional suffix (`-alpha`, `-rc.1`) that marks a pre-release,
 so `/releases/latest`, and therefore the installer, keeps resolving to the last stable
 build. `dry_run` builds and smoke tests every artifact and publishes nothing; use it to test
-a change to the workflow itself.
+a change to the workflow itself. `skip_pypi` publishes the GitHub release without uploading
+to PyPI.
 
 Its first job compares `deploy/get.synqt.org/install.sh` with the `index.html` beside it.
 They are the same script under two URLs (Pages needs the root document to be `index.html`),

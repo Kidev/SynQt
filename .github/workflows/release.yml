@@ -29,6 +29,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip_pypi:
+        description: "Publish the GitHub release without uploading to PyPI"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -66,6 +71,7 @@ jobs:
           BUMP: ${{ inputs.bump }}
           SUFFIX: ${{ inputs.suffix }}
           DRY_RUN: ${{ inputs.dry_run }}
+          SKIP_PYPI: ${{ inputs.skip_pypi }}
         run: |
           set -eu
           latest="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n1)"
@@ -99,6 +105,8 @@ jobs:
           fi
           if [ "$DRY_RUN" = "true" ]; then
             echo "::notice::Dry run: v$version will be built and smoke-tested but NOT tagged or published"
+          elif [ "$SKIP_PYPI" = "true" ]; then
+            echo "::notice::Skipping PyPI: v$version will be tagged and released on GitHub only"
           fi
           {
             echo "version=$version"
@@ -463,7 +471,7 @@ jobs:
   # Trusted publishing matches this file's name: renaming it breaks publishing.
   publish-pypi:
     needs: [version, build-pypi, release]
-    if: ${{ !inputs.dry_run && needs.version.outputs.pypi == 'true' }}
+    if: ${{ !inputs.dry_run && !inputs.skip_pypi && needs.version.outputs.pypi == 'true' }}
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -471,14 +479,19 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - name: Refuse to publish on a dry run
+      - name: Refuse to publish on a dry run or with PyPI skipped
         env:
           DRY_RUN: ${{ inputs.dry_run }}
+          SKIP_PYPI: ${{ inputs.skip_pypi }}
           PYPI_VERSION: ${{ needs.version.outputs.pypi_version }}
         run: |
           set -eu
           if [ "$DRY_RUN" = "true" ]; then
             echo "::error::publish-pypi reached on a dry run; refusing to upload"
+            exit 1
+          fi
+          if [ "$SKIP_PYPI" = "true" ]; then
+            echo "::error::publish-pypi reached with skip_pypi set; refusing to upload"
             exit 1
           fi
           echo "not a dry run: publishing $PYPI_VERSION to PyPI"
