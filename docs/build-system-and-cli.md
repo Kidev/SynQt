@@ -79,9 +79,10 @@ time, and `-DSYNQT_ROOT=...` overrides it per build.
 
 **Provider dependencies.** When an entity selects a non default provider (see
 [providers](providers.md)), the build resolves its engine client. A relational provider
-(PostgreSQL, MySQL, ODBC, Oracle) needs the matching Qt SQL driver plugin: the bundled
-SQLite needs nothing, and the build compiles the others from the Qt SQL driver sources
-against the engine's client library, which it finds or installs. A document or cache
+(PostgreSQL, MySQL, ODBC, Oracle) loads its Qt SQL driver plugin from the kit at run time:
+the bundled SQLite needs nothing, PostgreSQL usually loads against an ordinary libpq, and
+MySQL needs the plugin rebuilt against MariaDB Connector/C once per machine (see
+[providers](providers.md#bundled-providers-and-how-each-reaches-its-engine)). A document or cache
 provider (MongoDB, Redis) needs its client library, from the pinned vcpkg baseline. The
 default providers (embedded SQLite for persistence, memory for cache) need none of this, so
 a default project resolves no provider dependencies. `synqt doctor` reports any selected
@@ -583,13 +584,14 @@ framework should not impose on its users. The client is compiled with qmlcachege
 
 Each entity is a CMake target with a preset. Native service entities use a host preset
 (host compiler, host Qt kit). The client entity uses a WebAssembly preset (the Emscripten
-toolchain file from the pinned emsdk, the WebAssembly Qt kit, `EMSCRIPTEN ON`, Release
-configuration). A generated `CMakeUserPresets.json` records the resolved toolchain paths, so
+toolchain file from the pinned emsdk, the WebAssembly Qt kit, `EMSCRIPTEN ON`, and the
+build type of the profile). A generated `CMakeUserPresets.json` records the resolved toolchain paths, so
 the same build works locally and in CI. The CLI drives these presets, and a contributor can
 use them with CMake directly.
 
-The WebAssembly build directory depends on the kit (`build/wasm-singlethread` or
-`build/wasm-multithread`, following `build.client_threads`), and the two never share one.
+The WebAssembly build directory depends on the kit (`build/wasm-singlethread-<profile>` or
+`build/wasm-multithread-<profile>`, following `build.client_threads`), and the two never
+share one.
 The toolchain file selects the kit, and CMake reads `CMAKE_TOOLCHAIN_FILE` only on a
 directory's first configure and caches it. Pointed at a directory the other kit configured,
 CMake silently keeps the old toolchain and builds the wrong client with no error; under
@@ -687,10 +689,10 @@ configuration: `check` reads the topology, and `test` runs your slots.
 
 ## Releasing
 
-[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) is a manual workflow that releases the `synqt` CLI. Nobody types a version:
-you choose to bump the patch, minor or major part of the latest tag, and may add a pre
-release suffix such as `-alpha` or `-rc.1` (any suffix marks a pre release, so the installer
-keeps resolving to the last stable build). The workflow uses PyInstaller to freeze the CLI
+[`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) is a manual workflow that releases the `synqt` CLI. It bumps the patch, minor or major
+part of the latest tag, or takes a custom `MAJOR.MINOR.PATCH` version with an optional
+suffix. A version with a suffix is a pre-release, so the installer keeps resolving to the
+last stable build. The workflow uses PyInstaller to freeze the CLI
 into one self contained binary per operating system and architecture, names each asset
 `synqt-<os>-<arch>.<ext>` (the name the installer downloads), and publishes them on a tagged
 GitHub release.

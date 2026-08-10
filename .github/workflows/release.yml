@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Which version component to bump from the latest v* tag"
+        description: "Version bump"
         required: true
         type: choice
         default: patch
@@ -19,18 +19,18 @@ on:
           - patch
           - minor
           - major
-      suffix:
-        description: "Pre-release suffix appended verbatim; empty for a stable release"
+      version:
+        description: "Custom version (overrides the bump)"
         required: false
         type: string
         default: ""
       dry_run:
-        description: "Build and smoke-test every artifact; tag and publish nothing"
+        description: "Dry run"
         required: false
         type: boolean
         default: false
       skip_pypi:
-        description: "Publish the GitHub release without uploading to PyPI"
+        description: "Don't upload to PyPI"
         required: false
         type: boolean
         default: false
@@ -69,40 +69,46 @@ jobs:
         id: compute
         env:
           BUMP: ${{ inputs.bump }}
-          SUFFIX: ${{ inputs.suffix }}
+          CUSTOM_VERSION: ${{ inputs.version }}
           DRY_RUN: ${{ inputs.dry_run }}
           SKIP_PYPI: ${{ inputs.skip_pypi }}
         run: |
           set -eu
           latest="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n1)"
-          first="false"
-          if [ -z "$latest" ]; then
-            latest="v0.0.0"
-            first="true"
-          fi
-          core="${latest#v}"
-          core="${core%%-*}"
-          major="${core%%.*}"
-          rest="${core#*.}"
-          minor="${rest%%.*}"
-          patch="${rest#*.}"
-          case "$BUMP" in
-            major) major=$((major + 1)); minor=0; patch=0 ;;
-            minor) minor=$((minor + 1)); patch=0 ;;
-            patch) patch=$((patch + 1)) ;;
-            *) echo "::error::unknown bump: $BUMP"; exit 1 ;;
-          esac
-          version="${major}.${minor}.${patch}${SUFFIX}"
-          if [ -n "$SUFFIX" ]; then
-            prerelease="true"
+          if [ -n "$CUSTOM_VERSION" ]; then
+            version="${CUSTOM_VERSION#v}"
+            if ! printf '%s\n' "$version" \
+                | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+([-.+]?[0-9A-Za-z][0-9A-Za-z.+-]*)?'; then
+              echo "::error::custom version must be MAJOR.MINOR.PATCH with an optional suffix: $version"
+              exit 1
+            fi
+            echo "Custom version: $version (bump ignored)"
           else
+            core="$(printf '%s\n' "${latest#v}" | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+' || echo 0.0.0)"
+            major="${core%%.*}"
+            rest="${core#*.}"
+            minor="${rest%%.*}"
+            patch="${rest#*.}"
+            case "$BUMP" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              patch) patch=$((patch + 1)) ;;
+              *) echo "::error::unknown bump: $BUMP"; exit 1 ;;
+            esac
+            version="${major}.${minor}.${patch}"
+            echo "Latest tag: ${latest:-none} -> $BUMP bump: $version"
+          fi
+          if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "::error::tag v$version already exists"
+            exit 1
+          fi
+          core="$(printf '%s\n' "$version" | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+')"
+          if [ "$version" = "$core" ]; then
             prerelease="false"
-          fi
-          if [ "$first" = "true" ]; then
-            echo "No existing v* tag: first release -> new version: $version (prerelease=$prerelease)"
           else
-            echo "Latest tag: $latest -> new version: $version (prerelease=$prerelease)"
+            prerelease="true"
           fi
+          echo "Version: $version (prerelease=$prerelease)"
           if [ "$DRY_RUN" = "true" ]; then
             echo "::notice::Dry run: v$version will be built and smoke-tested but NOT tagged or published"
           elif [ "$SKIP_PYPI" = "true" ]; then
@@ -190,7 +196,9 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
         # --collect-submodules for the lazily imported commands. The dnf python by absolute
-        # path: PyInstaller refuses the static /opt/python builds.
+        # path: PyInstaller refuses the static /opt/python builds. SYNQT_ROOT is the checkout
+        # because a one-file binary deletes its data directory on exit. The container script
+        # is single-quoted, so it must not contain a single quote.
         run: |
           set -eu
           docker run --rm -v "$PWD:/io" -w /io "$IMAGE" bash -euo pipefail -c '
@@ -203,7 +211,6 @@ jobs:
               --collect-submodules synqt --collect-data synqt synqt_entry.py
             ./dist/synqt --help
             tmp="$(mktemp -d)"
-            # A one-file binary's own data directory is temporary. Use the checkout.
             SYNQT_ROOT=/io ./dist/synqt new smoketest --parent-dir "$tmp"
             test -f "$tmp/smoketest/synqt.yaml"
             ./dist/synqt providers

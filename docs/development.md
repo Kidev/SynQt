@@ -17,7 +17,7 @@ tells you where the code is. For the generated class and member reference, see t
 ## The Makefile
 
 Everything below has a target in the repository's `Makefile`; `make` alone lists them. The
-Makefile is a developer tool, not the build: `synqt build` builds an application and CMake
+Makefile is a developer tool. `synqt build` builds an application and CMake
 builds the framework, while the Makefile installs the CLI you are editing, runs the
 suites, builds the site, and removes stale copies of SynQt.
 
@@ -53,7 +53,7 @@ make docs-serve                          # build the site and serve it locally
 | [`src/`](https://github.com/Kidev/SynQt/tree/main/src) | The framework runtime, one library per trust boundary (see below). |
 | [`tools/`](https://github.com/Kidev/SynQt/tree/main/tools) | The command line tooling: the CLI, the contract generator, the docs lexer, the coverage reporter. |
 | [`cmake/`](https://github.com/Kidev/SynQt/tree/main/cmake) | [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake): the generated `.syn` to rep to repc and QML registration glue. [`SynQtBuildFlags.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtBuildFlags.cmake): the language version, the warnings, the release flags (see below). |
-| [`tests/`](https://github.com/Kidev/SynQt/tree/main/tests) | One self contained CMake project per milestone and per acceptance fixture, plus the tree that builds them all at once. |
+| [`tests/`](https://github.com/Kidev/SynQt/tree/main/tests) | One self contained CMake project per runtime layer and per acceptance fixture, plus the tree that builds them all at once. |
 | [`benchmarks/`](https://github.com/Kidev/SynQt/tree/main/benchmarks) | The performance harnesses and their committed baselines. |
 | [`examples/`](https://github.com/Kidev/SynQt/tree/main/examples) | The materialized tutorial systems ([chat](https://github.com/Kidev/SynQt/tree/main/examples/chat), the room; [gavel](https://github.com/Kidev/SynQt/tree/main/examples/gavel), the auction; [arena](https://github.com/Kidev/SynQt/tree/main/examples/arena), the game; [stall](https://github.com/Kidev/SynQt/tree/main/examples/stall), the storefront). Each one is also a session the editor opens, written into `examples.json` by [`tools/gen-design-examples.py`](https://github.com/Kidev/SynQt/blob/main/tools/gen-design-examples.py). |
 | [`docs/`](https://github.com/Kidev/SynQt/tree/main/docs) | This documentation site (MkDocs and Material). |
@@ -91,7 +91,7 @@ allowed.
 | `SynQtProviders` | [`src/providers`](https://github.com/Kidev/SynQt/tree/main/src/providers)  | Qt Sql, optional hiredis and mongo-c                               | The backend facing family interfaces (`IPersistenceProvider`, `IDocumentProvider`, `ICacheProvider`), the bundled providers (`sqlite`, `postgres`, `mysql`, the `memory` cache), the optional external ones (`redis`, `mongodb`, gated by their client libraries), the `ProviderRegistry` a custom provider registers with, and the entity QML helpers `Db`, `Cache`, `Docs`, `Http`, and `Jobs`. |
 | `SynQtMonitor`   | [`src/monitor`](https://github.com/Kidev/SynQt/tree/main/src/monitor)    | `SynQtEdge`, Qt Sql | What a `type: monitor` entity is: `SynQtEdge` serving the operator console, plus `EventStore` (the SQLite history), `MonitorService` (the `ingest` and `console` connect points) and the two exporters (`OtlpExporter`, `JsonlExporter`). GPLv3 like the edge, which follows from the console and matters little for an operations tool nobody conveys. |
 | `SynQtContract`  | [`src/contract`](https://github.com/Kidev/SynQt/tree/main/src/contract)   | Qt Core, Gui | `SourceModel`, the model a generated Source publishes its rows through, a `QStandardItemModel` a consumer cannot write into. Linked by [`SynQtContracts.cmake`](https://github.com/Kidev/SynQt/blob/main/cmake/SynQtContracts.cmake) into every owner, which is why a service that owns a connect point links Qt Gui. |
-| `SynQtTesting`   | [`src/testing`](https://github.com/Kidev/SynQt/tree/main/src/testing)    | `SynQtService`, `SynQtProviders`, Qt Qml | `EntityTest`, the `SynQt.Test` import behind `synqt test`. It loads one owned Source on its own, mints its `Caller` through the same factories the transports use, and substitutes only the engine behind a helper. Linked by the generated test runner and by nothing a project deploys. |
+| `SynQtTesting`   | [`src/testing`](https://github.com/Kidev/SynQt/tree/main/src/testing)    | `SynQtService`, `SynQtProviders`, Qt Qml, Qt Test | `EntityTest`, the `SynQt.Test` import behind `synqt test`. It loads one owned Source on its own, mints its `Caller` through the same factories the transports use, installs each entity the Source consumes as a facade that is never ready, and substitutes only the engine behind a helper. Linked by the generated test runner and by nothing a project deploys. |
 
 The client links only `SynQtTransport`, `SynQtClient` and `SynQtConsumer`, never
 `SynQtService` or `SynQtProviders`. The build fails if it tries, because those libraries
@@ -225,10 +225,14 @@ compiler release whose new warnings are not yet triaged. Do not put it in a pres
 ## The test suites ([`tests/`](https://github.com/Kidev/SynQt/tree/main/tests))
 
 Each subdirectory is a standalone CMake project with its own `run-*.sh`. The `m0` to `m9`
-directories are the milestone acceptance tests; the rest are focused fixtures that do not
-fit a milestone. [`tests/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/tests/CMakeLists.txt)
+directories cover the runtime one layer at a time, numbered in the order the layers build on
+each other (the transport spike, the contract generator, the browser transport, the mesh,
+the topology, the web edge, the client, the caller, identity, the providers); the rest are
+focused fixtures.
+[`tests/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/tests/CMakeLists.txt)
 registers all of them. A suite neither built by the tree nor explicitly listed fails the
-configure step, because an unchecked list lets a suite go five commits without running.
+configure step, because an unchecked list lets a suite stop running without anyone
+noticing.
 
 | Directory                | What it proves |
 |--------------------------|----------------|
@@ -251,7 +255,7 @@ configure step, because an unchecked list lets a suite go five commits without r
 | [`fix2-arena`](https://github.com/Kidev/SynQt/tree/main/tests/fix2-arena)             | The multiplayer arena tutorial as an acceptance fixture. |
 | [`fix4-plaza`](https://github.com/Kidev/SynQt/tree/main/tests/fix4-plaza)             | The 3D plaza tutorial as an acceptance fixture, against the example's own edge QML. Its owner's slots carry QML type annotations, so it is also what proves a typed owner function is called with converted arguments rather than dropped. |
 | [`appgen-native`](https://github.com/Kidev/SynQt/tree/main/tests/appgen-native)          | The generated CMake and mains compile for every entity, the monitor included. It is a mesh owner and a browser-facing server at once, so nothing but a build says whether its two halves assemble into one binary. |
-| [`monitor-console`](https://github.com/Kidev/SynQt/tree/main/tests/monitor-console) | The monitoring console in a real browser, against a monitor the scaffolder wrote when the suite ran. It drives the delivery gate (a bundle outside the caller's scope is a 404 rather than a 403), the sign-in form and its inline script under the strict CSP, and the console itself, and it reads the monitor's own record to prove the console reached it. It was written after everything else was green and found seven defects, four of them outside monitoring (see the suite's README). |
+| [`monitor-console`](https://github.com/Kidev/SynQt/tree/main/tests/monitor-console) | The monitoring console in a real browser, against a monitor the scaffolder wrote when the suite ran. It drives the delivery gate (a bundle outside the caller's scope is a 404 rather than a 403), the sign-in form and its inline script under the strict CSP, and the console itself, and it reads the monitor's own record to prove the console reached it. |
 | [`identity-picker`](https://github.com/Kidev/SynQt/tree/main/tests/identity-picker) | The development scope picker in a real browser, and the one claim about it that no in-process test can make. Two tabs of one browser context share one cookie jar (RFC 6265 scopes a cookie to a host rather than a port), so a second per-tab sign-in must not become the first. Three tabs, a moderator and a user side by side, and the bundle the edge answers with is how each tab is asked who it is. |
 | [`dev-exclusion`](https://github.com/Kidev/SynQt/tree/main/tests/dev-exclusion) | Development-only code is absent from a release build rather than disabled inside it. It configures the framework twice, once with `SYNQT_DEV_TOOLS` and once without, and reads the symbol tables. The release archive must not contain the development sign-ins, the development archive must, and a development header must refuse to be included by a build that did not ask for one. `DEV_SYMBOLS` in that suite is the list, so covering a new development-only type is a word rather than a test. |
 | [`desktop-client`](https://github.com/Kidev/SynQt/tree/main/tests/desktop-client)         | The native desktop client target compiles, installs, boots, and, once deployed with `--deploy`, carries its own Qt rather than the host's. |
@@ -269,7 +273,7 @@ configure step, because an unchecked list lets a suite go five commits without r
 | [`designer`](https://github.com/Kidev/SynQt/tree/main/tests/designer)               | The [designer](visual-editor.md) in a browser, which is the only place most of it exists: drawing a connect point, the diff behind Review, and Apply writing what the diff said. The second case serves the page with nothing behind it, under the site's own content policy, and proves the hosted copy still works and still asks for nothing off-origin. No Qt, only Chromium. Run by [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml). |
 | [`split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/split-origin)           | What a third party session cookie survives in each engine, which makes `split_origin` a measurement rather than folklore. No Qt at all, only two real sites and a browser. Run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
 
-Two directories are not suites.
+Three directories are not suites.
 [`tests/local-network`](https://github.com/Kidev/SynQt/tree/main/tests/local-network) is the
 rig the browser policy suites need: two names, one loopback address each, and a development
 web CA, because a browser applies cross site rules only when it believes it talks to two
@@ -297,9 +301,9 @@ then runs the suites that must run a generator before anything compiles
 (`custom-provider`, `appgen-native`, `desktop-client`, `monitor-console`,
 `identity-picker`, `dev-exclusion`).
 [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml) runs the
-same command. A CMake warning fails it: the two warnings this gate targets (an incomplete
-linking report, and a Qt module missing from the kit) had scrolled past in green builds
-since the workflow began.
+same command. A CMake warning fails it, because the two it targets (an incomplete linking
+report, and a Qt module missing from the kit) would otherwise scroll past in a green
+build.
 
 ### Running one phase, and why CI does
 
@@ -330,8 +334,8 @@ to off, so a bare `cmake` gives a production build:
 
 - **`-DSYNQT_STRIP=ON`** removes the symbol table from the linked binaries. Only
   `synqt build --release` turns it on.
-- **`-DSYNQT_DEV_TOOLS=ON`** compiles the development-only sources into the framework: today,
-  the stub identity provider and the scope picker. This tree turns it on, because the
+- **`-DSYNQT_DEV_TOOLS=ON`** compiles the development-only sources into the framework: the
+  stub identity provider and the scope picker. This tree turns it on, because the
   suites testing those sources construct them directly, and so does `synqt dev`. Nothing
   that ships does. See
   [Development code cannot ship](security.md#development-code-cannot-ship) for the
@@ -380,7 +384,7 @@ For comparison, all measured the same way on the same host:
 
 | | Wall clock |
 |---|---|
-| Everything in series, no cache (what CI did) | 506 s |
+| Everything in series, no cache | 506 s |
 | Everything in series, cold cache | 466 s |
 | The two jobs in parallel, cold cache | 272 s |
 | The two jobs in parallel, warm cache | 201 s |
@@ -389,7 +393,7 @@ Most of the gain comes from the split, not the cache. That is expected on this h
 32 cores a compile is cheap, so removing a redundant one saves less than running two phases
 at once. A CI runner has four cores, where the same redundancy costs proportionally more.
 
-None of this worked until one ccache behavior was turned off, in
+One ccache behavior has to be off for any of this to work, in
 [`tests/lib/compiler-cache.sh`](https://github.com/Kidev/SynQt/blob/main/tests/lib/compiler-cache.sh).
 ccache hashes the working directory whenever the compiler emits debug information, as every
 build here does, so two builds of the same target from the same sources share nothing if
@@ -725,7 +729,7 @@ site data for `127.0.0.1` before blaming the CSS.
 [Build system and CLI](build-system-and-cli.md#continuous-integration) describes the
 workflows. In short: [`tests.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/tests.yml) runs the Python suites on Linux, macOS, and Windows. [`ctest.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/ctest.yml)
 provisions the pinned Qt kit through aqtinstall and runs the native C++ suites.
-[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the M0 transport proof across Chromium, Firefox, and WebKit.
+[`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml) runs the transport proof across Chromium, Firefox, and WebKit.
 [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml) runs the proofs needing a WebAssembly kit no other workflow installs (the
 multi-threaded SharedArrayBuffer proof, Qt Quick 3D Physics on both kits, the client
 runtime driven in all three engines against a real web edge, and a real `synqt build` of
@@ -846,12 +850,12 @@ one fails on a new runner.
 ### Cutting a release
 
 [`release.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/release.yml) is
-manual and takes no version. You pick `patch`, `minor` or `major`, and it bumps the newest
-`v*` tag accordingly, with an optional suffix (`-alpha`, `-rc.1`) that marks a pre-release,
-so `/releases/latest`, and therefore the installer, keeps resolving to the last stable
-build. `dry_run` builds and smoke tests every artifact and publishes nothing; use it to test
-a change to the workflow itself. `skip_pypi` publishes the GitHub release without uploading
-to PyPI.
+manual. `bump` picks `patch`, `minor` or `major` and bumps the newest `v*` tag. `version`
+sets a custom `MAJOR.MINOR.PATCH` with an optional suffix and overrides `bump`. A version
+with a suffix is published as a pre-release, so `/releases/latest`, and therefore the
+installer, keeps resolving to the last stable build. The run refuses a version whose tag
+already exists. `dry_run` builds and smoke tests every artifact and publishes nothing.
+`skip_pypi` publishes the GitHub release without uploading to PyPI.
 
 Its first job compares `deploy/get.synqt.org/install.sh` with the `index.html` beside it.
 They are the same script under two URLs (Pages needs the root document to be `index.html`),
