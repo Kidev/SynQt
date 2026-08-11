@@ -115,6 +115,31 @@ jobs:
 
           SYNQT_PHASES=tree bash tests/run-all.sh
 
+      # QtTest on arm64 macOS leaves a crash to the system reporter, which writes the stack here.
+      - name: Print the stack of each crashed test
+        if: failure() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -u
+          shopt -s nullglob
+          for report in "$HOME"/Library/Logs/DiagnosticReports/tst_*.ips; do
+            echo "::group::$(basename "$report")"
+            python3 - "$report" <<'PY'
+          import json, sys
+          text = open(sys.argv[1], encoding="utf-8").read()
+          body = json.loads(text[text.index("\n") + 1:])
+          images = body.get("usedImages", [])
+          print(body.get("exception", {}), body.get("termination", {}).get("indicator", ""))
+          thread = body["threads"][body.get("faultingThread", 0)]
+          for number, frame in enumerate(thread.get("frames", [])):
+              index = frame.get("imageIndex", -1)
+              image = images[index].get("name", "?") if 0 <= index < len(images) else "?"
+              symbol = frame.get("symbol", hex(frame.get("imageOffset", 0)))
+              print(f"#{number:<3} {image:<28} {symbol}+{frame.get('symbolLocation', 0)}")
+          PY
+            echo "::endgroup::"
+          done
+
       - name: Report what the compiler cache did
         if: always()
         shell: bash
@@ -165,6 +190,31 @@ jobs:
           fi
 
           SYNQT_PHASES=generated bash tests/run-all.sh
+
+      # QtTest on arm64 macOS leaves a crash to the system reporter, which writes the stack here.
+      - name: Print the stack of each crashed test
+        if: failure() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -u
+          shopt -s nullglob
+          for report in "$HOME"/Library/Logs/DiagnosticReports/tst_*.ips; do
+            echo "::group::$(basename "$report")"
+            python3 - "$report" <<'PY'
+          import json, sys
+          text = open(sys.argv[1], encoding="utf-8").read()
+          body = json.loads(text[text.index("\n") + 1:])
+          images = body.get("usedImages", [])
+          print(body.get("exception", {}), body.get("termination", {}).get("indicator", ""))
+          thread = body["threads"][body.get("faultingThread", 0)]
+          for number, frame in enumerate(thread.get("frames", [])):
+              index = frame.get("imageIndex", -1)
+              image = images[index].get("name", "?") if 0 <= index < len(images) else "?"
+              symbol = frame.get("symbol", hex(frame.get("imageOffset", 0)))
+              print(f"#{number:<3} {image:<28} {symbol}+{frame.get('symbolLocation', 0)}")
+          PY
+            echo "::endgroup::"
+          done
 
       - name: Report what the compiler cache did
         if: always()

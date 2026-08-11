@@ -260,8 +260,10 @@ Distribution measureSignalPropagation(BenchBackend *source, BenchReplica *replic
 
 // Model replication. Repopulate the source's persistent model to `rowCount` rows and time
 // until the replica's model mirrors the new row count. Measures structure propagation (the
-// bulk transfer the owner's set<Model> triggers), one sample per size. The model replica is
+// bulk transfer the owner's set<Model> triggers), one sample per call. The model replica is
 // acquired once by the replica itself (its `rows` property) and reused across sizes.
+constexpr int ModelReplicationRuns{5};
+
 double measureModelReplication(QStandardItemModel *model, QAbstractItemModelReplica *replicaModel,
                                int rowCount)
 {
@@ -436,9 +438,17 @@ int main(int argc, char *argv[])
     QJsonArray modelJson;
     QAbstractItemModelReplica *replicaModel{replica->rows()};
     if (replicaModel && spinUntil([&]() { return replicaModel->isInitialized(); }, 10000)) {
+        // The first transfer pays for the model path's first use, so it goes untimed, and
+        // each size reports the median of several runs.
+        measureModelReplication(&benchModel, replicaModel, 1);
         for (const int rowCount : {1, 100, 10000}) {
-            const double milliseconds{
-                measureModelReplication(&benchModel, replicaModel, rowCount)};
+            QList<double> runs;
+            for (int run{0}; run < ModelReplicationRuns; ++run) {
+                runs.append(measureModelReplication(&benchModel, replicaModel, rowCount));
+            }
+            std::sort(runs.begin(), runs.end());
+            // A failed run is -1 and sorts first, so any failure reports as one.
+            const double milliseconds{runs.first() < 0 ? -1.0 : runs.at(runs.size() / 2)};
             out << qSetFieldWidth(30) << Qt::left
                 << QStringLiteral("model_replication_%1_rows").arg(rowCount)
                 << qSetFieldWidth(0) << Qt::right << "  "

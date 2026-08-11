@@ -85,14 +85,15 @@ What it reports:
 | `slot_throughput_<N>B` | pipelined returning-slot calls per second (the path's ceiling, since calls do not serialize on the RTT) |
 | `model_replication_<N>_rows` | owner publishes a model of N rows -> the replica's row count mirrors it |
 
-Latency is loopback in one process, so the absolute figures are a floor and a real network
-adds to them. Their value is the committed baseline (a regression guard) and the internal
-ratios. One-way push and signal cost about half of an RTT. RTT is roughly flat from 64 B to
-4 KB, because QtRO framing dominates small payloads. Throughput is far above serialized
-`1/RTT` because calls pipeline. `model_replication` measures row-count propagation. QtRO's
-`QAbstractItemModelReplica` prefetches asynchronously, so it is timed from a drained, empty
-replica to the new row count, and it indicates bulk-transfer cost and not a byte-exact
-fetch.
+Latency is loopback in one process, so the absolute figures are a floor and a real
+network adds to them. Their value is the committed baseline (a regression guard) and the
+internal ratios. One-way push and signal cost about two thirds of an RTT. RTT is roughly
+flat from 64 B to 4 KB, because QtRO framing dominates small payloads. Throughput is far
+above serialized `1/RTT` because calls pipeline. `model_replication` measures row-count
+propagation. QtRO's `QAbstractItemModelReplica` prefetches asynchronously, so it is timed
+from a drained, empty replica to the new row count, and it indicates bulk-transfer cost
+and not a byte-exact fetch. Each size is the median of five runs, after one untimed
+transfer.
 
 ### Baseline captured on this checkout
 
@@ -202,10 +203,11 @@ and thrown away:
 ```
 
 The rounds are there because one table measured once is not a number. At 100k sessions a
-lookup misses the CPU caches, so it costs what main memory costs at that moment, and on one
-machine in one day a single table read anywhere from 70 to 185 ns for the same build. The
-first table a process builds is also slower than the ones after it, because it pays for the heap growing,
-which is why one is built and discarded before anything is measured.
+lookup misses the CPU caches, so it costs what main memory costs at that moment, and on
+one machine in one day a single table read anywhere from 70 to 185 ns for the same build.
+The first table a process builds is also slower than the ones after it, because it pays
+for the heap growing, which is why one is built and discarded before anything is
+measured.
 
 ### Baseline captured on this checkout
 
@@ -228,11 +230,11 @@ a fifth to that, which is the price of the entropy and was measured rather than 
 One operation is O(N) by design:
 
 - `createSession()` keeps an insertion-ordered `{createdMs, id}` expiry queue and drains
-  only the expired front. A fixed TTL means sessions expire in creation order, so minting is
-  amortized O(1), about 1.3 us at 100k, and flat across the sweep above. `lookup()` and `snapshot()` remain the correctness
-  authority for expiry (they re-check the TTL), so the queue is a pure memory reclaimer that
-  can safely lag and never returns or drops a live session. The flat `create` column shows
-  it.
+  only the expired front. A fixed TTL means sessions expire in creation order, so minting
+  is amortized O(1), about 1.3 us at 100k, and flat across the sweep above. `lookup()`
+  and `snapshot()` remain the correctness authority for expiry (they re-check the TTL),
+  so the queue is a pure memory reclaimer that can safely lag and never returns or drops
+  a live session. The flat `create` column shows it.
 - `snapshot()` walks the whole live table (it is the late-join replay to a newly connected
   consumer), so 44 ms at 100k sessions is expected. It runs once per consumer connect, off
   the per-request path.
@@ -283,8 +285,8 @@ under a burst degrades by losing events and never by falling over.
 
 `record_enabled` is also the one row with a wide tail, and it moves between runs. Its p99
 has read 97 ns, 221 ns, 213 ns and 74 ns across four baselines while its median stayed
-between 59 and 64 ns. That is the shape of a contended `QMutex`, where the scheduler owns the tail.
-Only the median means anything here, and the gate is on the disabled row.
+between 59 and 64 ns. That is the shape of a contended `QMutex`, where the scheduler owns
+the tail. Only the median means anything here, and the gate is on the disabled row.
 
 About 16 ns of both rows is the redaction pass (`Tracer::isSecretAttributeName`), which
 reads every attribute name before the event is recorded and replaces the value of one that
@@ -476,14 +478,14 @@ are cheap (single-digit microseconds) and a single bulk transaction reaches abou
 rows/s. With a second connection hammering the same file, the single writer's median is
 unchanged (7.8 us against 8.4), which is the contention reading that matters.
 
-That reading only means something if the second connection was writing while it was taken,
-and for a while it was not guaranteed to be. The measured writes start the moment the rival's
-thread does, the rival has a database to open first, and 2000 writes take about 16 ms, so part
-of the "contended" run could have had nobody to contend with. How much the rival wrote was a
-reading of how long the loop happened to last: 123 448 rows in one run where a single write
-stalled for a second, 4 351 in the next where none did. The harness now starts the measured
-writes once the rival has written, counts only what the rival wrote while they ran, and the
-gate refuses a run in which that is zero.
+That reading only means something if the second connection was writing while it was
+taken, and for a while it was not guaranteed to be. The measured writes start the moment
+the rival's thread does, the rival has a database to open first, and 2000 writes take
+about 16 ms, so part of the "contended" run could have had nobody to contend with. How
+much the rival wrote was a reading of how long the loop happened to last: 123 448 rows in
+one run where a single write stalled for a second, 4 351 in the next where none did. The
+harness now starts the measured writes once the rival has written, counts only what the
+rival wrote while they ran, and the gate refuses a run in which that is zero.
 
 The safety claim is the row under it, and it is an arranged experiment and not a race. A
 third connection takes the WAL write lock and holds it for a second, and during that second
@@ -521,14 +523,15 @@ table above.
 
 It measures the server `SYNQT_TEST_PG_*` names, or starts the throwaway engines from
 `tests/lib/live-engines.sh` when none is named. It runs twice. The first run is plaintext
-over loopback. The second connects by name with `verify-full` against the engines' test CA,
-as a release build does. Each writes its own result
+over loopback. The second connects by name with `verify-full` against the engines' test
+CA, as a release build does. Each writes its own result
 (`results/persistence-postgres-<host>.json` and
 `results/persistence-postgres-tls-<host>.json`), and each records the server's version,
-the sslmode it asked for, and whether the server reports the session encrypted. The gate holds two claims. One transaction around many
-writes must beat a commit per write, as it does on SQLite. The link must also be what the
-run says it is: a `verify-full` run whose session the server calls plaintext has measured
-the wrong thing, and so has a plaintext run whose session is encrypted.
+the sslmode it asked for, and whether the server reports the session encrypted. The gate
+holds two claims. One transaction around many writes must beat a commit per write, as it
+does on SQLite. The link must also be what the run says it is: a `verify-full` run whose
+session the server calls plaintext has measured the wrong thing, and so has a plaintext
+run whose session is encrypted.
 
 `results/persistence-postgres{,-tls}-kidevPC_.json` (PostgreSQL 16.14 in the container
 `tests/lib/live-engines.sh` starts, pool of 4):
@@ -606,11 +609,11 @@ so 16.67 ms is the floor and means the frame had time to spare:
 | multi p95 | 16.7 | 16.7 | 16.8 | 16.7 | 21.2 | 21.1 | 29.2 | 35.2 | 56.2 | 79.7 |
 
 Both kits hold a 60 Hz median to about 800 moving, interpolated blobs and then fall off
-together: 41 fps at 1 000, 33 at 1 250, 21 at 1 950. What single frames add over the old
-averages is where the fall starts. The p95 leaves the floor at 675 blobs, a bucket earlier
-than the median does, and past 1 500 the slow frames run half again above the median, which
-is the stutter an average of sixty frames could not show. The threaded kit is not faster.
-The two agree inside the noise at every size. This scene's per-frame cost is QML bindings and
+together: 41 fps at 1 000, 33 at 1 250, 21 at 1 950. Counting single frames shows where
+the fall starts. The p95 leaves the floor at 675 blobs, a bucket earlier than the median
+does, and past 1 500 the slow frames run half again above the median, which is the
+stutter an average of sixty frames could not show. The threaded kit is not faster. The
+two agree inside the noise at every size. This scene's per-frame cost is QML bindings and
 scene-graph work on the render thread, and threading the WebAssembly heap does not divide
 that. The reason to build the threaded kit is what it unblocks elsewhere, and this table
 shows it buys no frame rate here. It costs 286 KB and requires cross-origin isolation.

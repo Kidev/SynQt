@@ -18,8 +18,29 @@ ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS = ROOT / ".github" / "workflows"
 RELEASE = WORKFLOWS / "release.yml"
 
+def _bash():
+    """The bash the step runs under, or None.
+
+    On Windows the `bash` on PATH is usually the WSL launcher in System32, which fails
+    without a distribution installed. Git for Windows ships a real bash beside git.
+    """
+    if os.name != "nt":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    if git is None:
+        return None
+    # git.exe sits in cmd\, bin\ or mingw64\bin\ under the install root.
+    for root in Path(git).parents[1:3]:
+        candidate = root / "bin" / "bash.exe"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+BASH = _bash()
+
 needs_tools = pytest.mark.skipif(
-    shutil.which("bash") is None or shutil.which("git") is None, reason="needs bash and git"
+    BASH is None or shutil.which("git") is None, reason="needs bash and git"
 )
 
 
@@ -54,7 +75,7 @@ def _run(tmp_path, tags=(), bump="patch", version="", dry_run="false", skip_pypi
         "SKIP_PYPI": skip_pypi,
         "GITHUB_OUTPUT": str(output),
     })
-    result = subprocess.run(["bash", "-e", "-c", _compute_step()["run"]], cwd=repo, env=env,
+    result = subprocess.run([BASH, "-e", "-c", _compute_step()["run"]], cwd=repo, env=env,
                             capture_output=True, text=True)
     values = dict(line.split("=", 1) for line in output.read_text().splitlines() if line)
     return result, values

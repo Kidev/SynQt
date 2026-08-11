@@ -1683,6 +1683,10 @@ private slots:
         QVERIFY2(authHost.start(), qPrintable(authHost.errorString()));
         const quint16 port{authHost.serverPort()};
 
+        // How many edges have attached their Replica. Declared before meshScope, which holds
+        // the connections that count into it.
+        int attached{0};
+
         // Own the edges' mesh objects in a scope declared after the auth host, so at method
         // end they tear down first, while the host and store they are connected to are
         // still alive, instead of at the test object's destruction in an undefined order.
@@ -1697,7 +1701,8 @@ private slots:
                                                         &meshScope}};
             QRemoteObjectNode *node{new QRemoteObjectNode{&meshScope}};
             MeshClient *client{new MeshClient{&meshScope}};
-            connect(client, &MeshClient::connected, node, [node, sessions](QIODevice *device) {
+            connect(client, &MeshClient::connected, node,
+                    [node, sessions, &attached](QIODevice *device) {
                 node->addClientSideConnection(device);
                 QRemoteObjectDynamicReplica *replica{node->acquireDynamic(QStringLiteral("sessions"))};
                 // Owned by the node, which meshScope destroys after the cache above: the
@@ -1705,7 +1710,10 @@ private slots:
                 // needs (it frees a metaobject the receiver is connected through).
                 replica->setParent(node);
                 connect(replica, &QRemoteObjectDynamicReplica::initialized, sessions,
-                        [sessions, replica]() { sessions->attachRemote(replica); });
+                        [sessions, replica, &attached]() {
+                    sessions->attachRemote(replica);
+                    ++attached;
+                });
             });
             client->connectMutualTls(QHostAddress::LocalHost, port, QStringLiteral("auth"),
                 loadCertificate(QStringLiteral(M8_CERT_DIR "/ca.crt")),
@@ -1718,8 +1726,8 @@ private slots:
         SessionManager *edgeB{attachEdge(QStringLiteral("web2"))};
 
         // Both edges attach their Replica (deny-by-default lets these listed consumers in).
-        QTRY_VERIFY(authHost.serverPort() != 0);
-        QTest::qWait(600);  // let both mesh links come up and attach
+        // A session created before its edge attached would stay in that edge's own table.
+        QTRY_COMPARE_WITH_TIMEOUT(attached, 2, 15000);
 
         // Edge A creates an authenticated session, exactly as the login flow does.
         const QByteArray token{edgeA->createSession(QStringLiteral("moderator"),
