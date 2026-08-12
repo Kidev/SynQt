@@ -6,6 +6,7 @@
 #include "connectpointresolver.h"
 #include "promise.h"
 
+#include <QJSEngine>
 #include <QMetaMethod>
 #include <QMetaObject>
 #include <QtRemoteObjects/QRemoteObjectReplica>
@@ -86,6 +87,19 @@ QObject *ConsumerBase::replica() const
 bool ConsumerBase::isReady() const
 {
     return m_remote != nullptr && m_remote->isInitialized();
+}
+
+void ConsumerBase::setJsEngine(QJSEngine *engine)
+{
+    m_jsEngine = engine;
+}
+
+QJSEngine *ConsumerBase::jsEngine() const
+{
+    if (m_jsEngine) {
+        return m_jsEngine;
+    }
+    return qjsEngine(this);
 }
 
 void ConsumerBase::handleInitialized()

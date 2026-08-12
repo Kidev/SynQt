@@ -33,6 +33,13 @@ ServerAccessor::ServerAccessor(QList<ClientConnectPoint> connectPoints, QObject 
     }
 }
 
+void ServerAccessor::setJsEngine(QJSEngine *engine)
+{
+    for (ConsumerBase *facade : std::as_const(m_facades)) {
+        facade->setJsEngine(engine);
+    }
+}
+
 QObject *ServerAccessor::point(const QString &name) const
 {
     if (ConsumerBase *facade{m_facades.value(name)}) {

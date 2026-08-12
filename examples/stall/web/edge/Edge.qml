@@ -24,8 +24,19 @@ Edge {
     // signal is made imperatively.
     Component.onCompleted: {
         Stock.itemStocked.connect(catalog.stockItem);
-        // The shelves as the stock entity holds them. A returning slot resolves when the
-        // answer comes back, so an edge that starts after the shop was stocked shows it.
+        catalog.refresh();
+    }
+
+    // The link to the stock entity opens after this Source is built, and a call made before
+    // `Stock.ready` never reaches it. So the shelves are pulled each time the link comes up.
+    Stock.onReadyChanged: catalog.refresh()
+
+    // The shelves as the stock entity holds them, so an edge that starts after the shop was
+    // stocked shows it.
+    function refresh() {
+        if (!Stock.ready) {
+            return;
+        }
         Stock.list().then(rows => {
             // The rows carry the sku as well. `offersRows` keeps only the roles the
             // contract declares, so it is dropped here rather than filtered by hand.
@@ -33,8 +44,8 @@ Edge {
         });
     }
 
-    // A browser asks to add an item to its cart. In version 1 the cart is client-side, so
-    // this is where a real deployment would reserve stock. The slot exists to show the
+    // A browser asks to add an item to its cart. The cart is client-side, so this is where
+    // a real deployment would reserve stock. The slot exists to show the
     // consumer-to-owner direction and is a courtesy no-op here.
     function addToCart(sku: string) {
         return;

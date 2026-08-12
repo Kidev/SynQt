@@ -124,9 +124,6 @@ private:
 #ifndef Q_OS_WASM
 namespace {
 
-// The native client verifies the edge certificate: VerifyPeer against the OS trust store
-// and the hostname, plus any pinned certificate from config. Verification is never
-// disabled.
 /// The session this client holds for `origin`, in handshake form ("name=value;
 /// name=value"), read from the network manager's cookie jar.
 ///
@@ -147,6 +144,9 @@ QByteArray heldCredential(QNetworkAccessManager *network, const QUrl &origin)
     return pairs.join("; ");
 }
 
+// The native client verifies the edge certificate: VerifyPeer against the OS trust store
+// and the hostname, plus any pinned certificate from config. Verification is never
+// disabled.
 QSslConfiguration nativeTlsConfiguration(const SynClientConfig &config)
 {
     QSslConfiguration tls{QSslConfiguration::defaultConfiguration()};
@@ -173,6 +173,7 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
     , m_handshakeTimer{new QTimer{this}}
     , m_backoffMs{m_config.reconnectBaseMs}
 {
+    m_server->setJsEngine(engine);
     m_reconnectTimer->setSingleShot(true);
     m_handshakeTimer->setSingleShot(true);
     // An edge that accepted the socket and then said nothing is treated as a dropped
@@ -791,14 +792,6 @@ void SynClient::bindPagesConnectPoint()
         return;
     }
     m_pagesFacade = facade;
-    if (m_engine) {
-        // The generated facade's fetchPage() builds its Promise through qjsEngine(this),
-        // which is null until the object has had a JS wrapper. No app QML references this
-        // facade, so give it one here; otherwise every reply resolves as undefined. The
-        // returned QJSValue can be discarded: qjsEngine() reads an association stored on
-        // the object.
-        m_engine->newQObject(facade);
-    }
 
     connect(m_router, &Router::pageRequested, this,
             [this, facade](const QString &route, const QString &haveHash) {

@@ -45,8 +45,9 @@ _LITERAL_KINDS = ("string", "int", "real", "bool")
 _VIEW_ROLES = ("index", "model", "modelData")
 
 #: Names the framework puts on every consumer facade, never contract members. `ready` is
-#: ConsumerBase's (true once the replica has finished its handshake).
-_FACADE_MEMBERS = ("ready",)
+#: ConsumerBase's (true once the replica has finished its handshake), and `readyChanged` its
+#: signal, reached as `Books.onReadyChanged:` or `Books.readyChanged.connect(...)`.
+_FACADE_MEMBERS = ("ready", "readyChanged")
 
 
 class InferError(Exception):
@@ -667,7 +668,7 @@ def _read_attached_handlers(reading: "_Reading", tokens: Sequence[qmlscan.Token]
         if not _is_punct(_at(tokens, index + 3), ":"):
             continue
         name = _suffix_after(handler.text, _HANDLER_PREFIX)
-        if not name:
+        if not name or name in _FACADE_MEMBERS:
             continue
         owner, point = attached[token.text]
         params: Tuple[Param, ...] = ()
@@ -817,7 +818,7 @@ def _read_connections(reading: "_Reading", tokens: Sequence[qmlscan.Token],
                 continue
             name = _suffix_after(name_token.text, _HANDLER_PREFIX)
             paren = _matching(tokens, position + 2)
-            if not name or paren < 0:
+            if not name or name in _FACADE_MEMBERS or paren < 0:
                 continue
             uses.append(Use(owner, point,
                             _settled(Member("signal", name,

@@ -26,9 +26,9 @@
 #include "synclientconfig.h"
 
 #include "edge_sourcehelper.h"  // synqtRegisterEdgeSources()
-#include "consumerfactory.h"
-#include "books_consumer.h"  // BooksConsumer, the edge's mesh-half facade
+#include "books_consumer.h"  // synqtRegisterBooksConsumers(), the edge's mesh-half facade
 
+#include <QAbstractItemModel>
 #include <QHostAddress>
 #include <QProcess>
 #include <QQmlEngine>
@@ -157,40 +157,16 @@ private:
         return m_web->consumedReplica(QStringLiteral("books"), QStringLiteral("books"));
     }
 
-private slots:
-    void initTestCase()
+    // The edge entity, started as the generated edge main starts it: the mesh runtime and
+    // then the web edge, with no wait between them, so the shared Source is built while the
+    // link to the books entity is still opening. Anything before this is torn down first.
+    void startEdge()
     {
-        QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
-        // The example entities this suite loads are the shipped ones, and a shipped
-        // entity writes one import line rather than two. `import SynQt` brings QtQuick
-        // with it. The generated main registers that. So does this, because the engine
-        // below is standing in for that main.
-        SynQt::registerModuleImports();
-        synqtRegisterEdgeSources();
-        // The edge reaches the books entity through the generated consumer facade, which is
-        // what fills in the session it is acting for. A raw dynamic Replica would not.
-        //
-        // Only the factory, not synqtRegisterBooksConsumers(): that registers the QML name
-        // `Books`, and this process is the edge, where that name is the accessor the edge's
-        // own QML calls. The books entity registers the same name for its Source, which is
-        // why it is a separate binary here (tests/fix1-auction/books) exactly as it is in a
-        // deployment.
-        SynQt::registerConsumerFactory(
-            QStringLiteral("Books"),
-            []() -> SynQt::ConsumerBase * { return new BooksConsumer{}; });
-
-        // The books entity, as its own process, on a port nothing else is using.
-        m_ledgerPort = freePort();
-        QVERIFY(m_ledgerPort != 0);
-        m_books.setProgram(QStringLiteral(FIX1_BOOKS_BIN));
-        m_books.setArguments({QString::number(m_ledgerPort)});
-        m_books.start();
-        QVERIFY2(m_books.waitForStarted(5000), qPrintable(m_books.errorString()));
-        QVERIFY2(waitForLine(m_books, QStringLiteral("ready")),
-                 "the books entity did not come up");
+        m_edge.reset();
+        m_web.reset();
+        m_edgeEngine = std::make_unique<QQmlEngine>();
 
         // The edge entity consumes the books entity's point (as entity "edge").
-        m_edgeEngine = std::make_unique<QQmlEngine>();
         Topology webTopology;
         webTopology.entity = QStringLiteral("edge");
         webTopology.credentials = credsFor(QStringLiteral("edge"));
@@ -198,13 +174,8 @@ private slots:
         m_web = std::make_unique<EntityRuntime>(webTopology, m_edgeEngine.get());
         QVERIFY2(m_web->start(), qPrintable(m_web->errorString()));
 
-        QRemoteObjectDynamicReplica *view{nullptr};
-        QTRY_VERIFY((view = databaseView()) != nullptr);
-        QTRY_VERIFY(view->isReplicaValid());
-
-        // The web edge. It owns one point, a Source per caller so every slot has its Caller,
-        // reading the one lot and the one Hall of Fame from the edge entity's own singleton.
-        // It reaches the books entity through the "Books" accessor of its mesh runtime.
+        // The web edge. It owns one point, and reaches the books entity through the "Books"
+        // accessor of its mesh runtime.
         WebEdgeConfig config;
         config.bundleDir = QStringLiteral(FIX1_BUNDLE_DIR);
         config.host = QStringLiteral("127.0.0.1");
@@ -231,6 +202,42 @@ private slots:
         QVERIFY2(m_edge->start(), qPrintable(m_edge->errorString()));
         m_edgePort = m_edge->serverPort();
         QVERIFY(m_edgePort != 0);
+    }
+
+private slots:
+    void initTestCase()
+    {
+        QVERIFY2(QSslSocket::supportsSsl(), "TLS backend unavailable");
+        // The example entities this suite loads are the shipped ones, and a shipped
+        // entity writes one import line rather than two. `import SynQt` brings QtQuick
+        // with it. The generated main registers that. So does this, because the engine
+        // below is standing in for that main.
+        SynQt::registerModuleImports();
+        synqtRegisterEdgeSources();
+        // The edge reaches the books entity through the generated consumer facade, which is
+        // what fills in the session it is acting for. A raw dynamic Replica would not.
+        // Registered as the generated edge main does, so `Books.on<Signal>:` resolves in the
+        // edge's QML. The books entity registers the same name for its Source, which is why
+        // it is a separate binary here (tests/fix1-auction/books) exactly as it is in a
+        // deployment.
+        synqtRegisterBooksConsumers();
+
+        // The books entity, as its own process, on a port nothing else is using.
+        m_ledgerPort = freePort();
+        QVERIFY(m_ledgerPort != 0);
+        m_books.setProgram(QStringLiteral(FIX1_BOOKS_BIN));
+        m_books.setArguments({QString::number(m_ledgerPort)});
+        m_books.start();
+        QVERIFY2(m_books.waitForStarted(5000), qPrintable(m_books.errorString()));
+        QVERIFY2(waitForLine(m_books, QStringLiteral("ready")),
+                 "the books entity did not come up");
+
+        startEdge();
+        QVERIFY(!QTest::currentTestFailed());
+
+        QRemoteObjectDynamicReplica *view{nullptr};
+        QTRY_VERIFY((view = databaseView()) != nullptr);
+        QTRY_VERIFY(view->isReplicaValid());
     }
 
     void cleanupTestCase()
@@ -317,6 +324,45 @@ private slots:
         QTRY_COMPARE(databaseView()->property("count").toInt(), recordedBefore + 1);
         QCOMPARE(auctioneerAuction->property("itemName").toString(),
                  QStringLiteral("A vintage typewriter"));
+    }
+
+    // An edge that comes up after a lot was closed shows that winner. The shared Source is
+    // built before the link to the books entity is up, so its first pull has to wait for
+    // `Books.ready`.
+    void anEdgeStartedLaterShowsTheRecordedWinners()
+    {
+        const int before{databaseView()->property("count").toInt()};
+        QVERIFY(QMetaObject::invokeMethod(m_web->accessor(QStringLiteral("Books")),
+                                          "recordWinner",
+                                          Q_ARG(QString, QStringLiteral("A copper kettle")),
+                                          Q_ARG(QString, QStringLiteral("Alice")),
+                                          Q_ARG(int, 75)));
+        QTRY_COMPARE(databaseView()->property("count").toInt(), before + 1);
+
+        startEdge();
+        QVERIFY(!QTest::currentTestFailed());
+
+        QQmlEngine clientEngine;
+        SynClient visitor{clientConfig(m_edgePort,
+                                       cookieFor(m_edge->sessionManager()->createSession())),
+                          &clientEngine};
+        visitor.start();
+        QRemoteObjectReplica *auction{nullptr};
+        QTRY_VERIFY((auction = auctionReplica(&visitor)) != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(auction->isReplicaValid(), 8000);
+        QAbstractItemModel *winners{nullptr};
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (winners = auction->property("winners").value<QAbstractItemModel *>()) != nullptr,
+            8000);
+        QTRY_COMPARE_WITH_TIMEOUT(winners->rowCount(), before + 1, 8000);
+        // Newest first. A model Replica fetches a row's data after its count.
+        const int item{winners->roleNames().key("item")};
+        QTRY_COMPARE(winners->data(winners->index(0, 0), item).toString(),
+                     QStringLiteral("A copper kettle"));
+
+        // The next test reads the ledger through this edge's link.
+        QTRY_VERIFY(databaseView() != nullptr);
+        QTRY_VERIFY(databaseView()->isReplicaValid());
     }
 
     // The Hall-of-Fame stage's entity gate, and where it lives. The books entity lists one

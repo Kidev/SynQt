@@ -24,7 +24,7 @@ and the rest of your app only talks to connect points.
 
 > [!NOTE]
 > "Embedded" means the storage is a library inside the database entity, not a separate
-> product you operate. Later you can point the same entity at PostgreSQL or MongoDB by
+> product you operate. Later you can point the same entity at PostgreSQL or MySQL by
 > changing one setting, with no other code change (see [providers](providers.md)). This
 > tutorial uses the default.
 
@@ -59,12 +59,12 @@ Books {
 
     function recordWinner(item, winner, amount) {
         Db.exec("INSERT INTO winners(item, winner, amount) VALUES(?, ?, ?)",
-                [item, winner, amount])   // parameters are separate, so no injection
-        ledger.winnersChanged()
+                [item, winner, amount]);   // parameters are separate, so no injection
+        ledger.winnersChanged();
     }
 
     function recentWinners() {
-        return Db.query("SELECT item, winner, amount FROM winners ORDER BY id DESC LIMIT 20")
+        return Db.query("SELECT item, winner, amount FROM winners ORDER BY id DESC LIMIT 20");
     }
 }
 ```
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS winners (
 );
 ```
 
-The code does not check who is calling. The connect point's consumer list has one name,
+The code checks nobody. The connect point's consumer list has one name,
 so the mesh opens no other link and nothing else can acquire the books entity. Entity
 links use mutual TLS even between two processes on your laptop (`synqt dev` issued
 throwaway development certificates when it started), so the entity at the other end is
@@ -119,6 +119,9 @@ property var winners: []
 winnersRows: auction.winners
 
 function refresh() {
+    if (!Books.ready) {
+        return;
+    }
     // recentWinners() returns a value, so the call resolves asynchronously.
     Books.recentWinners().then(rows => {
         auction.winners = rows;
@@ -129,11 +132,17 @@ Component.onCompleted: {
     auction.refresh();
     Books.winnersChanged.connect(auction.refresh);   // the database moved, so repull
 }
+
+Books.onReadyChanged: auction.refresh()             // the link to the database came up
 ```
 
 `Books` is the edge's handle on the books entity's connect point, as `Server` is the
 browser's handle on the edge. An entity has one connect point, so its name is the whole
 address.
+
+The edge builds this Source before its link to the books entity is open, so the first
+`refresh()` finds `Books.ready` false and returns. `Books.onReadyChanged` pulls the list
+once the link is up, and again after every reconnect.
 
 ## Step 5: Record the winner when a lot closes
 
@@ -143,15 +152,15 @@ Fill in the gap left in [Real bidders](tutorial-sign-in.md). In the same file, m
 ```qml
 function closeLot(nextItem) {
     if (auction.highBid > 0) {
-        Books.recordWinner(auction.itemName, auction.highBidder, auction.highBid)
+        Books.recordWinner(auction.itemName, auction.highBidder, auction.highBid);
     }
-    auction.itemName = nextItem
-    auction.highBid = 0
-    auction.highBidder = "nobody yet"
+    auction.itemName = nextItem;
+    auction.highBid = 0;
+    auction.highBidder = "nobody yet";
 }
 ```
 
-Nothing here checks whether the caller is the auctioneer. The `export:` block declares
+The gate does the auctioneer check: the `export:` block declares
 `closeLot` as an `<admin> slot`, so a caller without that scope never reaches the
 function.
 

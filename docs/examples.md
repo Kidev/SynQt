@@ -202,12 +202,18 @@ import SynQt
 IdentityMapping {
     // Return the scope a freshly authenticated identity should hold, as a member of the
     // Scope enum SynQt generates from scopes.order beside this file.
+    // Keyed on the GitHub login, which every GitHub identity has. An email can be null.
+    readonly property var admins: ["your-github-username"]
+    readonly property var moderators: ["a-moderator-login"]
+
     function scopeFor(identity): int {
-        const admins      = ["owner@example.com"]
-        const moderators  = ["mod@example.com"]
-        if (admins.indexOf(identity.email) !== -1)     return Scope.Admin
-        if (moderators.indexOf(identity.email) !== -1) return Scope.Moderator
-        return Scope.User   // any successfully authenticated user
+        if (admins.indexOf(identity.login) !== -1) {
+            return Scope.Admin;
+        }
+        if (moderators.indexOf(identity.login) !== -1) {
+            return Scope.Moderator;
+        }
+        return Scope.User;   // any successfully authenticated user
     }
 }
 ```
@@ -231,17 +237,17 @@ Edge {
 
     function add(text) {
         if (!Client.hasScope("user")) {
-            Client.emitRejected("Sign in to add items.")
-            return
+            Client.emitRejected("Sign in to add items.");
+            return;
         }
-        const clean = ("" + text).trim()
+        const clean = ("" + text).trim();
         if (clean.length === 0 || clean.length > 280) {
-            Client.emitRejected("Items must be 1 to 280 characters.")
-            return
+            Client.emitRejected("Items must be 1 to 280 characters.");
+            return;
         }
         todo.rows = todo.rows.concat([{
             text: clean,
-            author: Client.identity.email,
+            author: Client.identity.login,
             done: false,
             ownerId: Client.id              // edge only authorization data
         }])
@@ -249,18 +255,18 @@ Edge {
 
     function remove(index) {
         if (index < 0 || index >= todo.rows.length) {
-            Client.emitRejected("No such item.")
-            return
+            Client.emitRejected("No such item.");
+            return;
         }
-        const row = todo.rows[index]
-        const isOwner = row.ownerId === Client.id
+        const row = todo.rows[index];
+        const isOwner = row.ownerId === Client.id;
         if (!isOwner && !Client.hasScope("moderator")) {
-            Client.emitRejected("You can only remove your own items.")
-            return
+            Client.emitRejected("You can only remove your own items.");
+            return;
         }
-        const next = todo.rows.slice()
-        next.splice(index, 1)
-        todo.rows = next
+        const next = todo.rows.slice();
+        next.splice(index, 1);
+        todo.rows = next;
     }
 
     // One binding, so a change any user makes reaches every browser watching.
@@ -287,7 +293,7 @@ ApplicationWindow {
             anchors.fill: parent
             Label { text: "Todo"; Layout.fillWidth: true }
             Button {
-                text: Session.identity ? Session.identity.email : "Sign in"
+                text: Session.identity ? Session.identity.login : "Sign in"
                 onClicked: if (!Session.identity) Session.login()   // sends browser to /auth/login
             }
         }
@@ -478,18 +484,18 @@ Store {
     // mesh opens no link to anything else and nothing else can acquire this.
     function list() {
         return Db.query("SELECT id, text, author, owner_sub AS ownerSub"
-                        + " FROM items ORDER BY id DESC LIMIT 200")
+                        + " FROM items ORDER BY id DESC LIMIT 200");
     }
 
     function insert(row) {
         Db.exec("INSERT INTO items(text, author, owner_sub) VALUES(?, ?, ?)",
-                [row.text, row.author, row.ownerSub])   // parameterized: no injection
-        items.changed()                                  // notify the edge
+                [row.text, row.author, row.ownerSub]);  // parameterized: no injection
+        items.changed();                                 // notify the edge
     }
 
     function remove(id) {
-        Db.exec("DELETE FROM items WHERE id = ?", [id])
-        items.changed()
+        Db.exec("DELETE FROM items WHERE id = ?", [id]);
+        items.changed();
     }
 }
 ```
@@ -519,44 +525,46 @@ Edge {
 
     // Keep the browser facing model in sync with the database.
     function refresh() {
+        if (!Store.ready) return;  // the link to the database is not up yet
         // list() returns a value, so this cross entity call resolves asynchronously.
         Store.list().then(fetched => {
-            todo.rows = fetched
+            todo.rows = fetched;
             // Map internal rows to the browser facing roles (drop id and ownerSub).
-            todo.setItems(fetched.map(r => ({ text: r.text, author: r.author, done: false })))
+            todo.setItems(fetched.map(r => ({ text: r.text, author: r.author, done: false })));
         })
     }
 
     Component.onCompleted: refresh()
 
-    Store.onChanged: todo.refresh()   // the database moved; repull
+    Store.onReadyChanged: todo.refresh()   // the link came up, or came back
+    Store.onChanged: todo.refresh()        // the database moved; repull
 
     function add(text) {
         // The edge authorizes the user.
-        if (!Caller.hasScope("user")) { Caller.emitRejected("Sign in to add items."); return }
-        const clean = ("" + text).trim()
+        if (!Caller.hasScope("user")) { Caller.emitRejected("Sign in to add items."); return; }
+        const clean = ("" + text).trim();
         if (clean.length === 0 || clean.length > 280) {
-            Caller.emitRejected("Items must be 1 to 280 characters."); return
+            Caller.emitRejected("Items must be 1 to 280 characters."); return;
         }
-        // Persist via the database entity. The database authorizes that the caller is the edge.
-        Store.insert({ text: clean, author: Caller.identity.email,
-                                ownerSub: Caller.identity.sub })
+        // Persist via the database entity, which nothing but the edge can reach.
+        Store.insert({ text: clean, author: Caller.identity.login,
+                                ownerSub: Caller.identity.sub });
     }
 
     function remove(index) {
         if (index < 0 || index >= rows.length) {
-            Caller.emitRejected("No such item."); return
+            Caller.emitRejected("No such item."); return;
         }
         // Ownership is decided against the verified identity, never a client value:
         // a user removes only rows whose ownerSub matches their own sub; a moderator
         // removes any.
-        const row = rows[index]
-        const isOwner = Caller.identity && row.ownerSub === Caller.identity.sub
+        const row = rows[index];
+        const isOwner = Caller.identity && row.ownerSub === Caller.identity.sub;
         if (!isOwner && !Caller.hasScope("moderator")) {
-            Caller.emitRejected("You can only remove your own items."); return
+            Caller.emitRejected("You can only remove your own items."); return;
         }
-        // The database authorizes that the caller is the edge, then deletes by id.
-        Store.remove(row.id)
+        // The database deletes by id. Only the edge can reach it.
+        Store.remove(row.id);
     }
 }
 ```
@@ -565,7 +573,7 @@ Edge {
 
 The same as in Example 2: it reads `Server.items`, calls `Server.add(...)` and
 `Server.remove(index)`, and shows a refusal's reason through `Edge.onRejected`. The client
-does not know a database exists; it only talks to the edge.
+only talks to the edge and never learns a database exists.
 
 ### What this example demonstrates
 
@@ -574,8 +582,8 @@ does not know a database exists; it only talks to the edge.
   consumer.
 - **The edge holds the whole user authorization matrix.** Anonymous users cannot add, a
   user removes only rows whose `ownerSub` matches their `Caller.identity.sub`, and a
-  moderator removes any. No value from the client takes part in the ownership decision:
-  the edge compares its own cached `ownerSub` with the verified identity.
+  moderator removes any. The ownership decision uses no value from the client: the edge
+  compares its own cached `ownerSub` with the verified identity.
 - **The browser cannot reach the store.** Its point lists only `edge` as a consumer, and a
   browser cannot reach an entity that is not a web edge anyway.
 - **Data minimization across two hops.** `ownerSub` is on the internal contract for the
@@ -585,8 +593,8 @@ does not know a database exists; it only talks to the edge.
   durable row must stay owned across sessions and restarts, so it is keyed on the
   identity, not the session.
 - **Durable storage without a database server.** Items live in the persistence entity's
-  embedded store and survive restarts. There is no separate database product to run,
-  configure or secure; it is a SynQt entity with the same toolchain and security model.
+  embedded store and survive restarts. The store is a SynQt entity with the same toolchain
+  and security model, with no separate database product to run, configure or secure.
 - **One mechanism for both links.** `Server` (browser to edge, over wss) and `Store` (edge
   to database, over the mesh) use the same programming model over different
   transports.
@@ -646,8 +654,8 @@ connect_points:
 
 One file serves every slug. Its root is an `Item`, not a window, because the client loads
 a delivered page into its `Loader`, and it imports only palette modules. It paints its
-headline from the seed on the first frame, then keeps the offers live through the
-`catalog` replica:
+headline from the seed on the first frame, then keeps the offers live through
+`Server.offers`:
 
 ```qml
 import QtQuick

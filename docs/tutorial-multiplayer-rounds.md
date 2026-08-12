@@ -45,13 +45,13 @@ Records {
         // and later points increment. Parameters are separate, so no value becomes SQL.
         Db.exec("INSERT INTO champions(sub, name, points) VALUES(?, ?, 1) " +
                 "ON CONFLICT(sub) DO UPDATE SET points = points + 1, name = ?",
-                [sub, name, name])
-        scores.standingsChanged()
+                [sub, name, name]);
+        scores.standingsChanged();
     }
 
     function top() {
         return Db.query("SELECT name, points FROM champions " +
-                        "ORDER BY points DESC, name ASC LIMIT 10")
+                        "ORDER BY points DESC, name ASC LIMIT 10");
     }
 }
 ```
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS champions (
 );
 ```
 
-The code does not check who is calling, and does not need to. The consumer list has one
+The code checks nobody, and needs no check. The consumer list has one
 name, so only the edge can acquire this entity. Entity links use mutual TLS even between
 two processes on your laptop (`synqt dev` issued throwaway development certificates when
 it started), so the entity at the other end is the one its certificate names. Use
@@ -82,10 +82,10 @@ round event to the edge's `export:` (it already carries `board` from
 ```yaml
     export: |
       prop real roundEndsAt                       // edge clock (ms) when the round ends
-      // Players in view, for drawing.
+      // Every player, for drawing.
       model blobs(string[32] id, string[40] name, real x, real y, real mass, bool online)
       model board(string[40] name, real mass)     // the live leaderboard, biggest first
-      model pellets(string[32] id, real x, real y)  // food in view
+      model pellets(string[32] id, real x, real y)  // food scattered on the map
       model champions(string[40] name, int points)  // all-time Hall of Fame, from the DB
       slot steer(real x, real y)                  // "I am aiming at this spot" (a goal)
       slot real ping()                            // the edge clock in ms, for latency
@@ -116,33 +116,35 @@ champions list, which is one list for everybody. Add to `World.qml`:
     // browser reaches the edge with Server. An entity has one point, so the name is
     // the whole address.
     function refreshChampions() {
-        Records.top().then(rows => { world.champions = rows })
+        if (!Records.ready) return;
+        Records.top().then(rows => { world.champions = rows; });
     }
     Records.onStandingsChanged: world.refreshChampions()
+    Records.onReadyChanged: world.refreshChampions()   // the link to the database came up
 
     Timer {
         interval: world.roundMs; repeat: true; running: true
         onTriggered: {
             // Crown the biggest blob still on the map and give them a point.
-            let winner = null
+            let winner = null;
             for (const sub in world.roster) {
-                const b = world.roster[sub]
-                if (b.online && (!winner || b.mass > winner.mass)) winner = b
+                const b = world.roster[sub];
+                if (b.online && (!winner || b.mass > winner.mass)) winner = b;
             }
             if (winner) {
-                Records.award(winner.id, winner.name)   // edge -> database
-                world.roundEnded(winner.name)           // every Source relays this
+                Records.award(winner.id, winner.name);  // edge -> database
+                world.roundEnded(winner.name);          // every Source relays this
             }
             // Reset the arena, with everyone back to a small blob at a fresh spot.
             for (const sub in world.roster) {
-                const b = world.roster[sub]
-                b.mass = world.startMass
-                b.x = b.tx = world.randPos()
-                b.y = b.ty = world.randPos()
+                const b = world.roster[sub];
+                b.mass = world.startMass;
+                b.x = b.tx = world.randPos();
+                b.y = b.ty = world.randPos();
             }
-            for (const p of world.pellets) { p.x = world.randPos(); p.y = world.randPos() }
-            world.pelletsVersion += 1
-            world.roundEndsAt = Date.now() + world.roundMs
+            for (const p of world.pellets) { p.x = world.randPos(); p.y = world.randPos(); }
+            world.pelletsVersion += 1;
+            world.roundEndsAt = Date.now() + world.roundMs;
         }
     }
 ```
@@ -150,8 +152,8 @@ champions list, which is one list for everybody. Add to `World.qml`:
 Extend `Component.onCompleted` in the same file to start the first round:
 
 ```qml
-        world.roundEndsAt = Date.now() + world.roundMs
-        world.refreshChampions()
+        world.roundEndsAt = Date.now() + world.roundMs;
+        world.refreshChampions();
 ```
 
 Then `web/edge/Edge.qml` (one per player session) relays the event and publishes the two
@@ -163,13 +165,13 @@ new values:
     championsRows: World.champions
 
     Component.onCompleted:
-        World.roundEnded.connect(arena, winner => arena.roundEnded(winner))
+        World.roundEnded.connect(arena, winner => arena.roundEnded(winner));
 ```
 
 and mirrors the clock in its existing tick:
 
 ```qml
-            arena.roundEndsAt = World.roundEndsAt
+            arena.roundEndsAt = World.roundEndsAt;
 ```
 
 The edge consumes the records entity's point and owns its own. The browser consumes only
@@ -181,7 +183,7 @@ entity.
 
 Add two more overlays to `client/app/Main.qml`. A countdown needs a ticking clock: add a
 half second timer that advances "now", and compute the remaining time from `roundEndsAt`.
-Add inside the root `Item`:
+Add inside the root `ApplicationWindow`:
 
 ```qml
 property real now: Date.now()
@@ -196,9 +198,9 @@ Text {
     style: Text.Outline; styleColor: "black"
     visible: Session.hasScope("player") && Server.roundEndsAt > 0
     text: {
-        const left = Math.max(0, Server.roundEndsAt - root.now)
-        const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000)
-        return m + ":" + (s < 10 ? "0" + s : s)
+        const left = Math.max(0, Server.roundEndsAt - root.now);
+        const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000);
+        return m + ":" + (s < 10 ? "0" + s : s);
     }
 }
 
@@ -213,7 +215,9 @@ Column {
     Repeater {
         model: Server.champions
         delegate: Text {
-            text: model.name + ": " + model.points
+            required property string name
+            required property int points
+            text: name + ": " + points
             color: "white"; font.pixelSize: 13
             style: Text.Outline; styleColor: "black"
         }
@@ -221,7 +225,8 @@ Column {
 }
 ```
 
-Announce the winner with the banner you already have. Add inside the root `Item`:
+Announce the winner with the banner you already have. Add inside the root
+`ApplicationWindow`:
 
 ```qml
 Edge.onRoundEnded: winner => banner.flash("Round over! " + winner + " takes the point.")

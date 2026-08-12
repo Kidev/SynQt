@@ -31,12 +31,13 @@ Edge {
     // address.
     Component.onCompleted: {
         Books.winnerRecorded.connect(lot.recordWinner);
-        // The Hall as the ledger holds it. A returning slot resolves when the answer comes
-        // back, so an edge that starts after a lot was closed shows those winners too.
-        Books.recentWinners().then(rows => {
-            lot.winners = rows;
-        });
+        lot.refresh();
     }
+
+    // The link to the books entity opens after this Source is built, and a call made
+    // before `Books.ready` never reaches the ledger. So the Hall is pulled each time the
+    // link comes up, which also catches up on winners recorded while it was down.
+    Books.onReadyChanged: lot.refresh()
 
     // A signed-in user is asking to bid. Whether their bid is good enough is the edge's to say.
     function placeBid(amount) {
@@ -57,6 +58,17 @@ Edge {
         lot.itemName = nextItem;
         lot.highBid = 0;
         lot.highBidder = "nobody yet";
+    }
+
+    // The Hall as the ledger holds it, so an edge that starts after a lot was closed shows
+    // those winners too.
+    function refresh() {
+        if (!Books.ready) {
+            return;
+        }
+        Books.recentWinners().then(rows => {
+            lot.winners = rows;
+        });
     }
 
     function recordWinner(item: string, winner: string, amount: int) {

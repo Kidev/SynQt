@@ -6,9 +6,11 @@
 
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 QT_BEGIN_NAMESPACE
+class QJSEngine;
 class QRemoteObjectReplica;
 QT_END_NAMESPACE
 
@@ -45,6 +47,13 @@ public:
     /// True once the bound Replica has completed its QtRO handshake.
     bool isReady() const;
 
+    /// The engine a returning slot's Promise hands its answer to QML through. Set by
+    /// whoever puts the facade in QML scope. A call made through the attached type
+    /// (`Books.recentWinners()`) gives the facade no JavaScript wrapper, so qjsEngine()
+    /// alone can return null, and a null engine resolves every answer as undefined.
+    void setJsEngine(QJSEngine *engine);
+    QJSEngine *jsEngine() const;
+
     /// The contract this facade consumes, e.g. "Auth" (the resolver key). Generated.
     virtual QString contractName() const = 0;
 
@@ -77,6 +86,7 @@ private:
     void clearConnections();
 
     QString m_point;
+    QPointer<QJSEngine> m_jsEngine;
     QRemoteObjectReplica *m_remote{nullptr};
     QMetaObject::Connection m_initialized;
     QList<QMetaObject::Connection> m_connections;

@@ -55,6 +55,23 @@ def _declare(project, point, line):
                     encoding="utf-8")
 
 
+def test_the_facade_ready_signal_is_not_a_contract_member(tmp_path):
+    # `readyChanged` is the framework's, on every consumer facade, in each form QML reaches it.
+    project = _copy(tmp_path, "gavel")
+    edge = project / "web" / "edge" / "Edge.qml"
+    edge.write_text(edge.read_text().replace(
+        "    Books.onReadyChanged: lot.refresh()\n",
+        "    Books.onReadyChanged: lot.refresh()\n"
+        "    Connections {\n"
+        "        target: Books\n"
+        "        function onReadyChanged() { lot.refresh(); }\n"
+        "    }\n"
+        "    function watch() { Books.readyChanged.connect(lot, lot.refresh); }\n"))
+    assert "Connections" in edge.read_text()
+    assert not any("readyChanged" in m for m in
+                   checkmod.lint_contract_drift(_config(project), project))
+
+
 def test_a_declared_member_nobody_uses_is_a_note(tmp_path):
     project = _copy(tmp_path, "gavel")
     _declare(project, "edge", "prop int unused")

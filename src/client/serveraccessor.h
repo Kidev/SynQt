@@ -12,6 +12,7 @@
 #include <QQmlPropertyMap>
 
 QT_BEGIN_NAMESPACE
+class QJSEngine;
 class QRemoteObjectNode;
 class QRemoteObjectReplica;
 QT_END_NAMESPACE
@@ -38,6 +39,9 @@ class ServerAccessor : public QQmlPropertyMap
 public:
     explicit ServerAccessor(QList<ClientConnectPoint> connectPoints,
                             QObject *parent = nullptr);
+
+    /// The engine each facade's returning slots answer QML through (ConsumerBase::setJsEngine).
+    void setJsEngine(QJSEngine *engine);
 
     /// Acquire the Replica of each consumed connect point on the given node and present
     /// it by name. Called on every (re)connect so bindings resume on a fresh link.

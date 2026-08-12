@@ -848,6 +848,27 @@ The framework manages each accessor's lifecycle:
 - **Attached signal handlers (`<Owner>.on<Signal>`) fire only while the connect point is
   live.** Before acquisition, or while `reconnecting`, they do not fire; they resume on
   reconnect.
+- **A consumed entity's accessor (`Books`, `Store`) has a `ready` property, like
+  `Server.ready`.** An entity builds its shared Source and its singleton before its mesh
+  links open, so their `Component.onCompleted` runs while `ready` is false, and a call made
+  then never reaches the owner. Pull startup state from a function that returns early
+  while `ready` is false, and call it from `Component.onCompleted` and from
+  `<Owner>.onReadyChanged:`. The second call also catches up after a reconnect:
+
+  ```qml
+  function refresh() {
+      if (!Books.ready) {
+          return;
+      }
+      Books.recentWinners().then(rows => {
+          lot.winners = rows;
+      });
+  }
+
+  Component.onCompleted: lot.refresh()
+  Books.onReadyChanged: lot.refresh()
+  ```
+
 - **`Router` resolves the page's URL before the link to the edge opens,** and re-resolves
   the current route on every scope change, so a scope-gated page is refused at startup and
   reached once the session holds the scope. See

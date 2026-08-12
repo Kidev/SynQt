@@ -305,6 +305,7 @@ void EntityRuntime::installAccessor(const ConnectPointConfig &connectPoint)
         return;
     }
     facade->setPoint(connectPoint.name);
+    facade->setJsEngine(m_engine);
     facade->setParent(this);
     m_consumerFacades.insert(connectPoint.owner + QLatin1Char('/') + connectPoint.name,
                              facade);

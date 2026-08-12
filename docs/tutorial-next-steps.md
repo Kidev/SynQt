@@ -48,11 +48,20 @@ function loadCurrent() {
 ```
 
 The lot lives in `web/edge/Edge.qml`, so load and save it there: once at startup for the
-whole entity, not once per browser. Call `auction.saveNow()` at the end of `placeBid` and
-`closeLot`, and add:
+whole entity, not once per browser. The link to the books entity opens after the edge
+starts, so the load waits for `Books.ready`, the same way the Hall of Fame's `refresh()`
+does. Call `auction.load()` in `Component.onCompleted` and in the `Books.onReadyChanged`
+handler, `auction.saveNow()` at the end of `placeBid` and `closeLot`, and add:
 
 ```qml
-Component.onCompleted: {
+property bool loaded: false
+
+// Once: a reconnect keeps the lot the edge is already holding.
+function load() {
+    if (!Books.ready || auction.loaded) {
+        return;
+    }
+    auction.loaded = true;
     // loadCurrent() returns a value, so it resolves asynchronously.
     Books.loadCurrent().then(saved => {
         if (saved) {

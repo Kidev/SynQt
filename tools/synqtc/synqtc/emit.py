@@ -1657,7 +1657,7 @@ def _consumer_slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path
     return "\n".join([
         f"SynQt::Promise *{cls}::{slot.name}({params})",
         "{",
-        "    QJSEngine *engine{qjsEngine(this)};",
+        "    QJSEngine *engine{jsEngine()};",
         "    if (!isReady()) {",
         f"        return SynQt::Promise::rejected({unavailable});",
         "    }",

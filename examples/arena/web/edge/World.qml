@@ -86,11 +86,14 @@ Item {
         return rows.sort((a, b) => b.mass - a.mass).slice(0, 8);
     }
 
-    // Hall of Fame
+    // Hall of Fame. A call made before `Records.ready` never reaches the database, and the
+    // link may open after this world is built, so the list is also pulled when it comes up.
     function refreshChampions() {
+        if (!Records.ready) return;
         Records.top().then(rows => { world.champions = rows; });
     }
     Records.onStandingsChanged: world.refreshChampions()
+    Records.onReadyChanged: world.refreshChampions()
 
     // The simulation, run once for the whole arena
     Timer {
