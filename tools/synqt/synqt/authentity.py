@@ -107,10 +107,12 @@ SessionStore {
         root.emitSessionRotated(from, to);
     }
 
+    // `root` is the receiver, so the connections go when this Source does. An unshared
+    // auth entity has one Source per edge, and an edge that reconnects gets a new one.
     Component.onCompleted: {
-        Sessions.sessionUpserted.connect(onUpserted);
-        Sessions.sessionRemoved.connect(onRemoved);
-        Sessions.rotationRecorded.connect(onRotated);
+        Sessions.sessionUpserted.connect(root, onUpserted);
+        Sessions.sessionRemoved.connect(root, onRemoved);
+        Sessions.rotationRecorded.connect(root, onRotated);
         const rows = Sessions.snapshot();
         for (let i = 0; i < rows.length; ++i) {
             const row = rows[i];

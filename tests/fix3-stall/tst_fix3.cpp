@@ -11,7 +11,6 @@
 // connection's own Caller (Caller::forUser with the configured scope order), and
 // fetchPage() reaches PagesService::fetchPageFor() through it. Nothing here builds a Caller
 // by hand; every fetch is a real round trip a browser would make.
-// trip an actual browser would make.
 //
 //   1. synqt check passes on examples/stall            -> tools/synqt/tests/test_examples.py
 //   2. client-as-consumer-of-inventory fails check     -> tools/synqt/tests/test_examples.py
@@ -64,14 +63,14 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user")};
     config.reconnectBaseMs = 200;
-    // No routes and no remotePalette. This "browser" compiles in nothing, so a
-    // page it reaches proves the page is delivered by the edge rather than carried by the bundle.
+    // No routes and no remotePalette. This "browser" compiles in nothing, so a page it
+    // reaches proves the page is delivered by the edge rather than carried by the bundle.
     return config;
 }
 
-QObject *pagesReplica(SynClient *client)
+QRemoteObjectReplica *pagesReplica(SynClient *client)
 {
-    return client->server()->value(QStringLiteral("Pages")).value<QObject *>();
+    return client->server()->replica(QStringLiteral("Pages"));
 }
 
 QString seedHeadline(const PageResponse &response)
@@ -182,11 +181,11 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(anon.session()->state(), QStringLiteral("connected"), 8000);
         QTRY_COMPARE_WITH_TIMEOUT(user.session()->state(), QStringLiteral("connected"), 8000);
 
-        QObject *anonPages{pagesReplica(&anon)};
-        QObject *userPages{pagesReplica(&user)};
+        QRemoteObjectReplica *anonPages{pagesReplica(&anon)};
+        QRemoteObjectReplica *userPages{pagesReplica(&user)};
         QVERIFY(anonPages && userPages);
-        QTRY_VERIFY(qobject_cast<QRemoteObjectDynamicReplica *>(anonPages)->isReplicaValid());
-        QTRY_VERIFY(qobject_cast<QRemoteObjectDynamicReplica *>(userPages)->isReplicaValid());
+        QTRY_VERIFY(anonPages->isReplicaValid());
+        QTRY_VERIFY(userPages->isReplicaValid());
 
         const PageResponse refused{fetchPage(anonPages, QStringLiteral("/members"), QString{})};
         QCOMPARE(refused.status(), QStringLiteral("forbidden"));
@@ -212,9 +211,7 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(browser.session()->state(),
                                   QStringLiteral("connected"), 8000);
 
-        QObject *pages{pagesReplica(&browser)};
-        QVERIFY(pages);
-        auto *replica{qobject_cast<QRemoteObjectDynamicReplica *>(pages)};
+        QRemoteObjectReplica *replica{pagesReplica(&browser)};
         QVERIFY(replica);
         QTRY_VERIFY(replica->isReplicaValid());
 
@@ -223,7 +220,7 @@ private slots:
                         .contains(QStringLiteral("/deal-of-the-day")));
 
         const PageResponse delivered{
-            fetchPage(pages, QStringLiteral("/deal-of-the-day"), QString{})};
+            fetchPage(replica, QStringLiteral("/deal-of-the-day"), QString{})};
         QCOMPARE(delivered.status(), QStringLiteral("ok"));
         QVERIFY2(!delivered.qml().isEmpty(),
                  "a page reachable only through the edge must still deliver its markup");
@@ -243,9 +240,9 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(browser.session()->state(),
                                   QStringLiteral("connected"), 8000);
 
-        QObject *pages{pagesReplica(&browser)};
+        QRemoteObjectReplica *pages{pagesReplica(&browser)};
         QVERIFY(pages);
-        QTRY_VERIFY(qobject_cast<QRemoteObjectDynamicReplica *>(pages)->isReplicaValid());
+        QTRY_VERIFY(pages->isReplicaValid());
 
         // First slug. The page body and a seed built from "summer-sale".
         const PageResponse first{

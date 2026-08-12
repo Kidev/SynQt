@@ -8,10 +8,12 @@
 
 #include <QHash>
 #include <QList>
+#include <QPointer>
 #include <QQmlPropertyMap>
 
 QT_BEGIN_NAMESPACE
 class QRemoteObjectNode;
+class QRemoteObjectReplica;
 QT_END_NAMESPACE
 
 namespace SynQt {
@@ -46,6 +48,10 @@ public:
     /// contract has a consumer facade, which is every contract the build generates.
     QObject *point(const QString &name) const;
 
+    /// The Replica currently behind one connect point, or nullptr before the first link or
+    /// when this client consumes no point of that name. A reconnect replaces it.
+    QRemoteObjectReplica *replica(const QString &name) const;
+
 private slots:
     /// Re-publish a Replica once its QtRO handshake completes, so QML bindings re-evaluate.
     void onReplicaInitialized();
@@ -54,6 +60,7 @@ private:
     QList<ClientConnectPoint> m_connectPoints;
     QHash<QObject *, QString> m_pending; ///< raw replica -> connect-point name (fallback path)
     QHash<QString, ConsumerBase *> m_facades; ///< owner name -> stable facade
+    QHash<QString, QPointer<QRemoteObjectReplica>> m_replicas; ///< owner name -> live Replica
 };
 
 } // namespace SynQt

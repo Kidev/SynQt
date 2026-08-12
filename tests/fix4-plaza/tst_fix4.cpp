@@ -69,15 +69,14 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     return config;
 }
 
-QRemoteObjectDynamicReplica *plazaOf(SynClient *client)
+QRemoteObjectReplica *plazaOf(SynClient *client)
 {
-    return qobject_cast<QRemoteObjectDynamicReplica *>(
-        client->server()->point(QStringLiteral("edge")));
+    return client->server()->replica(QStringLiteral("edge"));
 }
 
 // One walker's row, as a browser reads it off the `walkers` model, or empty while the model
 // has not carried it yet.
-QVariantMap rowOf(QRemoteObjectDynamicReplica *plaza, const QString &sub)
+QVariantMap rowOf(QRemoteObjectReplica *plaza, const QString &sub)
 {
     QAbstractItemModel *walkers{
         plaza->property("walkers").value<QAbstractItemModel *>()};
@@ -102,7 +101,7 @@ QVariantMap rowOf(QRemoteObjectDynamicReplica *plaza, const QString &sub)
 // The same, waited for. The edge publishes the whole model every step, and for a moment after
 // each publish the replica has the new rows and not yet their data, so a single read can
 // come back empty. An empty read is not a position, and treating it as one is (0, 0).
-QVariantMap settledRowOf(QRemoteObjectDynamicReplica *plaza, const QString &sub)
+QVariantMap settledRowOf(QRemoteObjectReplica *plaza, const QString &sub)
 {
     QElapsedTimer waited;
     waited.start();
@@ -203,8 +202,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(anonymous.session()->state(), QStringLiteral("connected"),
                                   8000);
 
-        QRemoteObjectDynamicReplica *theirs{plazaOf(&signedIn)};
-        QRemoteObjectDynamicReplica *visitors{plazaOf(&anonymous)};
+        QRemoteObjectReplica *theirs{plazaOf(&signedIn)};
+        QRemoteObjectReplica *visitors{plazaOf(&anonymous)};
         QVERIFY(theirs && visitors);
         QTRY_VERIFY(theirs->isReplicaValid());
         QTest::qWait(1500);
@@ -223,7 +222,7 @@ private slots:
                         &clientEngine};
         racer.start();
         QTRY_COMPARE_WITH_TIMEOUT(racer.session()->state(), QStringLiteral("connected"), 8000);
-        QRemoteObjectDynamicReplica *plaza{plazaOf(&racer)};
+        QRemoteObjectReplica *plaza{plazaOf(&racer)};
         QVERIFY(plaza);
         QTRY_VERIFY(plaza->isReplicaValid());
 
@@ -279,8 +278,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(standing.session()->state(), QStringLiteral("connected"),
                                   8000);
         QTRY_COMPARE_WITH_TIMEOUT(walking.session()->state(), QStringLiteral("connected"), 8000);
-        QRemoteObjectDynamicReplica *theirs{plazaOf(&standing)};
-        QRemoteObjectDynamicReplica *mine{plazaOf(&walking)};
+        QRemoteObjectReplica *theirs{plazaOf(&standing)};
+        QRemoteObjectReplica *mine{plazaOf(&walking)};
         QVERIFY(theirs && mine);
         QTRY_VERIFY(theirs->isReplicaValid());
         QTRY_VERIFY(mine->isReplicaValid());

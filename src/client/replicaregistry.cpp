@@ -4,6 +4,7 @@
 #include "replicaregistry.h"
 
 #include <QHash>
+#include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
 
 #include <utility>
@@ -25,7 +26,7 @@ void registerReplicaFactory(const QString &contract, ReplicaFactory factory)
     factories().insert(contract, std::move(factory));
 }
 
-QObject *acquireReplica(QRemoteObjectNode *node, const QString &contract,
+QRemoteObjectReplica *acquireReplica(QRemoteObjectNode *node, const QString &contract,
                         const QString &connectPoint)
 {
     const auto it{factories().constFind(contract)};

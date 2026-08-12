@@ -56,9 +56,10 @@ Todo {
     }
 
     // A generated Source is a QObject (no default child list), so subscribe to the shared
-    // database's change signals imperatively.
+    // database's change signals imperatively. The receiver goes first: the edge deletes
+    // this Source when the session ends, and only a connection with a receiver goes with it.
     Component.onCompleted: {
-        Database.itemAdded.connect(onItemAdded);
-        Database.itemRemoved.connect(onItemRemoved);
+        Database.itemAdded.connect(todo, onItemAdded);
+        Database.itemRemoved.connect(todo, onItemRemoved);
     }
 }

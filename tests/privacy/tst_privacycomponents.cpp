@@ -8,6 +8,7 @@
 // way. The accessor's own suite must run on a kit with no Qt Quick at all.
 
 #include "privacy.h"
+#include "session.h"
 #include "synclientconfig.h"
 
 #include <QGuiApplication>
@@ -68,9 +69,9 @@ private Q_SLOTS:
                                     QStringLiteral("DataErasureRequest")}) {
             QQmlApplicationEngine engine;
             Privacy privacy{withCookies(), &engine};
+            Session session{withCookies(), &engine};
             engine.rootContext()->setContextProperty(QStringLiteral("Privacy"), &privacy);
-            engine.rootContext()->setContextProperty(QStringLiteral("Session"),
-                                                     static_cast<QObject *>(nullptr));
+            engine.rootContext()->setContextProperty(QStringLiteral("Session"), &session);
             QQmlComponent component{&engine};
             component.setData(QStringLiteral("import SynQt\nimport QtQuick\n%1 { }")
                                   .arg(type).toUtf8(), QUrl{});
@@ -114,9 +115,9 @@ private Q_SLOTS:
         SynClientConfig config{withCookies()};
         config.erasureOffered = false;
         Privacy privacy{config, &engine};
+        Session session{config, &engine};
         engine.rootContext()->setContextProperty(QStringLiteral("Privacy"), &privacy);
-        engine.rootContext()->setContextProperty(QStringLiteral("Session"),
-                                                 static_cast<QObject *>(nullptr));
+        engine.rootContext()->setContextProperty(QStringLiteral("Session"), &session);
         QQmlComponent component{&engine};
         component.setData("import SynQt\nimport QtQuick\nDataErasureRequest { }", QUrl{});
         const std::unique_ptr<QObject> object{component.create()};

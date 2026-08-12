@@ -152,7 +152,7 @@ private slots:
                 while (QWebSocket *incoming{server.nextPendingConnection()}) {
                     // Build, open, host, and only then hand the socket over, so nothing
                     // runs on it between being hosted and being on its own thread.
-                    auto *channel{new SocketChannel{incoming, listener.lastAccepted()}};
+                    auto *channel{new SocketChannel{incoming, listener.takeRawSocket(incoming)}};
                     hostSide = new WebSocketTransport{channel};
                     hostSide->open(QIODevice::ReadWrite);
                     host.addHostSideConnection(hostSide);

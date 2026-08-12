@@ -113,6 +113,11 @@ bool SocketChannel::isWriteStalled(qint64 unsent)
 
 void SocketChannel::shutdown(QWebSocketProtocol::CloseCode closeCode, const QString &reason)
 {
+    // Already aborted on this thread, by an overflow or a stalled reader, before the close
+    // queued here arrived. A close frame now would be written to a closed socket.
+    if (m_socket->state() == QAbstractSocket::UnconnectedState) {
+        return;
+    }
     m_socket->close(closeCode, reason);
 }
 

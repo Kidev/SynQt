@@ -1,9 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The SessionManager and Caller unit cases the test plan names. Time-to-live expiry and
-// the purge behind it, credential rotation on setScope, and hierarchical versus set-based
-// scope checks.
+// The SessionManager and Caller unit cases: time-to-live expiry and the purge behind it,
+// credential rotation on setScope, and hierarchical versus set-based scope checks.
 //
 // tst_m7 next door proves the authorization matrix end to end over a real edge, which is
 // the acceptance question. It cannot reach these. A live session never ages past its TTL
@@ -46,10 +45,9 @@ qint64 minutesAgo(int minutes)
 
 } // namespace
 
-/// A stand-in for the SessionStore Replica an edge cache writes through. SessionManager
-/// calls removeSession(QString) on whatever attachRemote was given, by name, so this
-/// records the id it is handed. It carries no signals of its own. AttachRemote's connects
-/// to a plain QObject fail with a warning and leave m_remote set, which is all this needs.
+/// A stand-in for the SessionStore Replica an edge cache writes through: the three writes
+/// SessionManager calls on whatever attachRemote was given, by name, and the three changes
+/// it listens for. Only the removal is recorded.
 class RemoteRecorder : public QObject
 {
     Q_OBJECT
@@ -58,7 +56,15 @@ public:
     QString lastRemoved;
 
 public slots:
+    void putSession(const QString &, const QString &, const QString &, double) {}
+    void rotateSession(const QString &, const QString &) {}
     void removeSession(const QString &token) { lastRemoved = token; }
+
+signals:
+    void sessionUpserted(const QString &token, const QString &scope,
+                         const QString &identityJson, double createdMs);
+    void sessionRemoved(const QString &token);
+    void sessionRotated(const QString &from, const QString &to);
 };
 
 class TestSessions : public QObject
@@ -91,8 +97,6 @@ private slots:
         for (int index{0}; index < 500; ++index) {
             const QByteArray id{sessions.createSession()};
             // The same 256 bits every other secret the framework mints is made of, hex.
-            // It was a v4 UUID, which is 122 random bits. Nothing anyone would guess, but
-            // less than secrets.h says a session credential is.
             QCOMPARE(id.size(), SynQt::SecretBytes * 2);
             QVERIFY(!issued.contains(id));
             issued.insert(id);

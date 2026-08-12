@@ -6,7 +6,8 @@
 #include "connectpointresolver.h"
 #include "promise.h"
 
-#include <QtRemoteObjects/QRemoteObjectDynamicReplica>
+#include <QMetaMethod>
+#include <QMetaObject>
 #include <QtRemoteObjects/QRemoteObjectReplica>
 
 namespace SynQt {
@@ -39,9 +40,9 @@ QString ConsumerBase::point() const
     return m_point;
 }
 
-void ConsumerBase::setReplica(QObject *replica)
+void ConsumerBase::setReplica(QRemoteObjectReplica *replica)
 {
-    if (m_replica == replica) {
+    if (m_remote == replica) {
         return;
     }
     // Every answer the old Replica still owed will never come: a call is answered on the
@@ -56,21 +57,25 @@ void ConsumerBase::setReplica(QObject *replica)
         }
     }
     clearConnections();
+    disconnect(m_initialized);
+    m_remote = replica;
     m_replica = replica;
-    m_dynamic = (qobject_cast<QRemoteObjectDynamicReplica *>(replica) != nullptr);
-    if (m_replica != nullptr) {
-        addConnection(connect(m_replica, SIGNAL(initialized()), this,
-                              SLOT(handleInitialized())));
-        bindReplica();
-    }
     ConnectPointResolver::instance()->publish(contractName(), m_point, this);
-    emit readyChanged();
+    if (m_remote == nullptr) {
+        emit readyChanged();
+        return;
+    }
+    // By member pointer, which reads QRemoteObjectReplica's static metaobject and never
+    // asks the Replica for its own.
+    m_initialized = connect(m_remote, &QRemoteObjectReplica::initialized, this,
+                            &ConsumerBase::handleInitialized);
     // Reconnect fast path: a re-acquired Replica may already be live and will not emit
     // initialized() again.
-    QRemoteObjectReplica *asReplica{qobject_cast<QRemoteObjectReplica *>(m_replica)};
-    if (asReplica != nullptr && asReplica->isInitialized()) {
-        emitAllChanged();
+    if (m_remote->isInitialized()) {
+        handleInitialized();
+        return;
     }
+    emit readyChanged();
 }
 
 QObject *ConsumerBase::replica() const
@@ -80,23 +85,32 @@ QObject *ConsumerBase::replica() const
 
 bool ConsumerBase::isReady() const
 {
-    QRemoteObjectReplica *asReplica{qobject_cast<QRemoteObjectReplica *>(m_replica)};
-    return asReplica != nullptr && asReplica->isInitialized();
+    return m_remote != nullptr && m_remote->isInitialized();
 }
 
 void ConsumerBase::handleInitialized()
 {
-    if (m_dynamic) {
-        // A dynamic Replica has no API until it is initialized, so relays wired at bind
-        // time found nothing to connect to. They are wired again here, and the connection
-        // this slot came in on is remade with them.
-        clearConnections();
-        addConnection(connect(m_replica, SIGNAL(initialized()), this,
-                              SLOT(handleInitialized())));
-        bindReplica();
-    }
+    // Wired again from scratch, so a second initialized() cannot double a relay.
+    clearConnections();
+    bindReplica();
     emit readyChanged();
     emitAllChanged();
+}
+
+bool ConsumerBase::returnsPendingCall(const char *slot) const
+{
+    if (m_replica == nullptr) {
+        return false;
+    }
+    const QMetaObject *meta{m_replica->metaObject()};
+    const QByteArrayView name{slot};
+    for (int index{meta->methodOffset()}; index < meta->methodCount(); ++index) {
+        const QMetaMethod method{meta->method(index)};
+        if (method.name() == name) {
+            return QByteArrayView{method.typeName()} == "QRemoteObjectPendingCall";
+        }
+    }
+    return false;
 }
 
 void ConsumerBase::addConnection(const QMetaObject::Connection &connection)

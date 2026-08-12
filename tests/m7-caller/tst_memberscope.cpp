@@ -4,10 +4,10 @@
 // A `<scope>` gate on a member, over the shape the runtime builds: one shared
 // Source holding the state for everybody, and a mirror per caller republishing it.
 //
-// The question these answer is not "is the call refused" but "did anything cross". A gate
-// that only refused slots would still push an admin model's rows into a moderator's
-// replica, where reading them takes no call at all. So every case below asks what the
-// mirror is publishing, not what it says when asked.
+// The question these answer is "did anything cross", which is wider than "is the call
+// refused". A gate that only refused slots would still push an admin model's rows into a
+// moderator's replica, where reading them takes no call at all. So every case below asks
+// what the mirror is publishing.
 
 #include "caller.h"
 #include "sessionmanager.h"
@@ -201,8 +201,8 @@ private slots:
     /// `adopt` re-pointing that Caller at the caller of the slot about to run. QML that
     /// reads `Caller.scope` or `Caller.identity` in a binding has to be told when it
     /// moves. Told once and never again, a moderator's page would go on displaying the
-    /// first visitor's name while the entity answered the second, which is not a stale
-    /// value but somebody else's.
+    /// first visitor's name while the entity answered the second: somebody else's value,
+    /// which is worse than a stale one.
     void aBindingOnTheCallerFollowsWhoIsCallingNow()
     {
         const QVariantMap ada{{QStringLiteral("sub"), QStringLiteral("ada")}};
@@ -270,6 +270,17 @@ private slots:
 
         QCOMPARE(orphan.pending(), 0);
         QCOMPARE(orphan.auditLog()->rowCount(), 0);
+    }
+
+    /// A closed gate empties a model and keeps its declared roles. QtRO fixes a model's
+    /// roles when the Source is remoted, which is before any caller is bound, so a model
+    /// built without them never replicates a declared role, even once the gate opens.
+    void aClosedGateKeepsTheDeclaredRoles()
+    {
+        GatedSourceHelper orphan;
+        QCOMPARE(orphan.auditLog()->rowCount(), 0);
+        QVERIFY2(orphan.auditLog()->roleNames().values().contains(QByteArrayLiteral("line")),
+                 "a gated model was remoted without the roles its contract declares");
     }
 
 private:

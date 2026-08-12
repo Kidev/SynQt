@@ -319,7 +319,8 @@ QObject *EntityRuntime::accessor(const QString &capitalizedOwner) const
     return m_accessors.value(capitalizedOwner);
 }
 
-QObject *EntityRuntime::consumedReplica(const QString &owner, const QString &connectPoint) const
+QRemoteObjectDynamicReplica *EntityRuntime::consumedReplica(const QString &owner,
+                                                            const QString &connectPoint) const
 {
     return m_consumedReplicas.value(owner + QLatin1Char('/') + connectPoint);
 }

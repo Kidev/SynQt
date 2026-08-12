@@ -65,6 +65,8 @@ Notes:
 - **A slot with a return type resolves asynchronously,** because the work runs on the
   owner; a slot with no return type is fire and forget. The contract decides this, not
   `Server`.
+- **A slot called while `Server.ready` is false does not reach the owner.** A returning
+  slot's promise rejects, and a slot with no return type is dropped.
 
 ---
 

@@ -1138,15 +1138,21 @@ def _set_model_impl(class_name: str, model: Model, records, path) -> str:
         f"void {class_name}SourceHelper::set{_cap(model.name)}(const QVariantList &rows)",
         "{",
         f"    static const QList<QByteArray> declaredRoles{{{role_array}}};",
+        "    QHash<int, QByteArray> roleNames;",
+        "    for (int roleIndex{0}; roleIndex < declaredRoles.size(); ++roleIndex) {",
+        "        roleNames.insert(Qt::UserRole + roleIndex, declaredRoles.at(roleIndex));",
+        "    }",
     ]
     gate = _gate(model)
     if gate:
         # Remembered before the gate, for synqtRegate. Denied, the model is emptied so
-        # consumers lose the rows.
+        # consumers lose the rows. It still names the declared roles: QtRO reads them once,
+        # when the Source is remoted, and a gate that opens later cannot add one.
         lines += [
             f"    m_{model.name}Rows = rows;",
             f"    if (!synqtAllows({_gate_literal(gate)})) {{",
             f"        m_{model.name}Model.clear();",
+            f"        m_{model.name}Model.setItemRoleNames(roleNames);",
             f"        {class_name}SimpleSource::set{_cap(model.name)}(&m_{model.name}Model);",
             f"        Q_EMIT {model.name}RowsChanged();",
             "        return;",
@@ -1168,10 +1174,6 @@ def _set_model_impl(class_name: str, model: Model, records, path) -> str:
     lines += [
         "    }",
         f"    m_{model.name}Model.clear();",
-        "    QHash<int, QByteArray> roleNames;",
-        "    for (int roleIndex{0}; roleIndex < declaredRoles.size(); ++roleIndex) {",
-        "        roleNames.insert(Qt::UserRole + roleIndex, declaredRoles.at(roleIndex));",
-        "    }",
         f"    m_{model.name}Model.setItemRoleNames(roleNames);",
         "    for (QStandardItem *item : std::as_const(items)) {",
         f"        m_{model.name}Model.appendRow(item);",
@@ -1561,7 +1563,7 @@ def _consumer_impl(syn: SynFile, contract: Contract, records, path) -> str:
         lines += [
             f"{ctype} {cls}::{prop.name}() const",
             "{",
-            "    if (m_replica == nullptr) {",
+            "    if (!isReady()) {",
             f"        return {ctype}{{}};",
             "    }",
             f'    return qvariant_cast<{ctype}>(m_replica->property("{prop.name}"));',
@@ -1573,7 +1575,7 @@ def _consumer_impl(syn: SynFile, contract: Contract, records, path) -> str:
         lines += [
             f"QAbstractItemModel *{cls}::{model.name}() const",
             "{",
-            "    if (m_replica == nullptr) {",
+            "    if (!isReady()) {",
             "        return nullptr;",
             "    }",
             "    QAbstractItemModel *published{qobject_cast<QAbstractItemModel *>(",
@@ -1640,28 +1642,40 @@ def _consumer_slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path
         return "\n".join([
             f"void {cls}::{slot.name}({params})",
             "{",
-            "    if (m_replica == nullptr) {",
+            "    if (!isReady()) {",
             "        return;",
             "    }",
             f'    QMetaObject::invokeMethod(m_replica, "{slot.name}"{qargs});',
             "}",
         ])
     ret = cpp_type(slot.return_type, records, path=path, line=slot.line, col=slot.col)
-    # Typed and dynamic Replicas both return QRemoteObjectPendingReply<T> for a returning
-    # slot, and that is a QRemoteObjectPendingCall.
+    unavailable = (f'QStringLiteral("the \'{class_name}\' connect point is not available"), '
+                   "engine, this")
+    # A typed Replica declares the slot as returning QRemoteObjectPendingReply<T>, a dynamic
+    # one (every mesh link) as returning QRemoteObjectPendingCall, and invokeMethod refuses
+    # a return argument of the other type. Both are a QRemoteObjectPendingCall.
     return "\n".join([
         f"SynQt::Promise *{cls}::{slot.name}({params})",
         "{",
         "    QJSEngine *engine{qjsEngine(this)};",
-        "    if (m_replica == nullptr) {",
-        f'        return SynQt::Promise::rejected(QStringLiteral("the \'{class_name}\' connect '
-        'point is not available"), engine, this);',
+        "    if (!isReady()) {",
+        f"        return SynQt::Promise::rejected({unavailable});",
         "    }",
-        f"    QRemoteObjectPendingReply<{ret}> reply;",
-        f'    QMetaObject::invokeMethod(m_replica, "{slot.name}",',
-        f"                              Q_RETURN_ARG(QRemoteObjectPendingReply<{ret}>,"
-        f" reply){qargs});",
-        "    return new SynQt::Promise{reply, engine, this};",
+        "    QRemoteObjectPendingCall call;",
+        "    bool invoked{false};",
+        f'    if (returnsPendingCall("{slot.name}")) {{',
+        f'        invoked = QMetaObject::invokeMethod(m_replica, "{slot.name}",',
+        f"            Q_RETURN_ARG(QRemoteObjectPendingCall, call){qargs});",
+        "    } else {",
+        f"        QRemoteObjectPendingReply<{ret}> reply;",
+        f'        invoked = QMetaObject::invokeMethod(m_replica, "{slot.name}",',
+        f"            Q_RETURN_ARG(QRemoteObjectPendingReply<{ret}>, reply){qargs});",
+        "        call = reply;",
+        "    }",
+        "    if (!invoked) {",
+        f"        return SynQt::Promise::rejected({unavailable});",
+        "    }",
+        "    return new SynQt::Promise{call, engine, this};",
         "}",
     ])
 
@@ -1706,7 +1720,8 @@ def emit_replica_source(syn: SynFile, lstem: str) -> str:
             f'    SynQt::registerReplicaFactory(QStringLiteral("{contract.name}"),'
         )
         out.append(
-            "        [](QRemoteObjectNode *node, const QString &connectPoint) -> QObject * {"
+            "        [](QRemoteObjectNode *node, const QString &connectPoint)"
+            " -> QRemoteObjectReplica * {"
         )
         out.append(
             f"            return node->acquire<{contract.name}Replica>(connectPoint);"

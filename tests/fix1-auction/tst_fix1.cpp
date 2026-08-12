@@ -133,9 +133,9 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     return config;
 }
 
-QObject *auctionReplica(SynClient *client)
+QRemoteObjectReplica *auctionReplica(SynClient *client)
 {
-    return client->server()->point(QStringLiteral("edge"));
+    return client->server()->replica(QStringLiteral("edge"));
 }
 
 } // namespace
@@ -152,7 +152,7 @@ private:
     quint16 m_ledgerPort{0};
     quint16 m_edgePort{0};
 
-    QObject *databaseView() const
+    QRemoteObjectDynamicReplica *databaseView() const
     {
         return m_web->consumedReplica(QStringLiteral("books"), QStringLiteral("books"));
     }
@@ -198,9 +198,9 @@ private slots:
         m_web = std::make_unique<EntityRuntime>(webTopology, m_edgeEngine.get());
         QVERIFY2(m_web->start(), qPrintable(m_web->errorString()));
 
-        QObject *view{nullptr};
+        QRemoteObjectDynamicReplica *view{nullptr};
         QTRY_VERIFY((view = databaseView()) != nullptr);
-        QTRY_VERIFY(qobject_cast<QRemoteObjectDynamicReplica *>(view)->isReplicaValid());
+        QTRY_VERIFY(view->isReplicaValid());
 
         // The web edge. It owns one point, a Source per caller so every slot has its Caller,
         // reading the one lot and the one Hall of Fame from the edge entity's own singleton.
@@ -269,12 +269,9 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(auctioneer.session()->state(), QStringLiteral("connected"), 8000);
         QTRY_COMPARE_WITH_TIMEOUT(anon.session()->state(), QStringLiteral("connected"), 8000);
 
-        QRemoteObjectDynamicReplica *aliceAuction{
-            qobject_cast<QRemoteObjectDynamicReplica *>(auctionReplica(&alice))};
-        QRemoteObjectDynamicReplica *auctioneerAuction{
-            qobject_cast<QRemoteObjectDynamicReplica *>(auctionReplica(&auctioneer))};
-        QRemoteObjectDynamicReplica *anonAuction{
-            qobject_cast<QRemoteObjectDynamicReplica *>(auctionReplica(&anon))};
+        QRemoteObjectReplica *aliceAuction{auctionReplica(&alice)};
+        QRemoteObjectReplica *auctioneerAuction{auctionReplica(&auctioneer)};
+        QRemoteObjectReplica *anonAuction{auctionReplica(&anon)};
         QVERIFY(aliceAuction && auctioneerAuction && anonAuction);
         QTRY_VERIFY(aliceAuction->isReplicaValid());
         QTRY_VERIFY(auctioneerAuction->isReplicaValid());

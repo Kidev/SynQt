@@ -3208,6 +3208,28 @@ def qmlformat_path() -> Optional[str]:
 _CALLER_USE = re.compile(r"\b(Caller|Client)\s*\.")
 
 
+def _source_files(config: Dict[str, Any], root: Path, *,
+                  per_caller_only: bool = False) -> Set[str]:
+    """The resolved path of every connect point's Source file, or with `per_caller_only`,
+    of those whose entity builds one Source per caller (`shared: false`).
+    """
+    sources: Set[str] = set()
+    owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
+    for point in appmodel.connect_points(config):
+        owning = owners.get(str(point.get("owner") or ""))
+        if owning is None:
+            continue
+        if per_caller_only and appmodel.is_shared(owning):
+            continue
+        contract = appmodel.contract_of(point)
+        relative = str(point.get("server") or "")
+        if not relative and contract:
+            relative = appmodel.source_path(owning, contract)
+        if relative:
+            sources.add((root / relative).resolve().as_posix())
+    return sources
+
+
 def lint_caller_use(config: Dict[str, Any],
                     project_dir: os.PathLike[str] | str) -> List[str]:
     """Refuse `Caller` in a file that is not a connect point Source.
@@ -3217,18 +3239,7 @@ def lint_caller_use(config: Dict[str, Any],
     check.
     """
     root = Path(project_dir)
-    sources: Set[str] = set()
-    owners = {str(one.get("name") or ""): one for one in appmodel.entities(config)}
-    for point in appmodel.connect_points(config):
-        owning = owners.get(str(point.get("owner") or ""))
-        if owning is None:
-            continue
-        contract = appmodel.contract_of(point)
-        relative = str(point.get("server") or "")
-        if not relative and contract:
-            relative = appmodel.source_path(owning, contract)
-        if relative:
-            sources.add((root / relative).resolve().as_posix())
+    sources = _source_files(config, root)
 
     messages: List[str] = []
     for qml in project_qml_files(root):
@@ -3245,6 +3256,67 @@ def lint_caller_use(config: Dict[str, Any],
             "point's Source, so this reads as an authorization check and runs as a "
             "ReferenceError. Move the check into the Source of the point the caller "
             "arrives on: https://synqt.org/programming-model/")
+    return messages
+
+
+def _receiverless_connects(tokens: List["qmlscan.Token"]) -> List[Tuple[str, int]]:
+    """Each `Name.signal.connect(handler)` with one argument, as (`Name.signal`, line).
+
+    Only a capitalized head counts: an accessor or a singleton, which outlives the Source.
+    A connection to a child of the Source goes with the Source anyway.
+    """
+    found: List[Tuple[str, int]] = []
+    for index in range(len(tokens) - 5):
+        head, dot, signal, dot2, verb, paren = tokens[index:index + 6]
+        if not (head.kind == "ident" and head.text[:1].isupper()
+                and dot.text == "." and signal.kind == "ident" and dot2.text == "."
+                and verb.text == "connect" and paren.text == "("):
+            continue
+        if index and tokens[index - 1].text == ".":
+            continue
+        depth = 0
+        arguments = 1
+        for token in tokens[index + 5:]:
+            if token.kind == "punct" and token.text in "([{":
+                depth += 1
+            elif token.kind == "punct" and token.text in ")]}":
+                depth -= 1
+                if depth == 0:
+                    break
+            elif token.kind == "punct" and token.text == "," and depth == 1:
+                arguments += 1
+        if arguments == 1:
+            found.append((f"{head.text}.{signal.text}", head.line))
+    return found
+
+
+def lint_source_connections(config: Dict[str, Any],
+                            project_dir: os.PathLike[str] | str) -> List[str]:
+    """Refuse a connection in a per caller Source that outlives the Source.
+
+    On an entity with `shared: false` the runtime builds a Source per caller and deletes it
+    when that caller goes. A `World.eaten.connect(handler)` made in it has no receiver, so the
+    engine keeps it after the Source is gone, and each later emit runs the handler against a
+    deleted Source (a TypeError per caller that ever connected, and a handler list that only
+    grows). Naming the Source as the receiver, `World.eaten.connect(root, handler)`, removes
+    it with the Source. A matching `disconnect` in the file is accepted too. A shared entity
+    has one Source for its whole life, so its connections are not checked.
+    """
+    root = Path(project_dir)
+    messages: List[str] = []
+    for resolved in sorted(_source_files(config, root, per_caller_only=True)):
+        path = Path(resolved)
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for name, line in _receiverless_connects(qmlscan.tokenize(text)):
+            if f"{name}.disconnect(" in text.replace(" ", ""):
+                continue
+            relative = path.relative_to(root.resolve()).as_posix()
+            messages.append(
+                f"error: {relative}:{line}: '{name}.connect(...)' names no receiver, so the "
+                "connection outlives this Source, which is deleted when its caller goes. "
+                f"Pass the Source first: {name}.connect(<its id>, handler)")
     return messages
 
 
@@ -3358,6 +3430,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     source_messages = lint_connect_point_sources(config, project_dir)
     source_messages += lint_mapping_hook(config, project_dir)
     caller_messages = lint_caller_use(config, project_dir)
+    caller_messages += lint_source_connections(config, project_dir)
     # Once per client entity, each with its own route table. Findings are deduplicated, since
     # two clients on the shorthand report the same ones.
     clients = [entity for entity in appmodel.entities(config)

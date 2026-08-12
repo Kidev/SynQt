@@ -596,6 +596,56 @@ class CallerOutsideASourceTest(unittest.TestCase):
         self.assertEqual(check.lint_caller_use(config, root), [])
 
 
+class ConnectionOutlivesItsSourceTest(unittest.TestCase):
+    """A per caller Source is deleted when its caller goes. A connection it makes to an
+    accessor or a singleton with no receiver stays, and runs its handler against the deleted
+    Source.
+    """
+
+    def _check(self, body, shared=False):
+        root = Path(tempfile.mkdtemp())
+        path = root / "web/web/Web.qml"
+        path.parent.mkdir(parents=True)
+        path.write_text("Web {\n    id: root\n" + body + "}\n")
+        config = {
+            "project": {"name": "app"},
+            "entities": [{"name": "web", "type": "web_edge", "shared": shared}],
+            "connect_points": [{"owner": "web", "consumers": []}],
+        }
+        return check.lint_source_connections(config, root)
+
+    def test_a_connection_without_a_receiver_is_refused(self):
+        messages = self._check(
+            "    Component.onCompleted: World.eaten.connect((a, b) => root.eaten(a, b))\n")
+        self.assertEqual(len(messages), 1, messages)
+        self.assertTrue(messages[0].startswith("error: web/web/Web.qml:3:"), messages)
+        self.assertIn("World.eaten.connect", messages[0])
+
+    def test_the_source_as_receiver_is_accepted(self):
+        self.assertEqual(self._check(
+            "    Component.onCompleted: World.eaten.connect(root, (a, b) => root.eaten(a, b))\n"),
+            [])
+
+    def test_a_comma_inside_the_handler_is_not_a_receiver(self):
+        messages = self._check(
+            "    Component.onCompleted: Books.moved.connect(function(a, b) { f(a, [b, 1]); })\n")
+        self.assertEqual(len(messages), 1, messages)
+
+    def test_a_matching_disconnect_is_accepted(self):
+        self.assertEqual(self._check(
+            "    Component.onCompleted: Monitor.arrived.connect(root.refresh)\n"
+            "    Component.onDestruction: Monitor.arrived.disconnect(root.refresh)\n"), [])
+
+    def test_a_shared_entity_is_not_checked(self):
+        self.assertEqual(self._check(
+            "    Component.onCompleted: Books.moved.connect(root.refresh)\n", shared=True), [])
+
+    def test_a_child_of_the_source_is_not_flagged(self):
+        self.assertEqual(self._check(
+            "    Timer { id: tick }\n"
+            "    Component.onCompleted: tick.triggered.connect(root.refresh)\n"), [])
+
+
 class NetworkBlockTest(unittest.TestCase):
     """`network:` is closed until written. Refused: a surface that reads as configured and is
     not, and one open wider than intended, above all an inbound API with no key.

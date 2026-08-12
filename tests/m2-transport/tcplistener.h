@@ -4,8 +4,10 @@
 #ifndef SYNQT_TEST_TCPLISTENER_H
 #define SYNQT_TEST_TCPLISTENER_H
 
+#include <QHash>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QWebSocket>
 #include <QWebSocketServer>
 
 /// A QTcpServer that hands each accepted socket to a QWebSocketServer, keeping hold of
@@ -29,10 +31,14 @@ public:
     {
     }
 
-    /// The raw socket under the most recently accepted connection. A test drives one
-    /// connection at a time, so there is no ambiguity to resolve. The edge keys its own
-    /// by peer address and port instead.
-    QTcpSocket *lastAccepted() const { return m_lastAccepted; }
+    /// The raw socket under an accepted QWebSocket, found by the peer's address and port
+    /// the way the edge finds its own, and forgotten once taken. Several connections can
+    /// be accepted before any is handed out, so the most recent one is not necessarily
+    /// this one's.
+    QTcpSocket *takeRawSocket(const QWebSocket *socket)
+    {
+        return m_accepted.take(peerKey(socket->peerAddress().toString(), socket->peerPort()));
+    }
 
 protected:
     void incomingConnection(qintptr socketDescriptor) override
@@ -42,13 +48,19 @@ protected:
             delete socket;
             return;
         }
-        m_lastAccepted = socket;
+        m_accepted.insert(peerKey(socket->peerAddress().toString(), socket->peerPort()),
+                          socket);
         m_webSockets->handleConnection(socket);
     }
 
 private:
+    static QString peerKey(const QString &address, quint16 port)
+    {
+        return address + QLatin1Char('|') + QString::number(port);
+    }
+
     QWebSocketServer *m_webSockets{nullptr};
-    QTcpSocket *m_lastAccepted{nullptr};
+    QHash<QString, QTcpSocket *> m_accepted;
 };
 
 #endif // SYNQT_TEST_TCPLISTENER_H

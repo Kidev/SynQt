@@ -12,7 +12,7 @@ Edge {
     id: arena
     property string mySub: ""
 
-    Component.onCompleted: World.eaten.connect(function(prey, predator) {
+    Component.onCompleted: World.eaten.connect(arena, function(prey, predator) {
         arena.eaten(prey, predator);
     })
 

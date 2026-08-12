@@ -106,9 +106,9 @@ private:
     int m_accepted{0};
 };
 
-QObject *counterReplica(SynClient *client)
+QRemoteObjectReplica *counterReplica(SynClient *client)
 {
-    return client->server()->value(QStringLiteral("counter")).value<QObject *>();
+    return client->server()->replica(QStringLiteral("counter"));
 }
 
 } // namespace
@@ -139,8 +139,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(clientA.session()->state(), QStringLiteral("connected"), 8000);
         QTRY_COMPARE_WITH_TIMEOUT(clientB.session()->state(), QStringLiteral("connected"), 8000);
 
-        QObject *replicaA{counterReplica(&clientA)};
-        QObject *replicaB{counterReplica(&clientB)};
+        QRemoteObjectReplica *replicaA{counterReplica(&clientA)};
+        QRemoteObjectReplica *replicaB{counterReplica(&clientB)};
         QVERIFY(replicaA != nullptr);
         QVERIFY(replicaB != nullptr);
 
@@ -150,12 +150,8 @@ private slots:
         // the expected initial 0 would pass without waiting, and the slot call below would
         // race the description and fail with "No such method" on a slow runner. Gate on
         // real initialisation first.
-        auto *baseA{qobject_cast<QRemoteObjectReplica *>(replicaA)};
-        auto *baseB{qobject_cast<QRemoteObjectReplica *>(replicaB)};
-        QVERIFY(baseA != nullptr);
-        QVERIFY(baseB != nullptr);
-        QTRY_VERIFY_WITH_TIMEOUT(baseA->isInitialized(), 8000);
-        QTRY_VERIFY_WITH_TIMEOUT(baseB->isInitialized(), 8000);
+        QTRY_VERIFY_WITH_TIMEOUT(replicaA->isInitialized(), 8000);
+        QTRY_VERIFY_WITH_TIMEOUT(replicaB->isInitialized(), 8000);
 
         // Both start at the edge's initial value.
         QTRY_COMPARE(replicaA->property("value").toInt(), 0);
@@ -433,11 +429,9 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"),
                                   8000);
 
-        QObject *replica{counterReplica(&client)};
+        QRemoteObjectReplica *replica{counterReplica(&client)};
         QVERIFY(replica != nullptr);
-        auto *base{qobject_cast<QRemoteObjectReplica *>(replica)};
-        QVERIFY(base != nullptr);
-        QTRY_VERIFY_WITH_TIMEOUT(base->isInitialized(), 8000);
+        QTRY_VERIFY_WITH_TIMEOUT(replica->isInitialized(), 8000);
 
         QVERIFY(QMetaObject::invokeMethod(replica, "signIn"));
 

@@ -187,8 +187,8 @@ Edge {
 
     Component.onCompleted: {
         // Relay the world's global events to this session's browser.
-        World.eaten.connect((prey, predator) => arena.eaten(prey, predator))
-        World.roundEnded.connect(winner => arena.roundEnded(winner))
+        World.eaten.connect(arena, (prey, predator) => arena.eaten(prey, predator))
+        World.roundEnded.connect(arena, winner => arena.roundEnded(winner))
     }
 
     // The Hall of Fame is the world's rather than this session's. One binding, and every

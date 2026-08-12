@@ -120,7 +120,7 @@ private:
                 // The order the edge uses, and the order the move depends on: build the
                 // channel and the device, open it, and only then hand the socket over to
                 // its thread, so nothing runs on it between the two.
-                m_channel = new SocketChannel{incoming, m_listener.lastAccepted()};
+                m_channel = new SocketChannel{incoming, m_listener.takeRawSocket(incoming)};
                 m_transport.reset(new WebSocketTransport{m_channel});
                 m_transport->setWriteBatchLimit(m_writeBatchLimit);
                 m_transport->setReadBufferLimit(m_readBufferLimit);
@@ -249,7 +249,7 @@ public:
         }
         QObject::connect(&m_server, &QWebSocketServer::newConnection, &m_server, [this]() {
             while (QWebSocket *incoming{m_server.nextPendingConnection()}) {
-                auto *channel{new SocketChannel{incoming, m_listener.lastAccepted()}};
+                auto *channel{new SocketChannel{incoming, m_listener.takeRawSocket(incoming)}};
                 auto *transport{new WebSocketTransport{channel}};
                 transport->open(QIODevice::ReadWrite);
                 channel->moveToThread(&m_ioThread);
@@ -471,6 +471,8 @@ void TestThreadedSocket::aPeerThatStopsReadingIsAbortedOnItsOwnThread()
              "nothing said stop");
     QVERIFY(!link.transport()->isOpen());
     QVERIFY(link.transport()->errorString().contains(QStringLiteral("write buffer limit")));
+    QTest::ignoreMessage(QtWarningMsg,
+                         "QIODevice::write (SynQt::WebSocketTransport): device not open");
     QCOMPARE(link.transport()->write(payload), -1);
     QTRY_COMPARE(dropped.count(), 1);
 }

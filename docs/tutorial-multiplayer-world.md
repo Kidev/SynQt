@@ -34,10 +34,10 @@ connect_points:
 ```
 
 > [!NOTE]
-> The two `real` arguments of `steer` are not the player's position. They are the point
-> the player aims at, under their cursor. The edge moves the blob toward that point at
-> the speed its mass allows and stops it on arrival. The client never sends a position,
-> so it has none to forge. Taking intent instead of state is what keeps movement honest.
+> The two `real` arguments of `steer` are the point the player aims at, under their
+> cursor, never the player's position. The edge moves the blob toward that point at the
+> speed its mass allows and stops it on arrival. The client never sends a position, so it
+> has none to forge. Taking intent instead of state is what keeps movement honest.
 >
 > `ping` returns a value, so calling it is an asynchronous request whose answer arrives
 > later, which is what measuring a round trip needs. The `blobs` model lists six roles,
@@ -58,11 +58,12 @@ Do the same one time GitHub setup as in
 the Client ID in `synqt.yaml`, and put the Client secret only in `web/edge/.env`. Then
 anyone can sign in, but only guests get in. The guest list is a scope mapping.
 
-Declare the scopes in `synqt.yaml`:
+Replace the `scopes` block `synqt new` wrote in `synqt.yaml` with the game's two:
 
 ```yaml
 scopes:
   order: [anonymous, player]
+  hierarchical: true
   default: anonymous
 ```
 
@@ -78,9 +79,10 @@ IdentityMapping {
     readonly property var approved: ["octocat", "your-github-username"]
 
     function scopeFor(identity): int {
-        if (approved.indexOf(identity.login) !== -1)
-            return Scope.Player
-        return Scope.Anonymous     // signed in, but not on the guest list
+        if (approved.indexOf(identity.login) !== -1) {
+            return Scope.Player;
+        }
+        return Scope.Anonymous;     // signed in, but not on the guest list
     }
 }
 ```
@@ -102,10 +104,9 @@ loop that moves every blob, feeds it, and decides who eats whom.
 
 The code goes in two files. The edge says `shared: false`, so each browser session gets
 its own Source. That gives its slots a `Caller` to check, and lets the edge send each
-player only their own slice. But there is exactly one arena however many people play,
-and state that outlives every session must live where no session owns it: a
-`pragma Shared` file of the edge's own, `World.qml`. Each Source is a thin layer over
-that one arena.
+player only their own slice. But one arena serves however many people play, and state that
+outlives every session must live where no session owns it: a `pragma Shared` file of the
+edge's own, `World.qml`. Each Source is a thin layer over that one arena.
 
 ### The arena itself, `web/edge/World.qml`
 
@@ -129,10 +130,10 @@ Item {
     // How fast a blob of a given mass moves, in units per second. Bigger is slower, the
     // classic trade-off. This is the only thing that sets speed, and it lives here on
     // the owner, so no client can move faster than its size allows.
-    function speedFor(mass) { return 260 / Math.pow(mass, 0.22) }
+    function speedFor(mass) { return 260 / Math.pow(mass, 0.22); }
     // A blob's radius grows with the square root of its mass, so area tracks mass.
-    function radiusFor(mass) { return 6 + Math.sqrt(mass) * 3 }
-    function randPos() { return Math.random() * world.size }
+    function radiusFor(mass) { return 6 + Math.sqrt(mass) * 3; }
+    function randPos() { return Math.random() * world.size; }
 
     signal eaten(string prey, string predator)
 
@@ -145,20 +146,20 @@ Item {
 
     Component.onCompleted: {
         for (let i = 0; i < world.pelletCount; i++)
-            world.pellets.push({ id: "p" + i, x: world.randPos(), y: world.randPos() })
+            world.pellets.push({ id: "p" + i, x: world.randPos(), y: world.randPos() });
     }
 
     // What a browser may see. These return values and push nothing. Publishing is
     // the Source's job, and the Source is per player.
     function blobs() {
-        const rows = []
+        const rows = [];
         for (const sub in world.roster) {
-            const b = world.roster[sub]
-            if (!b.online) continue
+            const b = world.roster[sub];
+            if (!b.online) continue;
             rows.push({ id: b.id, name: b.name, x: b.x, y: b.y,
-                        mass: b.mass, online: b.online })
+                        mass: b.mass, online: b.online });
         }
-        return rows
+        return rows;
     }
 
     // The live leaderboard is its own small list, the biggest blobs by name and size.
@@ -167,11 +168,11 @@ Item {
     // it apart now means the client never has to change.
     function board() {
         return world.blobs().map(r => ({ name: r.name, mass: r.mass }))
-                    .sort((a, b) => b.mass - a.mass).slice(0, 8)
+                    .sort((a, b) => b.mass - a.mass).slice(0, 8);
     }
 
     function pelletRows() {
-        return world.pellets.map(p => ({ id: p.id, x: p.x, y: p.y }))
+        return world.pellets.map(p => ({ id: p.id, x: p.x, y: p.y }));
     }
 
     // Requests, already authorized. `sub` and `name` come from the Source's verified
@@ -180,24 +181,24 @@ Item {
     // The aim point is a goal, never a position. The simulation below decides how far
     // the blob gets.
     function steer(sub, name, x, y) {
-        const now = Date.now()
-        let b = world.roster[sub]
+        const now = Date.now();
+        let b = world.roster[sub];
         if (!b || !b.online) {
             // First aim this session, or back after dropping, so spawn them small.
-            const sx = world.randPos(), sy = world.randPos()
+            const sx = world.randPos(), sy = world.randPos();
             b = world.roster[sub] = { id: sub, name: name,
                                       x: sx, y: sy, tx: sx, ty: sy,
-                                      mass: world.startMass, online: true, lastSeen: now }
+                                      mass: world.startMass, online: true, lastSeen: now };
         }
-        b.tx = Math.max(0, Math.min(world.size, x))    // clamp the goal into the map
-        b.ty = Math.max(0, Math.min(world.size, y))
-        b.lastSeen = now
+        b.tx = Math.max(0, Math.min(world.size, x));    // clamp the goal into the map
+        b.ty = Math.max(0, Math.min(world.size, y));
+        b.lastSeen = now;
     }
 
     // The keepalive half of the browser's ping.
     function keepAlive(sub) {
-        const b = world.roster[sub]
-        if (b) b.lastSeen = Date.now()
+        const b = world.roster[sub];
+        if (b) b.lastSeen = Date.now();
     }
 
     // The simulation
@@ -205,22 +206,22 @@ Item {
         interval: 50; repeat: true; running: true       // 20 ticks a second
         property real last: Date.now()
         onTriggered: {
-            const now = Date.now()
-            const dt = Math.max(0.001, (now - last) / 1000)   // seconds since last tick
-            last = now
+            const now = Date.now();
+            const dt = Math.max(0.001, (now - last) / 1000);  // seconds since last tick
+            last = now;
 
             // 1) Move each online blob toward its aim point, no further than its
             //    speed budget for this tick. This is where a teleport dies. The blob
             //    advances at most speedFor(mass) * dt, whatever the client asked for.
             for (const sub in world.roster) {
-                const b = world.roster[sub]
-                if (!b.online) continue
-                const dx = b.tx - b.x, dy = b.ty - b.y
-                const dist = Math.hypot(dx, dy)
+                const b = world.roster[sub];
+                if (!b.online) continue;
+                const dx = b.tx - b.x, dy = b.ty - b.y;
+                const dist = Math.hypot(dx, dy);
                 if (dist > 0.5) {
-                    const step = Math.min(world.speedFor(b.mass) * dt, dist)
-                    b.x += dx / dist * step
-                    b.y += dy / dist * step
+                    const step = Math.min(world.speedFor(b.mass) * dt, dist);
+                    b.x += dx / dist * step;
+                    b.y += dy / dist * step;
                 }
             }
 
@@ -228,14 +229,14 @@ Item {
             //    pellet respawns elsewhere. Growth is the edge's to grant, never the
             //    client's to claim.
             for (const sub in world.roster) {
-                const b = world.roster[sub]
-                if (!b.online) continue
-                const r = world.radiusFor(b.mass)
+                const b = world.roster[sub];
+                if (!b.online) continue;
+                const r = world.radiusFor(b.mass);
                 for (const p of world.pellets) {
                     if (Math.hypot(p.x - b.x, p.y - b.y) < r) {
-                        b.mass += 1
-                        p.x = world.randPos(); p.y = world.randPos()
-                        world.pelletsVersion += 1
+                        b.mass += 1;
+                        p.x = world.randPos(); p.y = world.randPos();
+                        world.pelletsVersion += 1;
                     }
                 }
             }
@@ -244,19 +245,19 @@ Item {
             //    swallows it. The loser's mass transfers to the winner and the loser
             //    respawns small. Every blob's size is the edge's own tally, so this
             //    verdict cannot be gamed from a browser.
-            const subs = Object.keys(world.roster).filter(s => world.roster[s].online)
+            const subs = Object.keys(world.roster).filter(s => world.roster[s].online);
             for (const a of subs) for (const c of subs) {
-                if (a === c) continue
-                const big = world.roster[a], small = world.roster[c]
-                if (!big.online || !small.online) continue
-                if (big.mass < small.mass * 1.15) continue          // must be clearly bigger
+                if (a === c) continue;
+                const big = world.roster[a], small = world.roster[c];
+                if (!big.online || !small.online) continue;
+                if (big.mass < small.mass * 1.15) continue;          // must be clearly bigger
                 if (Math.hypot(big.x - small.x, big.y - small.y) > world.radiusFor(big.mass))
-                    continue                                        // must overlap the centre
-                big.mass += small.mass
-                world.eaten(small.name, big.name)                   // tell every Source
-                small.mass = world.startMass                        // respawn the loser small
-                small.x = small.tx = world.randPos()
-                small.y = small.ty = world.randPos()
+                    continue;                                        // must overlap the centre
+                big.mass += small.mass;
+                world.eaten(small.name, big.name);                  // tell every Source
+                small.mass = world.startMass;                        // respawn the loser small
+                small.x = small.tx = world.randPos();
+                small.y = small.ty = world.randPos();
             }
         }
     }
@@ -267,10 +268,10 @@ Item {
     Timer {
         interval: 2000; repeat: true; running: true
         onTriggered: {
-            const now = Date.now()
+            const now = Date.now();
             for (const sub in world.roster) {
-                const b = world.roster[sub]
-                if (b.online && now - b.lastSeen > 5000) b.online = false
+                const b = world.roster[sub];
+                if (b.online && now - b.lastSeen > 5000) b.online = false;
             }
         }
     }
@@ -294,39 +295,43 @@ Edge {
     // cleared by whichever browser ticked first and the rest would never see the change.
     property int lastPellets: -1
 
-    Component.onCompleted: World.eaten.connect((prey, predator) => arena.eaten(prey, predator))
+    Component.onCompleted:
+        World.eaten.connect(arena, (prey, predator) => arena.eaten(prey, predator));
 
     function steer(x, y) {
-        if (!Caller.hasScope("player")) return          // approved players only
-        World.steer(Caller.identity.sub, Caller.identity.login, x, y)
+        if (!Caller.hasScope("player")) return;         // approved players only
+        World.steer(Caller.identity.sub, Caller.identity.login, x, y);
     }
 
     // A cheap round trip the browser uses to show latency, and a keepalive.
     function ping() {
-        if (Caller.hasScope("player")) World.keepAlive(Caller.identity.sub)
-        return Date.now()
+        if (Caller.hasScope("player")) World.keepAlive(Caller.identity.sub);
+        return Date.now();
     }
 
     // Push the world to this browser, twenty times a second.
     Timer {
         interval: 50; repeat: true; running: true
         onTriggered: {
-            arena.setBlobs(World.blobs())
-            arena.setBoard(World.board())
+            arena.setBlobs(World.blobs());
+            arena.setBoard(World.board());
             if (arena.lastPellets !== World.pelletsVersion) {
-                arena.lastPellets = World.pelletsVersion
-                arena.setPellets(World.pelletRows())
+                arena.lastPellets = World.pelletsVersion;
+                arena.setPellets(World.pelletRows());
             }
         }
     }
 }
 ```
 
+`World` lives as long as the edge, and this Source only as long as one session, so the
+connection names `arena` as its receiver and ends with it.
+
 > [!NOTE]
 > The client supplies one thing, an aim point, and even that is clamped to the map. The
 > edge computes position, speed, growth and who eats whom from state only it holds. The
-> `name` comes from `Caller.identity.login`, never from an argument. No slot lets a client
-> place itself, change its mass or eat a bigger blob, because none of those are inputs.
+> `name` comes from `Caller.identity.login`, never from an argument. A client cannot place
+> itself, change its mass or eat a bigger blob, because none of those are slot inputs.
 > This is the auction's rule taken to its limit: the only thing a consumer can ask for is
 > a direction.
 
@@ -352,8 +357,8 @@ entities:
 ```
 
 `scope: player` on the connect point is the real gate. For a signed-in visitor who is not
-on the guest list, the edge never acquires `arena`, so they cannot call `steer` or even
-see the roster. The connect point is the gate, not the UI.
+on the guest list, the edge refuses to let the browser acquire the connect point, so they
+cannot call `steer` or even see the roster. The connect point is the gate, not the UI.
 
 ## Why this movement is honest
 
@@ -369,6 +374,5 @@ units per second:
 - A client cannot grow without eating, cannot eat a blob its own size or larger, and
   cannot claim a name: mass and identity belong to the edge, not to arguments.
 
-There is nothing to reconcile and no correction to send back, because the client never
-had authority over its position. It asks for a direction, and the edge decides the
-rest.
+The edge has nothing to reconcile and no correction to send back, because the client never
+had authority over its position. It asks for a direction, and the edge decides the rest.

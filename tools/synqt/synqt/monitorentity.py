@@ -88,16 +88,12 @@ Console {
     stored: Monitor.stored
     dropped: Monitor.dropped
 
+    // `root` is the receiver. `Monitor` is process-wide and this Source belongs to one
+    // operator, so a connection without a receiver would outlive `root` and raise a
+    // TypeError on every later batch.
     Component.onCompleted: {
-        Monitor.arrived.connect(root.refresh);
+        Monitor.arrived.connect(root, root.refresh);
         root.refresh();
-    }
-
-    // Disconnect explicitly. `Monitor` is process-wide and this Source belongs to one
-    // operator, so the connection would outlive `root` and raise a TypeError on every
-    // later batch.
-    Component.onDestruction: {
-        Monitor.arrived.disconnect(root.refresh);
     }
 }
 """

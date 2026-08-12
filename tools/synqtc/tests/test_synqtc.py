@@ -204,11 +204,15 @@ class ConsumerFacadeTest(unittest.TestCase):
         self.assertIn("Q_INVOKABLE SynQt::Promise *clear();", header)
 
     def test_returning_slot_resolves_a_promise_via_pending_reply(self):
-        # A returning slot invokes the Replica and wraps the typed pending reply in a Promise.
+        # A returning slot invokes the Replica and wraps the pending call in a Promise. A
+        # typed Replica returns QRemoteObjectPendingReply<T>, a dynamic one (the mesh)
+        # QRemoteObjectPendingCall, and invokeMethod refuses the other's return argument.
         source = self.source()
         self.assertIn("SynQt::Promise *TodoConsumer::clear()", source)
+        self.assertIn('if (returnsPendingCall("clear")) {', source)
+        self.assertIn("Q_RETURN_ARG(QRemoteObjectPendingCall, call)", source)
         self.assertIn("QRemoteObjectPendingReply<bool> reply;", source)
-        self.assertIn("return new SynQt::Promise{reply, engine, this};", source)
+        self.assertIn("return new SynQt::Promise{call, engine, this};", source)
 
     def test_one_qml_name_is_the_facade_itself(self):
         # `Todo.add(...)`, `Todo.count` and `Todo.onRejected:` are one object: the attaching

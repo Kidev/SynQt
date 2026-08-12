@@ -9,15 +9,16 @@
 #include <functional>
 
 QT_BEGIN_NAMESPACE
-class QObject;
 class QRemoteObjectNode;
+class QRemoteObjectReplica;
 QT_END_NAMESPACE
 
 namespace SynQt {
 
 /// A factory that acquires a compile-time-typed Replica for one contract from a node,
 /// by connect-point name. The generated replica code registers one per contract.
-using ReplicaFactory = std::function<QObject *(QRemoteObjectNode *, const QString &)>;
+using ReplicaFactory =
+    std::function<QRemoteObjectReplica *(QRemoteObjectNode *, const QString &)>;
 
 /// Register the typed-Replica factory for a contract. Called by the generated
 /// synqtRegister<Contract>Replicas(), idempotent per contract.
@@ -27,7 +28,7 @@ void registerReplicaFactory(const QString &contract, ReplicaFactory factory);
 /// the contract it is used (a typed Replica carries its API at compile time and so syncs
 /// reliably, including in the browser, where a dynamic Replica's API-definition exchange
 /// does not complete). Otherwise a dynamic Replica is acquired by name as the fallback.
-QObject *acquireReplica(QRemoteObjectNode *node, const QString &contract,
+QRemoteObjectReplica *acquireReplica(QRemoteObjectNode *node, const QString &contract,
                         const QString &connectPoint);
 
 } // namespace SynQt

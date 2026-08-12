@@ -286,7 +286,7 @@ void WebSocketTransport::shutdown(QWebSocketProtocol::CloseCode closeCode,
         });
         return;
     }
-    if (m_socket) {
+    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
         m_socket->close(closeCode, reason);
     }
 }
@@ -394,7 +394,8 @@ void WebSocketTransport::close()
         // The close code QWebSocket::close() uses by default, passed explicitly because the
         // call crosses a thread.
         shutdown(QWebSocketProtocol::CloseCodeNormal, QString{});
-    } else if (m_socket) {
+    } else if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+        // An aborted socket has nothing to send a close frame on.
         m_socket->close();
     }
     QIODevice::close();

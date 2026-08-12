@@ -9,6 +9,7 @@
 #include "consumerfactory.h"
 
 #include <QRemoteObjectNode>
+#include <QRemoteObjectReplica>
 
 #include <utility>
 
@@ -42,15 +43,22 @@ QObject *ServerAccessor::point(const QString &name) const
     return value(name).value<QObject *>();
 }
 
+QRemoteObjectReplica *ServerAccessor::replica(const QString &name) const
+{
+    return m_replicas.value(name).data();
+}
+
 void ServerAccessor::bindNode(QRemoteObjectNode *node)
 {
     for (const ClientConnectPoint &connectPoint : std::as_const(m_connectPoints)) {
         // A typed Replica when the contract's factory is registered (typed Replicas carry
         // their API and sync reliably, also in the browser), otherwise a dynamic one.
         // Parented to the node and replaced on reconnect.
-        QObject *replica{acquireReplica(node, connectPoint.contract, connectPoint.name)};
+        QRemoteObjectReplica *replica{
+            acquireReplica(node, connectPoint.contract, connectPoint.name)};
         replica->setParent(node);
         const QString name{connectPoint.name};
+        m_replicas.insert(name, replica);
 
         // The facade forwards properties, models and signals, adds returning-slot promises,
         // and feeds `<Contract>.on<Signal>` handlers. Built once in the constructor, so a
@@ -63,7 +71,8 @@ void ServerAccessor::bindNode(QRemoteObjectNode *node)
         // No facade registered for this contract (a Replica-only build): expose the raw
         // Replica, re-notifying on initialization so QML bindings re-evaluate.
         insert(name, QVariant::fromValue<QObject *>(replica));
-        connect(replica, SIGNAL(initialized()), this, SLOT(onReplicaInitialized()));
+        connect(replica, &QRemoteObjectReplica::initialized, this,
+                &ServerAccessor::onReplicaInitialized);
         m_pending.insert(replica, name);
     }
 }

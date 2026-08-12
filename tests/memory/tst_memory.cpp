@@ -952,9 +952,11 @@ private slots:
         EntityRuntime runtimeB{consumer, &consumerEngine};
         QVERIFY2(runtimeB.start(), qPrintable(runtimeB.errorString()));
 
-        QObject *replica{nullptr};
+        QRemoteObjectDynamicReplica *replica{nullptr};
         QTRY_VERIFY((replica = runtimeB.consumedReplica(QStringLiteral("a"),
                                                         QStringLiteral("probe"))) != nullptr);
+        // A dynamic Replica has no properties to read until it is initialized.
+        QTRY_VERIFY(replica->isInitialized());
         QTRY_COMPARE(replica->property("value").toInt(), 7);
 
         const auto oneRestart{[&]() {

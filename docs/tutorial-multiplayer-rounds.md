@@ -163,7 +163,7 @@ new values:
     championsRows: World.champions
 
     Component.onCompleted:
-        World.roundEnded.connect(winner => arena.roundEnded(winner))
+        World.roundEnded.connect(arena, winner => arena.roundEnded(winner))
 ```
 
 and mirrors the clock in its existing tick:

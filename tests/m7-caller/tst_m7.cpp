@@ -147,15 +147,14 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     return config;
 }
 
-QObject *todoReplica(SynClient *client)
+QRemoteObjectReplica *replicaNamed(SynClient *client, const QString &name)
 {
-    return client->server()->value(QStringLiteral("todo")).value<QObject *>();
+    return client->server()->replica(name);
 }
 
-QRemoteObjectDynamicReplica *replicaNamed(SynClient *client, const QString &name)
+QRemoteObjectReplica *todoReplica(SynClient *client)
 {
-    return qobject_cast<QRemoteObjectDynamicReplica *>(
-        client->server()->value(name).value<QObject *>());
+    return replicaNamed(client, QStringLiteral("todo"));
 }
 
 } // namespace
@@ -178,7 +177,7 @@ private:
     quint16 m_itemsPort{0};
     quint16 m_edgePort{0};
 
-    QObject *databaseView() const
+    QRemoteObjectDynamicReplica *databaseView() const
     {
         return m_web->consumedReplica(QStringLiteral("database"), QStringLiteral("items"));
     }
@@ -224,9 +223,9 @@ private slots:
         QVERIFY2(m_web->start(), qPrintable(m_web->errorString()));
 
         // Wait for the edge's Database replica to come up over the mesh.
-        QObject *view{nullptr};
+        QRemoteObjectDynamicReplica *view{nullptr};
         QTRY_VERIFY((view = databaseView()) != nullptr);
-        QTRY_VERIFY(qobject_cast<QRemoteObjectDynamicReplica *>(view)->isReplicaValid());
+        QTRY_VERIFY(view->isReplicaValid());
 
         // The web edge. It owns `todo` (scope "user") and reaches the
         // database through the "Database" accessor of its mesh runtime.
@@ -328,16 +327,16 @@ private slots:
                                   QStringLiteral("connected"), 8000);
         QTRY_COMPARE_WITH_TIMEOUT(bob.session()->state(), QStringLiteral("connected"), 8000);
 
-        QRemoteObjectDynamicReplica *draftOne{replicaNamed(&aliceTabOne,
+        QRemoteObjectReplica *draftOne{replicaNamed(&aliceTabOne,
                                                            QStringLiteral("draft"))};
-        QRemoteObjectDynamicReplica *draftTwo{replicaNamed(&aliceTabTwo,
+        QRemoteObjectReplica *draftTwo{replicaNamed(&aliceTabTwo,
                                                            QStringLiteral("draft"))};
-        QRemoteObjectDynamicReplica *draftBob{replicaNamed(&bob, QStringLiteral("draft"))};
-        QRemoteObjectDynamicReplica *scratchOne{replicaNamed(&aliceTabOne,
+        QRemoteObjectReplica *draftBob{replicaNamed(&bob, QStringLiteral("draft"))};
+        QRemoteObjectReplica *scratchOne{replicaNamed(&aliceTabOne,
                                                              QStringLiteral("scratch"))};
-        QRemoteObjectDynamicReplica *scratchTwo{replicaNamed(&aliceTabTwo,
+        QRemoteObjectReplica *scratchTwo{replicaNamed(&aliceTabTwo,
                                                              QStringLiteral("scratch"))};
-        QRemoteObjectDynamicReplica *scratchBob{replicaNamed(&bob,
+        QRemoteObjectReplica *scratchBob{replicaNamed(&bob,
                                                              QStringLiteral("scratch"))};
         QVERIFY(draftOne && draftTwo && draftBob);
         QVERIFY(scratchOne && scratchTwo && scratchBob);
@@ -409,14 +408,10 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(mod.session()->state(), QStringLiteral("connected"), 8000);
         QTRY_COMPARE_WITH_TIMEOUT(anon.session()->state(), QStringLiteral("connected"), 8000);
 
-        QRemoteObjectDynamicReplica *aliceTodo{
-            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&alice))};
-        QRemoteObjectDynamicReplica *bobTodo{
-            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&bob))};
-        QRemoteObjectDynamicReplica *modTodo{
-            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&mod))};
-        QRemoteObjectDynamicReplica *anonTodo{
-            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&anon))};
+        QRemoteObjectReplica *aliceTodo{todoReplica(&alice)};
+        QRemoteObjectReplica *bobTodo{todoReplica(&bob)};
+        QRemoteObjectReplica *modTodo{todoReplica(&mod)};
+        QRemoteObjectReplica *anonTodo{todoReplica(&anon)};
 
         QVERIFY(aliceTodo && bobTodo && modTodo && anonTodo);
         QTRY_VERIFY(aliceTodo->isReplicaValid());
@@ -530,8 +525,7 @@ private slots:
         carol.start();
         QTRY_COMPARE_WITH_TIMEOUT(carol.session()->state(), QStringLiteral("connected"),
                                   8000);
-        QRemoteObjectDynamicReplica *carolTodo{
-            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&carol))};
+        QRemoteObjectReplica *carolTodo{todoReplica(&carol)};
         QVERIFY(carolTodo != nullptr);
         QTRY_VERIFY(carolTodo->isReplicaValid());
 
@@ -558,8 +552,7 @@ private slots:
         SynClient dan{clientConfig(m_edgePort, cookieFor(danToken)), &clientEngine};
         dan.start();
         QTRY_COMPARE_WITH_TIMEOUT(dan.session()->state(), QStringLiteral("connected"), 8000);
-        QRemoteObjectDynamicReplica *danTodo{
-            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&dan))};
+        QRemoteObjectReplica *danTodo{todoReplica(&dan)};
         QVERIFY(danTodo != nullptr);
         QTRY_VERIFY(danTodo->isReplicaValid());
 
@@ -596,8 +589,7 @@ private slots:
         visitor.start();
         QTRY_COMPARE_WITH_TIMEOUT(visitor.session()->state(), QStringLiteral("connected"),
                                   8000);
-        QRemoteObjectDynamicReplica *todo{
-            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&visitor))};
+        QRemoteObjectReplica *todo{todoReplica(&visitor)};
         QVERIFY(todo != nullptr);
         QTest::qWait(1000);
         QVERIFY2(!todo->isReplicaValid(), "an anonymous visitor must not hold todo");
@@ -641,7 +633,7 @@ private slots:
         visitor.start();
         QTRY_COMPARE_WITH_TIMEOUT(visitor.session()->state(), QStringLiteral("connected"),
                                   8000);
-        QRemoteObjectDynamicReplica *gate{replicaNamed(&visitor, QStringLiteral("gate"))};
+        QRemoteObjectReplica *gate{replicaNamed(&visitor, QStringLiteral("gate"))};
         QVERIFY(gate != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(gate->isReplicaValid(), 5000);
         QTRY_COMPARE(gate->property("headline").toString(), QStringLiteral("the lobby is open"));
@@ -687,7 +679,7 @@ private slots:
         admin.start();
         QTRY_COMPARE_WITH_TIMEOUT(admin.session()->state(), QStringLiteral("connected"),
                                   8000);
-        QRemoteObjectDynamicReplica *gate{replicaNamed(&admin, QStringLiteral("gate"))};
+        QRemoteObjectReplica *gate{replicaNamed(&admin, QStringLiteral("gate"))};
         QVERIFY(gate != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(gate->isReplicaValid(), 5000);
         QTRY_COMPARE(gate->property("headline").toString(), QStringLiteral("prices are up"));
@@ -755,8 +747,7 @@ private slots:
         QTest::qWait(1000);
         QVERIFY2(forged.session()->state() != QStringLiteral("connected"),
                  "a forged session must never reach the connected state");
-        QRemoteObjectDynamicReplica *replica{
-            qobject_cast<QRemoteObjectDynamicReplica *>(todoReplica(&forged))};
+        QRemoteObjectReplica *replica{todoReplica(&forged)};
         if (replica) {
             QVERIFY(!replica->isReplicaValid());
         }

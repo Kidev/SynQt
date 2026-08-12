@@ -208,6 +208,12 @@ SynClient::SynClient(SynClientConfig config, QQmlEngine *engine, QObject *parent
 
 SynClient::~SynClient()
 {
+    // The node and its Replicas go now, while the accessor and facades connected to them
+    // still exist. Left to teardown()'s deferred delete, they would outlive the accessor,
+    // and a receiver destroyed first asks each sender for its metaobject, which a Replica
+    // that never initialized does not have.
+    delete m_node;
+    m_node = nullptr;
     teardown();
 }
 

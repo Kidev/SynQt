@@ -18,6 +18,7 @@
 #include "widget_replica.h"        // synqtRegisterWidgetReplicas()
 
 #include "consumerbase.h"
+#include "consumerfactory.h"
 #include "promise.h"
 #include "serveraccessor.h"
 #include "websockettransport.h"
@@ -29,6 +30,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
 #include <QStandardItemModel>
@@ -36,6 +38,8 @@
 #include <QUrl>
 #include <QWebSocket>
 #include <QWebSocketServer>
+
+#include <memory>
 
 using SynQt::ConsumerBase;
 using SynQt::ServerAccessor;
@@ -242,6 +246,60 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(facade->isReady(), 8000);
         QVERIFY(QMetaObject::invokeMethod(root.data(), "requestCompute", Q_ARG(int, 30)));
         QTRY_COMPARE(root->property("computed").toInt(), 60);
+    }
+
+    // Every mesh link is a dynamic Replica, which declares a returning slot as returning
+    // QRemoteObjectPendingCall rather than QRemoteObjectPendingReply<T>. Asked for the typed
+    // reply, invokeMethod refused the call as a return type mismatch, so `.then(...)` on
+    // anything an entity called over the mesh never ran.
+    void aReturningSlotResolvesOverADynamicReplica()
+    {
+        QWebSocketServer server{QStringLiteral("dynamic"), QWebSocketServer::NonSecureMode};
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+        QRemoteObjectHost host;
+        host.setHostUrl(QUrl{QStringLiteral("synqt-facade:///dynamic")},
+                        QRemoteObjectHost::AllowExternalRegistration);
+        QStandardItemModel rowsModel;
+        rowsModel.setItemRoleNames({{Qt::UserRole, QByteArrayLiteral("label")}});
+        WidgetBackend source;
+        source.setRows(&rowsModel);
+        QVERIFY(host.enableRemoting(&source, QStringLiteral("widget")));
+        QObject::connect(&server, &QWebSocketServer::newConnection, &host, [&server, &host]() {
+            while (QWebSocket *incoming{server.nextPendingConnection()}) {
+                WebSocketTransport *transport{new WebSocketTransport{incoming}};
+                transport->open(QIODevice::ReadWrite);
+                QObject::connect(incoming, &QObject::destroyed,
+                                 transport, &WebSocketTransport::deleteLater);
+                host.addHostSideConnection(transport);
+            }
+        });
+
+        QWebSocket clientSocket;
+        WebSocketTransport transport{&clientSocket};
+        transport.setUrl(QUrl{QStringLiteral("ws://localhost:%1").arg(server.serverPort())});
+        QVERIFY(transport.open(QIODevice::ReadWrite));
+        QRemoteObjectNode node;
+        node.addClientSideConnection(&transport);
+
+        QQmlEngine engine;
+        std::unique_ptr<ConsumerBase> facade{SynQt::makeConsumer(QStringLiteral("Widget"))};
+        QVERIFY(facade != nullptr);
+        QQmlEngine::setObjectOwnership(facade.get(), QQmlEngine::CppOwnership);
+        engine.globalObject().setProperty(QStringLiteral("widget"),
+                                          engine.newQObject(facade.get()));
+        std::unique_ptr<QRemoteObjectDynamicReplica> replica{
+            node.acquireDynamic(QStringLiteral("widget"))};
+        facade->setReplica(replica.get());
+        QTRY_VERIFY_WITH_TIMEOUT(facade->isReady(), 8000);
+
+        engine.evaluate(QStringLiteral("var answer = 0; var failure = '';"
+                                       "widget.compute(21)"
+                                       "    .then(function(value) { answer = value; })"
+                                       "    .catchError(function(reason) { failure = reason; });"));
+        QTRY_COMPARE(engine.globalObject().property(QStringLiteral("answer")).toInt(), 42);
+        QCOMPARE(engine.globalObject().property(QStringLiteral("failure")).toString(), QString{});
+        facade->setReplica(nullptr);
     }
 };
 

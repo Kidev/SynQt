@@ -8,6 +8,10 @@
 #include <QObject>
 #include <QString>
 
+QT_BEGIN_NAMESPACE
+class QRemoteObjectReplica;
+QT_END_NAMESPACE
+
 namespace SynQt {
 
 /// The base of every generated per-contract consumer facade (`<Contract>Consumer`). The
@@ -33,7 +37,9 @@ public:
     QString point() const;
 
     /// Bind (or rebind, on reconnect) the underlying Replica. Passing nullptr detaches.
-    void setReplica(QObject *replica);
+    /// The relays are wired once the Replica is initialized: a dynamic Replica has no API
+    /// before that, and asking it for its metaobject then is an error.
+    void setReplica(QRemoteObjectReplica *replica);
     QObject *replica() const;
 
     /// True once the bound Replica has completed its QtRO handshake.
@@ -47,7 +53,7 @@ signals:
 
 protected:
     /// Wire the property/model/signal relays from m_replica onto this facade's own signals.
-    /// Called by setReplica after m_replica/m_dynamic are set. Append each connection with
+    /// Called once the bound Replica is initialized. Append each connection with
     /// addConnection so it is torn down on the next setReplica. Generated.
     virtual void bindReplica() = 0;
 
@@ -57,16 +63,22 @@ protected:
 
     void addConnection(const QMetaObject::Connection &connection);
 
-    QObject *m_replica{nullptr};
-    bool m_dynamic{false};
+    /// Whether the bound Replica declares the named slot as returning
+    /// QRemoteObjectPendingCall, as a dynamic Replica does, rather than
+    /// QRemoteObjectPendingReply<T>. Asked only once isReady().
+    bool returnsPendingCall(const char *slot) const;
 
-private slots:
-    void handleInitialized();
+    /// The bound Replica, as the QObject the generated members reflect on. Read through it
+    /// only when isReady(), since a dynamic Replica has no members before that.
+    QObject *m_replica{nullptr};
 
 private:
+    void handleInitialized();
     void clearConnections();
 
     QString m_point;
+    QRemoteObjectReplica *m_remote{nullptr};
+    QMetaObject::Connection m_initialized;
     QList<QMetaObject::Connection> m_connections;
 };
 

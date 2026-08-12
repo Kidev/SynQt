@@ -69,9 +69,9 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     return config;
 }
 
-QObject *arenaReplica(SynClient *client)
+QRemoteObjectReplica *arenaReplica(SynClient *client)
 {
-    return client->server()->point(QStringLiteral("edge"));
+    return client->server()->replica(QStringLiteral("edge"));
 }
 
 } // namespace
@@ -159,10 +159,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(player.session()->state(), QStringLiteral("connected"), 8000);
         QTRY_COMPARE_WITH_TIMEOUT(anon.session()->state(), QStringLiteral("connected"), 8000);
 
-        QRemoteObjectDynamicReplica *playerArena{
-            qobject_cast<QRemoteObjectDynamicReplica *>(arenaReplica(&player))};
-        QRemoteObjectDynamicReplica *anonArena{
-            qobject_cast<QRemoteObjectDynamicReplica *>(arenaReplica(&anon))};
+        QRemoteObjectReplica *playerArena{arenaReplica(&player)};
+        QRemoteObjectReplica *anonArena{arenaReplica(&anon)};
         QVERIFY(playerArena && anonArena);
         QTRY_VERIFY(playerArena->isReplicaValid());
 
@@ -185,8 +183,7 @@ private slots:
         player.start();
         QTRY_COMPARE_WITH_TIMEOUT(player.session()->state(), QStringLiteral("connected"), 8000);
 
-        QRemoteObjectDynamicReplica *playerArena{
-            qobject_cast<QRemoteObjectDynamicReplica *>(arenaReplica(&player))};
+        QRemoteObjectReplica *playerArena{arenaReplica(&player)};
         QVERIFY(playerArena);
         QTRY_VERIFY(playerArena->isReplicaValid());
 

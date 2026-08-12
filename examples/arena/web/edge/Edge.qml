@@ -16,9 +16,10 @@ Edge {
     property string mySub: ""
 
     Component.onCompleted: {
-        // Relay the world's global events to this session's browser.
-        World.eaten.connect((prey, predator) => arena.eaten(prey, predator));
-        World.roundEnded.connect(winner => arena.roundEnded(winner));
+        // Relay the world's global events to this session's browser. `arena` is the
+        // receiver, so both connections end with this session's Source.
+        World.eaten.connect(arena, (prey, predator) => arena.eaten(prey, predator));
+        World.roundEnded.connect(arena, winner => arena.roundEnded(winner));
     }
 
     function steer(x, y) {

@@ -16,6 +16,7 @@
 QT_BEGIN_NAMESPACE
 class QNetworkAccessManager;
 class QQmlEngine;
+class QRemoteObjectDynamicReplica;
 class QRemoteObjectNode;
 QT_END_NAMESPACE
 
@@ -60,7 +61,8 @@ public:
     QObject *accessor(const QString &capitalizedOwner) const;
 
     /// The acquired replica for a consumed connect point, or nullptr until it exists.
-    QObject *consumedReplica(const QString &owner, const QString &connectPoint) const;
+    QRemoteObjectDynamicReplica *consumedReplica(const QString &owner,
+                                                 const QString &connectPoint) const;
 
     static QString accessorName(const QString &owner);
 
@@ -101,7 +103,7 @@ private:
     /// Whether this runtime is the one that installed the tracer's sink, so the
     /// destructor clears that sink and never one somebody else owns.
     bool m_installedSink{false};
-    QHash<QString, QObject *> m_consumedReplicas;
+    QHash<QString, QRemoteObjectDynamicReplica *> m_consumedReplicas;
     /// The node currently carrying each consumed connect point, so a link that comes back
     /// up replaces what it had rather than adding to it. Keyed like m_consumedReplicas.
     QHash<QString, QRemoteObjectNode *> m_consumedNodes;
