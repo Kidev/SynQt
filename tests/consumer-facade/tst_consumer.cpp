@@ -141,7 +141,9 @@ private slots:
 
         QRemoteObjectNode node;
         node.addClientSideConnection(&transport);
-        node.setHeartbeatInterval(100);
+        // The runtime's interval. A ping unanswered by the next one closes the link, and a
+        // loaded runner stalls for longer than 100 ms.
+        node.setHeartbeatInterval(1000);
 
         ServerAccessor accessor{{{QStringLiteral("widget"), QStringLiteral("Widget")}}};
 
