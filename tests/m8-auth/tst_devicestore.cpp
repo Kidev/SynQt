@@ -300,8 +300,10 @@ private:
         client.session()->login(QStringLiteral("stub"));
         DeviceCredential::Held enrolled;
         // Polled at a human interval rather than through QTRY_VERIFY: every turn of this is
-        // a real read of a real keyring, and a 50 ms poll would be hundreds of them.
-        for (int attempt{0}; attempt < 40 && !enrolled.isValid(); ++attempt) {
+        // a real read of a real keyring, and a 50 ms poll would be hundreds of them. Thirty
+        // seconds, because a store call that outlives its deadline holds the store's lock
+        // until it returns, and the Windows credential store can stall for longer than ten.
+        for (int attempt{0}; attempt < 120 && !enrolled.isValid(); ++attempt) {
             QTest::qWait(250);
             enrolled = probe.load();
         }

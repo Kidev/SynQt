@@ -7,10 +7,11 @@
 // authorizes the calling entity. Verifies the tutorial's "try it, then think" checks:
 //   1. a bid that does not beat the standing one is refused BY THE EDGE (not the UI);
 //   2. placeBid while signed out (as from the browser console) is refused by the edge;
-// plus the segmentation the Hall of Fame stage teaches: the database records a winner only
-// for the edge (Caller.entity === "edge") and refuses any other calling entity, even a
-// listed consumer. The third hands-on check (client-as-consumer-of-ledger fails
-// `synqt check`) is proven in tools/synqt/tests/test_examples.py.
+// plus the segmentation the Hall of Fame stage teaches: the database lists the edge as its
+// only consumer, so it records a winner for the edge and refuses every other entity, even
+// one holding a certificate the project CA signed. The third hands-on check
+// (client-as-consumer-of-ledger fails `synqt check`) is proven in
+// tools/synqt/tests/test_examples.py.
 
 #include "entityruntime.h"
 #include "meshclient.h"
@@ -341,6 +342,14 @@ private slots:
 
         startEdge();
         QVERIFY(!QTest::currentTestFailed());
+
+        // The new edge's link to the books entity is a fresh mesh handshake, which takes
+        // seconds on Windows. Waited for here, so a slow link and a missed pull fail apart.
+        const QObject *books{m_web->accessor(QStringLiteral("Books"))};
+        QVERIFY(books != nullptr);
+        QTRY_VERIFY2_WITH_TIMEOUT(books->property("ready").toBool(),
+                                  "the new edge's link to the books entity never came up",
+                                  20000);
 
         QQmlEngine clientEngine;
         SynClient visitor{clientConfig(m_edgePort,
