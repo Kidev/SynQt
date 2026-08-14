@@ -24,6 +24,7 @@
 #include "socketchannel.h"      // reused host-side (from src/transport)
 #include "socketoptions.h" // reused host-side (from src/transport)
 #include "websockettransport.h" // reused host-side (from src/transport)
+#include "withdrawsource.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -2058,7 +2059,7 @@ void WebEdge::hostConnection(QWebSocket *socket)
                     // The Source stays: a per-session Source belongs to the session and is
                     // reclaimed with it (releaseSessionSources). A raised scope continues
                     // from it.
-                    node->disableRemoting(current);
+                    withdrawSource(node, current);
                     if (fronted) {
                         // Point it at nothing, so it stops pulling a tier the caller no
                         // longer reaches.

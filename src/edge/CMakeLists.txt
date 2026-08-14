@@ -13,7 +13,7 @@
 
 # GLOBAL: see the note in ../service/CMakeLists.txt.
 find_package(Qt6 6.12 REQUIRED COMPONENTS
-    Core Network Qml RemoteObjects WebSockets HttpServer GLOBAL)
+    Core Network Qml RemoteObjects RemoteObjectsPrivate WebSockets HttpServer GLOBAL)
 
 if(NOT TARGET SynQtIdentity)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../identity" "${CMAKE_BINARY_DIR}/SynQtIdentity")
@@ -39,6 +39,8 @@ qt_add_library(SynQtEdge STATIC
     webedgeconfig.h
     webedge.cpp
     webedge.h
+    withdrawsource.cpp
+    withdrawsource.h
 )
 
 set_target_properties(SynQtEdge PROPERTIES AUTOMOC ON)
@@ -73,3 +75,7 @@ target_link_libraries(SynQtEdge PUBLIC
     Qt6::WebSockets
     Qt6::HttpServer
 )
+
+# withdrawsource.cpp reaches into QtRemoteObjects' private state, which is tied to the pinned
+# Qt. PRIVATE, so no other file includes a private header by accident.
+target_link_libraries(SynQtEdge PRIVATE Qt6::RemoteObjectsPrivate)

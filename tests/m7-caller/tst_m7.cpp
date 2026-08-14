@@ -34,9 +34,11 @@
 #include "gated_sourcehelper.h"  // synqtRegisterGatedSources(), the front's surface
 #include "backoffice_sourcehelper.h"  // the slice an entity behind the front answers
 
+#include <QAbstractItemModel>
 #include <QHostAddress>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QPointer>
 #include <QQmlEngine>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
@@ -613,6 +615,46 @@ private slots:
                                   "meets the scope of", 5000);
 
         // And raised once more. The same Replica comes back, on the same connection.
+        QVERIFY(!m_edge->sessionManager()->setScope(demoted, QStringLiteral("user")).isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(todo->isReplicaValid(), 5000);
+        QCOMPARE(visitor.session()->state(), QStringLiteral("connected"));
+    }
+
+    // A withdrawn point's model is withdrawn with it. QtRO registers a model under its own
+    // name on the connection's node, and disableRemoting() frees it without taking the name
+    // back, so a request the demoted browser still sends to the model reached freed memory
+    // on the edge. The browser's own model replica sends one on a cache miss, and a hostile
+    // client sends one on purpose.
+    void aModelRequestAfterADemotionReachesNothing()
+    {
+        const QByteArray token{m_edge->sessionManager()->createSession(
+            QStringLiteral("user"), identityFor(QStringLiteral("gus")))};
+        QQmlEngine clientEngine;
+        SynClient visitor{clientConfig(m_edgePort, cookieFor(token)), &clientEngine};
+        visitor.start();
+        QTRY_COMPARE_WITH_TIMEOUT(visitor.session()->state(), QStringLiteral("connected"),
+                                  8000);
+        QRemoteObjectReplica *todo{todoReplica(&visitor)};
+        QVERIFY(todo != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(todo->isReplicaValid(), 5000);
+        QPointer<QAbstractItemModel> items{
+            qobject_cast<QAbstractItemModel *>(todo->property("items").value<QObject *>())};
+        QVERIFY(items);
+        // A row, so the model has a column whose header can be asked for.
+        QVERIFY(QMetaObject::invokeMethod(todo, "add", Q_ARG(QString, QStringLiteral("gum"))));
+        QTRY_VERIFY_WITH_TIMEOUT(items->columnCount() > 0, 5000);
+
+        const QByteArray demoted{
+            m_edge->sessionManager()->setScope(token, QStringLiteral("anonymous"))};
+        QVERIFY(!demoted.isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(!todo->isReplicaValid(), 5000);
+
+        // A header role nothing has cached, so the replica asks the edge for it.
+        QVERIFY(items);
+        QVERIFY(!items->headerData(0, Qt::Horizontal, Qt::UserRole + 99).isValid());
+        QTest::qWait(500);
+
+        // The edge is still serving this connection, and the point is still withdrawn.
         QVERIFY(!m_edge->sessionManager()->setScope(demoted, QStringLiteral("user")).isEmpty());
         QTRY_VERIFY_WITH_TIMEOUT(todo->isReplicaValid(), 5000);
         QCOMPARE(visitor.session()->state(), QStringLiteral("connected"));
