@@ -13,7 +13,13 @@
 
 # GLOBAL: see the note in ../service/CMakeLists.txt.
 find_package(Qt6 6.12 REQUIRED COMPONENTS
-    Core Network Qml RemoteObjects RemoteObjectsPrivate WebSockets HttpServer GLOBAL)
+    Core Network Qml RemoteObjects WebSockets HttpServer GLOBAL)
+
+# withdrawsource.cpp reads QtRemoteObjects' private state. Qt warns that this ties the build
+# to one Qt version, which the exact pin already does (tools/synqt/tests/test_qt_pin.py).
+set(QT_NO_PRIVATE_MODULE_WARNING ON)
+find_package(Qt6 6.12 REQUIRED COMPONENTS RemoteObjectsPrivate GLOBAL)
+unset(QT_NO_PRIVATE_MODULE_WARNING)
 
 if(NOT TARGET SynQtIdentity)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../identity" "${CMAKE_BINARY_DIR}/SynQtIdentity")
@@ -76,6 +82,5 @@ target_link_libraries(SynQtEdge PUBLIC
     Qt6::HttpServer
 )
 
-# withdrawsource.cpp reaches into QtRemoteObjects' private state, which is tied to the pinned
-# Qt. PRIVATE, so no other file includes a private header by accident.
+# PRIVATE, so no other file includes a private header by accident.
 target_link_libraries(SynQtEdge PRIVATE Qt6::RemoteObjectsPrivate)
