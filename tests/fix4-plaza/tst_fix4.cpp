@@ -24,6 +24,9 @@
 
 #include <QAbstractItemModel>
 #include <QElapsedTimer>
+#include <QLineF>
+#include <QList>
+#include <QPointF>
 #include <QQmlEngine>
 #include <QRemoteObjectDynamicReplica>
 #include <QSslSocket>
@@ -32,7 +35,10 @@
 #include <QUrl>
 #include <QVariantMap>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <numbers>
 
@@ -43,6 +49,9 @@ namespace {
 // The rules the example's Edge.qml moves walkers by.
 constexpr double kSpeed{350.0};
 constexpr double kRadius{30.0};
+constexpr double kPillarHalf{60.0};
+constexpr std::array<QPointF, 4> kPillars{QPointF{-500.0, -500.0}, QPointF{500.0, -500.0},
+                                          QPointF{-500.0, 500.0}, QPointF{500.0, 500.0}};
 
 QByteArray cookieFor(const QByteArray &token)
 {
@@ -121,14 +130,100 @@ double distance(const QVariantMap &one, const QVariantMap &other)
                           - other.value(QStringLiteral("z")).toDouble());
 }
 
+// Where a row stands, seen from above: x across, z down the page.
+QPointF positionOf(const QVariantMap &row)
+{
+    return QPointF{row.value(QStringLiteral("x")).toDouble(),
+                   row.value(QStringLiteral("z")).toDouble()};
+}
+
+// How far a point is from one pillar's square, seen from above.
+double clearanceFrom(const QPointF &point, const QPointF &pillar)
+{
+    const double acrossX{std::max(std::abs(point.x() - pillar.x()) - kPillarHalf, 0.0)};
+    const double acrossZ{std::max(std::abs(point.y() - pillar.y()) - kPillarHalf, 0.0)};
+    return std::hypot(acrossX, acrossZ);
+}
+
+// Whether a walker can go straight from one place to the other without meeting a pillar,
+// read every two units along the way. A walker already against a pillar is clear to walk
+// along it, so the test allows one unit.
+bool isClearBetween(const QPointF &from, const QPointF &to)
+{
+    const int samples{std::max(1, static_cast<int>(std::ceil(QLineF{from, to}.length() / 2.0)))};
+    for (int sample{0}; sample <= samples; ++sample) {
+        const QPointF at{from + ((to - from) * (static_cast<double>(sample) / samples))};
+        for (const QPointF &pillar : kPillars) {
+            if (clearanceFrom(at, pillar) < kRadius - 1.0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Where to head next to reach `to` from `from`. `to` itself when no pillar is in the way,
+// otherwise the first corner of the shortest way round. A walker aimed straight at a place
+// behind a pillar slides along the pillar's face to its middle and stays there.
+QPointF nextStop(const QPointF &from, const QPointF &to)
+{
+    if (isClearBetween(from, to)) {
+        return to;
+    }
+    // Index 0 is `to`, then four corners per pillar, out of reach of the pillar.
+    QList<QPointF> places{to};
+    const double out{kPillarHalf + kRadius + 10.0};
+    for (const QPointF &pillar : kPillars) {
+        places.append(pillar + QPointF{-out, -out});
+        places.append(pillar + QPointF{-out, out});
+        places.append(pillar + QPointF{out, -out});
+        places.append(pillar + QPointF{out, out});
+    }
+
+    // The shortest way from each place to `to`.
+    QList<double> toGoal;
+    toGoal.fill(std::numeric_limits<double>::infinity(), places.size());
+    QList<bool> settled;
+    settled.fill(false, places.size());
+    toGoal[0] = 0.0;
+    for (;;) {
+        qsizetype nearest{-1};
+        for (qsizetype place{0}; place < places.size(); ++place) {
+            if (!settled[place] && ((nearest < 0) || (toGoal[place] < toGoal[nearest]))) {
+                nearest = place;
+            }
+        }
+        if ((nearest < 0) || std::isinf(toGoal[nearest])) {
+            break;
+        }
+        settled[nearest] = true;
+        for (qsizetype place{0}; place < places.size(); ++place) {
+            if (!settled[place] && isClearBetween(places[place], places[nearest])) {
+                toGoal[place] = std::min(toGoal[place],
+                                         toGoal[nearest]
+                                             + QLineF{places[place], places[nearest]}.length());
+            }
+        }
+    }
+
+    QPointF best{to};
+    double bestLength{std::numeric_limits<double>::infinity()};
+    for (qsizetype place{1}; place < places.size(); ++place) {
+        const double length{QLineF{from, places[place]}.length() + toGoal[place]};
+        if ((length < bestLength) && isClearBetween(from, places[place])) {
+            best = places[place];
+            bestLength = length;
+        }
+    }
+    return best;
+}
+
 // The heading that walks from `from` towards `to`, as the edge reads a heading: forward is
 // -z turned by the heading about the vertical axis.
-double headingTowards(const QVariantMap &from, const QVariantMap &to)
+double headingTowards(const QPointF &from, const QPointF &to)
 {
-    const double dx{to.value(QStringLiteral("x")).toDouble()
-                    - from.value(QStringLiteral("x")).toDouble()};
-    const double dz{to.value(QStringLiteral("z")).toDouble()
-                    - from.value(QStringLiteral("z")).toDouble()};
+    const double dx{to.x() - from.x()};
+    const double dz{to.y() - from.y()};
     return std::atan2(-dx, -dz) * 180.0 / std::numbers::pi;
 }
 
@@ -284,8 +379,9 @@ private slots:
         QTRY_VERIFY(theirs->isReplicaValid());
         QTRY_VERIFY(mine->isReplicaValid());
 
-        // The aim is kept between reads. A read that comes back empty says nothing about where
-        // anybody is, so the pusher keeps walking the way it last knew to.
+        // The pusher goes round the pillars, so what stops it is the other walker. The aim is
+        // kept between reads. A read that comes back empty says nothing about where anybody
+        // is, so the pusher keeps walking the way it last knew to.
         double aim{0.0};
         QTimer keys;
         connect(&keys, &QTimer::timeout, this, [theirs, mine, still, pusher, &aim]() {
@@ -294,7 +390,8 @@ private slots:
             const QVariantMap target{rowOf(mine, still)};
             const QVariantMap self{rowOf(mine, pusher)};
             if (!target.isEmpty() && !self.isEmpty()) {
-                aim = headingTowards(self, target);
+                const QPointF here{positionOf(self)};
+                aim = headingTowards(here, nextStop(here, positionOf(target)));
             }
             QMetaObject::invokeMethod(mine, "walk", Q_ARG(double, 1.0), Q_ARG(double, 0.0),
                                       Q_ARG(double, aim));
@@ -306,7 +403,7 @@ private slots:
         const double apartAtFirst{distance(firstTarget, firstSelf)};
 
         // Long enough to walk between any two places a walker can arrive at (at most 2830
-        // apart, 8.1 s at walking speed), read every tick.
+        // apart, 8.1 s at walking speed, round the pillars included), read every tick.
         double closest{apartAtFirst};
         QElapsedTimer clock;
         clock.start();

@@ -11,7 +11,10 @@
     tools/coverage/report.py --build-dir build/coverage [--fail-under 70]
 
 `--json` writes the figures for CI. Code under `#ifdef Q_OS_WASM` is not compiled natively,
-so it is counted and named separately instead of silently leaving the denominator.
+so it is counted and named separately instead of silently leaving the denominator. A line that
+is only a Qt declaration macro (Q_ENUM, Q_DECLARE_METATYPE and the like) is not counted: its
+code is what the macro writes. gcov names every header a unit includes, and a file left with
+no executable line is not reported.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -65,6 +69,24 @@ def _documents_in(output: str):
             yield json.loads(line)
         except json.JSONDecodeError:
             print("warning: gcov produced a line that is not JSON", file=sys.stderr)
+
+
+# A line that is only one of these declares something, and Qt writes the code gcov counts
+# there.
+_DECLARATION_MACRO = re.compile(
+    r"^\s*(Q_OBJECT|Q_GADGET|Q_GADGET_EXPORT|Q_NAMESPACE|Q_NAMESPACE_EXPORT|Q_ENUM|Q_ENUM_NS"
+    r"|Q_FLAG|Q_FLAG_NS|Q_DECLARE_METATYPE|Q_DECLARE_FLAGS|Q_DECLARE_OPERATORS_FOR_FLAGS"
+    r"|Q_DECLARE_TYPEINFO|Q_DISABLE_COPY|Q_DISABLE_COPY_MOVE|QML_[A-Z_]+)\b")
+
+
+def _declaration_lines(path: Path) -> Set[int]:
+    """The lines of one file that are only a Qt declaration macro."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    return {number for number, line in enumerate(text.splitlines(), 1)
+            if _DECLARATION_MACRO.match(line)}
 
 
 def _collect(build_dir: Path, source_root: Path, gcov: str) -> Dict[Path, Tuple[Set[int], Set[int]]]:
@@ -136,6 +158,26 @@ def _unmeasured_wasm(source_root: Path, per_file: Dict[Path, Tuple[Set[int], Set
     return total
 
 
+def _rows(per_file: Dict[Path, Tuple[Set[int], Set[int]]], source_root: Path) -> list:
+    """One row per file that has an executable line of its own, in path order."""
+    rows = []
+    for path in sorted(per_file):
+        executable, executed = per_file[path]
+        declarations = _declaration_lines(path)
+        executable = executable - declarations
+        executed = executed - declarations
+        if not executable:
+            continue
+        rows.append({
+            "file": str(path.relative_to(source_root.parent)),
+            "lines": len(executable),
+            "covered": len(executed),
+            "percent": 100.0 * len(executed) / len(executable),
+            "missing": sorted(executable - executed),
+        })
+    return rows
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -164,22 +206,13 @@ def main() -> int:
     if not per_file:
         raise SystemExit("the counters name no file under %s" % source_root)
 
-    rows = []
-    total_executable = 0
-    total_executed = 0
-    for path in sorted(per_file):
-        executable, executed = per_file[path]
-        total_executable += len(executable)
-        total_executed += len(executed)
-        rows.append({
-            "file": str(path.relative_to(source_root.parent)),
-            "lines": len(executable),
-            "covered": len(executed),
-            "percent": 100.0 * len(executed) / len(executable) if executable else 100.0,
-            "missing": sorted(executable - executed),
-        })
+    rows = _rows(per_file, source_root)
+    total_executable = sum(row["lines"] for row in rows)
+    total_executed = sum(row["covered"] for row in rows)
 
-    total = 100.0 * total_executed / total_executable if total_executable else 100.0
+    if not rows:
+        raise SystemExit("the counters name no executable line under %s" % source_root)
+    total = 100.0 * total_executed / total_executable
 
     width = max(len(row["file"]) for row in rows)
     print("%-*s  %7s %7s %8s" % (width, "file", "lines", "covered", "percent"))
