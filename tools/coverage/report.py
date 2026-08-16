@@ -169,7 +169,7 @@ def _rows(per_file: Dict[Path, Tuple[Set[int], Set[int]]], source_root: Path) ->
         if not executable:
             continue
         rows.append({
-            "file": str(path.relative_to(source_root.parent)),
+            "file": path.relative_to(source_root.parent).as_posix(),
             "lines": len(executable),
             "covered": len(executed),
             "percent": 100.0 * len(executed) / len(executable),
