@@ -29,7 +29,7 @@
     },
     {
       "id": "one-console-question-asks-for-the-whole-table",
-      "what": "A console asks the monitor for its history with a row limit of its own choosing. The limit crosses as a plain integer -- the contract vocabulary sizes strings and lists and says nothing about integers -- and every row it asks for is built into a list in memory and serialized back over the link, so one question could make the monitor materialize its whole table at once.",
+      "what": "A console asks the monitor for its history with a row limit of its own choosing. The limit crosses as a plain integer (the contract vocabulary sizes strings and lists and says nothing about integers), and every row it asks for is built into a list in memory and serialized back over the link, so one question could make the monitor materialize its whole table at once.",
       "defended_by": "The store clamps the limit to a range it decides, so the largest answer it can be made to produce is a property of the store rather than of the number it was sent.",
       "file": "tests/monitor/tst_store.cpp",
       "test": "oneQuestionCannotAskForTheWholeTable"
@@ -434,6 +434,13 @@
       "test": "aRetiredGenerationPastTheWindowRevokesTheFamily"
     },
     {
+      "id": "one-device-generation-redeemed-at-two-edges-at-once",
+      "what": "Edges sharing the device store each read a family's row before either writes the next generation, so a stolen copy of the live credential spent at one edge while the real client spends it at another is accepted twice. Both get a session, both get a next generation, and the retired generation that reuse detection watches for is never presented.",
+      "defended_by": "The next generation is written only while the row still holds the generation that edge read, and a redemption whose write changed no row issues nothing. Of two edges racing on one generation, exactly one redeems it.",
+      "file": "tests/m8-auth/tst_device.cpp",
+      "test": "twoEdgesRedeemingOneGenerationIssueOneSession"
+    },
+    {
       "id": "device-credential-used-as-a-session",
       "what": "A device credential found on a disk is presented as the session cookie at the WebSocket upgrade.",
       "defended_by": "What is persisted is not a session. Neither half of it is a live session credential, so the upgrade verifier refuses it before a socket exists; it is only redeemable at one POST route, once.",
@@ -757,7 +764,7 @@
     },
     {
       "id": "provider-tokens-outlive-the-session",
-      "what": "A session is revoked -- which is what a detected device-credential reuse does to every session that credential opened -- and the edge goes on holding that visitor's provider access and refresh tokens, live, for as long as the process runs.",
+      "what": "A session is revoked (which is what a detected device-credential reuse does to every session that credential opened), and the edge goes on holding that visitor's provider access and refresh tokens, live, for as long as the process runs.",
       "defended_by": "Both of the ways a session ends without anybody pressing anything are wired to the release: expiry and revocation. The rotation that a scope change reports as a removal is read and handed to followRotation instead, so an elevation does not look like an ending.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "revokingASessionReleasesItsProviderTokens"
@@ -778,7 +785,7 @@
     },
     {
       "id": "rate-limit-reset-by-flooding-the-window-table",
-      "what": "Every gate that rations by client address keeps a table keyed by address, and each one emptied that table when it grew too large. So a guesser who can present addresses -- an IPv6 /64, or a forwarding header on a deployment that trusts one -- fills it with entries they will never use again, the table is emptied, and the count against the address they are guessing from is back to zero. The ceiling was the reset.",
+      "what": "Every gate that rations by client address keeps a table keyed by address, and each one emptied that table when it grew too large. So a guesser who can present addresses (an IPv6 /64, or a forwarding header on a deployment that trusts one) fills it with entries they will never use again, the table is emptied, and the count against the address they are guessing from is back to zero. The ceiling was the reset.",
       "defended_by": "The table drops only the windows that have run out, which are evidence of nothing. When that frees nothing the gate refuses for the rest of the window rather than forgetting what it knows.",
       "file": "tests/m5-webedge/tst_ratewindow.cpp",
       "test": "aFloodOfLiveAddressesDoesNotClearTheGuessersOwnCount"
@@ -1023,14 +1030,14 @@
     },
     {
       "id": "a-revocation-that-read-the-credential-it-freed",
-      "what": "Revoking a session by its handle (SessionManager::revokeByKey) is the one caller that hands SessionManager::revoke a reference into the very hash node it is about to erase: it walks the table and calls revoke(it.key()). revoke() erased that entry and then went on reading what it was handed -- the name it emits as sessionRemoved, the handle it traces, and the id it tells the authoritative store to drop -- out of a QByteArray whose heap block QHash::erase had already freed. The reads are inside precompiled Qt, so AddressSanitizer cannot see them; it is undefined behaviour, reachable from IdentityProvider::onReuseDetected -- the response to a stolen device credential replayed -- which is exactly when the id that crosses to the auth entity has to be the right one. With no session TTL (identity.session.ttl_minutes: 0) the table holds the only reference, so the erase frees it outright.",
+      "what": "Revoking a session by its handle (SessionManager::revokeByKey) is the one caller that hands SessionManager::revoke a reference into the very hash node it is about to erase: it walks the table and calls revoke(it.key()). revoke() erased that entry and then went on reading what it was handed (the name it emits as sessionRemoved, the handle it traces, and the id it tells the authoritative store to drop) out of a QByteArray whose heap block QHash::erase had already freed. The reads are inside precompiled Qt, so AddressSanitizer cannot see them; it is undefined behaviour, reachable from IdentityProvider::onReuseDetected (the response to a stolen device credential replayed), which is exactly when the id that crosses to the auth entity has to be the right one. With no session TTL (identity.session.ttl_minutes: 0) the table holds the only reference, so the erase frees it outright.",
       "defended_by": "revoke() copies the id into a local QByteArray before the erase and reads only the copy afterwards, so nothing reads the freed block. The test revokes a session by key with no TTL, through a recording stand-in for the authoritative store, and asserts the session actually removed is the one named to both the sessionRemoved signal and the store.",
       "file": "tests/m7-caller/tst_sessions.cpp",
       "test": "revokingByKeyEndsExactlyTheSessionItNamed"
     },
     {
       "id": "a-monitor-batch-that-touched-a-replica-off-its-thread",
-      "what": "The tracer's writer thread reports each batch to the monitor through IngestClient::send, which read the Ingest Replica's raw pointer under a mutex, released it, and then called QMetaObject::invokeMethod on it from that thread. A Replica belongs to the thread that acquired it -- the entity's -- and a reconnect retires the previous one there (EntityRuntime deleteSoon). In the window between the mutex read and the metacall, that Replica can be freed under the writer thread, and invokeMethod then dereferences freed memory: a crash in QMetaObject::invokeMethodImpl. deleteLater narrows the window rather than closing it.",
+      "what": "The tracer's writer thread reports each batch to the monitor through IngestClient::send, which read the Ingest Replica's raw pointer under a mutex, released it, and then called QMetaObject::invokeMethod on it from that thread. A Replica belongs to the thread that acquired it (the entity's), and a reconnect retires the previous one there (EntityRuntime deleteSoon). In the window between the mutex read and the metacall, that Replica can be freed under the writer thread, and invokeMethod then dereferences freed memory: a crash in QMetaObject::invokeMethodImpl. deleteLater narrows the window rather than closing it.",
       "defended_by": "send() marshals the hand-off through the IngestClient itself, which lives on the entity's thread, and touches the Replica only inside that posted call, where the Replica's deletion is serialized against the touch and a QPointer resolves to nothing if it has been retired. The serialization still runs on the writer thread. The test drives the exact shape: one thread publishes without pause while another swaps and frees the Replica on its own thread, and the process must survive.",
       "file": "tests/monitor/tst_ingest.cpp",
       "test": "publishingWhileTheReplicaIsRetiredNeverTouchesItOffItsThread"

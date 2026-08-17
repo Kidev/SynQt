@@ -186,11 +186,16 @@ DeviceRegistry::Credential DeviceRegistry::issue(const QString &family,
     // and starts the overlap window. Redeeming the retired one inside the window leaves
     // prev_hash and its timestamp alone, so a client that crashes between the answer and
     // its store keeps working without extending the window.
+    //
+    // Written only while the row still holds the generation read in redeem(). Edges sharing
+    // the store can both read one generation before either writes; the one whose update
+    // finds the row moved on changed nothing and issues nothing.
     const QString sql{retireCurrent
         ? QStringLiteral("UPDATE synqt_devices SET current_hash = ?, current_gen = ?, "
-                         "prev_hash = ?, prev_issued_ms = ?, last_used_ms = ? WHERE family = ?")
+                         "prev_hash = ?, prev_issued_ms = ?, last_used_ms = ? "
+                         "WHERE family = ? AND current_hash = ?")
         : QStringLiteral("UPDATE synqt_devices SET current_hash = ?, current_gen = ?, "
-                         "last_used_ms = ? WHERE family = ?")};
+                         "last_used_ms = ? WHERE family = ? AND current_hash = ?")};
     QVariantList params;
     params.append(hashOf(secret));
     params.append(generation + 1);
@@ -200,9 +205,10 @@ DeviceRegistry::Credential DeviceRegistry::issue(const QString &family,
     }
     params.append(nowMs);
     params.append(family);
+    params.append(currentHash);
 
     const DbResult updated{m_store->exec(sql, params)};
-    if (!updated.ok) {
+    if (!updated.ok || updated.affected != 1) {
         return Credential{};
     }
     Credential next;

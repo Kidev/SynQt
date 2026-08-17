@@ -22,7 +22,10 @@
 #include "deviceregistry.h"
 #include "identityconfig.h"
 #include "identityprovider.h"
+#include "ipersistenceprovider.h"
+#include "providerregistry.h"
 #include "sessionmanager.h"
+#include "sqliteprovider.h"
 #include "stubidentityserver.h"
 #include "webedge.h"
 #include "webedgeconfig.h"
@@ -46,11 +49,60 @@
 #include <QUrlQuery>
 #include <QWebSocket>
 
+#include <functional>
 #include <memory>
+#include <utility>
 
 using namespace SynQt;
 
 namespace {
+
+/// A device store two edges share, with a moment between one edge reading a family's row and
+/// writing its next generation. What runs in that moment (`between()`, once) is where a second
+/// edge redeeming the same credential lands when the two race. SQLite underneath, so both
+/// edges see one table.
+class RacingStore final : public IPersistenceProvider
+{
+public:
+    explicit RacingStore(const ProviderConfig &config)
+        : m_inner{config}
+    {
+    }
+
+    static std::function<void()> &between()
+    {
+        static std::function<void()> hook;
+        return hook;
+    }
+
+    bool connect(QString *error) override { return m_inner.connect(error); }
+    void disconnect() override { m_inner.disconnect(); }
+    bool isHealthy() const override { return m_inner.isHealthy(); }
+    DbResult query(const QString &sql, const QVariantList &params) override
+    {
+        DbResult rows{m_inner.query(sql, params)};
+        if (sql.startsWith(QLatin1String("SELECT family, sub")) && between()) {
+            const std::function<void()> hook{std::exchange(between(), {})};
+            hook();
+        }
+        return rows;
+    }
+    DbResult exec(const QString &sql, const QVariantList &params) override
+    {
+        return m_inner.exec(sql, params);
+    }
+    bool begin(QString *error) override { return m_inner.begin(error); }
+    bool commit(QString *error) override { return m_inner.commit(error); }
+    bool rollback(QString *error) override { return m_inner.rollback(error); }
+    bool migrate(const QStringList &steps, QString *error) override
+    {
+        return m_inner.migrate(steps, error);
+    }
+    QString name() const override { return QStringLiteral("custom:RacingStore"); }
+
+private:
+    SqliteProvider m_inner;
+};
 
 struct Response
 {
@@ -552,6 +604,51 @@ private slots:
         registry.bindSession(session, QStringLiteral("family-one"));
         registry.bindSession(session, QStringLiteral("family-two"));
         QCOMPARE(registry.familyOf(session), QStringLiteral("family-two"));
+    }
+
+    // Two edges sharing the store redeem one generation at once. Each reads the row before
+    // either writes, so both see the presented secret as the live one. One of them must
+    // lose, or a stolen copy spent alongside the real one buys a second session and the
+    // reuse detection never sees two copies.
+    void twoEdgesRedeemingOneGenerationIssueOneSession()
+    {
+        const ProviderRegistration registered{ProviderRegistry::registerPersistence(
+            QStringLiteral("RacingStore"), [](const ProviderConfig &config) {
+                return std::unique_ptr<IPersistenceProvider>{
+                    std::make_unique<RacingStore>(config)};
+            })};
+        Q_UNUSED(registered);
+
+        DeviceConfig racing;
+        racing.enabled = true;
+        racing.store.name = QStringLiteral("custom:RacingStore");
+        racing.store.file = storeFile();
+        DeviceConfig plain{racing};
+        plain.store.name = QStringLiteral("sqlite");
+
+        DeviceRegistry first{racing};
+        DeviceRegistry second{plain};
+        QString error;
+        QVERIFY2(first.open(&error), qPrintable(error));
+        QVERIFY2(second.open(&error), qPrintable(error));
+
+        const QString origin{QStringLiteral("https://edge.example")};
+        const DeviceRegistry::Credential enrolled{
+            second.enrol(QStringLiteral("racer"), QVariantMap{{QStringLiteral("sub"),
+                                                               QStringLiteral("racer")}},
+                         origin, DeviceBinding::User, QStringLiteral("race"))};
+        QVERIFY(enrolled.isValid());
+
+        DeviceRegistry::Redemption rival;
+        RacingStore::between() = [&]() {
+            rival = second.redeem(enrolled.family, enrolled.secret, origin);
+        };
+        const DeviceRegistry::Redemption redeemed{
+            first.redeem(enrolled.family, enrolled.secret, origin)};
+        QVERIFY2(!RacingStore::between(), "the rival redemption never ran");
+
+        QVERIFY2(rival.ok != redeemed.ok,
+                 "one generation was redeemed twice, or not at all");
     }
 
     // Nonsense is refused the same way everything else is. One answer, no oracle.
