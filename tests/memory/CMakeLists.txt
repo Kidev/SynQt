@@ -24,6 +24,11 @@ endif()
 if(NOT TARGET SynQtClient)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
 endif()
+# And the inbound API surface, whose per-caller rate table is measured here
+# (anInboundSurfaceRecordsNobodyPastItsCeiling).
+if(NOT TARGET SynQtGateway)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/gateway" "${CMAKE_BINARY_DIR}/SynQtGateway")
+endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
 set(MEMORY_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
@@ -52,6 +57,7 @@ target_compile_definitions(tst_memory PRIVATE
 target_link_libraries(tst_memory PRIVATE
     SynQtEdge
     SynQtClient
+    SynQtGateway
     Qt6::Core
     Qt6::Network
     Qt6::Qml

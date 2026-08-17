@@ -19,6 +19,9 @@
 //
 // run-leakcheck.sh is the other half, and runs the rest of the tree under LeakSanitizer.
 
+#include "api.h"
+#include "apiconfig.h"
+#include "apiserver.h"
 #include "entityruntime.h"
 #include "identityprovider.h"
 #include "meshserver.h"
@@ -35,10 +38,12 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QHostAddress>
 #include <QHttpServer>
 #include <QHttpServerResponse>
+#include <QJSEngine>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -62,6 +67,8 @@
 #  define SYNQT_HAS_HEAP_USAGE 1
 #endif
 
+using SynQt::ApiConfig;
+using SynQt::ApiServer;
 using SynQt::ConnectPointConfig;
 using SynQt::CookiePolicy;
 using SynQt::EntityRuntime;
@@ -861,6 +868,102 @@ private slots:
         QVERIFY2(growth.completed, "the delegated-answer slot could not be reached");
         QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
                  qPrintable(growth.describe("an answer no route handler is waiting for",
+                                            budgetFor(growth, AllowedBytesPerCycle))));
+    }
+
+    // One machine caller on one keep-alive connection, asking again and again. The connection
+    // never idles, so nothing tied to it is ever released, and whatever a request leaves
+    // behind on it accumulates for as long as the caller keeps asking.
+    void anInboundSurfaceKeepsNothingPerRequestOnALiveConnection()
+    {
+        ApiConfig config;
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.anonymous = true;
+        config.ratePerMinutePerIp = 0;  // unlimited: this measures the answer, not the ration
+        QJSEngine engine;
+        ApiServer server{config, &engine};
+        server.api()->get(QStringLiteral("/ping"),
+                          engine.evaluate(QStringLiteral("(function () { return 'pong'; })")));
+        QVERIFY2(server.start(), qPrintable(server.errorString()));
+
+        const QUrl url{QStringLiteral("http://127.0.0.1:%1/ping").arg(server.serverPort())};
+        QNetworkAccessManager client;
+        const auto oneRequest{[&client, &url]() {
+            std::unique_ptr<QNetworkReply> reply{client.get(QNetworkRequest{url})};
+            QSignalSpy finished{reply.get(), &QNetworkReply::finished};
+            return finished.wait(5000) && reply->readAll() == "pong";
+        }};
+
+        const Growth growth{measureConfirmed(50, 400, AllowedBytesPerCycle, oneRequest)};
+        QVERIFY2(growth.completed, "the inbound API did not answer");
+        QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
+                 qPrintable(growth.describe("one more request on a live connection",
+                                            budgetFor(growth, AllowedBytesPerCycle))));
+    }
+
+    // The inbound API rations requests per caller address over a one minute window, in a
+    // table keyed by that address, and past its ceiling it refuses. Refusing has to mean not
+    // recording as well: a caller who can present fresh addresses (an IPv6 prefix, or a
+    // forwarding header behind a trusted proxy) would otherwise add one entry per request
+    // for the rest of the minute, each one a refusal.
+    //
+    // Every cycle is one request from an address the table has not seen, sent after the
+    // table is already full, so what a cycle keeps is exactly what one refused stranger
+    // costs.
+    void anInboundSurfaceRecordsNobodyPastItsCeiling()
+    {
+        ApiConfig config;
+        config.host = QStringLiteral("127.0.0.1");
+        config.port = 0;
+        config.anonymous = true;
+        config.trustedProxies = {QStringLiteral("127.0.0.1")};
+        QJSEngine engine;
+        ApiServer server{config, &engine};
+        server.api()->get(QStringLiteral("/ping"),
+                          engine.evaluate(QStringLiteral("(function () { return 'pong'; })")));
+        QVERIFY2(server.start(), qPrintable(server.errorString()));
+
+        const QUrl url{QStringLiteral("http://127.0.0.1:%1/ping").arg(server.serverPort())};
+        QNetworkAccessManager client;
+        quint32 serial{0};
+        // The longest key a caller can be: a full IPv6 address with no group to compress.
+        const auto newCaller{[&url, &serial]() {
+            ++serial;
+            QNetworkRequest request{url};
+            request.setRawHeader(QByteArrayLiteral("X-Forwarded-For"),
+                                 QStringLiteral("2001:db8:aaaa:bbbb:%1:%2:cccc:dddd")
+                                     .arg((serial >> 16) + 0x1000, 0, 16)
+                                     .arg((serial & 0xffff) + 0x1000, 0, 16)
+                                     .toLatin1());
+            return request;
+        }};
+        const auto oneNewCaller{[&client, &newCaller]() {
+            std::unique_ptr<QNetworkReply> reply{client.get(newCaller())};
+            QSignalSpy finished{reply.get(), &QNetworkReply::finished};
+            return finished.wait(5000);
+        }};
+
+        // Past the ceiling first (4096 addresses), all in flight at once so the whole test
+        // stays well inside the one minute window the table is kept for.
+        QElapsedTimer elapsed;
+        elapsed.start();
+        int filled{0};
+        for (int caller{0}; caller < 4200; ++caller) {
+            QNetworkReply *reply{client.get(newCaller())};
+            connect(reply, &QNetworkReply::finished, reply, [reply, &filled]() {
+                ++filled;
+                reply->deleteLater();
+            });
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(filled, 4200, 30000);
+        const Growth growth{measureConfirmed(50, 400, AllowedBytesPerCycle, oneNewCaller)};
+        QVERIFY2(growth.completed, "the inbound API stopped answering");
+        // A reading taken across the turn of the minute measures a table filling up again.
+        QVERIFY2(elapsed.elapsed() < 55000,
+                 "the measurement outlasted the rate window, so it measured nothing");
+        QVERIFY2(withinBudget(growth, AllowedBytesPerCycle),
+                 qPrintable(growth.describe("a request from an address past the ceiling",
                                             budgetFor(growth, AllowedBytesPerCycle))));
     }
 

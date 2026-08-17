@@ -9,7 +9,6 @@
 #include "topology.h"  // loadCertificate / loadPrivateKey
 
 #include <QDateTime>
-#include <QFuture>
 #include <QHostAddress>
 #include <QHttpHeaders>
 #include <QHttpServer>
@@ -19,7 +18,6 @@
 #include <QHttpServerResponder>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QPromise>
 #include <QSslConfiguration>
 #include <QSslKey>
 #include <QSslServer>
@@ -89,7 +87,8 @@ constexpr int kKeepAliveTimeoutSeconds{30};
 /// The deadline used when the topology names none. See handle().
 constexpr int kFallbackReplyTimeoutMs{15000};
 
-/// How many addresses the rate window may name before it is dropped and started again.
+/// How many addresses the rate window may name. Past it a new address is refused and not
+/// recorded, until the window turns.
 constexpr int kMaxRateEntries{4096};
 
 QString methodOf(const QHttpServerRequest &request)
@@ -122,6 +121,7 @@ ApiServer::ApiServer(ApiConfig config, QJSEngine *engine, QObject *parent)
     , m_clientAddress{m_config.trustedProxies}
     , m_engine{engine}
     , m_api{new Api{engine, this}}
+    , m_requests{new QObject{this}}
 {
 }
 
@@ -173,11 +173,16 @@ bool ApiServer::start()
 
     // One catch-all route: the routing table lives in `Api`, where QML declared it, so
     // there is one table and one 404.
-    m_server->route(QStringLiteral("/<arg>"), [this](const QUrl &, const QHttpServerRequest &request) {
-        return handle(request);
-    });
-    m_server->route(QStringLiteral("/"), [this](const QHttpServerRequest &request) {
-        return handle(request);
+    //
+    // Answered through the responder, never by returning a future. Qt 6.12 keeps about 150
+    // bytes for every already-settled QFuture a route returns, for as long as the keep-alive
+    // connection it arrived on stays open, and nearly every answer here is settled at once.
+    m_server->route(QStringLiteral("/<arg>"),
+                    [this](const QUrl &, const QHttpServerRequest &request,
+                           QHttpServerResponder &responder) { handle(request, responder); });
+    m_server->route(QStringLiteral("/"),
+                    [this](const QHttpServerRequest &request, QHttpServerResponder &responder) {
+        handle(request, responder);
     });
 
     if (!m_config.certFile.isEmpty() && !m_config.keyFile.isEmpty()) {
@@ -292,16 +297,19 @@ bool ApiServer::withinRate(const QString &caller)
         m_rateWindow.clear();
         m_rateWindowStartMs = now;
     }
-    const bool within{++m_rateWindow[caller] <= m_config.ratePerMinutePerIp};
-    if (m_rateWindow.size() > kMaxRateEntries) {
-        // Keyed by caller address, so a caller could grow the table one address at a time.
-        // Emptying it on overflow would let a caller with many addresses reset its budget,
-        // so an overflowing table refuses instead. Everything in it belongs to the current
-        // minute (the table is dropped when the minute turns), so there is nothing stale to
-        // prune.
-        return false;
+    // Keyed by caller address, so a caller with many addresses could grow the table one
+    // address at a time. Emptying it at the ceiling would reset every budget in it, so a
+    // full table refuses a new address instead, before recording it. Everything in it
+    // belongs to the current minute (the table is dropped when the minute turns), so there
+    // is nothing stale to prune.
+    auto counted{m_rateWindow.find(caller)};
+    if (counted == m_rateWindow.end()) {
+        if (m_rateWindow.size() >= kMaxRateEntries) {
+            return false;
+        }
+        counted = m_rateWindow.insert(caller, 0);
     }
-    return within;
+    return ++counted.value() <= m_config.ratePerMinutePerIp;
 }
 
 QString ApiServer::refuse(const QHttpServerRequest &request, int *status) const
@@ -340,36 +348,23 @@ QString ApiServer::refuse(const QHttpServerRequest &request, int *status) const
     return QString{};
 }
 
-namespace {
-
-// A future already holding `response`, for every answer this server has before it returns.
-QFuture<QHttpServerResponse> settled(QHttpServerResponse &&response)
-{
-    QPromise<QHttpServerResponse> promise;
-    QFuture<QHttpServerResponse> future{promise.future()};
-    promise.start();
-    promise.addResult(std::move(response));
-    promise.finish();
-    return future;
-}
-
-} // namespace
-
-QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request)
+void ApiServer::handle(const QHttpServerRequest &request, QHttpServerResponder &responder)
 {
     // The address this request is counted against: the peer, until the topology names a
     // proxy. Resolved once; the rate limit and the handler both use it.
     const QString caller{callerAddress(request)};
     if (!withinRate(caller)) {
         emit requestRefused(QStringLiteral("rate limit for %1").arg(caller));
-        return settled(errorResponse(429, QStringLiteral("too many requests")));
+        responder.sendResponse(errorResponse(429, QStringLiteral("too many requests")));
+        return;
     }
 
     // A preflight, before the key check: it never carries a key, and refusing it would make
     // the surface unreachable from any page. It is rate-limited like other requests.
     const QString origin{originOf(request)};
-    if (std::optional<QHttpServerResponse> preflight{preflightAnswer(request, origin)}) {
-        return settled(std::move(*preflight));
+    if (const std::optional<QHttpServerResponse> preflight{preflightAnswer(request, origin)}) {
+        responder.sendResponse(*preflight);
+        return;
     }
     // Whether a page at this origin may read the answer, decided once and only for a named
     // origin.
@@ -383,7 +378,8 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
         if (corsAllowed) {
             allowOrigin(refused, origin);
         }
-        return settled(std::move(refused));
+        responder.sendResponse(refused);
+        return;
     }
 
     // QHttpServerRequest already separates path and query, so the parsed query is used
@@ -395,28 +391,43 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
     }
     const QString path{request.url().path()};
 
-    // Parented to this server and retired once the response is written. It outlives this
-    // function because a handler that reaches a connect point answers later, through the
-    // QHttpServerResponder held by the lambda below.
+    // Retired once the response is written. It outlives this function because a handler
+    // that reaches a connect point answers later, through the responder held below.
     ApiRequest *apiRequest{new ApiRequest{methodOf(request), path, QVariantMap{}, query,
                                           headersOf(request, m_config.keyHeader),
-                                          bodyOf(request), caller, this}};
+                                          bodyOf(request), caller, m_requests}};
 
     // Shared, because the handler, the deadline below and an unmatched route may each
-    // settle it, and only the first counts.
-    auto promise{std::make_shared<QPromise<QHttpServerResponse>>()};
-    QFuture<QHttpServerResponse> future{promise->future()};
-    promise->start();
-    auto answer = [promise, corsAllowed, origin](QHttpServerResponse &&response) {
-        if (promise->future().isFinished()) {
+    // answer, and only the first counts.
+    //
+    // The responder stays where Qt put it while the handler runs, and is moved out only when
+    // the handler has not answered by the time it returns. A responder destroyed inside the
+    // route handler leaves Qt a dead signal connection on the socket, one per request, for
+    // as long as the keep-alive connection stays open.
+    struct Pending
+    {
+        QHttpServerResponder *inPlace{nullptr};
+        std::optional<QHttpServerResponder> held;
+        bool answered{false};
+    };
+    auto pending{std::make_shared<Pending>()};
+    pending->inPlace = &responder;
+    const auto answer{[pending, corsAllowed, origin](QHttpServerResponse &&response) {
+        if (pending->answered) {
             return;
         }
+        pending->answered = true;
         if (corsAllowed) {
             allowOrigin(response, origin);
         }
-        promise->addResult(std::move(response));
-        promise->finish();
-    };
+        if (pending->inPlace != nullptr) {
+            pending->inPlace->sendResponse(response);
+            return;
+        }
+        pending->held->sendResponse(response);
+        // Qt reads the connection's next request once the responder is gone.
+        pending->held.reset();
+    }};
 
     connect(apiRequest, &ApiRequest::answered, this,
             [answer, apiRequest](int code, const QByteArray &type, const QByteArray &payload) {
@@ -425,25 +436,25 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
         apiRequest->deleteLater();
     });
 
-    if (!m_api->dispatch(apiRequest)) {
+    const bool routed{m_api->dispatch(apiRequest)};
+    if (!routed) {
         apiRequest->deleteLater();
-        QHttpServerResponse unrouted{errorResponse(404, QStringLiteral("no route for %1 %2")
-                                                            .arg(methodOf(request), path))};
-        if (corsAllowed) {
-            allowOrigin(unrouted, origin);
-        }
-        return settled(std::move(unrouted));
+        answer(errorResponse(404, QStringLiteral("no route for %1 %2")
+                                      .arg(methodOf(request), path)));
     }
-    if (apiRequest->isAnswered()) {
-        return future;  // answered synchronously, which is the ordinary case
+    if (pending->answered) {
+        pending->inPlace = nullptr;
+        return;  // answered synchronously, which is the ordinary case
     }
+    pending->held.emplace(std::move(responder));
+    pending->inPlace = nullptr;
 
     // The handler answers later. Keep the connection open with a deadline, so a handler
     // that never answers costs one 504, not a held socket. The timer is a child of the
     // request, so answering first destroys it.
     //
     // The deadline is mandatory: `reply_timeout_ms: 0` would leave a request object, a
-    // promise and a connection per call for the life of the process. Zero means the
+    // responder and a connection per call for the life of the process. Zero means the
     // default, and that is logged once.
     int deadlineMs{m_config.replyTimeoutMs};
     if (deadlineMs <= 0) {
@@ -469,7 +480,6 @@ QFuture<QHttpServerResponse> ApiServer::handle(const QHttpServerRequest &request
         apiRequest->deleteLater();
     });
     deadline->start(deadlineMs);
-    return future;
 }
 
 } // namespace SynQt

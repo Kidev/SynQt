@@ -441,6 +441,20 @@
       "test": "twoEdgesRedeemingOneGenerationIssueOneSession"
     },
     {
+      "id": "a-stranger-with-many-addresses-grows-the-inbound-rate-table",
+      "what": "The inbound API rations each caller address over a one minute window, in a table keyed by that address. Past its ceiling the table refused every request, but only after recording the caller, so a stranger presenting a fresh address per request (an IPv6 prefix, or a forwarding header behind a trusted proxy) added one entry per refused request for the rest of the minute.",
+      "defended_by": "A full table refuses a new address before recording it, and a caller already counted this minute keeps its count.",
+      "file": "tests/memory/tst_memory.cpp",
+      "test": "anInboundSurfaceRecordsNobodyPastItsCeiling"
+    },
+    {
+      "id": "one-keep-alive-connection-grows-the-inbound-api",
+      "what": "The inbound API answered every request, refusals included, by returning an already-settled QFuture, and Qt keeps memory for each such answer until the keep-alive connection it arrived on closes. One caller that never lets the connection idle, refused or not, grows the entity by a few hundred bytes a request for as long as it keeps asking.",
+      "defended_by": "Requests are answered through the responder, which stays where Qt put it while the handler runs and is moved out only when the handler answers later. Neither leaves anything on the connection.",
+      "file": "tests/memory/tst_memory.cpp",
+      "test": "anInboundSurfaceKeepsNothingPerRequestOnALiveConnection"
+    },
+    {
       "id": "device-credential-used-as-a-session",
       "what": "A device credential found on a disk is presented as the session cookie at the WebSocket upgrade.",
       "defended_by": "What is persisted is not a session. Neither half of it is a live session credential, so the upgrade verifier refuses it before a socket exists; it is only redeemable at one POST route, once.",

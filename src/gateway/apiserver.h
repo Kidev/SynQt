@@ -7,8 +7,8 @@
 #include "apiconfig.h"
 #include "clientaddress.h"
 
-#include <QFuture>
 #include <QHash>
+#include <QHttpServerResponder>
 #include <QHttpServerResponse>
 #include <QList>
 #include <QObject>
@@ -53,10 +53,10 @@ signals:
     void requestRefused(const QString &reason);
 
 private:
-    /// The answer to one request, which may not exist yet: a handler that calls a connect point or
-    /// an upstream answers on a later turn. An immediate answer settles the future before this
-    /// returns.
-    QFuture<QHttpServerResponse> handle(const QHttpServerRequest &request);
+    /// Answer one request through `responder`, now or later: a handler that calls a connect
+    /// point or an upstream answers on a later turn, and the responder is moved out and held
+    /// until it does.
+    void handle(const QHttpServerRequest &request, QHttpServerResponder &responder);
     /// The refusal this request earns before routing, or an empty string when it earns
     /// none. Ordered cheapest-first so a flood costs the least work possible.
     QString refuse(const QHttpServerRequest &request, int *status) const;
@@ -82,6 +82,10 @@ private:
     ClientAddress m_clientAddress;
     QJSEngine *m_engine;
     Api *m_api;
+    /// The parent of every request still waiting for its handler. Created before the HTTP
+    /// server, so it is destroyed first: a waiting request holds a responder, and a responder
+    /// destroyed after the connection it answers on writes to freed memory.
+    QObject *m_requests;
     QHttpServer *m_server{nullptr};
     QTcpServer *m_tcpServer{nullptr};
     QString m_errorString;
