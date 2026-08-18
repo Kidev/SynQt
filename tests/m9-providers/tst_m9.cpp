@@ -2338,6 +2338,45 @@ private slots:
         QCOMPARE(cache.size(), 0);  // erased on read, not merely hidden
     }
 
+    // A counter keeps the deadline it was given. incr() on a key that already has one leaves
+    // it where it was, as Redis INCRBY does, so a count kept for a window (attempts in the
+    // last minute) ends with its window behind either engine instead of forever behind this
+    // one.
+    void memoryCacheIncrKeepsTheDeadlineItFound()
+    {
+        ProviderConfig config;
+        MemoryCacheProvider cache{config, /*maxEntries*/ 8};
+        QVERIFY(cache.connect(nullptr));
+
+        cache.set(QStringLiteral("attempts"), 1, /*ttlSeconds*/ 1);
+        QCOMPARE(cache.incr(QStringLiteral("attempts"), 1), static_cast<qint64>(2));
+        QTRY_VERIFY_WITH_TIMEOUT(!cache.get(QStringLiteral("attempts")).isValid(), 3000);
+    }
+
+    // A snapshot keeps each entry's deadline. Loaded without one, a value stored for a minute
+    // before a clean restart would be kept forever after it, and one whose deadline passed
+    // while the process was down would come back.
+    void memoryCacheSnapshotKeepsEachDeadline()
+    {
+        ProviderConfig config;
+        config.file = dbFile(QStringLiteral("cache-snapshot.json"));
+        {
+            MemoryCacheProvider saved{config, /*maxEntries*/ 8};
+            QVERIFY(saved.connect(nullptr));
+            saved.set(QStringLiteral("short"), 1, /*ttlSeconds*/ 1);
+            saved.set(QStringLiteral("long"), 2, /*ttlSeconds*/ 600);
+            saved.set(QStringLiteral("forever"), 3, 0);
+            saved.disconnect();
+        }
+
+        MemoryCacheProvider loaded{config, /*maxEntries*/ 8};
+        QVERIFY(loaded.connect(nullptr));
+        QCOMPARE(loaded.get(QStringLiteral("long")).toInt(), 2);
+        QCOMPARE(loaded.get(QStringLiteral("forever")).toInt(), 3);
+        QTRY_VERIFY_WITH_TIMEOUT(!loaded.get(QStringLiteral("short")).isValid(), 3000);
+        QCOMPARE(loaded.get(QStringLiteral("long")).toInt(), 2);
+    }
+
     void memoryCacheExpiresByTtlAndReportsMissesAsInvalid()
     {
         ProviderConfig config;

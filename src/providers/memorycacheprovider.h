@@ -48,6 +48,9 @@ private:
         Recency::iterator recency; ///< this key's place in m_lru
     };
 
+    /// Write one entry with an absolute deadline (0 for none), which is what set() and a
+    /// loaded snapshot both come down to.
+    void store(const QString &key, const QVariant &value, qint64 expiresMs);
     bool isExpired(const Entry &entry) const;
     void touch(Entry &entry);  ///< mark most-recently-used
     void drop(QHash<QString, Entry>::iterator entry);

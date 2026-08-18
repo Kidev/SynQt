@@ -455,6 +455,13 @@
       "test": "anInboundSurfaceKeepsNothingPerRequestOnALiveConnection"
     },
     {
+      "id": "a-window-counter-in-the-memory-cache-never-lifts",
+      "what": "An entity counts attempts per visitor in its cache with a deadline (set with a TTL, then incr on each attempt), so a lockout lifts when the window ends. The memory provider's incr stored the new count with no deadline, and its snapshot reloaded every entry with none, so a count anybody can drive up for another visitor's key locked that visitor out for the life of the process, or past a restart. Redis keeps the deadline on INCRBY and in its own snapshot, so the same QML behaved differently behind the two engines.",
+      "defended_by": "incr keeps the deadline a key already has, and a snapshot saves each entry's deadline and leaves out an entry whose deadline passed while the process was down.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "memoryCacheIncrKeepsTheDeadlineItFound"
+    },
+    {
       "id": "device-credential-used-as-a-session",
       "what": "A device credential found on a disk is presented as the session cookie at the WebSocket upgrade.",
       "defended_by": "What is persisted is not a session. Neither half of it is a live session credential, so the upgrade verifier refuses it before a socket exists; it is only redeemable at one POST route, once.",

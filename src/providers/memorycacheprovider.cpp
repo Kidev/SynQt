@@ -45,13 +45,20 @@ QString MemoryCacheProvider::name() const
 bool MemoryCacheProvider::connect(QString *)
 {
     m_connected = true;
-    // Optional persistence. Load a previously saved snapshot.
+    // Optional persistence. Load a previously saved snapshot, each entry with the deadline
+    // it was saved with. One that passed while the process was down is not loaded.
     if (!m_config.file.isEmpty()) {
         QFile file{m_config.file};
         if (file.open(QIODevice::ReadOnly)) {
             const QJsonObject saved{QJsonDocument::fromJson(file.readAll()).object()};
+            const qint64 now{QDateTime::currentMSecsSinceEpoch()};
             for (auto it{saved.constBegin()}; it != saved.constEnd(); ++it) {
-                set(it.key(), it.value().toObject().value(QStringLiteral("v")).toVariant(), 0);
+                const QJsonObject entry{it.value().toObject()};
+                const qint64 expiresMs{entry.value(QStringLiteral("e")).toInteger()};
+                if (expiresMs > 0 && expiresMs <= now) {
+                    continue;
+                }
+                store(it.key(), entry.value(QStringLiteral("v")).toVariant(), expiresMs);
             }
         }
     }
@@ -64,9 +71,12 @@ void MemoryCacheProvider::disconnect()
         QJsonObject saved;
         for (auto it{m_entries.constBegin()}; it != m_entries.constEnd(); ++it) {
             if (!isExpired(it.value())) {
-                saved.insert(it.key(),
-                             QJsonObject{{QStringLiteral("v"),
-                                          QJsonValue::fromVariant(it.value().value)}});
+                QJsonObject entry{{QStringLiteral("v"),
+                                   QJsonValue::fromVariant(it.value().value)}};
+                if (it.value().expiresMs > 0) {
+                    entry.insert(QStringLiteral("e"), it.value().expiresMs);
+                }
+                saved.insert(it.key(), entry);
             }
         }
         QFile file{m_config.file};
@@ -131,18 +141,23 @@ QVariant MemoryCacheProvider::get(const QString &key)
 
 void MemoryCacheProvider::set(const QString &key, const QVariant &value, int ttlSeconds)
 {
+    store(key, value, expiryFor(ttlSeconds));
+}
+
+void MemoryCacheProvider::store(const QString &key, const QVariant &value, qint64 expiresMs)
+{
     const auto existing{m_entries.find(key)};
     if (existing != m_entries.end()) {
         // Overwriting keeps the key's existing node: no list insertion and no second node
         // for the same key.
         existing->value = value;
-        existing->expiresMs = expiryFor(ttlSeconds);
+        existing->expiresMs = expiresMs;
         touch(*existing);
         return;
     }
     Entry entry;
     entry.value = value;
-    entry.expiresMs = expiryFor(ttlSeconds);
+    entry.expiresMs = expiresMs;
     entry.recency = m_lru.insert(m_lru.end(), key);
     m_entries.insert(key, entry);
     evictIfNeeded();  // never exceed the bound
@@ -158,8 +173,15 @@ void MemoryCacheProvider::del(const QString &key)
 
 qint64 MemoryCacheProvider::incr(const QString &key, qint64 by)
 {
-    const qint64 next{get(key).toLongLong() + by};
-    set(key, next, 0);
+    // The deadline the key already has stays, as with Redis INCRBY. A missing or expired key
+    // starts from zero with none.
+    const auto it{m_entries.find(key)};
+    if (it == m_entries.end() || isExpired(it.value())) {
+        store(key, by, 0);
+        return by;
+    }
+    const qint64 next{it.value().value.toLongLong() + by};
+    store(key, next, it.value().expiresMs);
     return next;
 }
 
