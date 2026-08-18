@@ -14,7 +14,8 @@ namespace SynQt {
 /// An external cache provider that wraps the hiredis client library (a thin wrapper
 /// over its C API rather than a reimplementation), implementing the same ICacheProvider interface
 /// as the memory provider so a cache entity's Source is unchanged when it moves to Redis.
-/// Values are stored as Redis strings. Incr uses server-side INCRBY. It connects over
+/// Values are stored as their JSON text, so they read back with the type they were set with.
+/// Incr uses server-side INCRBY. It connects over
 /// verified TLS and REFUSES a plaintext or unverified connection in release. Only dev on
 /// localhost may relax that. Credentials come from the entity env only and are never logged.
 ///

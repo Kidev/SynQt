@@ -45,6 +45,32 @@ void warnUnreadable(const char *operation, const QString &collection)
              qstrcmp(operation, "insert") == 0 ? "document" : "filter");
 }
 
+// A value with every ObjectId in it written as its 24 hex digits, which is the id insert()
+// hands back and the kind of id the memory provider keeps. Relaxed extended JSON writes one
+// as {"$oid": "..."}.
+QVariant withPlainIds(const QVariant &value)
+{
+    if (value.typeId() == QMetaType::QVariantMap) {
+        const QVariantMap map{value.toMap()};
+        if (map.size() == 1 && map.contains(QStringLiteral("$oid"))) {
+            return map.value(QStringLiteral("$oid")).toString();
+        }
+        QVariantMap plain;
+        for (auto it{map.constBegin()}; it != map.constEnd(); ++it) {
+            plain.insert(it.key(), withPlainIds(it.value()));
+        }
+        return plain;
+    }
+    if (value.typeId() == QMetaType::QVariantList) {
+        QVariantList plain;
+        for (const QVariant &item : value.toList()) {
+            plain.append(withPlainIds(item));
+        }
+        return plain;
+    }
+    return value;
+}
+
 QVariantMap mapFromBson(const bson_t *document)
 {
     char *json{bson_as_relaxed_extended_json(document, nullptr)};
@@ -53,7 +79,27 @@ QVariantMap mapFromBson(const bson_t *document)
     }
     const QVariantMap map{QJsonDocument::fromJson(QByteArray{json}).object().toVariantMap()};
     bson_free(json);
-    return map;
+    return withPlainIds(map).toMap();
+}
+
+// A filter whose `_id` is the text of an ObjectId, widened to match either the ObjectId
+// insert() minted or a document stored with that text as its own `_id`.
+QVariantMap filterWithIds(const QVariantMap &filter)
+{
+    const QVariant id{filter.value(QStringLiteral("_id"))};
+    if (id.typeId() != QMetaType::QString) {
+        return filter;
+    }
+    const QString text{id.toString()};
+    if (!bson_oid_is_valid(text.toLatin1().constData(), static_cast<size_t>(text.size()))) {
+        return filter;
+    }
+    QVariantMap widened{filter};
+    widened.insert(QStringLiteral("_id"),
+                   QVariantMap{{QStringLiteral("$in"),
+                                QVariantList{QVariantMap{{QStringLiteral("$oid"), text}},
+                                             text}}});
+    return widened;
 }
 
 } // namespace
@@ -202,7 +248,7 @@ QVariantList MongoDocumentProvider::find(const QString &collection, const QVaria
     if (m_client == nullptr) {
         return rows;
     }
-    bson_t *query{bsonFromMap(filter)};
+    bson_t *query{bsonFromMap(filterWithIds(filter))};
     bson_t *opts{bsonFromMap(options)};
     if (query == nullptr || opts == nullptr) {
         destroyIfBuilt(query);
@@ -233,7 +279,7 @@ int MongoDocumentProvider::update(const QString &collection, const QVariantMap &
     if (m_client == nullptr) {
         return 0;
     }
-    bson_t *selector{bsonFromMap(filter)};
+    bson_t *selector{bsonFromMap(filterWithIds(filter))};
     bson_t *update{bsonFromMap(QVariantMap{{QStringLiteral("$set"), change}})};
     if (selector == nullptr || update == nullptr) {
         destroyIfBuilt(selector);
@@ -264,7 +310,7 @@ int MongoDocumentProvider::remove(const QString &collection, const QVariantMap &
     if (m_client == nullptr) {
         return 0;
     }
-    bson_t *selector{bsonFromMap(filter)};
+    bson_t *selector{bsonFromMap(filterWithIds(filter))};
     if (selector == nullptr) {
         warnUnreadable("remove", collection);
         return 0;

@@ -1388,6 +1388,119 @@ private slots:
         docs->disconnect();
     }
 
+    // What a Source stores in the cache is what it reads back, whichever engine holds it: a
+    // number stays a number and an object stays an object. The same QML reads `Cache.get(k)
+    // + 1` or `Cache.get(k).name`, so a value that came back as its text behind one engine
+    // and as itself behind the other would change what that line means.
+    void aCachedValueKeepsItsTypeBehindEitherEngine()
+    {
+        const QVariantMap object{{QStringLiteral("name"), QStringLiteral("ada")},
+                                 {QStringLiteral("level"), 3}};
+        const QVariantList list{1, QStringLiteral("two")};
+        const auto checkRoundTrip{[&](ICacheProvider &cache) {
+            cache.set(QStringLiteral("synqt:m9:number"), 5, 0);
+            cache.set(QStringLiteral("synqt:m9:text"), QStringLiteral("5"), 0);
+            cache.set(QStringLiteral("synqt:m9:object"), object, 0);
+            cache.set(QStringLiteral("synqt:m9:list"), list, 0);
+            const QVariant number{cache.get(QStringLiteral("synqt:m9:number"))};
+            QVERIFY2(number.typeId() != QMetaType::QString,
+                     qPrintable(cache.name() + QStringLiteral(" returned a number as text")));
+            QCOMPARE(number.toInt(), 5);
+            QCOMPARE(cache.get(QStringLiteral("synqt:m9:text")).typeId(),
+                     static_cast<int>(QMetaType::QString));
+            QCOMPARE(cache.get(QStringLiteral("synqt:m9:text")).toString(),
+                     QStringLiteral("5"));
+            QCOMPARE(cache.get(QStringLiteral("synqt:m9:object")).toMap(), object);
+            QCOMPARE(cache.get(QStringLiteral("synqt:m9:list")).toList(), list);
+            // A counter still counts on top of a number that was set.
+            QCOMPARE(cache.incr(QStringLiteral("synqt:m9:number"), 2), static_cast<qint64>(7));
+            QCOMPARE(cache.get(QStringLiteral("synqt:m9:number")).toInt(), 7);
+            for (const QString &key : {QStringLiteral("synqt:m9:number"),
+                                       QStringLiteral("synqt:m9:text"),
+                                       QStringLiteral("synqt:m9:object"),
+                                       QStringLiteral("synqt:m9:list")}) {
+                cache.del(key);
+            }
+        }};
+
+        MemoryCacheProvider memory{ProviderConfig{}, /*maxEntries*/ 16};
+        QVERIFY(memory.connect(nullptr));
+        checkRoundTrip(memory);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_REDIS_HOST")) {
+            QSKIP("no live redis for the second half (tests/lib/live-engines.sh up, then env)");
+        }
+        ProviderConfig redis;
+        redis.name = QStringLiteral("redis");
+        redis.host = qEnvironmentVariable("SYNQT_TEST_REDIS_HOST");
+        redis.port = qEnvironmentVariableIntValue("SYNQT_TEST_REDIS_PORT");
+        redis.password = qEnvironmentVariable("SYNQT_TEST_REDIS_PASSWORD");
+        redis.tls = false;
+        redis.release = false;
+        QString error;
+        std::unique_ptr<ICacheProvider> cache{makeCacheProvider(redis, &error)};
+        if (cache == nullptr) {
+            QSKIP(qPrintable(QStringLiteral("redis provider not built: %1").arg(error)));
+        }
+        QVERIFY2(cache->connect(&error), qPrintable(error));
+        checkRoundTrip(*cache);
+    }
+
+    // The id insert() returns is the id of that document for every other call: a filter on
+    // it finds the document, and the document read back carries it unchanged. Behind MongoDB
+    // the stored `_id` is an ObjectId, so a filter or a comparison holding its text alone
+    // would match nothing.
+    void anInsertedIdNamesItsDocumentBehindEitherEngine()
+    {
+        const auto checkIds{[](IDocumentProvider &docs) {
+            const QString collection{QStringLiteral("m9_ids")};
+            docs.remove(collection, {});
+            const QVariant id{docs.insert(collection,
+                                          {{QStringLiteral("name"), QStringLiteral("ada")}})};
+            QVERIFY(id.isValid());
+            docs.insert(collection, {{QStringLiteral("name"), QStringLiteral("bob")}});
+
+            const QVariantList named =
+                docs.find(collection, {{QStringLiteral("_id"), id}}, {});
+            QCOMPARE(named.size(), 1);
+            QCOMPARE(named.first().toMap().value(QStringLiteral("name")).toString(),
+                     QStringLiteral("ada"));
+            QCOMPARE(named.first().toMap().value(QStringLiteral("_id")), id);
+            QCOMPARE(docs.update(collection, {{QStringLiteral("_id"), id}},
+                                 {{QStringLiteral("name"), QStringLiteral("ada l.")}}), 1);
+            QCOMPARE(docs.remove(collection, {{QStringLiteral("_id"), id}}), 1);
+            QCOMPARE(docs.find(collection, {}, {}).size(), 1);
+            docs.remove(collection, {});
+        }};
+
+        MemoryDocumentProvider memory{ProviderConfig{}};
+        QVERIFY(memory.connect(nullptr));
+        checkIds(memory);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_MONGO_URI")) {
+            QSKIP("no live mongodb for the second half (tests/lib/live-engines.sh up, then env)");
+        }
+        ProviderConfig mongo;
+        mongo.name = QStringLiteral("mongodb");
+        mongo.uri = qEnvironmentVariable("SYNQT_TEST_MONGO_URI");
+        mongo.database = qEnvironmentVariable("SYNQT_TEST_MONGO_DB", QStringLiteral("synqt"));
+        mongo.tls = false;
+        mongo.release = false;
+        QString error;
+        std::unique_ptr<IDocumentProvider> docs{makeDocumentProvider(mongo, &error)};
+        if (docs == nullptr) {
+            QSKIP(qPrintable(QStringLiteral("mongodb provider not built: %1").arg(error)));
+        }
+        QVERIFY2(docs->connect(&error), qPrintable(error));
+        checkIds(*docs);
+    }
+
     // Verified TLS to a live Redis. The TLS port answers a provider holding the right CA;
     // a certificate from another CA is refused; and a certificate that does not name the host
     // is refused too, which hiredis does not check by itself: it passes the name as SNI and

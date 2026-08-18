@@ -4,6 +4,10 @@
 #include "redisprovider.h"
 
 #include <QByteArray>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QJsonValue>
 #include <QList>
 
 #include <hiredis/hiredis.h>
@@ -43,6 +47,30 @@ redisReply *runCommand(redisContext *context, const QList<QByteArray> &args)
     }
     return static_cast<redisReply *>(
         redisCommandArgv(context, static_cast<int>(args.size()), argv.data(), argvLen.data()));
+}
+
+// A value as it is stored: its JSON text, so a number, an object or a list reads back as
+// what was set, as it does from the memory provider. JSON for an integer is its decimal
+// digits, which is what INCRBY counts on. A document holds an array or an object and a value
+// is often neither, so the value is written as the one element of an array and the brackets
+// are dropped.
+QByteArray encodedValue(const QVariant &value)
+{
+    const QByteArray wrapped{QJsonDocument{QJsonArray{QJsonValue::fromVariant(value)}}.toJson(
+        QJsonDocument::Compact)};
+    return wrapped.mid(1, wrapped.size() - 2);
+}
+
+// The reverse. Text that is not JSON (written by another client, or by a build that stored
+// values as text) is returned as that text.
+QVariant decodedValue(const QByteArray &stored)
+{
+    QJsonParseError error{};
+    const QJsonDocument document{QJsonDocument::fromJson('[' + stored + ']', &error)};
+    if (error.error != QJsonParseError::NoError || document.array().size() != 1) {
+        return QString::fromUtf8(stored);
+    }
+    return document.array().first().toVariant();
 }
 
 } // namespace
@@ -241,7 +269,7 @@ QVariant RedisCacheProvider::get(const QString &key)
     redisReply *reply{runCommand(m_context, {QByteArrayLiteral("GET"), key.toUtf8()})};
     QVariant value;
     if (reply != nullptr && reply->type == REDIS_REPLY_STRING) {
-        value = QString::fromUtf8(reply->str, static_cast<qsizetype>(reply->len));
+        value = decodedValue(QByteArray{reply->str, static_cast<qsizetype>(reply->len)});
     }
     if (reply != nullptr) {
         freeReplyObject(reply);
@@ -257,9 +285,9 @@ void RedisCacheProvider::set(const QString &key, const QVariant &value, int ttlS
     QList<QByteArray> command;
     if (ttlSeconds > 0) {
         command = {QByteArrayLiteral("SETEX"), key.toUtf8(),
-                   QByteArray::number(ttlSeconds), value.toString().toUtf8()};
+                   QByteArray::number(ttlSeconds), encodedValue(value)};
     } else {
-        command = {QByteArrayLiteral("SET"), key.toUtf8(), value.toString().toUtf8()};
+        command = {QByteArrayLiteral("SET"), key.toUtf8(), encodedValue(value)};
     }
     redisReply *reply{runCommand(m_context, command)};
     if (reply != nullptr) {

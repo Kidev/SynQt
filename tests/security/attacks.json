@@ -462,6 +462,20 @@
       "test": "memoryCacheIncrKeepsTheDeadlineItFound"
     },
     {
+      "id": "an-erasure-by-id-removes-nothing-behind-mongodb",
+      "what": "A document entity removes a visitor's record by the id insert() returned for it (an erasure request, a delete of one's own item). Behind MongoDB that id was the text of an ObjectId while the stored _id was the ObjectId itself, so a filter on it matched nothing: the call reported zero removed, the record stayed, and the same QML removed it behind the memory provider.",
+      "defended_by": "An ObjectId crosses the provider as its text in both directions: documents read back carry it as text, and a filter naming that text matches the ObjectId or a document stored with the same text as its own _id.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "anInsertedIdNamesItsDocumentBehindEitherEngine"
+    },
+    {
+      "id": "a-cached-object-reads-back-empty-behind-redis",
+      "what": "An entity caches an object (a profile, a permission set) and reads it back to decide something. The Redis provider stored the value's text form, which for an object or a list is empty and for a number is its digits, so the same QML read an empty string or a string where the memory provider returned the object or the number.",
+      "defended_by": "The Redis provider stores each value as its JSON text and reads it back as the value it was set with; a counter still counts, since the JSON for an integer is its digits.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "aCachedValueKeepsItsTypeBehindEitherEngine"
+    },
+    {
       "id": "device-credential-used-as-a-session",
       "what": "A device credential found on a disk is presented as the session cookie at the WebSocket upgrade.",
       "defended_by": "What is persisted is not a session. Neither half of it is a live session credential, so the upgrade verifier refuses it before a socket exists; it is only redeemable at one POST route, once.",
