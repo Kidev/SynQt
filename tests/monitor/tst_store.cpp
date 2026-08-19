@@ -5,6 +5,8 @@
 // it. Ask it questions, and not have it fill the disk.
 
 #include "eventstore.h"
+#include "monitorservice.h"
+#include "operatorstore.h"
 #include "traceevent.h"
 
 #include <QDateTime>
@@ -274,6 +276,108 @@ private slots:
         const QList<TraceEvent> left{store.query(EventQuery{})};
         QVERIFY(!left.isEmpty());
         QCOMPARE(left.first().message, QStringLiteral("event 11 1999"));
+    }
+
+    // The console's gate. An operator with the right password is let in, and nobody else:
+    // a wrong password, a name nobody configured, and a monitor with no operator store at
+    // all are the same refusal.
+    void theConsoleOpensForAnOperatorAndNobodyElse()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY(store.open());
+
+        MonitorService withoutOperators{&store, nullptr, MonitorService::Retention{}};
+        QVERIFY(!withoutOperators.signIn(QStringLiteral("ada"), QStringLiteral("s3cret")));
+
+        OperatorStore operators;
+        QVERIFY(operators.add(OperatorStore::mint(QStringLiteral("ada"),
+                                                  QStringLiteral("s3cret"))));
+        MonitorService service{&store, &operators, MonitorService::Retention{}};
+        QVERIFY(service.signIn(QStringLiteral("ada"), QStringLiteral("s3cret")));
+        QVERIFY(!service.signIn(QStringLiteral("ada"), QStringLiteral("wrong")));
+        QVERIFY(!service.signIn(QStringLiteral("bob"), QStringLiteral("s3cret")));
+    }
+
+    // What the console is shown: the rows its model declares, each under the name the
+    // transport verified rather than the one the batch carried, filtered the way the
+    // operator asked, and a misspelled severity showing everything rather than nothing.
+    void theConsoleIsAnsweredUnderTheVerifiedNameAndTheOperatorsFilter()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY(store.open());
+        MonitorService service{&store, nullptr, MonitorService::Retention{}};
+
+        TraceEvent refused{made(QStringLiteral("claimed-name"), Category::Authorization,
+                                Severity::Warning, QStringLiteral("slot refused"), 1000)};
+        refused.ok = false;
+        // Both identifiers, in the tracer's shape: a record naming only one is stored with
+        // neither.
+        refused.traceId = QStringLiteral("4bf92f3577b34da6a3ce929d0e0e4736");
+        refused.spanId = QStringLiteral("00f067aa0ba902b7");
+        refused.durationUs = 2500;
+        const TraceEvent routine{made(QStringLiteral("claimed-name"), Category::Call,
+                                      Severity::Info, QStringLiteral("call"), 2000)};
+        service.take({refused.toVariant(), routine.toVariant()}, QStringLiteral("web"));
+        service.take({routine.toVariant()}, QStringLiteral("db"));
+
+        // `=`, not braces, for these three: a QVariantList converts to a QVariant, so a braced
+        // copy would be a list holding the list.
+        const QVariantList everything =
+            service.ask(QString{}, QString{}, QStringLiteral("no such word"), 0);
+        QCOMPARE(everything.size(), 3);
+        for (const QVariant &row : everything) {
+            QVERIFY(row.toMap().value(QStringLiteral("entity")).toString()
+                    != QStringLiteral("claimed-name"));
+        }
+
+        const QVariantList warnings =
+            service.ask(QString{}, QStringLiteral("web"), QStringLiteral("warning"), 10);
+        QCOMPARE(warnings.size(), 1);
+        const QVariantMap row{warnings.first().toMap()};
+        QCOMPARE(row.value(QStringLiteral("entity")).toString(), QStringLiteral("web"));
+        QCOMPARE(row.value(QStringLiteral("severity")).toString(), QStringLiteral("warning"));
+        QCOMPARE(row.value(QStringLiteral("category")).toString(),
+                 QStringLiteral("authorization"));
+        QCOMPARE(row.value(QStringLiteral("ok")).toBool(), false);
+        QCOMPARE(row.value(QStringLiteral("durationMs")).toDouble(), 2.5);
+        QVERIFY(row.value(QStringLiteral("attributes")).toString()
+                    .contains(QStringLiteral("member=placeBid")));
+
+        const QVariantList story = service.follow(refused.traceId);
+        QCOMPARE(story.size(), 1);
+        QCOMPARE(story.first().toMap().value(QStringLiteral("message")).toString(),
+                 QStringLiteral("slot refused"));
+    }
+
+    // The health strip: one row per entity heard from, its refusals counted, and live
+    // while it keeps reporting. A heartbeat alone keeps an idle entity live.
+    void anEntityIsLiveWhileItKeepsReporting()
+    {
+        QTemporaryDir dir;
+        EventStore store{dir.filePath(QStringLiteral("events.db"))};
+        QVERIFY(store.open());
+        MonitorService service{&store, nullptr, MonitorService::Retention{}};
+
+        TraceEvent refused{made(QStringLiteral("web"), Category::Authorization,
+                                Severity::Warning, QStringLiteral("slot refused"), 1000)};
+        refused.ok = false;
+        service.take({refused.toVariant()}, QStringLiteral("web"));
+        service.heartbeat(QStringLiteral("jobs"), 0);
+
+        QHash<QString, QVariantMap> byName;
+        for (const QVariant &row : service.entityRows()) {
+            byName.insert(row.toMap().value(QStringLiteral("name")).toString(), row.toMap());
+        }
+        QCOMPARE(byName.size(), 2);
+        QCOMPARE(byName.value(QStringLiteral("web")).value(QStringLiteral("refusals")).toInt(),
+                 1);
+        QVERIFY(byName.value(QStringLiteral("web")).value(QStringLiteral("live")).toBool());
+        QVERIFY(byName.value(QStringLiteral("jobs")).value(QStringLiteral("live")).toBool());
+        QCOMPARE(static_cast<int>(service.received()), 1);
+        QCOMPARE(static_cast<int>(service.stored()), 1);
+        QCOMPARE(static_cast<int>(service.dropped()), 0);
     }
 };
 
