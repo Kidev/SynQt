@@ -21,6 +21,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -380,6 +382,50 @@ private slots:
         // quietly is not.
         QVERIFY2(exporter.dropped() > 0, "an unreachable collector queued without a bound");
         QCOMPARE(exporter.exported() + exporter.dropped(), 50);
+    }
+
+    // The path a collector is asked for is the signal's own, under whatever base path the
+    // endpoint names, however the endpoint was written. A trailing slash on the base is
+    // how most people write a URL, and `//v1/logs` is a path no collector serves.
+    void theSignalPathIsJoinedToTheEndpointWithOneSlash_data()
+    {
+        QTest::addColumn<QString>("base");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("bare") << QString{} << QStringLiteral("/v1/logs");
+        QTest::newRow("trailing slash") << QStringLiteral("/") << QStringLiteral("/v1/logs");
+        QTest::newRow("base path") << QStringLiteral("/otlp") << QStringLiteral("/otlp/v1/logs");
+        QTest::newRow("base path, trailing slash")
+            << QStringLiteral("/otlp/") << QStringLiteral("/otlp/v1/logs");
+    }
+
+    void theSignalPathIsJoinedToTheEndpointWithOneSlash()
+    {
+        QFETCH(QString, base);
+        QFETCH(QString, expected);
+
+        QTcpServer collector;
+        QVERIFY(collector.listen(QHostAddress::LocalHost));
+        QByteArray requestLine;
+        connect(&collector, &QTcpServer::newConnection, &collector, [&collector, &requestLine]() {
+            QTcpSocket *socket{collector.nextPendingConnection()};
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, &requestLine]() {
+                if (requestLine.isEmpty() && socket->canReadLine()) {
+                    requestLine = socket->readLine().trimmed();
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+                }
+            });
+        });
+
+        OtlpSettings settings;
+        settings.endpoint = QUrl{QStringLiteral("http://127.0.0.1:%1%2")
+                                     .arg(collector.serverPort())
+                                     .arg(base)};
+        OtlpExporter exporter{settings};
+        exporter.take({record(QStringLiteral("web"), QStringLiteral("placeBid"))});
+
+        QTRY_VERIFY(!requestLine.isEmpty());
+        QCOMPARE(requestLine, QByteArrayLiteral("POST ") + expected.toLatin1()
+                                  + QByteArrayLiteral(" HTTP/1.1"));
     }
 
     void aPlaintextCollectorOnAnotherHostIsRefusedAndNotQuietlyFed()

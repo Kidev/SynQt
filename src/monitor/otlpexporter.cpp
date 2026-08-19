@@ -371,8 +371,14 @@ void OtlpExporter::post(const QString &signalPath, const QJsonObject &body, qint
         return;
     }
 
+    // Joined with one slash: an endpoint written with a trailing slash would otherwise ask
+    // for `//v1/logs`, which no collector serves.
+    QString base{m_settings.endpoint.path()};
+    while (base.endsWith(QLatin1Char('/'))) {
+        base.chop(1);
+    }
     QUrl url{m_settings.endpoint};
-    url.setPath(m_settings.endpoint.path() + signalPath);
+    url.setPath(base + signalPath);
     QNetworkRequest request{url};
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                       QStringLiteral("application/json"));

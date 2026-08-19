@@ -476,6 +476,13 @@
       "test": "aCachedValueKeepsItsTypeBehindEitherEngine"
     },
     {
+      "id": "the-security-record-never-reaches-the-collector",
+      "what": "The monitor exports every event to the operator's OpenTelemetry collector, and an endpoint written the way most URLs are, with a trailing slash, sent each batch to //v1/logs and //v1/traces. The collector answers those with 404, the exporter counted the batches as exported anyway, and the cold copy of every refusal and every caller was never kept.",
+      "defended_by": "The signal path is joined to the endpoint's base path with exactly one slash, whatever the endpoint ends with.",
+      "file": "tests/monitor/tst_export.cpp",
+      "test": "theSignalPathIsJoinedToTheEndpointWithOneSlash"
+    },
+    {
       "id": "device-credential-used-as-a-session",
       "what": "A device credential found on a disk is presented as the session cookie at the WebSocket upgrade.",
       "defended_by": "What is persisted is not a session. Neither half of it is a live session credential, so the upgrade verifier refuses it before a socket exists; it is only redeemable at one POST route, once.",
