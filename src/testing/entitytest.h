@@ -121,7 +121,8 @@ private:
     enum class CallerKind { Nobody, User, Entity };
 
     void rebuildCaller();
-    void buildHelpers();
+    void startRecording();
+    bool resetEngines();
     QString derivedContract() const;
 
     QUrl m_source;
@@ -147,6 +148,7 @@ private:
     std::unique_ptr<IDocumentProvider> m_document;
     mutable QMutex m_recordedMutex;
     QVariantList m_recorded;
+    bool m_recording{false};
     Log *m_log{nullptr};
     Db *m_db{nullptr};
     Cache *m_cacheHelper{nullptr};

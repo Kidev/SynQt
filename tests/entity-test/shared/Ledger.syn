@@ -3,12 +3,16 @@
 
 // The contract the harness suite drives. Enough of one to exercise every direction a
 // QML test needs to assert on. A prop the slot writes, a model it replaces, a signal it
-// sends back to the one caller, and both slot shapes.
+// sends back to the one caller, and both slot shapes. The last three reach the cache, the
+// document store and the job scheduler, so a test can see that each is reset.
 contract Ledger {
     prop int highBid
     model winners(string item, string winner, int amount)
     slot placeBid(int amount, string bidder)
     slot bool recordWinner(string item, string winner, int amount)
     slot forwardToDatabase(string item)
+    slot keep(string key)
+    slot int notesKept()
+    slot tickEvery(int intervalMs)
     signal bidRejected(string reason)
 }

@@ -110,7 +110,7 @@ anywhere. The only SynQt type is `EntityTest`.
 | `subject` | the loaded Source. `null` until `load()` succeeds. This is what a test calls slots on and reads properties from. |
 | `contract` | the contract name, derived from the Source type. Set it only if the derivation is wrong. |
 | `errorString` | why the last `load()` failed. Pass it as the second argument to `verify` and a broken QML file reports itself. |
-| `load()` | build the Source afresh and reset the in-memory engines. Call it from `init()`. Returns false rather than throwing. |
+| `load()` | build the Source afresh over fresh in-memory engines behind `Db`, `Cache` and `Docs`, and stop every `Jobs` timer the previous Source started. Call it from `init()`. Returns false rather than throwing. |
 | `callerIsUser(scope, identity?)` | the next call comes from a browser user with that scope. `identity` is the normalized identity object (`sub`, `login`, `name`, `email`); omit it for an anonymous visitor. |
 | `callerIsEntity(name, verified?)` | the next call comes from another entity. `verified` defaults to true. Pass false to stand in for an opt-in `transport: local` link, where the name is trusted by colocation. |
 | `callerIsNobody()` | no caller at all, as when the owner mutates its own state on a timer. |

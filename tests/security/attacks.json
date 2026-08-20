@@ -1125,6 +1125,13 @@
       "defended_by": "LegalFooter opens an absolute http or https URL with Qt.openUrlExternally and emits `navigate` only for an application route. The test clicks the rendered link for each kind and records which of the two it reached.",
       "file": "tests/privacy/tst_privacycomponents.cpp",
       "test": "aPolicyLinkFollowsItsKindOfUrl"
+    },
+    {
+      "id": "an-application-test-passes-on-what-an-earlier-test-left",
+      "what": "EntityTest.load() is documented to reset the in-memory engines, and it reset only the database. A value one test cached, a document it inserted and a Jobs timer it started all survived into the next test, so an application's authorization test could pass because of the order the tests ran in, and a forgotten timer kept running against a Source that no longer existed.",
+      "defended_by": "load() deletes every helper and its provider and builds fresh ones before it builds the Source, so the cache and the document store start empty and every timer the previous Source started is stopped. The test caches a value, inserts a document and starts a timer, reloads, and requires all three to be gone.",
+      "file": "tests/entity-test/qml/tst_ledger.qml",
+      "test": "test_each_test_starts_from_empty_helpers"
     }
   ]
 }

@@ -40,8 +40,8 @@ const QStringList &defaultScopeOrder()
     return order;
 }
 
-/// Split a schema file into migrate() statements, as the runtime does: a semicolon at the
-/// end of a line separates statements.
+/// Split a schema file into migrate() statements at every semicolon, as the runtime does
+/// (topologywriter.py).
 QStringList schemaSteps(const QString &text)
 {
     QStringList steps;
@@ -63,12 +63,16 @@ EntityTest::EntityTest(QObject *parent)
     // One session store for the harness, with a scaffolded project's default scope, so an
     // unauthenticated caller is anonymous.
     m_sessions = new SessionManager{QStringLiteral("anonymous"), 60, this};
+    m_log = new Log{this};
 }
 
 EntityTest::~EntityTest()
 {
     // The sink points at a member of this object, so it has to go before this object does.
+    // The writer thread calls a copy of the sink outside the tracer's lock, and the flush
+    // waits for a delivery already under way to return.
     Tracer::instance()->setSink(Tracer::Sink{});
+    Tracer::instance()->flush();
     Tracer::instance()->setEnabled(false);
 }
 
@@ -207,11 +211,45 @@ void EntityTest::rebuildCaller()
                                   m_callerKind == CallerKind::User ? m_caller : nullptr);
 }
 
-void EntityTest::buildHelpers()
+void EntityTest::startRecording()
 {
-    if (m_db != nullptr) {
-        return;   // built once per harness. load() resets their contents rather than their wiring
+    if (m_recording) {
+        return;
     }
+    m_recording = true;
+
+    // The real trace pipeline, enabled for the entity under test, so `Log.info(...)` can be
+    // asserted. Delivered on the writer thread, so the list is guarded.
+    Tracer::instance()->setEntity(QStringLiteral("test"));
+    Tracer::instance()->setEnabled(true);
+    Tracer::instance()->setBatch(1, 20);
+    Tracer::instance()->setSink([this](const QList<TraceEvent> &batch) {
+        QMutexLocker locker{&m_recordedMutex};
+        for (const TraceEvent &event : batch) {
+            QVariantMap value{event.toVariant()};
+            // The names beside the numbers, so a test does not assert `category === 5`.
+            value.insert(QStringLiteral("severityName"), severityName(event.severity));
+            value.insert(QStringLiteral("categoryName"), categoryName(event.category));
+            m_recorded.append(value);
+        }
+    });
+}
+
+bool EntityTest::resetEngines()
+{
+    // The helpers hold the providers by raw pointer, so they go first. Deleting Jobs stops
+    // every timer the previous Source started.
+    delete m_db;
+    m_db = nullptr;
+    delete m_cacheHelper;
+    m_cacheHelper = nullptr;
+    delete m_docs;
+    m_docs = nullptr;
+    delete m_jobs;
+    m_jobs = nullptr;
+    m_persistence.reset();
+    m_cache.reset();
+    m_document.reset();
 
     // Every helper an entity could have, not just its type's, so the harness needs no type
     // setting.
@@ -242,23 +280,26 @@ void EntityTest::buildHelpers()
     m_cacheHelper = new Cache{m_cache.get(), this};
     m_docs = new Docs{m_document.get(), this};
     m_jobs = new Jobs{1000, this};
-    m_log = new Log{this};
 
-    // The real trace pipeline, enabled for the entity under test, so `Log.info(...)` can be
-    // asserted. Delivered on the writer thread, so the list is guarded.
-    Tracer::instance()->setEntity(QStringLiteral("test"));
-    Tracer::instance()->setEnabled(true);
-    Tracer::instance()->setBatch(1, 20);
-    Tracer::instance()->setSink([this](const QList<TraceEvent> &batch) {
-        QMutexLocker locker{&m_recordedMutex};
-        for (const TraceEvent &event : batch) {
-            QVariantMap value{event.toVariant()};
-            // The names beside the numbers, so a test does not assert `category === 5`.
-            value.insert(QStringLiteral("severityName"), severityName(event.severity));
-            value.insert(QStringLiteral("categoryName"), categoryName(event.category));
-            m_recorded.append(value);
-        }
-    });
+    if (m_schema.isEmpty()) {
+        return true;
+    }
+    if (m_persistence == nullptr) {
+        m_errorString = error;
+        return false;
+    }
+    const QUrl schemaUrl{qmlContext(this)->resolvedUrl(QUrl{m_schema})};
+    QFile file{schemaUrl.isLocalFile() ? schemaUrl.toLocalFile() : m_schema};
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_errorString = QStringLiteral("cannot read schema '%1'").arg(m_schema);
+        return false;
+    }
+    const QStringList steps{schemaSteps(QString::fromUtf8(file.readAll()))};
+    if (!m_persistence->migrate(steps, &error)) {
+        m_errorString = error;
+        return false;
+    }
+    return true;
 }
 
 QVariantList EntityTest::recorded() const
@@ -275,6 +316,8 @@ bool EntityTest::load()
     m_caller = nullptr;
     delete m_subject;
     m_subject = nullptr;
+    delete m_context;
+    m_context = nullptr;
 
     if (m_source.isEmpty()) {
         m_errorString = QStringLiteral("EntityTest.source is not set");
@@ -289,7 +332,7 @@ bool EntityTest::load()
         return false;
     }
 
-    buildHelpers();
+    startRecording();
     {
         // Drained per load, so one test never reads what an earlier one said.
         Tracer::instance()->flush();
@@ -297,33 +340,12 @@ bool EntityTest::load()
         m_recorded.clear();
     }
 
-    // Reset the state, not the wiring, so results do not depend on test order.
-    if (m_persistence != nullptr) {
-        QString error;
-        m_persistence->disconnect();
-        if (!m_persistence->connect(&error)) {
-            m_errorString = error;
-            emit subjectChanged();
-            return false;
-        }
-        if (!m_schema.isEmpty()) {
-            const QUrl schemaUrl{qmlContext(this)->resolvedUrl(QUrl{m_schema})};
-            QFile file{schemaUrl.isLocalFile() ? schemaUrl.toLocalFile() : m_schema};
-            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                m_errorString = QStringLiteral("cannot read schema '%1'").arg(m_schema);
-                emit subjectChanged();
-                return false;
-            }
-            const QStringList steps{schemaSteps(QString::fromUtf8(file.readAll()))};
-            if (!m_persistence->migrate(steps, &error)) {
-                m_errorString = error;
-                emit subjectChanged();
-                return false;
-            }
-        }
+    // Fresh engines behind every helper, so results do not depend on test order.
+    if (!resetEngines()) {
+        emit subjectChanged();
+        return false;
     }
 
-    delete m_context;
     m_context = new QQmlContext{m_engine->rootContext(), this};
     m_context->setContextProperty(QStringLiteral("Db"), m_db);
     m_context->setContextProperty(QStringLiteral("Cache"), m_cacheHelper);

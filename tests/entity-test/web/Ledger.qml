@@ -36,6 +36,23 @@ Ledger {
         Database.recordWinner(item, "bob", 1);
     }
 
+    // State kept outside the Source, in each of the helpers a later test must not inherit.
+    function keep(key) {
+        Cache.set(key, "kept");
+        Docs.insert("notes", { key: key });
+    }
+
+    function notesKept() {
+        return Docs.find("notes", {}).length;
+    }
+
+    // Holds `Log` itself rather than looking it up on each tick, so the callback keeps
+    // working after this Source is gone, as a timer an entity forgot to cancel would.
+    function tickEvery(intervalMs) {
+        const log = Log;
+        Jobs.every(intervalMs, () => log.info("tick"));
+    }
+
     // Only the edge may write the permanent record, and the edge is an entity.
     function recordWinner(item, winner, amount) {
         if (Caller.entity !== "web") {

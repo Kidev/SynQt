@@ -116,6 +116,23 @@ TestCase {
         compare(harness.dbQuery("SELECT * FROM winners").length, 0);
     }
 
+    // The cache, the document store and the scheduler are reset with the database. A value
+    // one test cached, a document it inserted or a timer it started would otherwise decide
+    // what the next test sees.
+    function test_each_test_starts_from_empty_helpers() {
+        harness.subject.keep("k");
+        harness.subject.tickEvery(5);
+        compare(harness.cacheValue("k"), "kept");
+        compare(harness.subject.notesKept(), 1);
+        tryVerify(() => harness.recorded().some(event => event.message === "tick"));
+
+        verify(harness.load(), harness.errorString);
+        compare(harness.cacheValue("k"), undefined);
+        compare(harness.subject.notesKept(), 0);
+        wait(50);
+        compare(harness.recorded().filter(event => event.message === "tick").length, 0);
+    }
+
     // What an entity says about itself is testable like anything else it does. `Log` is in
     // scope in every entity, whatever its type, unlike `Db` or `Cache`.
     function test_an_entity_says_what_it_did_in_its_own_words() {
