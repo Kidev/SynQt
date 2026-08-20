@@ -29,7 +29,10 @@ qt_add_executable(tst_consumer tst_consumer.cpp)
 
 # ROLE both: one process hosts the Widget Source and consumes it (Source helper + Replica +
 # the consumer facade).
-synqt_add_contract(tst_consumer ROLE both SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Widget.syn")
+synqt_add_contract(tst_consumer ROLE both SYN
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Widget.syn"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Commands.syn"
+)
 
 target_compile_definitions(tst_consumer PRIVATE SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
 

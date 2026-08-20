@@ -235,6 +235,14 @@ class ConsumerFacadeTest(unittest.TestCase):
         registration = source.split("void synqtRegisterTodoConsumers()", 1)[1]
         self.assertIn("SynQt::registerModuleImports();", registration)
 
+    def test_the_relay_helper_is_emitted_only_where_it_is_called(self):
+        # An unused function fails the warnings-as-errors build an application gets, so a
+        # contract of slots alone must not carry the helper that relays pushes and signals.
+        slots_only = "contract Commands { slot reset() slot int total(int seed) }"
+        source = self.source(slots_only, stem="Commands", lstem="commands")
+        self.assertNotIn("synqtRelay", source)
+        self.assertIn("synqtRelay(QObject *from", self.source())
+
     def test_everything_is_guarded_on_the_runtime_header(self):
         # A Replica-only target compiles to the registration stub.
         header = self.header()

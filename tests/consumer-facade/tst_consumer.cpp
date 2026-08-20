@@ -14,6 +14,7 @@
 
 #include "rep_widget_merged.h"
 
+#include "commands_consumer.h"     // synqtRegisterCommandsConsumers()
 #include "widget_consumer.h"       // synqtRegisterWidgetConsumers()
 #include "widget_replica.h"        // synqtRegisterWidgetReplicas()
 
@@ -69,6 +70,18 @@ private slots:
         // type) and the typed Replica factory, exactly as a generated client main does.
         synqtRegisterWidgetConsumers();
         synqtRegisterWidgetReplicas();
+    }
+
+    // A contract of slots alone relays nothing from its Replica. Its facade still builds
+    // under warnings-as-errors and still registers, so a point that only takes requests
+    // is as consumable as any other.
+    void aContractOfSlotsAloneHasAFacade()
+    {
+        synqtRegisterCommandsConsumers();
+        const std::unique_ptr<ConsumerBase> facade{
+            SynQt::makeConsumer(QStringLiteral("Commands"))};
+        QVERIFY(facade != nullptr);
+        QCOMPARE(facade->contractName(), QStringLiteral("Commands"));
     }
 
     // A handler that is not a function is a step with nothing to run, and the outcome

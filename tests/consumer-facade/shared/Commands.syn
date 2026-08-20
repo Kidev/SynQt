@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// A contract of slots alone: nothing pushed, nothing signalled. Its facade relays nothing,
+// and the generated code must still build without a warning.
+contract Commands {
+    slot reset()
+    slot int total(int seed)
+}

@@ -1132,6 +1132,13 @@
       "defended_by": "load() deletes every helper and its provider and builds fresh ones before it builds the Source, so the cache and the document store start empty and every timer the previous Source started is stopped. The test caches a value, inserts a document and starts a timer, reloads, and requires all three to be gone.",
       "file": "tests/entity-test/qml/tst_ledger.qml",
       "test": "test_each_test_starts_from_empty_helpers"
+    },
+    {
+      "id": "a-point-that-only-takes-requests-does-not-build",
+      "what": "The consumer facade carried its signal-relay helper whatever the contract held. A connect point whose export is slots alone (a command point: nothing pushed, nothing signalled) left that helper unused, and the warnings-as-errors build every scaffolded project uses refused the generated file, so the project could not be built at all.",
+      "defended_by": "synqtc emits the helper only when a contract relays a prop, a model or a signal. The consumer-facade suite compiles a slots-only contract under warnings-as-errors and builds its facade; the generator test checks the helper is absent there and present where it is called.",
+      "file": "tests/consumer-facade/tst_consumer.cpp",
+      "test": "aContractOfSlotsAloneHasAFacade"
     }
   ]
 }

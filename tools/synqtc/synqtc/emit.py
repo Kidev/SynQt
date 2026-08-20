@@ -3,12 +3,13 @@
 
 """Lower a parsed :class:`SynFile` to the generated C++/rep artifacts.
 
-Three outputs per contract file:
+Four outputs per contract file:
 
-* the ``.rep`` (records -> POD, prop -> PROP READPUSH, model -> MODEL with only its
-  declared roles, signal -> SIGNAL, slot -> SLOT with the return type when present);
-* the owner-side Source helper (``<Contract>Source`` in QML), whose
-  ``set<Model>(rows)`` keeps only declared roles and drops undeclared row fields;
+* the ``.rep`` (records to POD, prop to PROP READPUSH, model to MODEL with only its
+  declared roles, signal to SIGNAL, slot to SLOT with the return type when present);
+* the owner-side Source helper (the contract name in QML), whose ``set<Model>(rows)`` and
+  ``<model>Rows`` keep only declared roles and drop undeclared row fields;
+* the consumer facade an accessor exposes (``<Contract>Consumer``);
 * the consumer-side Replica QML registration.
 """
 
@@ -1500,7 +1501,11 @@ def emit_consumer_source(syn: SynFile, lstem: str) -> str:
             "#  include <QtQml/qqmlengine.h>",
             "#  include <QtRemoteObjects/QRemoteObjectPendingReply>",
             "#  include <QVariant>", ""]
-    out.append(CONSUMER_RELAY_HELPER)
+    # Only when a facade relays something. A contract of slots alone relays nothing, and an
+    # unused function fails the warnings-as-errors build.
+    if any(contract.props or contract.models or contract.signals
+           for contract in syn.contracts):
+        out.append(CONSUMER_RELAY_HELPER)
     records = syn.record_names
     path = f"{syn.stem}.syn"
     for contract in syn.contracts:
