@@ -7,18 +7,24 @@
 #include "privacy.h"
 #include "synclientconfig.h"
 
-#include <QSettings>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
+#include <QUrl>
 
 using namespace SynQt;
 
 namespace {
 
+/// Where every test's visitor has been, unless it says otherwise.
+const QUrl edgeOne{QStringLiteral("wss://one.example:8443/sync")};
+/// Another project's edge.
+const QUrl edgeTwo{QStringLiteral("wss://two.example:8443/sync")};
+
 SynClientConfig configured()
 {
     SynClientConfig config;
+    config.edgeUrl = edgeOne;
     config.privacyPolicyUrl = QStringLiteral("/privacy");
     config.legalNoticeUrl = QStringLiteral("/legal");
     config.privacyContact = QStringLiteral("privacy@example.com");
@@ -28,11 +34,11 @@ SynClientConfig configured()
     return config;
 }
 
-void forgetAnswer()
+SynClientConfig at(const QUrl &edgeUrl)
 {
-    QSettings settings;
-    settings.clear();
-    settings.sync();
+    SynClientConfig config{configured()};
+    config.edgeUrl = edgeUrl;
+    return config;
 }
 
 } // namespace
@@ -47,13 +53,15 @@ private Q_SLOTS:
         // Test mode moves QSettings under a throwaway prefix, so a run cannot read or write
         // whatever the developer's own applications have stored.
         QStandardPaths::setTestModeEnabled(true);
-        QCoreApplication::setOrganizationName(QStringLiteral("SynQtTest"));
-        QCoreApplication::setApplicationName(QStringLiteral("privacy"));
+        // The generated client names no organization, and a default QSettings keeps nothing
+        // without one on WebAssembly or Windows. The accessor has to keep the answer anyway.
+        QVERIFY(QCoreApplication::organizationName().isEmpty());
     }
 
     void init()
     {
-        forgetAnswer();
+        Privacy{configured()}.withdrawConsent();
+        Privacy{at(edgeTwo)}.withdrawConsent();
     }
 
     void theBlockReachesQmlUnchanged()
@@ -129,6 +137,22 @@ private Q_SLOTS:
         const Privacy reopened{configured()};
         QVERIFY(reopened.isConsentAnswered());
         QCOMPARE(reopened.granted(), QStringList({QStringLiteral("ads")}));
+    }
+
+    void anAnswerBelongsToTheEdgeItWasGivenTo()
+    {
+        // Every scaffolded desktop client is an executable called `app`, so two projects on
+        // one account share an application name. Consent is given to one controller, and the
+        // other one's banner still has to ask.
+        {
+            Privacy privacy{configured()};
+            privacy.acceptAll();
+        }
+        const Privacy elsewhere{at(edgeTwo)};
+        QVERIFY(!elsewhere.isConsentAnswered());
+        QVERIFY(!elsewhere.hasConsent(QStringLiteral("analytics")));
+        const Privacy here{configured()};
+        QVERIFY(here.hasConsent(QStringLiteral("analytics")));
     }
 
     void aWithdrawnAnswerAsksAgain()

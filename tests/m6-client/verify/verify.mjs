@@ -181,6 +181,29 @@ function dumpEvidence(name, logs) {
     }
 }
 
+// The consent answer survives a reload. The Qt settings a client writes it to keep nothing on
+// WebAssembly without an organization name, and the generated client sets none, so a page
+// that forgot would ask every visit and read every refusal as unanswered. Its own browser
+// context, so the first line is a clean slate.
+async function consentSurvivesAReload(browser, url, name, logs) {
+    const fatals = [];
+    const context = await browser.newContext();
+    const tab = await openTab(context, `${name}/tabD`, logs, fatals);
+    console.log("  a fourth tab answering the consent banner");
+    await tab.goto(url + "?consent=1", { waitUntil: "load", timeout: 60000 });
+    await waitFor(() => logs.some((l) => l.includes("consent answered=true analytics=true")),
+                  30000, "the fourth tab answered the banner", fatals);
+    const beforeReload = logs.length;
+    await tab.goto(url, { waitUntil: "load", timeout: 60000 });
+    await waitFor(() => logs.slice(beforeReload).some((l) => l.includes("consent ")),
+                  30000, "the reloaded tab reported its consent", fatals);
+    const kept = logs.slice(beforeReload).find((l) => l.includes("consent "));
+    if (!kept.includes("answered=true analytics=true")) {
+        throw new Error("the answer did not survive the reload: " + kept);
+    }
+    console.log("  the answer survived the reload");
+}
+
 // One engine, one edge. The edge owns the counter, so each case gets its own process and
 // starts from zero. Sharing one edge across engines would make every case after the first
 // assert on a value the previous case left behind.
@@ -188,6 +211,7 @@ async function runCase(browserType, name) {
     const logsA = [];
     const logsB = [];
     const signedIn = [];
+    const consentLogs = [];
     const fatalsA = [];
     const fatalsB = [];
     const { proc: edge, port } = await startEdge();
@@ -282,9 +306,12 @@ async function runCase(browserType, name) {
                       signedInFatals);
         console.log("  the elevated scope and the identity reached the client");
 
-        return { name, pass: true, logsA, logsB, signedIn };
+        await consentSurvivesAReload(browser, url, name, consentLogs);
+
+        return { name, pass: true, logsA, logsB, signedIn, consentLogs };
     } catch (err) {
-        return { name, pass: false, error: err.message, logsA, logsB, signedIn };
+        return { name, pass: false, error: err.message, logsA, logsB, signedIn,
+                 consentLogs };
     } finally {
         await browser.close();
         edge.kill("SIGKILL");
@@ -497,6 +524,9 @@ async function main() {
                 dumpEvidence("tabB", result.logsB);
                 if (result.signedIn && result.signedIn.length > 0) {
                     dumpEvidence("tabC (signing in)", result.signedIn);
+                }
+                if (result.consentLogs && result.consentLogs.length > 0) {
+                    dumpEvidence("tabD (consent)", result.consentLogs);
                 }
             }
         }

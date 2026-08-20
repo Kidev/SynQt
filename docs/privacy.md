@@ -8,9 +8,9 @@ policy and legal notice, consent before any cookie that is not strictly necessar
 ask for erasure, and a retention period that is a decision rather than an accident. SynQt
 ships one configuration block and three QML types for them.
 
-None of this makes an app compliant. What the app collects, why, and on what legal basis are
-questions about the app, and nothing here answers them. What it covers is the plumbing. The
-components exist so that the work left over is the part that needs a decision.
+Compliance stays the app's own work: what the app collects, why, and on what legal basis are
+questions about the app. These pieces cover the plumbing, so the work left over is the part
+that needs a decision.
 
 ## The block
 
@@ -42,14 +42,14 @@ more data. A project that writes 3650 keeps 3650, because what is lawful depends
 stored and why, and several national records statutes require years. `Privacy.retentionDays`
 is the value, so a policy page can state the period without a second copy of the number.
 
-**There is no cookie banner.** SynQt sets one cookie, the session credential, and Article 5(3)
+**The cookie banner stays hidden.** SynQt sets one cookie, the session credential, and Article 5(3)
 of the ePrivacy Directive exempts storage that is strictly necessary to provide the service
 the visitor asked for. A session the app does not work without is that. So `privacy.cookies`
 starts empty, `CookieConsent` renders nothing while it is, and the banner appears when
 somebody adds the category that made it necessary.
 
-Showing a banner anyway is not the cautious choice it looks like. It asks permission for
-something that needs none, and it teaches visitors that the way past a consent dialog is to
+Showing a banner anyway only looks cautious. It asks permission for something that needs
+none, and it teaches visitors that the way past a consent dialog is to
 click whatever makes it go away.
 
 **Erasure is off.** `DataErasureRequest` sends its request no further than the app, because
@@ -70,10 +70,11 @@ LegalFooter {
 }
 ```
 
-A link whose URL the project did not declare is left out rather than shown broken. It also
-carries the way back to the cookie banner once a visitor has answered, because withdrawing
-consent has to be as easy as giving it was (Article 7(3)) and a footer is somewhere they can
-find it.
+`navigate` carries an application route such as `/privacy`. An absolute `http` or `https` URL
+never reaches it: the link opens that page in the browser. A link whose URL the project did
+not declare is left out rather than shown broken. It also carries the way back to the cookie
+banner once a visitor has answered, because withdrawing consent has to be as easy as giving it
+was (Article 7(3)) and a footer is somewhere they can find it.
 
 ### `CookieConsent`
 
@@ -87,14 +88,19 @@ CookieConsent {
 }
 ```
 
-Refusing is one tap, in the same place and the same weight as accepting, because consent
-under Article 4(11) is freely given, and a banner where refusing is harder than accepting does not
+Refusing is one tap, in the same place and the same weight as accepting, because consent under
+Article 4(11) is freely given, and a banner where refusing is harder than accepting does not
 collect any. Every box starts unticked, because a box ticked in advance is not an unambiguous
 indication of anything.
 
 The answer is filtered twice against what the project declared. A page that calls
 `Privacy.accept()` with a category nobody wrote down does not get it, and an answer stored
 before a category was removed does not survive into the configuration that no longer has it.
+
+The answer stays on the visitor's device: in the browser's local storage for the site, or
+in the platform settings store for a desktop client, filed under the edge it was given to.
+It survives a reload unless the browser blocks storage for the site, and it is never sent
+anywhere.
 
 Read a category with `Privacy.hasConsent("analytics")`, which is false until this visitor says
 otherwise. Silence is not consent, and a page that runs a script while the banner is still up

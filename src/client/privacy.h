@@ -109,12 +109,9 @@ private:
     void store();
 
     SynClientConfig m_config;
-    QJSEngine *m_engine{nullptr};
     QStringList m_granted;
     bool m_answered{false};
-    /// Built on first read, which is why it is mutable. The read happens from a binding, on
-    /// a const accessor, and there is no engine root to build it against any earlier.
-    mutable QJSValue m_checkFunction;
+    QJSValue m_checkFunction;
 };
 
 /// Register `LegalFooter`, `CookieConsent` and `DataErasureRequest` into the `SynQt` module.

@@ -29,6 +29,20 @@ Pane {
     // a category gets told to switch off again.
     signal answered(var granted)
 
+    // Read off the repeater rather than off the layout's children. The boxes are the
+    // repeater's items, and walking a parent's children would find the labels and the
+    // buttons as well and depend on the order they were declared in.
+    function selectedCategories(): var {
+        let chosen = [];
+        for (let index = 0; index < boxes.count; ++index) {
+            let box = boxes.itemAt(index);
+            if (box && box.checked) {
+                chosen.push(box.modelData);
+            }
+        }
+        return chosen;
+    }
+
     // Nothing to ask, or already asked. Both are the ordinary case. The first is a project
     // with no non-essential cookies, the second is every visit after the first.
     visible: Privacy.consentRequired && !Privacy.consentAnswered
@@ -91,19 +105,5 @@ Pane {
             text: qsTr("What is collected and for how long is in the privacy policy.")
             font.italic: true
         }
-    }
-
-    // Read off the repeater rather than off the layout's children. The boxes are the
-    // repeater's items, and walking a parent's children would find the labels and the
-    // buttons as well and depend on the order they were declared in.
-    function selectedCategories(): var {
-        let chosen = [];
-        for (let index = 0; index < boxes.count; ++index) {
-            let box = boxes.itemAt(index);
-            if (box && box.checked) {
-                chosen.push(box.modelData);
-            }
-        }
-        return chosen;
     }
 }

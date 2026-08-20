@@ -3,6 +3,7 @@
 
 #include "privacy.h"
 
+#include <QCoreApplication>
 #include <QJSEngine>
 #include <QQmlEngine>
 #include <QSettings>
@@ -19,8 +20,22 @@ namespace {
 /// QSettings rather than a cookie, since recording a refusal needs no permission and a
 /// cookie would raise the question. It is per browser profile on WebAssembly and per user
 /// on desktop, the same scope as the answer.
-constexpr auto AnsweredKey{"SynQt/privacy/answered"};
-constexpr auto GrantedKey{"SynQt/privacy/granted"};
+///
+/// The organization is named here because the generated client names none, and a default
+/// QSettings without one keeps nothing on WebAssembly or Windows. Each answer is filed under
+/// the edge it was given to: every scaffolded desktop client is an executable called `app`,
+/// and consent given to one project is not consent given to another.
+constexpr auto AnsweredKey{"answered"};
+constexpr auto GrantedKey{"granted"};
+constexpr auto Organization{"SynQt"};
+
+/// Enter the group this edge's answer is filed under.
+void enterAnswerGroup(QSettings &settings, const QUrl &edgeUrl)
+{
+    const QString edge{edgeUrl.adjusted(QUrl::RemoveUserInfo).authority()};
+    settings.beginGroup(QStringLiteral("privacy"));
+    settings.beginGroup(edge.isEmpty() ? QStringLiteral("local") : edge);
+}
 
 } // namespace
 
@@ -50,9 +65,17 @@ private:
 Privacy::Privacy(SynClientConfig config, QJSEngine *engine, QObject *parent)
     : QObject{parent}
     , m_config{std::move(config)}
-    , m_engine{engine}
 {
     load();
+    if (!engine) {
+        return;  // no QML to answer, so no function to build; C++ callers are unaffected
+    }
+    // Built once here, as Session builds its scope check: the first read happens inside a
+    // binding evaluation, and compiling a script there would re-enter the engine.
+    ConsentCheck *check{new ConsentCheck{this, this}};
+    const QJSValue factory{engine->evaluate(QStringLiteral(
+        "(function (check) { return function (name) { return check.held(name); }; })"))};
+    m_checkFunction = factory.call({engine->newQObject(check)});
 }
 
 QString Privacy::policyUrl() const
@@ -97,14 +120,6 @@ QStringList Privacy::granted() const
 
 QJSValue Privacy::consentCheck() const
 {
-    // Built on first read: a Privacy is constructed before the engine has a root object,
-    // and the closure is only read from a binding.
-    if (!m_checkFunction.isCallable() && m_engine) {
-        ConsentCheck *check{new ConsentCheck{this, const_cast<Privacy *>(this)}};
-        const QJSValue factory{m_engine->evaluate(QStringLiteral(
-            "(function (check) { return function (name) { return check.held(name); }; })"))};
-        m_checkFunction = factory.call({m_engine->newQObject(check)});
-    }
     return m_checkFunction;
 }
 
@@ -155,7 +170,8 @@ void Privacy::withdrawConsent()
 
 void Privacy::load()
 {
-    QSettings settings;
+    QSettings settings{QLatin1String{Organization}, QCoreApplication::applicationName()};
+    enterAnswerGroup(settings, m_config.edgeUrl);
     m_answered = settings.value(QLatin1String{AnsweredKey}, false).toBool();
     const QStringList stored{settings.value(QLatin1String{GrantedKey}).toStringList()};
     // Filtered when read as well: a category the project removed is no longer permitted.
@@ -168,7 +184,8 @@ void Privacy::load()
 
 void Privacy::store()
 {
-    QSettings settings;
+    QSettings settings{QLatin1String{Organization}, QCoreApplication::applicationName()};
+    enterAnswerGroup(settings, m_config.edgeUrl);
     settings.setValue(QLatin1String{AnsweredKey}, m_answered);
     settings.setValue(QLatin1String{GrantedKey}, m_granted);
 }

@@ -11,14 +11,20 @@
 #include "session.h"
 #include "synclientconfig.h"
 
+#include <QDesktopServices>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
-#include <QSettings>
+#include <QQuickWindow>
+#include <QScopeGuard>
+#include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
+#include <QUrl>
+
+#include <memory>
 
 using namespace SynQt;
 
@@ -36,6 +42,39 @@ SynClientConfig withCookies()
     return config;
 }
 
+/// Stands in for the platform's browser: Qt.openUrlExternally hands it every https URL.
+class ExternalBrowser : public QObject
+{
+    Q_OBJECT
+
+public:
+    QList<QUrl> opened;
+
+public Q_SLOTS:
+    void open(const QUrl &url)
+    {
+        opened.append(url);
+    }
+};
+
+/// The footer's label that reads \a text, or null.
+QQuickItem *labelReading(QQuickItem *footer, const QString &text)
+{
+    for (QQuickItem *child : footer->childItems()) {
+        if (child->property("text").toString() == text) {
+            return child;
+        }
+    }
+    return nullptr;
+}
+
+/// Click \a item where a visitor would, in the window \a footer is shown in.
+void click(QQuickItem *item)
+{
+    const QPointF centre{item->mapToScene(QPointF{item->width() / 2, item->height() / 2})};
+    QTest::mouseClick(item->window(), Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+}
+
 } // namespace
 
 class PrivacyComponentsTest : public QObject
@@ -46,16 +85,12 @@ private Q_SLOTS:
     void initTestCase()
     {
         QStandardPaths::setTestModeEnabled(true);
-        QCoreApplication::setOrganizationName(QStringLiteral("SynQtTest"));
-        QCoreApplication::setApplicationName(QStringLiteral("privacycomponents"));
         registerPrivacyTypes();
     }
 
     void init()
     {
-        QSettings settings;
-        settings.clear();
-        settings.sync();
+        Privacy{withCookies()}.withdrawConsent();
     }
 
     void eachTypeResolvesFromTheSynQtModule()
@@ -125,11 +160,71 @@ private Q_SLOTS:
         QCOMPARE(object->property("visible").toBool(), false);
     }
 
+    void aPolicyLinkFollowsItsKindOfUrl_data()
+    {
+        QTest::addColumn<QString>("policy");
+        QTest::addColumn<QString>("navigated");
+        QTest::addColumn<QString>("opened");
+        // An application route is the app's to navigate to. An absolute URL is a page the
+        // router has no route for, and handing it to Router.go would land on the fallback.
+        QTest::newRow("a route") << QStringLiteral("/privacy") << QStringLiteral("/privacy")
+                                 << QString{};
+        QTest::newRow("an absolute URL") << QStringLiteral("https://policies.example/privacy")
+                                         << QString{}
+                                         << QStringLiteral("https://policies.example/privacy");
+    }
+
+    void aPolicyLinkFollowsItsKindOfUrl()
+    {
+        QFETCH(QString, policy);
+        QFETCH(QString, navigated);
+        QFETCH(QString, opened);
+
+        ExternalBrowser browser;
+        QDesktopServices::setUrlHandler(QStringLiteral("https"), &browser, "open");
+        const auto unsetHandler{qScopeGuard([]() {
+            QDesktopServices::unsetUrlHandler(QStringLiteral("https"));
+        })};
+
+        QQmlApplicationEngine engine;
+        SynClientConfig config{withCookies()};
+        config.privacyPolicyUrl = policy;
+        Privacy privacy{config, &engine};
+        engine.rootContext()->setContextProperty(QStringLiteral("Privacy"), &privacy);
+        QQmlComponent component{&engine};
+        component.setData("import SynQt\nimport QtQuick\nLegalFooter { }", QUrl{});
+        const std::unique_ptr<QObject> object{component.create()};
+        QVERIFY2(object != nullptr, qPrintable(component.errorString()));
+        auto *footer{qobject_cast<QQuickItem *>(object.get())};
+        QVERIFY(footer != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 80);
+        footer->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        QSignalSpy navigate{footer, SIGNAL(navigate(QString))};
+        QQuickItem *link{labelReading(footer, QStringLiteral("Privacy policy"))};
+        QVERIFY(link != nullptr);
+        QTRY_VERIFY(link->width() > 0);
+        click(link);
+
+        QCOMPARE(navigate.count(), navigated.isEmpty() ? 0 : 1);
+        if (!navigated.isEmpty()) {
+            QCOMPARE(navigate.constFirst().constFirst().toString(), navigated);
+        }
+        QCOMPARE(browser.opened.size(), opened.isEmpty() ? 0 : 1);
+        if (!opened.isEmpty()) {
+            QCOMPARE(browser.opened.constFirst(), QUrl{opened});
+        }
+    }
+
     void hasConsentReEvaluatesWhenTheAnswerChanges()
     {
         // The reason hasConsent is a function-valued property and not a Q_INVOKABLE: written
         // as a call, a binding on it would be evaluated once, while the banner was still up,
-        // and never again. This is the test that fails if it is ever changed back.
+        // and never again. This test fails if it is ever made a call.
         QQmlApplicationEngine engine;
         Privacy privacy{withCookies(), &engine};
         engine.rootContext()->setContextProperty(QStringLiteral("Privacy"), &privacy);

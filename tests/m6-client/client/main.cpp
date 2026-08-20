@@ -8,6 +8,7 @@
 
 #include "graphics.h"
 #include "graphicsprobe.h"
+#include "privacy.h"
 #include "router.h"
 #include "serveraccessor.h"
 #include "session.h"
@@ -35,6 +36,18 @@ using namespace SynQt;
 
 namespace {
 
+bool queryAsks(QLatin1String flag)
+{
+#ifdef Q_OS_WASM
+    const emscripten::val location{emscripten::val::global("window")["location"]};
+    const QString search{QString::fromStdString(location["search"].as<std::string>())};
+    return search.contains(flag);
+#else
+    Q_UNUSED(flag);
+    return false;
+#endif
+}
+
 // Whether this page was asked for with ?signin=1, which is how the browser proof marks
 // the one tab that should sign in.
 //
@@ -44,13 +57,14 @@ namespace {
 // router can. False on desktop, which has no address bar to have been asked through.
 bool signInWanted()
 {
-#ifdef Q_OS_WASM
-    const emscripten::val location{emscripten::val::global("window")["location"]};
-    const QString search{QString::fromStdString(location["search"].as<std::string>())};
-    return search.contains(QLatin1String("signin=1"));
-#else
-    return false;
-#endif
+    return queryAsks(QLatin1String("signin=1"));
+}
+
+// Whether this page was asked for with ?consent=1, the tab that answers the consent banner
+// before the browser proof reloads it.
+bool consentWanted()
+{
+    return queryAsks(QLatin1String("consent=1"));
 }
 
 QUrl resolveEdgeUrl()
@@ -82,10 +96,10 @@ int main(int argc, char *argv[])
 
     QGuiApplication app{argc, argv};
 
-    // Both halves, in the order a generated main does them. The typed Replica factory
-    // and the consumer facade the accessor exposes. Registering only the
-    // first left this fixture a shape no real client has, where `Server.counter` is a
-    // raw Replica with none of the facade's surface on it.
+    // Both halves, in the order a generated main does them: the typed Replica factory and
+    // the consumer facade the accessor exposes. With only the first, `Server.counter`
+    // would be a raw Replica with none of the facade's surface on it, a shape no real
+    // client has.
     synqtRegisterCounterReplicas();
     synqtRegisterCounterConsumers();
 
@@ -109,6 +123,8 @@ int main(int argc, char *argv[])
                      // can navigate to it and see the notice instead of the page.
                      RouteConfig{QStringLiteral("/3d"), QStringLiteral("Main"), QString{},
                                  QString{}, GraphicsRequirement::Accelerated}};
+    // One category to consent to, so the page has a banner to answer.
+    config.cookieCategories = {QStringLiteral("analytics")};
 
     // The engine comes first. The Router builds each route's page component
     // with it.
@@ -129,6 +145,11 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("Graphics"), &graphics);
     // Test-only, and only ever true in the browser proof's own tab.
     engine.rootContext()->setContextProperty(QStringLiteral("SignInWanted"), signInWanted());
+    engine.rootContext()->setContextProperty(QStringLiteral("ConsentWanted"), consentWanted());
+
+    // As the generated main builds it: after the engine, with no organization name set.
+    SynQt::Privacy privacy{config, &engine};
+    engine.rootContext()->setContextProperty(QStringLiteral("Privacy"), &privacy);
 
     engine.loadFromModule("CounterClient", "Main");
     if (engine.rootObjects().isEmpty()) {

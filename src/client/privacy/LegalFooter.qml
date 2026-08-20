@@ -17,9 +17,18 @@ import QtQuick.Layouts
 RowLayout {
     id: root
 
-    // The route to open, for an app whose policy is one of its own pages. An app that
-    // points at an external URL leaves this alone and the link opens it directly.
+    // The route to open, for an app whose policy is one of its own pages. A link to an
+    // absolute http or https URL opens it in the browser instead, since the router has no
+    // route for it.
     signal navigate(string url)
+
+    function follow(url: string): void {
+        if (/^https?:\/\//i.test(url)) {
+            Qt.openUrlExternally(url);
+            return;
+        }
+        root.navigate(url);
+    }
 
     spacing: 16
 
@@ -36,7 +45,7 @@ RowLayout {
         font.underline: true
 
         TapHandler {
-            onTapped: root.navigate(Privacy.policyUrl)
+            onTapped: root.follow(Privacy.policyUrl)
         }
     }
 
@@ -46,7 +55,7 @@ RowLayout {
         font.underline: true
 
         TapHandler {
-            onTapped: root.navigate(Privacy.legalNoticeUrl)
+            onTapped: root.follow(Privacy.legalNoticeUrl)
         }
     }
 

@@ -1104,6 +1104,27 @@
       "defended_by": "withdrawSource (src/edge/withdrawsource.cpp) records the sources QtRO built under the Source before it is withdrawn and removes their names afterwards, so a request to a withdrawn model finds nothing and is dropped. The test demotes a visitor, has their model replica ask the edge for a header nobody cached, and requires the connection to keep serving.",
       "file": "tests/m7-caller/tst_m7.cpp",
       "test": "aModelRequestAfterADemotionReachesNothing"
+    },
+    {
+      "id": "a-consent-answer-given-to-one-project-read-by-another",
+      "what": "The client kept a visitor's consent answer in the default QSettings location, keyed by the application name alone. Every scaffolded desktop client is an executable called `app`, so two SynQt projects installed for one user read and wrote the same answer: consent given to one controller switched on the categories of the same name in the other, which never asked.",
+      "defended_by": "Privacy files each answer under the edge it was given to (host and port of the sync endpoint), in a store with its own organization name. The test answers at one edge and requires a Privacy for a second edge to be unanswered and to hold no consent, while the first still holds it.",
+      "file": "tests/privacy/tst_privacy.cpp",
+      "test": "anAnswerBelongsToTheEdgeItWasGivenTo"
+    },
+    {
+      "id": "a-refusal-forgotten-on-every-page-load",
+      "what": "A default QSettings keeps nothing without an organization name on WebAssembly (Qt builds no localStorage prefix) or Windows (no registry key), and the generated client sets none. Every consent answer, a refusal included, was gone at the next page load: the banner asked every visit, and a visitor who had accepted a category was treated as never having answered.",
+      "defended_by": "Privacy names its own organization instead of relying on the application's. The browser proof answers the banner in a real engine, reloads the page, and requires the first answer the reloaded client reports to be the one given.",
+      "file": "tests/m6-client/verify/verify.mjs",
+      "test": "consentSurvivesAReload"
+    },
+    {
+      "id": "an-external-policy-link-lands-on-the-fallback-page",
+      "what": "LegalFooter emitted every link through `navigate`, which the documented handler passes to Router.go. A project whose `privacy.policy` or `privacy.legal_notice` is an absolute URL (a policy hosted elsewhere, the common case) gave its visitors a policy link that routed to the fallback page, so the Article 13 information was never reachable from the app.",
+      "defended_by": "LegalFooter opens an absolute http or https URL with Qt.openUrlExternally and emits `navigate` only for an application route. The test clicks the rendered link for each kind and records which of the two it reached.",
+      "file": "tests/privacy/tst_privacycomponents.cpp",
+      "test": "aPolicyLinkFollowsItsKindOfUrl"
     }
   ]
 }

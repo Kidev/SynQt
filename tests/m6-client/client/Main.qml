@@ -69,6 +69,24 @@ ApplicationWindow {
         }
     }
 
+    // The visitor's consent answer, which has to outlive the page. The tab asked for with
+    // ?consent=1 answers the banner; the proof then reloads it without the flag, and the
+    // first line after the reload is what the browser kept.
+    Item {
+        id: consent
+
+        property string answer: "answered=" + Privacy.consentAnswered + " analytics="
+                                + Privacy.hasConsent("analytics")
+
+        onAnswerChanged: console.log("M6 consent " + consent.answer)
+        Component.onCompleted: {
+            console.log("M6 consent " + consent.answer);
+            if (ConsentWanted && !Privacy.consentAnswered) {
+                Privacy.acceptAll();
+            }
+        }
+    }
+
     // The same for the router's current path, plus one SPA navigation driven by the
     // counter, so the browser test has a real history entry to press Back on and can
     // prove the popstate listener reaches the router. The browser's back and forward

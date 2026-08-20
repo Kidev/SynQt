@@ -23,6 +23,7 @@ services only through the edge. Its members match
 | the counter runs end-to-end in a browser against the real edge, two tabs in sync | PASS | `verify/verify.mjs`, every installed engine |
 | the browser back button reaches the router | PASS | `verify/verify.mjs`, the `<engine>` cases. The client pushes `/about`, the harness presses Back, `Router.path` returns to `/` |
 | it still does with Qt's posted-event queue starved | PASS | `verify/verify.mjs`, the `<engine>-starved` cases (see below) |
+| a visitor's consent answer survives a page reload | PASS | `verify/verify.mjs`, `consentSurvivesAReload` in the `<engine>` cases |
 
 `tst_m6` is the native functional test (6 of 6 passing) and exercises the runtime
 against a real `WebEdge` over TLS. It is also the desktop runtime, with native TLS

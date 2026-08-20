@@ -18,6 +18,8 @@ import QtQuick.Controls
 Item {
     id: root
 
+    property string failure: ""
+
     // Connect this to the slot that erases the caller's data, for example
     // `onConfirmed: Server.eraseMe()`.
     signal confirmed()
@@ -32,8 +34,6 @@ Item {
         root.failure = message;
         root.state = "failed";
     }
-
-    property string failure: ""
 
     implicitWidth: content.implicitWidth
     implicitHeight: content.implicitHeight
