@@ -40,12 +40,17 @@ const QStringList &defaultScopeOrder()
     return order;
 }
 
-/// Split a schema file into migrate() statements at every semicolon, as the runtime does
-/// (topologywriter.py).
+/// Split a schema file into migrate() statements as the runtime does (topologywriter.py):
+/// `--` comments dropped line by line, then a statement at every semicolon.
 QStringList schemaSteps(const QString &text)
 {
+    QStringList code;
+    for (const QString &line : text.split(QLatin1Char('\n'))) {
+        const qsizetype comment{line.indexOf(QLatin1String("--"))};
+        code.append(comment < 0 ? line : line.left(comment));
+    }
     QStringList steps;
-    for (const QString &piece : text.split(QLatin1Char(';'))) {
+    for (const QString &piece : code.join(QLatin1Char('\n')).split(QLatin1Char(';'))) {
         const QString trimmed{piece.trimmed()};
         if (!trimmed.isEmpty()) {
             steps.append(trimmed);

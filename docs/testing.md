@@ -106,7 +106,7 @@ anywhere. The only SynQt type is `EntityTest`.
 | Member | Description |
 |--------|-------------|
 | `source` | the Source QML to drive, as a path relative to the test file. |
-| `schema` | an SQL schema to apply to the in-memory database before each load. Relative to the test file, and usually `"../db/relational/books/schema.sql"`. |
+| `schema` | an SQL schema to apply to the in-memory database before each load, split into statements the way the entity splits it. Relative to the test file, and usually `"../db/relational/books/schema.sql"`. |
 | `subject` | the loaded Source. `null` until `load()` succeeds. This is what a test calls slots on and reads properties from. |
 | `contract` | the contract name, derived from the Source type. Set it only if the derivation is wrong. |
 | `errorString` | why the last `load()` failed. Pass it as the second argument to `verify` and a broken QML file reports itself. |

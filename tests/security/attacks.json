@@ -1160,6 +1160,13 @@
       "defended_by": "synqtc refuses member names the generated classes or QObject already use, names derived from another member, C++ and Qt keywords, and repeated parameter, role or field names, each with the member it hit. The generator test holds one malformed contract per rule.",
       "file": "tools/synqtc/tests/test_synqtc.py",
       "test": "test_each_malformed_input_raises_synerror_with_location"
+    },
+    {
+      "id": "a-schema-the-entity-applies-fails-in-its-tests",
+      "what": "The entity split schema.sql into statements after dropping `--` comments; the EntityTest harness split the raw text. A comment holding a semicolon, harmless in production, cut a statement in two under `synqt test`, so every test of that entity failed to load its Source.",
+      "defended_by": "EntityTest drops `--` comments line by line before splitting at semicolons, as the runtime does. The harness suite's own schema carries a comment with a semicolon, so every test there loads through it.",
+      "file": "tests/entity-test/qml/tst_ledger.qml",
+      "test": "test_each_test_starts_from_an_empty_database"
     }
   ]
 }

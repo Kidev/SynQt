@@ -147,7 +147,9 @@ Store {
 
 **Schema:** the type reads `db/relational/store/schema.sql` at startup and applies
 migrations, which are versioned and forward only. It records the applied version in a
-metadata table.
+metadata table. The file is split into statements at each `;` once `--` comments are
+removed, so a statement cannot hold a semicolon or a `--` of its own, as a trigger body or a
+string literal would.
 
 The type enforces these real SQLite constraints, which Qt documents:
 
@@ -162,8 +164,8 @@ The type enforces these real SQLite constraints, which Qt documents:
   worker, but by default the type keeps one connection, for simplicity and correctness.
 
 **Security:** the database entity is not a `web_edge`, binds only to a private address or a
-local socket, checks the calling entity in every slot, and keeps its own secrets (the data
-file path, any encryption key) in its own `.env`. The browser can reach it only through a
+local socket, answers only the consumers its connect point lists, and keeps its own secrets
+(an engine password, any encryption key) in its own `.env`. The browser can reach it only through a
 connect point the edge implements and authorizes.
 
 **Scaling:** SynQt targets one database entity process. If you need more write throughput
@@ -183,9 +185,9 @@ No separate cache server runs.
 
 **Contract** (illustrative): `get(string key)`, `set(string key, var value,
 int ttlSeconds)`, `del(string key)`, `incr(string key)`, matching the `Cache` helper the
-type provides ([runtime API](runtime-api.md#cache-ephemeral-key-value)). The cache entity
-checks the calling entity and bounds value sizes and key counts, so it cannot exhaust
-memory.
+type provides ([runtime API](runtime-api.md#cache-ephemeral-key-value)). The cache holds at
+most a fixed number of entries and evicts the least recently used one past it. Size the
+values in its contract (`var[4096]`), so no caller can fill those entries with megabytes.
 
 Prefer it to the database for data you can afford to lose and need fast. Anything that
 must survive a restart goes in the relational entity.
@@ -211,8 +213,8 @@ A document store gives you freedom of shape, and gives up the relational guarant
 it when records differ from each other, not to avoid writing a schema.
 
 **Security:** the same as the relational entity: not a `web_edge`, bound only to a private
-address or a local socket, checking the calling entity in every slot, with its credentials
-in its own `.env`.
+address or a local socket, answering only the consumers its connect point lists, with its
+credentials in its own `.env`.
 
 One difference has no counterpart on the persistence side. A filter map is the document
 engine's query language, as a string is SQL's. `Db` cannot receive concatenated SQL, so a
@@ -330,8 +332,9 @@ rollups, cleanup) outside the request path.
 entity consumes the connect points it needs (for example the database), and entities that
 enqueue work consume it. It is internal only.
 
-**Security:** the jobs entity checks who may enqueue work, bounds the queue size, and runs
-each job with only the connect point access that job needs.
+**Security:** the jobs entity answers only the consumers its connect point lists, and its
+queue is bounded: a full queue refuses the job. Every job reaches the connect points the
+entity consumes, so work that needs different access belongs in an entity of its own.
 
 ### Monitor (the operations record)
 
@@ -393,10 +396,11 @@ You can test what an entity logs like anything else it does; see
 ## Building a custom entity
 
 When no other type fits, `synqt add entity <name>` scaffolds a bare service entity: a
-folder, a config block, an empty owned connect point and its mesh binding. Then:
+folder, a config block and the entity's QML file. Then:
 
 1. Declare its connect point in `synqt.yaml` with `owner: <name>`, a `consumers`
    allowlist, and an `export:` block saying what crosses.
+   `synqt add connect-point <name> --consumers <a,b>` writes the first two.
 2. Implement the owned Source in the entity's folder, checking `Caller` in every slot.
 3. List the connect points it consumes from other entities. The framework opens only
    those mesh links, mutually authenticated.
