@@ -4,8 +4,8 @@
 """Command-line entry point. ``synqtc <input.syn> --out <dir>``.
 
 Generates, into ``--out``, ``<stem>.rep`` plus the Source helper
-(``<stem>_sourcehelper.{h,cpp}``) and the Replica registration
-(``<stem>_replica.{h,cpp}``). On malformed input it prints a
+(``<stem>_sourcehelper.{h,cpp}``), the Replica registration (``<stem>_replica.{h,cpp}``)
+and the consumer facade (``<stem>_consumer.{h,cpp}``). On malformed input it prints a
 ``path:line:col: error: message`` diagnostic and exits non-zero.
 """
 

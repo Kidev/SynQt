@@ -9,10 +9,15 @@ Run with: python3 -m unittest discover -s tools/synqtc
 import os
 import sys
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+#: The repository root, for the C++ a limit here has to match.
+ROOT = Path(__file__).resolve().parents[3]
+
 from synqtc import SynError, parse_text  # noqa: E402
+from synqtc.parser import MAX_SIGNAL_PARAMS, MAX_SLOT_PARAMS  # noqa: E402
 from synqtc.emit import (  # noqa: E402
     emit_consumer_header,
     emit_consumer_source,
@@ -210,9 +215,9 @@ class ConsumerFacadeTest(unittest.TestCase):
         source = self.source()
         self.assertIn("SynQt::Promise *TodoConsumer::clear()", source)
         self.assertIn('if (returnsPendingCall("clear")) {', source)
-        self.assertIn("Q_RETURN_ARG(QRemoteObjectPendingCall, call)", source)
-        self.assertIn("QRemoteObjectPendingReply<bool> reply;", source)
-        self.assertIn("return new SynQt::Promise{call, engine, this};", source)
+        self.assertIn("Q_RETURN_ARG(QRemoteObjectPendingCall, synqtCall)", source)
+        self.assertIn("QRemoteObjectPendingReply<bool> synqtReply;", source)
+        self.assertIn("return new SynQt::Promise{synqtCall, synqtEngine, this};", source)
 
     def test_one_qml_name_is_the_facade_itself(self):
         # `Todo.add(...)`, `Todo.count` and `Todo.onRejected:` are one object: the attaching
@@ -270,7 +275,43 @@ class MalformedInputTest(unittest.TestCase):
         "bound on a slot name": "contract C { slot post[2](string text) }",
         "a width that QML does not spell": "contract C { prop int16 tally }",
         "void as a declared type": "contract C { slot void post(string text) }",
+        "a slot with more parameters than reach the owner":
+            "contract C { slot many(int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10, int a11) }",
+        "a signal with more parameters than a caller forwards":
+            "contract C { signal many(int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9) }",
+        "a parameter named twice": "contract C { slot f(int a, int a) }",
+        "a role named twice": "contract C { model m(string x, int x) }",
+        "a field named twice": "record R(int a, int a) contract C { prop int b }",
+        "a C++ keyword as a parameter": "contract C { slot g(int class) }",
+        "a Qt macro word as a member": "contract C { prop int emit }",
+        "a C++ keyword as a contract": "contract union { prop int b }",
+        "the generated prefix on a member": "contract C { prop int synqtCount }",
+        "the generated prefix on a parameter": "contract C { slot f(int synqtSession) }",
+        "the facade's own readiness": "contract C { prop bool ready }",
+        "the signal every QObject sends as it goes": "contract C { signal destroyed() }",
+        "the setter of a prop": "contract C { prop int level slot setLevel(int value) }",
+        "the notifier of a prop": "contract C { prop int level signal levelChanged() }",
+        "the rows of a model": "contract C { model items(string a) prop list itemsRows }",
+        "the emitter of a signal": "contract C { signal hit() slot emitHit() }",
     }
+
+    def test_the_most_parameters_each_member_carries_still_parse(self):
+        # The pass side of both arity gates, and names a generated slot body also needs for
+        # its own locals.
+        ten = ", ".join(f"int a{i}" for i in range(1, MAX_SLOT_PARAMS + 1))
+        eight = ", ".join(f"int a{i}" for i in range(1, MAX_SIGNAL_PARAMS + 1))
+        syn = parse_text(f"contract C {{ slot many({ten}) signal lots({eight}) "
+                         "slot remove(int index) slot int total(int result, int engine) }")
+        self.assertEqual(len(syn.contracts[0].slots[0].params), MAX_SLOT_PARAMS)
+        self.assertEqual(len(syn.contracts[0].signals[0].params), MAX_SIGNAL_PARAMS)
+
+    def test_each_limit_is_the_one_the_generated_code_carries(self):
+        # The slot limit is the dispatch into the owner's QML, the signal limit the argument
+        # pack Caller.emit<Signal> forwards into. A copy that drifts from either fails here.
+        source = emit_source_helper_source(parse_text("contract C { slot f() }"), "c")
+        self.assertIn(f"constexpr qsizetype mostArguments{{{MAX_SLOT_PARAMS}}};", source)
+        caller = (ROOT / "src" / "service" / "caller.h").read_text(encoding="utf-8")
+        self.assertIn(f"static constexpr int MaxSignalArgs{{{MAX_SIGNAL_PARAMS}}};", caller)
 
     def test_each_malformed_input_raises_synerror_with_location(self):
         for label, text in self.CASES.items():
@@ -342,16 +383,16 @@ class BoundedTypeTest(unittest.TestCase):
     def test_a_bounded_prop_refuses_a_value_that_does_not_fit(self):
         # repc makes every setter virtual, so overriding it is the whole interception.
         self.assertIn("void setRegion(QString region) override;", self.header)
-        self.assertIn("const qsizetype regionSize{region.size()};", self.source)
-        self.assertIn("if (regionSize > 16) {", self.source)
+        self.assertIn("const qsizetype synqtRegionSize{region.size()};", self.source)
+        self.assertIn("if (synqtRegionSize > 16) {", self.source)
 
     def test_a_bounded_list_counts_its_elements(self):
-        self.assertIn("const qsizetype recentSize{recent.size()};", self.source)
+        self.assertIn("const qsizetype synqtRecentSize{recent.size()};", self.source)
         self.assertIn("is declared %s and the value is %lld elements", self.source)
         self.assertIn('"Players.recent", "recent", "list[8]"', self.source)
 
     def test_a_bounded_role_refuses_the_publish(self):
-        self.assertIn("if (playerIdSize > 64) {", self.source)
+        self.assertIn("if (synqtPlayerIdSize > 64) {", self.source)
         self.assertIn("qDeleteAll(items);", self.source)
 
     def test_a_bounded_url_is_measured_as_the_text_it_is(self):
@@ -359,7 +400,7 @@ class BoundedTypeTest(unittest.TestCase):
 
     def test_a_bounded_var_is_measured_by_what_it_serializes_to(self):
         self.assertIn("qsizetype synqtVariantBytes(const QVariant &value)", self.source)
-        self.assertIn("const qsizetype extraSize{synqtVariantBytes(extraValue)};",
+        self.assertIn("const qsizetype synqtExtraSize{synqtVariantBytes(extraValue)};",
                       self.source)
         self.assertIn("is declared %s and the value is %lld bytes", self.source)
         self.assertIn('"Players.rows", "extra", "var[4096]"', self.source)
@@ -372,14 +413,14 @@ class BoundedTypeTest(unittest.TestCase):
 
     def test_a_bounded_slot_argument_is_refused_before_the_owners_qml_sees_it(self):
         slot = self.source[self.source.index("void PlayersSourceHelper::lookup"):]
-        refusal = slot.index("playerIdSize > 64")
+        refusal = slot.index("synqtPlayerIdSize > 64")
         dispatch = slot.index("synqtQmlSlotIndex")
         self.assertLess(refusal, dispatch)
 
     def test_a_bounded_signal_argument_is_refused_on_the_way_out(self):
         # Caller.emit<Signal> forwards here too, so one guard covers both ways of sending.
         emitter = self.source[self.source.index("void PlayersSourceHelper::emitRefused"):]
-        refusal = emitter.index("reasonSize > 32")
+        refusal = emitter.index("synqtReasonSize > 32")
         raised = emitter.index("Q_EMIT refused(")
         self.assertLess(refusal, raised)
 
@@ -531,7 +572,7 @@ class CallSpanTest(unittest.TestCase):
                            path="hall.syn", stem="hall")
         source = emit_source_helper_source(asked, "hall")
         # Capture runs after the bounds, so an oversized argument is not recorded.
-        self.assertLess(source.index("if (nameSize > 32) {"),
+        self.assertLess(source.index("if (synqtNameSize > 32) {"),
                         source.index("synqtSpan.capture("))
 
     def test_capture_is_not_a_reserved_word(self):

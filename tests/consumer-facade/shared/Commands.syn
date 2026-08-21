@@ -3,7 +3,12 @@
 
 // A contract of slots alone: nothing pushed, nothing signalled. Its facade relays nothing,
 // and the generated code must still build without a warning.
+//
+// The parameters take the names the generated slot bodies might have used for their own
+// locals, so a slot written the natural way (`remove(int index)`) builds.
 contract Commands {
     slot reset()
-    slot int total(int seed)
+    slot remove(int index)
+    slot int total(int result, int engine, int call, int reply, int invoked)
+    slot label(string[8] text, int textSize)
 }

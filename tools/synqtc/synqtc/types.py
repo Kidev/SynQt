@@ -4,9 +4,10 @@
 """The contract type vocabulary and its lowering to C++/rep types.
 
 The vocabulary is the built-in QML value types: `bool`, `date`, `double`, `int`, `list`,
-`real`, `string`, `url`, `var`, `variant`. Four take a size in brackets: `string[64]` is at
-most 64 characters, `list[100]` at most 100 elements, `var[4096]` at most 4096 serialized
-bytes. The generated boundary refuses a value that does not fit.
+`real`, `string`, `url`, `var`, `variant`. Four take a size in brackets: `string[64]` and
+`url[200]` count characters, `list[100]` elements, and `var[4096]` serialized bytes
+(`variant` is the older spelling of `var`). The generated boundary refuses a value that does
+not fit.
 """
 
 from __future__ import annotations

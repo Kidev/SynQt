@@ -96,7 +96,7 @@ Member = Union[Prop, Model, Signal, Slot]
 #: empty meaning everyone the point is hosted for. Written as a ``<admin>`` prefix; the CLI
 #: fills in the point ``scope:`` on ungated members. The gate is on the data flow, not the
 #: signature: QtRO matches Replicas by signature, so the member is declared but nothing
-#: crosses (see :func:`synqtc.emit`).
+#: crosses (see :mod:`synqtc.emit`).
 
 
 @dataclass

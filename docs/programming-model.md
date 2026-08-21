@@ -163,6 +163,25 @@ truncated: a silently shortened name or a dropped tail is the bug a bound preven
 the fields that reach a database column, a filename or a rendered label, and leave the
 rest unbounded.
 
+### The names a contract can use
+
+Every name in a contract becomes a C++ name in the generated code, and the generated
+classes already have members of their own. The build stops, naming the member, on:
+
+- a C++ keyword or one of the words Qt defines as a macro (`class`, `default`, `new`,
+  `emit`, `signals`) as any name;
+- a member, parameter, role or field name that begins with `synqt`, the prefix of every
+  name the generator makes up;
+- a member called `ready`, `data`, `objectName`, `destroyed`, `deleteLater`, `parent` or
+  `children`, which already mean something on the object a consumer reaches (`Server.ready`
+  is the framework's own, see [the runtime API](runtime-api.md));
+- a member named like one the generator derives from another member: `setCount` or
+  `countChanged` beside `prop int count`, `itemsRows`, `setItems` or `itemsChanged` beside
+  `model items(...)`, and `emitRejected` beside `signal rejected(...)`;
+- one name twice in a parameter, role or field list;
+- a slot with more than 10 parameters, or a signal with more than 8. Group the rest into a
+  `record` and send that.
+
 SynQt uses the `export:` block instead of raw rep files because rep's defaults (push
 versus read-write, which roles a model exposes) are where a mistake becomes a security
 hole. The block makes the safe defaults obvious and emits correct rep, so you need not

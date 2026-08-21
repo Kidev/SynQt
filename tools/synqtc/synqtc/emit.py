@@ -106,13 +106,15 @@ def _bound_guard(spelling: str, value: str, where: str, field: str,
     if bound is None or size is None:
         return []
     unit = unit_of(spelling)
+    # Prefixed, like every local the generated code declares beside a contract's own names.
+    local = f"synqt{_cap(field)}Size"
     guard = [
-        f"const qsizetype {field}Size{{{size}}};",
-        f"if ({field}Size > {bound}) {{",
+        f"const qsizetype {local}{{{size}}};",
+        f"if ({local} > {bound}) {{",
         f'    qWarning("%s: \'%s\' is declared %s and the value is %lld {unit}; '
         'refused",',
         f'             "{where}", "{field}", "{spelling}",'
-        f" static_cast<long long>({field}Size));",
+        f" static_cast<long long>({local}));",
     ] + [f"    {line}" for line in refuse] + ["}"]
     return [indent + line for line in guard]
 
@@ -1322,22 +1324,22 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
         lines.append("        return;")
     lines.append("    }")
     lines += [
-        f'    const int index{{synqtQmlSlotIndex(this, "{slot.name}", {len(slot.params)},',
-        f"                                     {helper}::staticMetaObject.methodCount())}};",
+        f'    const int synqtIndex{{synqtQmlSlotIndex(this, "{slot.name}", {len(slot.params)},',
+        f"                                          {helper}::staticMetaObject.methodCount())}};",
     ]
     if is_void:
         lines += [
-            "    if (index >= 0) {",
-            f"        synqtInvokeQmlSlot(this, index, {arguments}, nullptr);",
+            "    if (synqtIndex >= 0) {",
+            f"        synqtInvokeQmlSlot(this, synqtIndex, {arguments}, nullptr);",
             "    }",
         ]
     else:
         lines += [
-            "    QVariant result{};",
-            "    if (index >= 0) {",
-            f"        synqtInvokeQmlSlot(this, index, {arguments}, &result);",
+            "    QVariant synqtResult{};",
+            "    if (synqtIndex >= 0) {",
+            f"        synqtInvokeQmlSlot(this, synqtIndex, {arguments}, &synqtResult);",
             "    }",
-            f"    return qvariant_cast<{ret}>(result);",
+            f"    return qvariant_cast<{ret}>(synqtResult);",
         ]
     body = "\n".join(lines)
     return f"{head}\n{{\n{body}\n}}"
@@ -1655,32 +1657,32 @@ def _consumer_slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path
         ])
     ret = cpp_type(slot.return_type, records, path=path, line=slot.line, col=slot.col)
     unavailable = (f'QStringLiteral("the \'{class_name}\' connect point is not available"), '
-                   "engine, this")
+                   "synqtEngine, this")
     # A typed Replica declares the slot as returning QRemoteObjectPendingReply<T>, a dynamic
     # one (every mesh link) as returning QRemoteObjectPendingCall, and invokeMethod refuses
     # a return argument of the other type. Both are a QRemoteObjectPendingCall.
     return "\n".join([
         f"SynQt::Promise *{cls}::{slot.name}({params})",
         "{",
-        "    QJSEngine *engine{jsEngine()};",
+        "    QJSEngine *synqtEngine{jsEngine()};",
         "    if (!isReady()) {",
         f"        return SynQt::Promise::rejected({unavailable});",
         "    }",
-        "    QRemoteObjectPendingCall call;",
-        "    bool invoked{false};",
+        "    QRemoteObjectPendingCall synqtCall;",
+        "    bool synqtInvoked{false};",
         f'    if (returnsPendingCall("{slot.name}")) {{',
-        f'        invoked = QMetaObject::invokeMethod(m_replica, "{slot.name}",',
-        f"            Q_RETURN_ARG(QRemoteObjectPendingCall, call){qargs});",
+        f'        synqtInvoked = QMetaObject::invokeMethod(m_replica, "{slot.name}",',
+        f"            Q_RETURN_ARG(QRemoteObjectPendingCall, synqtCall){qargs});",
         "    } else {",
-        f"        QRemoteObjectPendingReply<{ret}> reply;",
-        f'        invoked = QMetaObject::invokeMethod(m_replica, "{slot.name}",',
-        f"            Q_RETURN_ARG(QRemoteObjectPendingReply<{ret}>, reply){qargs});",
-        "        call = reply;",
+        f"        QRemoteObjectPendingReply<{ret}> synqtReply;",
+        f'        synqtInvoked = QMetaObject::invokeMethod(m_replica, "{slot.name}",',
+        f"            Q_RETURN_ARG(QRemoteObjectPendingReply<{ret}>, synqtReply){qargs});",
+        "        synqtCall = synqtReply;",
         "    }",
-        "    if (!invoked) {",
+        "    if (!synqtInvoked) {",
         f"        return SynQt::Promise::rejected({unavailable});",
         "    }",
-        "    return new SynQt::Promise{call, engine, this};",
+        "    return new SynQt::Promise{synqtCall, synqtEngine, this};",
         "}",
     ])
 

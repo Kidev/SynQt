@@ -45,7 +45,41 @@ from .types import cpp_type
 #: `SynQt::Caller::emitSignal`, whose argument pack is fixed (SynQt::Caller::MaxSignalArgs).
 MAX_SIGNAL_PARAMS = 8
 
+#: The most parameters a `slot` may declare. The Source helper hands a call to the owner's
+#: QML function through QMetaMethod::invoke, which carries at most ten arguments
+#: (`mostArguments` in synqtInvokeQmlSlot, emit.SLOT_DISPATCH_HELPER).
+MAX_SLOT_PARAMS = 10
+
 KEYWORDS = {"contract", "record", "prop", "model", "signal", "slot"}
+
+#: Every name in a contract becomes a C++ name in the generated code, so none may be a C++
+#: keyword, an alternative operator token, or one of the words Qt defines as a macro.
+CPP_RESERVED = {
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break",
+    "case", "catch", "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept",
+    "const", "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await",
+    "co_return", "co_yield", "decltype", "default", "delete", "do", "double", "dynamic_cast",
+    "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+    "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq",
+    "nullptr", "operator", "or", "or_eq", "private", "protected", "public", "register",
+    "reinterpret_cast", "requires", "return", "short", "signed", "sizeof", "static",
+    "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local",
+    "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using",
+    "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+    "emit", "foreach", "forever", "signals", "slots",
+}
+
+#: Member names the generated classes, or QObject beneath them, already use. A member that
+#: took one would not compile, or would hide what is there (`ready` is the facade's own
+#: readiness, `destroyed` the signal every QObject sends as it goes).
+RESERVED_MEMBER_NAMES = {
+    "data", "ready", "readyChanged", "isReady", "contractName", "bindReplica",
+    "emitAllChanged", "objectName", "objectNameChanged", "destroyed", "deleteLater",
+    "parent", "children",
+}
+
+#: The prefix of every name the generator makes up for itself.
+GENERATED_PREFIX = "synqt"
 
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _NUMBER_RE = re.compile(r"[0-9]+")
@@ -330,8 +364,60 @@ class Parser:
         )
 
 
+def _cap(name: str) -> str:
+    return name[:1].upper() + name[1:]
+
+
+def _check_name(name: str, what: str, path: str, line: int, col: int,
+                generated_prefix: bool = True) -> None:
+    """Refuse a name the generated C++ cannot carry: a reserved word, or the prefix the
+    generator keeps for its own names.
+    """
+    if name in CPP_RESERVED:
+        raise SynError(f"'{name}' cannot be a {what}: every name in a contract becomes a C++ "
+                       "name, and this one is a C++ or Qt keyword",
+                       path=path, line=line, col=col)
+    if generated_prefix and name.startswith(GENERATED_PREFIX):
+        raise SynError(f"'{name}' cannot be a {what}: names beginning with "
+                       f"'{GENERATED_PREFIX}' belong to the generated code",
+                       path=path, line=line, col=col)
+
+
+def _check_list(names, what: str, owner: str, path: str) -> None:
+    """Refuse a parameter, role or field list that names one entry twice, or names one the
+    generated code cannot carry.
+    """
+    seen = set()
+    for entry in names:
+        _check_name(entry.name, what, path, entry.line, entry.col)
+        if entry.name in seen:
+            raise SynError(f"{owner} names the {what} '{entry.name}' twice",
+                           path=path, line=entry.line, col=entry.col)
+        seen.add(entry.name)
+
+
+def _generated_names(contract: Contract):
+    """The member names the generated code derives from each member, with the member that
+    owns each one.
+    """
+    derived = {}
+    for prop in contract.props:
+        derived[f"set{_cap(prop.name)}"] = f"prop '{prop.name}'"
+        derived[f"{prop.name}Changed"] = f"prop '{prop.name}'"
+    for model in contract.models:
+        for name in (f"set{_cap(model.name)}", f"{model.name}Changed",
+                     f"{model.name}Rows", f"set{_cap(model.name)}Rows",
+                     f"{model.name}RowsChanged"):
+            derived[name] = f"model '{model.name}'"
+    for signal in contract.signals:
+        derived[f"emit{_cap(signal.name)}"] = f"signal '{signal.name}'"
+    return derived
+
+
 def _validate(syn: SynFile, path: str) -> None:
-    """Reject duplicate names and unresolved types after a structural parse."""
+    """Reject duplicate names, names the generated C++ cannot carry, and unresolved types
+    after a structural parse.
+    """
     seen_types = set()
     for record in syn.records:
         if record.name in seen_types:
@@ -350,10 +436,16 @@ def _validate(syn: SynFile, path: str) -> None:
         cpp_type(type_name, record_names, path=path, line=line, col=col)
 
     for record in syn.records:
+        _check_name(record.name, "record name", path, record.line, record.col,
+                    generated_prefix=False)
+        _check_list(record.fields, "field", f"record '{record.name}'", path)
         for field in record.fields:
             resolve(field.type, field.line, field.col)
     for contract in syn.contracts:
+        _check_name(contract.name, "contract name", path, contract.line, contract.col,
+                    generated_prefix=False)
         names = set()
+        derived = _generated_names(contract)
         for member in contract.members:
             member_name = getattr(member, "name")
             if member_name in names:
@@ -362,6 +454,23 @@ def _validate(syn: SynFile, path: str) -> None:
                     path=path, line=member.line, col=member.col,
                 )
             names.add(member_name)
+            _check_name(member_name, "member name", path, member.line, member.col)
+            if member_name in RESERVED_MEMBER_NAMES:
+                raise SynError(
+                    f"'{member_name}' cannot be a member name: the generated classes, or "
+                    "the QObject under them, already have a member called that",
+                    path=path, line=member.line, col=member.col,
+                )
+            if member_name in derived:
+                raise SynError(
+                    f"'{member_name}' cannot be a member name: it is the name the generated "
+                    f"code gives {derived[member_name]}",
+                    path=path, line=member.line, col=member.col,
+                )
+            if isinstance(member, Model):
+                _check_list(member.roles, "role", f"model '{member_name}'", path)
+            elif isinstance(member, (Signal, Slot)):
+                _check_list(member.params, "parameter", f"'{member_name}'", path)
         for prop in contract.props:
             resolve(prop.type, prop.line, prop.col)
         for model in contract.models:
@@ -380,6 +489,15 @@ def _validate(syn: SynFile, path: str) -> None:
             for param in signal.params:
                 resolve(param.type, param.line, param.col)
         for slot in contract.slots:
+            # Past MAX_SLOT_PARAMS the owner's QML function would never be called; refuse by
+            # name.
+            if len(slot.params) > MAX_SLOT_PARAMS:
+                raise SynError(
+                    f"slot '{slot.name}' takes {len(slot.params)} parameters; the most a "
+                    f"slot may carry to the owner is {MAX_SLOT_PARAMS}. Group the extra "
+                    "ones into a record and send that.",
+                    path=path, line=slot.line, col=slot.col,
+                )
             if slot.return_type is not None:
                 resolve(slot.return_type, slot.line, slot.col)
             for param in slot.params:

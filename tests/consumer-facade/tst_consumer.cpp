@@ -72,9 +72,9 @@ private slots:
         synqtRegisterWidgetReplicas();
     }
 
-    // A contract of slots alone relays nothing from its Replica. Its facade still builds
-    // under warnings-as-errors and still registers, so a point that only takes requests
-    // is as consumable as any other.
+    // A contract of slots alone relays nothing from its Replica, and its parameters take
+    // the names the generated bodies use for their own work (`remove(int index)`). Its
+    // facade still builds under warnings-as-errors and still registers.
     void aContractOfSlotsAloneHasAFacade()
     {
         synqtRegisterCommandsConsumers();

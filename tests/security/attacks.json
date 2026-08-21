@@ -1139,6 +1139,27 @@
       "defended_by": "synqtc emits the helper only when a contract relays a prop, a model or a signal. The consumer-facade suite compiles a slots-only contract under warnings-as-errors and builds its facade; the generator test checks the helper is absent there and present where it is called.",
       "file": "tests/consumer-facade/tst_consumer.cpp",
       "test": "aContractOfSlotsAloneHasAFacade"
+    },
+    {
+      "id": "a-slot-written-the-documented-way-does-not-build",
+      "what": "The generated slot bodies declared locals of their own (`index` and `result` on the owner, `engine`, `call`, `reply` and `invoked` on a consumer's returning slot, `<name>Size` for a bounded argument). A slot whose parameter took one of those names, including the documented `slot remove(int index)`, left the project unable to build, with the error inside generated code.",
+      "defended_by": "Every local the generator declares beside a contract's names starts with `synqt`, and synqtc refuses that prefix on any name a contract declares. The consumer-facade suite compiles a contract whose parameters take each of the old local names.",
+      "file": "tests/consumer-facade/tst_consumer.cpp",
+      "test": "aContractOfSlotsAloneHasAFacade"
+    },
+    {
+      "id": "a-slot-past-ten-arguments-never-reaches-the-owner",
+      "what": "A slot declared with more than ten parameters compiled and was acquired as usual, but the Source helper hands a call to the owner's QML through QMetaMethod::invoke, which carries at most ten arguments. Every call was dropped without a warning: a void slot did nothing and a returning slot resolved to a default value.",
+      "defended_by": "synqtc refuses a slot with more parameters than the dispatch carries (MAX_SLOT_PARAMS), naming the slot and pointing at a record. The generator tests refuse eleven, accept ten, and fail if the limit drifts from the constant the generated dispatch uses.",
+      "file": "tools/synqtc/tests/test_synqtc.py",
+      "test": "test_each_limit_is_the_one_the_generated_code_carries"
+    },
+    {
+      "id": "a-contract-member-hides-what-the-framework-exposes",
+      "what": "A contract could declare a member the generated classes already have: `prop bool ready` beside the facade's own readiness flag, `signal destroyed()` beside the signal every QObject sends as it goes, `setCount` beside the setter of `prop int count`. Some failed to build deep in generated code; others built and left a consumer reading the contract's value where it expected the framework's, or handling the framework's signal as the contract's.",
+      "defended_by": "synqtc refuses member names the generated classes or QObject already use, names derived from another member, C++ and Qt keywords, and repeated parameter, role or field names, each with the member it hit. The generator test holds one malformed contract per rule.",
+      "file": "tools/synqtc/tests/test_synqtc.py",
+      "test": "test_each_malformed_input_raises_synerror_with_location"
     }
   ]
 }

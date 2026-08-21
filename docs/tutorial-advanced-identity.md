@@ -3,8 +3,8 @@
 
 # An identity service of your own
 
-The first two pages of this track each implemented an interface. This one does not,
-because there is no `IIdentityProvider`.
+The first two pages of this track each implemented an interface. This one stands apart:
+SynQt has no `IIdentityProvider` to implement.
 
 A database provider can be swapped because every relational engine does the same job: take
 a statement and its parameters, return rows. Authentication has no common job. Login
@@ -77,13 +77,13 @@ stable value your provider returns is an opaque number, use it instead of a frie
 field.
 
 The rest of the flow (PKCE, the state parameter, the token exchange, the httpOnly cookie)
-is unchanged, and an unusual provider does not make any of it your problem. See
+stays the same, and an unusual provider leaves all of it to the framework. See
 [authentication](authentication.md) for the whole flow.
 
 ## Level 2: Your own rules about who someone is
 
-The provider says who signed in. It does not say what they may do here, and should not,
-because a scope belongs to your system. The mapping hook translates one into the other,
+The provider says who signed in. What they may do here is your system's call, because a
+scope belongs to it. The mapping hook translates one into the other,
 and most real customization happens there.
 
 `web/edge/identity/map.qml`:
@@ -139,8 +139,8 @@ configure: a staff directory that checks a username and password over LDAP, a ha
 token service, a legacy ticket system.
 
 Treat it as an ordinary entity. Build the login system as an entity with a connect point,
-and let the edge consume it. What the entity does inside is not the framework's concern,
-just like a database entity's engine.
+and let the edge consume it. What the entity does inside is its own business, as with a
+database entity's engine.
 
 ```mermaid
 flowchart LR
@@ -164,7 +164,6 @@ connect_points:
   - owner: edge
     consumers: [app]
     export: |
-      prop bool ready
       slot signIn(string[64] username, string[128] secret)
       signal signedIn()
       signal refused(string[120] reason)
@@ -205,8 +204,6 @@ import SynQt
 
 Edge {
     id: auth
-
-    ready: true
 
     function signIn(username, secret) {
         // The credential goes straight to the entity that can check it, and nowhere
@@ -256,9 +253,9 @@ Four rules apply, all of them ones SynQt already follows:
 
 > [!IMPORTANT]
 > A password passed to a slot crosses the wire, so this design is acceptable only over
-> the `wss` link SynQt requires, to the edge, the one entity facing the internet. That is
-> the default; do not make an exception for development convenience. `synqt dev` issues
-> real certificates so you never need to.
+> `wss`, to the edge, the one entity facing the internet. A release build refuses to serve
+> the browser without TLS. `synqt dev` serves it in plaintext on loopback, which stays on
+> your machine, so sign in there with test accounts, never real ones.
 
 ## Where identity runs
 
@@ -286,10 +283,10 @@ more than one edge, not before.
 <summary>Solution</summary>
 
 **The topology.** Adding `app` to the directory's consumer list fails `synqt check`: a web
-edge must own any connect point a client consumes, and the directory is not a web edge. No
-configuration lets a browser reach that entity, so the saved hop does not exist.
+edge must own any connect point a client consumes, and the directory is not a web edge.
+Every configuration keeps a browser away from that entity, so the saved hop does not exist.
 
-**A caller does not hold its scope.** A scope is a field on a session record on the
+**The server holds the scope.** A scope is a field on a session record on the
 server, set and read by code on the owner. A client that decided its own scope would only
 edit a copy. The session the edge consults stays the same, and every scoped connect point
 keeps refusing it. The client has no copy of authorization to corrupt, so no smaller
