@@ -143,7 +143,8 @@ MAP_HOOK = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 import SynQt
 
 // Turn a normalized identity into a SynQt scope, on the edge, after a successful login.
-// Tolerate a null email. Prefer sub or login for authorization decisions.
+// The email is null unless the provider verified the address, so tolerate a null one.
+// Prefer sub or login for authorization decisions.
 //
 // Return a member of Scope, which SynQt generates next to this file from scopes.order in
 // synqt.yaml, so only declared scopes can be named. The edge reads the answer as an index

@@ -99,6 +99,15 @@ MeshCredentials credsFor(const QString &entity)
     return credentials;
 }
 
+/// The stub's own default person, restored after a test changes who signs in.
+QVariantMap octocatProfile()
+{
+    return QVariantMap{{QStringLiteral("id"), 1001},
+                       {QStringLiteral("login"), QStringLiteral("octocat")},
+                       {QStringLiteral("name"), QStringLiteral("The Octocat")},
+                       {QStringLiteral("email"), QStringLiteral("octocat@example.com")}};
+}
+
 IdentityProviderConfig stubProvider(const QString &base)
 {
     IdentityProviderConfig provider;
@@ -1035,6 +1044,82 @@ private slots:
                  QStringLiteral("octocat@example.com"));
         QCOMPARE(record->identity.value(QStringLiteral("login")).toString(),
                  QStringLiteral("octocat"));  // from preferred_username
+        QCOMPARE(record->scope, QStringLiteral("moderator"));
+    }
+
+    // An address the provider has not verified names nobody. A provider that lets anyone
+    // open an account under any address says so, in the ID token's `email_verified` or in
+    // the profile, and a mapping hook that grants a scope by address (this suite's hook
+    // makes octocat@example.com a moderator) would otherwise hand that scope to whoever
+    // typed the address first.
+    void anUnverifiedEmailGrantsNothing_data()
+    {
+        QTest::addColumn<QString>("provider");
+        QTest::addColumn<QVariant>("verified");
+        QTest::newRow("id token, false") << QStringLiteral("stub-oidc") << QVariant{false};
+        QTest::newRow("id token, the text false") << QStringLiteral("stub-oidc")
+                                                  << QVariant{QStringLiteral("false")};
+        QTest::newRow("userinfo, false") << QStringLiteral("stub") << QVariant{false};
+        QTest::newRow("id token, not stated") << QStringLiteral("stub-oidc") << QVariant{};
+    }
+
+    void anUnverifiedEmailGrantsNothing()
+    {
+        QFETCH(QString, provider);
+        QFETCH(QVariant, verified);
+        QVariantMap unverified{octocatProfile()};
+        if (verified.isValid()) {
+            unverified.insert(QStringLiteral("email_verified"), verified);
+        } else {
+            m_stub->omitIdTokenClaim(QStringLiteral("email_verified"));
+        }
+        m_stub->setUser(unverified);
+        const auto restore{qScopeGuard([this]() {
+            m_stub->restoreIdTokenClaim(QStringLiteral("email_verified"));
+            m_stub->setUser(octocatProfile());
+        })};
+
+        const Response callback{completeLogin(QStringLiteral("?provider=") + provider)};
+        QCOMPARE(callback.status, 302);
+        const SessionRecord *record{
+            m_edge->sessionManager()->lookup(sessionToken(callback.setCookie))};
+        QVERIFY(record != nullptr);
+        QCOMPARE(record->identity.value(QStringLiteral("sub")).toString(),
+                 QStringLiteral("1001"));
+        QVERIFY2(!record->identity.value(QStringLiteral("email")).isValid(),
+                 "an unverified address must not reach the identity");
+        QCOMPARE(record->scope, QStringLiteral("user"));
+    }
+
+    // The pass side: an address the provider verified is the identity's.
+    void aVerifiedEmailIsTheIdentitys_data()
+    {
+        QTest::addColumn<QString>("provider");
+        QTest::addColumn<QVariant>("verified");
+        QTest::newRow("id token, true") << QStringLiteral("stub-oidc") << QVariant{true};
+        QTest::newRow("id token, the text true") << QStringLiteral("stub-oidc")
+                                                 << QVariant{QStringLiteral("true")};
+        QTest::newRow("userinfo, true") << QStringLiteral("stub") << QVariant{true};
+        QTest::newRow("userinfo, not stated") << QStringLiteral("stub") << QVariant{};
+    }
+
+    void aVerifiedEmailIsTheIdentitys()
+    {
+        QFETCH(QString, provider);
+        QFETCH(QVariant, verified);
+        QVariantMap profile{octocatProfile()};
+        if (verified.isValid()) {
+            profile.insert(QStringLiteral("email_verified"), verified);
+        }
+        m_stub->setUser(profile);
+        const auto restore{qScopeGuard([this]() { m_stub->setUser(octocatProfile()); })};
+
+        const Response callback{completeLogin(QStringLiteral("?provider=") + provider)};
+        const SessionRecord *record{
+            m_edge->sessionManager()->lookup(sessionToken(callback.setCookie))};
+        QVERIFY(record != nullptr);
+        QCOMPARE(record->identity.value(QStringLiteral("email")).toString(),
+                 QStringLiteral("octocat@example.com"));
         QCOMPARE(record->scope, QStringLiteral("moderator"));
     }
 

@@ -143,6 +143,24 @@ void StubIdentityServer::ensureKeys()
     m_kid = QStringLiteral("stub-key-1");
 }
 
+namespace {
+
+/// `email_verified` as the person states it: a boolean, or the text some providers send.
+/// A person who says nothing is one the developer configured, so verified.
+jwt::claim verifiedClaim(const QVariantMap &user)
+{
+    const QVariant stated{user.value(QStringLiteral("email_verified"))};
+    if (!stated.isValid()) {
+        return jwt::claim(picojson::value(true));
+    }
+    if (stated.typeId() == QMetaType::Bool) {
+        return jwt::claim(picojson::value(stated.toBool()));
+    }
+    return jwt::claim(stated.toString().toStdString());
+}
+
+} // namespace
+
 std::string StubIdentityServer::signIdToken(const QString &nonce,
                                             const QVariantMap &user) const
 {
@@ -165,6 +183,9 @@ std::string StubIdentityServer::signIdToken(const QString &nonce,
                                    ? user.value(QStringLiteral("sub"))
                                    : user.value(QStringLiteral("id"))};
         builder.set_subject(subject.toString().toStdString());
+    }
+    if (!m_omittedClaims.contains(QStringLiteral("email_verified"))) {
+        builder.set_payload_claim("email_verified", verifiedClaim(user));
     }
     if (!m_omittedClaims.contains(QStringLiteral("exp"))) {
         builder.set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds(3600));
@@ -191,6 +212,11 @@ void StubIdentityServer::setRefreshOmitsExpiry(bool omits)
 void StubIdentityServer::omitIdTokenClaim(const QString &claim)
 {
     m_omittedClaims.insert(claim);
+}
+
+void StubIdentityServer::restoreIdTokenClaim(const QString &claim)
+{
+    m_omittedClaims.remove(claim);
 }
 
 bool StubIdentityServer::start(quint16 port)

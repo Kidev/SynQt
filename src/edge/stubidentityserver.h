@@ -61,9 +61,11 @@ public:
     int userCount() const;
     void setIssuer(const QString &issuer);   ///< iss for the ID token
 
-    /// Leave a claim out of the ID tokens this stub signs ("exp", "sub"), to drive the verifier's
-    /// refusal of a validly signed token missing a required claim.
+    /// Leave a claim out of the ID tokens this stub signs ("exp", "sub", "email_verified"), to
+    /// drive the refusal of a validly signed token missing a claim.
     void omitIdTokenClaim(const QString &claim);
+    /// Sign `claim` again after omitIdTokenClaim.
+    void restoreIdTokenClaim(const QString &claim);
 
     /// Answer a refresh without `expires_in`, which RFC 6749 section 5.1 only recommends.
     void setRefreshOmitsExpiry(bool omits);

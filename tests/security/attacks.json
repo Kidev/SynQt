@@ -1167,6 +1167,13 @@
       "defended_by": "EntityTest drops `--` comments line by line before splitting at semicolons, as the runtime does. The harness suite's own schema carries a comment with a semicolon, so every test there loads through it.",
       "file": "tests/entity-test/qml/tst_ledger.qml",
       "test": "test_each_test_starts_from_an_empty_database"
+    },
+    {
+      "id": "an-unverified-address-signs-in-as-its-owner",
+      "what": "On the OpenID Connect path the edge copied the ID token's `email` claim into the identity without reading `email_verified`, and took a profile's email the same way. A provider that lets anyone open an account under any address (a self-registration issuer, or one whose `email` claim is not verified) let a stranger sign in carrying the administrator's address, and a mapping hook that grants a scope by address, as the scaffolded one does, gave them that scope.",
+      "defended_by": "The edge takes an ID token's email only when `email_verified` is true (a boolean or the text true), and none when the claim is missing; a profile that states its address unverified has none, and the verified primary from the emails endpoint is asked for instead. The test signs in through the stub provider with the moderator's address marked unverified, as false, as the text false, and with no claim, over both paths, and requires no email and the plain user scope; the pass side requires a verified address to map to moderator.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "anUnverifiedEmailGrantsNothing"
     }
   ]
 }

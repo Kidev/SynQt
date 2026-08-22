@@ -294,11 +294,14 @@ read the same fields whatever the provider:
   on it, as the examples do, never on an email or display name, which can change.
 - **`identity.login`:** the provider username (GitHub: `login`), if the provider has one.
 - **`identity.name`:** the display name, if the provider has one.
-- **`identity.email`:** the verified email address, or null. Some providers withhold it. A
-  GitHub account with a private email returns none from `/user`, so the GitHub template
-  requests the `user:email` scope and falls back to the primary verified address from the
-  emails endpoint; if the user granted nothing, it is still null. Code and mapping hooks
-  must handle a null email. Prefer `sub` or `login` for authorization decisions.
+- **`identity.email`:** the verified email address, or null. From an ID token it is taken
+  only when the token's `email_verified` claim is true, and a token without that claim gives
+  none. A profile that states `email_verified` or `verified_email` as false gives none
+  either. Some providers withhold it. A GitHub account with a private email returns none
+  from `/user`, so the GitHub template requests the `user:email` scope and falls back to the
+  primary verified address from the emails endpoint; if the user granted nothing, it is
+  still null. Code and mapping hooks must handle a null email. Prefer `sub` or `login` for
+  authorization decisions.
 
 Provider templates define this mapping and document which raw fields feed each normalized
 one. A custom provider block does the same in its configuration.

@@ -7,15 +7,13 @@
 #include "constanttime.h"
 #include "edgereplyhandler.h"
 #include "jwksverifier.h"
-#include "secrets.h"
-
 #include "proxypolicy.h"
+#include "secrets.h"
+#include "tracescope.h"
 
 #include <QAbstractOAuth>
 #include <QAbstractOAuth2>
 #include <QDateTime>
-#include "tracescope.h"
-
 #include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -24,10 +22,10 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QScopeGuard>
-#include <QSet>
 #include <QOAuth2AuthorizationCodeFlow>
 #include <QPointer>
+#include <QScopeGuard>
+#include <QSet>
 #include <QTimer>
 #include <QUrlQuery>
 
@@ -37,6 +35,30 @@
 namespace SynQt {
 
 namespace {
+
+/// Whether a provider's `email_verified` (or Google's older `verified_email`) says yes. A
+/// JSON boolean, or the text "true" some providers send instead. Anything else, absence
+/// included, is no.
+bool saysVerified(const QVariant &value)
+{
+    if (value.typeId() == QMetaType::Bool) {
+        return value.toBool();
+    }
+    return value.toString().compare(QLatin1String("true"), Qt::CaseInsensitive) == 0;
+}
+
+/// Whether a userinfo profile states that its address is unverified. A profile that says
+/// nothing is taken as it stands (GitHub's `/user` carries only an address it verified).
+bool statesUnverified(const QVariantMap &profile)
+{
+    for (const QString &key : {QStringLiteral("email_verified"),
+                               QStringLiteral("verified_email")}) {
+        if (profile.contains(key) && !saysVerified(profile.value(key))) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // The name of the first provider endpoint that may not be reached as configured, or empty
 // when all are safe.
@@ -349,9 +371,15 @@ private:
                 identity.insert(QStringLiteral("login"),
                                 claims.value(QStringLiteral("preferred_username")));
                 identity.insert(QStringLiteral("name"), claims.value(QStringLiteral("name")));
+                // An address the provider has not verified names nobody: a mapping hook
+                // that grants a scope by address would hand it to whoever registered the
+                // address first. No `email_verified` claim at all is also no.
                 const QString email{claims.value(QStringLiteral("email")).toString()};
-                identity.insert(QStringLiteral("email"),
-                                email.isEmpty() ? QVariant{} : QVariant{email});
+                const bool verified{
+                    saysVerified(claims.value(QStringLiteral("email_verified")))};
+                identity.insert(QStringLiteral("email"), (email.isEmpty() || !verified)
+                                                             ? QVariant{}
+                                                             : QVariant{email});
                 self->finish(identity);
             });
             return;
@@ -390,7 +418,10 @@ private:
         m_identity.insert(QStringLiteral("sub"), subject);
         m_identity.insert(QStringLiteral("login"), profile.value(m_provider.loginField));
         m_identity.insert(QStringLiteral("name"), profile.value(m_provider.nameField));
-        const QVariant email{profile.value(m_provider.emailField)};
+        // A profile that says its address is unverified has none, and the verified primary
+        // from the emails endpoint is asked for instead where there is one.
+        const QVariant email{statesUnverified(profile) ? QVariant{}
+                                                       : profile.value(m_provider.emailField)};
         if ((email.isNull() || email.toString().isEmpty()) && !m_provider.emailsUrl.isEmpty()) {
             // GitHub-style fallback. The primary verified address from the emails endpoint.
             m_backend->httpGet(m_provider.emailsUrl, m_pending.flow->token(), this,
