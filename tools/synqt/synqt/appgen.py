@@ -40,6 +40,15 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     development-only code in the edge main; only `synqt dev` passes it.
     """
     root = Path(project_dir)
+    # An entity name becomes a C++ string, a CMake target and a directory under
+    # generated/, and generation runs before any check does.
+    for entity in appmodel.entities(config):
+        name = str(entity.get("name") or "")
+        if not appmodel.is_valid_entity_name(name):
+            raise appmodel.AppGenError(
+                f"'{name[:80]}' is not usable as an entity name: a name starts with a "
+                f"letter and is made of letters, digits, underscores and hyphens, up to "
+                f"{appmodel.ENTITY_NAME_MAX} characters")
     synqt_root = Path(synqt_root) if synqt_root else appmodel.framework_root()
     # Expand the links `identity.provider_entity` implies once, for every output below.
     config = appmodel.with_auth_connect_points(config)

@@ -1181,6 +1181,13 @@
       "defended_by": "The cache and document skeletons log a warning naming the operation on every call, since those families have no error to return; the command says which way each family reports. The custom-provider suite builds the real scaffolder output and requires the warning from each.",
       "file": "tests/custom-provider/tst_customprovider.cpp",
       "test": "anUnfinishedCacheOrDocumentProviderSaysSoInTheLog"
+    },
+    {
+      "id": "an-entity-name-writes-outside-the-generated-tree",
+      "what": "`synqt build` and `synqt dev` generate the app before anything checks the topology, and an entity name went unescaped into C++ string literals, CMake target names and the directory each main.cpp is written to. A name holding a quote produced code that failed far from its cause, and a name holding `..` wrote a generated main.cpp outside generated/.",
+      "defended_by": "appgen.generate refuses any entity name outside the rule `synqt check` applies (a letter, then letters, digits, underscores and hyphens, up to 64 characters) before it writes anything. The test tries a quote, a parent path, a space, a leading digit and an empty name, and requires nothing to be written outside the project; the pass side generates a hyphenated name.",
+      "file": "tools/synqt/tests/test_appgen_routes.py",
+      "test": "test_an_entity_name_the_generated_code_cannot_carry_is_refused"
     }
   ]
 }

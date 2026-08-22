@@ -335,3 +335,29 @@ def test_route_views_reads_the_entity_own_table():
 def test_route_views_without_an_entity_is_unchanged():
     config = {"routes": [{"path": "/", "view": "Home.qml"}]}
     assert appmodel.route_views(config) == ["Home.qml"]
+
+
+@pytest.mark.parametrize("name", ['db"x', "../outside", "has space", "9lives", ""])
+def test_an_entity_name_the_generated_code_cannot_carry_is_refused(name):
+    # Generation runs before any check, and an entity name becomes a C++ string, a CMake
+    # target and a directory under generated/. A quote or a `..` must stop here.
+    from synqt import appgen
+    with tempfile.TemporaryDirectory() as tmp:
+        config = {"project": {"name": "p"},
+                  "entities": [{"name": "app", "type": "client"},
+                               {"name": "edge", "type": "web_edge"},
+                               {"name": name, "type": "relational"}]}
+        with pytest.raises(appmodel.AppGenError, match="entity name"):
+            appgen.generate(tmp, config)
+        assert not (Path(tmp).parent / "outside").exists()
+
+
+def test_a_valid_entity_name_generates():
+    from synqt import appgen
+    with tempfile.TemporaryDirectory() as tmp:
+        config = {"project": {"name": "p"},
+                  "entities": [{"name": "app", "type": "client"},
+                               {"name": "edge", "type": "web_edge"},
+                               {"name": "store-2", "type": "relational"}]}
+        written = appgen.generate(tmp, config)
+        assert any("store-2" in path for path in written)
