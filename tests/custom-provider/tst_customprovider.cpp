@@ -6,9 +6,9 @@
 // script. Nothing here is hand written, so a skeleton that stopped compiling, stopped
 // registering, or drifted from the family interface fails this test.
 //
-// This is the half of "writing a custom provider" that documentation cannot prove: the
-// docs said "register it under a name" for a long time while no registry existed, and
-// `provider.name: custom:X` resolved to nullptr in silence.
+// This is the half of "writing a custom provider" that documentation cannot prove: that
+// `provider.name: custom:X` reaches the registered provider, where a missing registry
+// would resolve it to nullptr in silence.
 
 #include "cachefactory.h"
 #include "documentfactory.h"
@@ -85,6 +85,31 @@ private slots:
         QString error;
         QVERIFY(!store->migrate(QStringList{QStringLiteral("CREATE TABLE t (id INT)")}, &error));
         QVERIFY2(error.contains(QStringLiteral("migrate")), qPrintable(error));
+    }
+
+    void anUnfinishedCacheOrDocumentProviderSaysSoInTheLog()
+    {
+        // These two families have no error channel: a miss and an empty result are normal
+        // answers. So an unwritten operation says so in the log, naming itself, on every
+        // call, rather than answering like an empty store.
+        QString error;
+        ProviderConfig cache;
+        cache.name = QStringLiteral("custom:MyCache");
+        std::unique_ptr<ICacheProvider> cached{makeCacheProvider(cache, &error)};
+        QVERIFY2(cached != nullptr, qPrintable(error));
+        QTest::ignoreMessage(QtWarningMsg, "custom:MyCache: get() is not implemented");
+        QVERIFY(!cached->get(QStringLiteral("key")).isValid());
+        QTest::ignoreMessage(QtWarningMsg, "custom:MyCache: set() is not implemented");
+        cached->set(QStringLiteral("key"), QVariant{1}, 0);
+
+        ProviderConfig document;
+        document.name = QStringLiteral("custom:MyDocs");
+        std::unique_ptr<IDocumentProvider> docs{makeDocumentProvider(document, &error)};
+        QVERIFY2(docs != nullptr, qPrintable(error));
+        QTest::ignoreMessage(QtWarningMsg, "custom:MyDocs: find() is not implemented");
+        QVERIFY(docs->find(QStringLiteral("notes"), {}, {}).isEmpty());
+        QTest::ignoreMessage(QtWarningMsg, "custom:MyDocs: insert() is not implemented");
+        QVERIFY(!docs->insert(QStringLiteral("notes"), {}).isValid());
     }
 };
 

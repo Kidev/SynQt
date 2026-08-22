@@ -1174,6 +1174,13 @@
       "defended_by": "The edge takes an ID token's email only when `email_verified` is true (a boolean or the text true), and none when the claim is missing; a profile that states its address unverified has none, and the verified primary from the emails endpoint is asked for instead. The test signs in through the stub provider with the moderator's address marked unverified, as false, as the text false, and with no claim, over both paths, and requires no email and the plain user scope; the pass side requires a verified address to map to moderator.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "anUnverifiedEmailGrantsNothing"
+    },
+    {
+      "id": "an-unfinished-cache-provider-looks-like-an-empty-store",
+      "what": "`synqt add provider` said every scaffolded operation reports that it is not written yet, but the cache and document skeletons answered every call like an empty store: a get missed, a set did nothing, a find came back empty. An entity wired to one ran without a sign that nothing was being kept.",
+      "defended_by": "The cache and document skeletons log a warning naming the operation on every call, since those families have no error to return; the command says which way each family reports. The custom-provider suite builds the real scaffolder output and requires the warning from each.",
+      "file": "tests/custom-provider/tst_customprovider.cpp",
+      "test": "anUnfinishedCacheOrDocumentProviderSaysSoInTheLog"
     }
   ]
 }

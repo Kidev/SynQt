@@ -57,6 +57,7 @@ _OPERATIONS = {
         "        // TODO: return the value, or an invalid QVariant. A miss is a normal\n"
         "        // result in this family, not an error.\n"
         "        Q_UNUSED(key);\n"
+        "        notImplemented(\"get\");\n"
         "        return QVariant{};\n"
         "    }\n\n"
         "    void set(const QString &key, const QVariant &value, int ttlSeconds) override\n"
@@ -65,13 +66,19 @@ _OPERATIONS = {
         "        Q_UNUSED(key);\n"
         "        Q_UNUSED(value);\n"
         "        Q_UNUSED(ttlSeconds);\n"
+        "        notImplemented(\"set\");\n"
         "    }\n\n"
-        "    void del(const QString &key) override { Q_UNUSED(key); }\n\n"
+        "    void del(const QString &key) override\n"
+        "    {\n"
+        "        Q_UNUSED(key);\n"
+        "        notImplemented(\"del\");\n"
+        "    }\n\n"
         "    qint64 incr(const QString &key, qint64 by) override\n"
         "    {\n"
         "        // TODO: atomically add and return the new value.\n"
         "        Q_UNUSED(key);\n"
         "        Q_UNUSED(by);\n"
+        "        notImplemented(\"incr\");\n"
         "        return 0;\n"
         "    }\n\n"
         "    void expire(const QString &key, int ttlSeconds) override\n"
@@ -80,6 +87,7 @@ _OPERATIONS = {
         "        // no expiry, as on set(), and never \"drop the key now\").\n"
         "        Q_UNUSED(key);\n"
         "        Q_UNUSED(ttlSeconds);\n"
+        "        notImplemented(\"expire\");\n"
         "    }\n"),
     "document": (
         "    QVariant insert(const QString &collection, const QVariantMap &document) override\n"
@@ -87,6 +95,7 @@ _OPERATIONS = {
         "        // TODO: insert and return the new document's id.\n"
         "        Q_UNUSED(collection);\n"
         "        Q_UNUSED(document);\n"
+        "        notImplemented(\"insert\");\n"
         "        return QVariant{};\n"
         "    }\n\n"
         "    QVariantList find(const QString &collection, const QVariantMap &filter,\n"
@@ -97,6 +106,7 @@ _OPERATIONS = {
         "        Q_UNUSED(collection);\n"
         "        Q_UNUSED(filter);\n"
         "        Q_UNUSED(options);\n"
+        "        notImplemented(\"find\");\n"
         "        return QVariantList{};\n"
         "    }\n\n"
         "    int update(const QString &collection, const QVariantMap &filter,\n"
@@ -105,15 +115,28 @@ _OPERATIONS = {
         "        Q_UNUSED(collection);\n"
         "        Q_UNUSED(filter);\n"
         "        Q_UNUSED(change);\n"
+        "        notImplemented(\"update\");\n"
         "        return 0;\n"
         "    }\n\n"
         "    int remove(const QString &collection, const QVariantMap &filter) override\n"
         "    {\n"
         "        Q_UNUSED(collection);\n"
         "        Q_UNUSED(filter);\n"
+        "        notImplemented(\"remove\");\n"
         "        return 0;\n"
         "    }\n"),
 }
+
+# The cache and document families have no error channel (a miss or an empty result is a
+# normal answer), so an unwritten operation says so in the log.
+_LOGGED_HELPER = (
+    "    // Until the operations above are written, every call says so in the log. This\n"
+    "    // family has no error to return, and a stub that answered like an empty store\n"
+    "    // would look like it worked.\n"
+    "    void notImplemented(const char *operation) const\n"
+    "    {\n"
+    "        qWarning(\"%s: %s() is not implemented\", qUtf8Printable(name()), operation);\n"
+    "    }\n\n")
 
 # The relational family reports errors through DbResult and QString *error.
 _HELPERS = {
@@ -132,16 +155,16 @@ _HELPERS = {
         "        }\n"
         "        return false;\n"
         "    }\n\n"),
-    "cache": "",
-    "document": "",
+    "cache": _LOGGED_HELPER,
+    "document": _LOGGED_HELPER,
 }
 
 _INCLUDES = {
     "relational": "#include <QString>\n#include <QStringList>\n#include <QVariant>\n"
                    "#include <QVariantList>\n",
-    "cache": "#include <QString>\n#include <QVariant>\n",
+    "cache": "#include <QString>\n#include <QVariant>\n#include <QtLogging>\n",
     "document": "#include <QString>\n#include <QVariant>\n#include <QVariantList>\n"
-                "#include <QVariantMap>\n",
+                "#include <QVariantMap>\n#include <QtLogging>\n",
 }
 
 
@@ -216,7 +239,8 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, family: str) -> str
         f"Custom {family} provider '{name}' scaffolded at {out_file.relative_to(root)}.\n"
         f"  - Implement the {interface} operations (parameters separate, errors returned).\n"
         f"    It compiles and registers as it is; every operation reports that it is not\n"
-        f"    written yet, so nothing fails quietly while you work.\n"
+        f"    written yet ({'through the interface' if family == 'relational' else 'in the log'}),\n"
+        f"    so nothing fails quietly while you work.\n"
         f"  - Select it with provider.name: custom:{name} in that entity's synqt.yaml block.\n"
         f"    That selection is also what compiles this file into the entity, so the\n"
         f"    {FAMILY_REGISTER_MACRO[family]} line in it runs; there is no CMake to edit.\n"
