@@ -1188,6 +1188,13 @@
       "defended_by": "appgen.generate refuses any entity name outside the rule `synqt check` applies (a letter, then letters, digits, underscores and hyphens, up to 64 characters) before it writes anything. The test tries a quote, a parent path, a space, a leading digit and an empty name, and requires nothing to be written outside the project; the pass side generates a hyphenated name.",
       "file": "tools/synqt/tests/test_appgen_routes.py",
       "test": "test_an_entity_name_the_generated_code_cannot_carry_is_refused"
+    },
+    {
+      "id": "an-entity-env-is-readable-by-every-account",
+      "what": "`synqt docker init` wrote each entity's .env, which holds the generated engine passwords and the OAuth client secret, with the process umask, so on an ordinary host every account could read it; a file already there kept whatever mode it had.",
+      "defended_by": "The .env is created 0600 and tightened on every rewrite, with the same helper that restricts the mesh keys (an owner-only ACL on Windows). The test starts from a 0644 file holding a value, runs the init, and requires 0600 with the value kept.",
+      "file": "tools/synqt/tests/test_docker.py",
+      "test": "test_an_entity_env_is_readable_by_its_owner_alone"
     }
   ]
 }

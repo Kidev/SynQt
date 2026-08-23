@@ -32,7 +32,7 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, TextIO, Tuple
 
-from . import appmodel, toolchain, writer
+from . import appmodel, mesh, toolchain, writer
 
 
 class DockerError(Exception):
@@ -1102,7 +1102,12 @@ def _write_env(path: Path, values: Dict[str, str], order: List[str]) -> None:
              ""]
     lines += [f"{name}={values.get(name, '')}" for name in names]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Created readable by its owner alone, and tightened if it already existed: it holds
+    # engine passwords and client secrets.
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+    mesh.restrict(path)
 
 
 def _generated_value(entity: Dict[str, Any], engine: str, name: str) -> Optional[str]:

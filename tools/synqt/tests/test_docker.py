@@ -6,6 +6,7 @@ the addresses entities dial, the one published port, the build context contents,
 engine sidecar arrangement are asserted.
 """
 
+import os
 import unittest
 from pathlib import Path
 
@@ -502,6 +503,25 @@ class InitTest(unittest.TestCase):
             docker.init(root, config, source=None)
             values = docker._read_env(root / "web" / "web" / ".env")
         self.assertEqual(values["GITHUB_CLIENT_SECRET"], "")
+
+    @unittest.skipIf(os.name == "nt", "a POSIX file mode")
+    def test_an_entity_env_is_readable_by_its_owner_alone(self):
+        # It holds generated engine passwords and the OAuth client secret. A file written
+        # with the umask is readable by every account on the host, and one that was already
+        # there is tightened when it is rewritten.
+        import stat
+        import tempfile
+
+        config = _with_engine()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._project(tmp, config)
+            env = root / "db" / "relational" / "store" / ".env"
+            env.parent.mkdir(parents=True, exist_ok=True)
+            env.write_text("DB_PASSWORD=kept\n", encoding="utf-8")
+            env.chmod(0o644)
+            docker.init(root, config, source=None)
+            self.assertEqual(stat.S_IMODE(env.stat().st_mode), 0o600)
+            self.assertEqual(docker._read_env(env)["DB_PASSWORD"], "kept")
 
     def test_rerunning_never_resets_a_value_that_was_already_set(self):
         import tempfile

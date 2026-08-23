@@ -50,7 +50,7 @@ def _reserve_key(path: Path) -> None:
 
     ``openssl genrsa -out`` creates the file with the umask, and a later chmod leaves a
     window. The file is created first with its mode, and openssl writes into it without
-    resetting the mode. On Windows ``_restrict`` applies the ACL afterwards.
+    resetting the mode. On Windows ``restrict`` applies the ACL afterwards.
     """
     path.unlink(missing_ok=True)
     if os.name == "nt":
@@ -58,7 +58,7 @@ def _reserve_key(path: Path) -> None:
     os.close(os.open(path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600))
 
 
-def _restrict(path: Path) -> bool:
+def restrict(path: Path) -> bool:
     """Make a private key readable only by its owner. Returns whether the platform mechanism
     was applied: on Windows os.chmod only toggles the read-only bit, so the caller reports
     it.
@@ -132,7 +132,7 @@ def init(project_dir: os.PathLike[str] | str, *, dev: bool = False, force: bool 
     finally:
         ext.unlink(missing_ok=True)
         csr.unlink(missing_ok=True)
-    restricted = _restrict(ca_key)
+    restricted = restrict(ca_key)
     ensure_gitignored(project_dir)
     protection = ("ca.key is restricted to you and git-ignored" if restricted else
                   "ca.key is git-ignored, but this platform's permissions could NOT be "
@@ -185,7 +185,7 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
     finally:
         ext.unlink(missing_ok=True)
         csr.unlink(missing_ok=True)
-    _restrict(key)
+    restrict(key)
     ensure_gitignored(project_dir)
     return f"Issued {entity}.crt (subject CN={entity}, SAN DNS:{entity})."
 

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""M10: the mesh CA tooling, the license generation, and the new/check/build/doctor flow."""
+"""The mesh CA tooling, the license generation, and the new/check/build/doctor flow."""
 
 import os
 import re
@@ -29,7 +29,7 @@ class MeshTest(unittest.TestCase):
         mesh.init(self.root)
         ca_key = self.root / "synqt" / "mesh" / "ca.key"
         self.assertTrue(ca_key.exists())
-        # The CA key is 0600 where POSIX modes apply. The Windows ACL half (mesh._restrict)
+        # The CA key is 0600 where POSIX modes apply. The Windows ACL half (mesh.restrict)
         # cannot be asserted from a POSIX host.
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(ca_key.stat().st_mode), 0o600)
@@ -57,7 +57,7 @@ class MeshTest(unittest.TestCase):
         the moment a stand-in for openssl starts writing.
         """
         if os.name == "nt":
-            self.skipTest("POSIX modes; mesh._restrict carries the Windows ACL half")
+            self.skipTest("POSIX modes; mesh.restrict carries the Windows ACL half")
         seen = {}
         real = mesh._openssl
 
