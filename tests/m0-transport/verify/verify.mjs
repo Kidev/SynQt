@@ -27,7 +27,7 @@ const headless = process.env.M0_HEADLESS === "1" ? true : !process.env.DISPLAY;
 function firstLine(err) {
     const line = String(err.message)
         .split("\n")
-        .map((text) => text.replace(/[─-╿]/g, "").trim())
+        .map((text) => text.replace(/[\u2500-\u257F]/g, "").trim())
         .find((text) => /[a-z]/i.test(text) && !/^browserType\.launch:?$/.test(text));
     return line || "the runtime would not launch and gave no reason";
 }
