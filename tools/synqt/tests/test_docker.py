@@ -519,9 +519,15 @@ class InitTest(unittest.TestCase):
             env.parent.mkdir(parents=True, exist_ok=True)
             env.write_text("DB_PASSWORD=kept\n", encoding="utf-8")
             env.chmod(0o644)
+            # A second name for the old, world-readable file. The secrets must never be
+            # written into it, not even before its mode is tightened.
+            old = env.parent / "old-name"
+            os.link(env, old)
             docker.init(root, config, source=None)
             self.assertEqual(stat.S_IMODE(env.stat().st_mode), 0o600)
             self.assertEqual(docker._read_env(env)["DB_PASSWORD"], "kept")
+            self.assertEqual(old.read_text(encoding="utf-8"), "DB_PASSWORD=kept\n")
+            self.assertEqual(list(env.parent.glob(".env.*")), [])
 
     def test_rerunning_never_resets_a_value_that_was_already_set(self):
         import tempfile

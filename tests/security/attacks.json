@@ -1192,7 +1192,7 @@
     {
       "id": "an-entity-env-is-readable-by-every-account",
       "what": "`synqt docker init` wrote each entity's .env, which holds the generated engine passwords and the OAuth client secret, with the process umask, so on an ordinary host every account could read it; a file already there kept whatever mode it had.",
-      "defended_by": "The .env is created 0600 and tightened on every rewrite, with the same helper that restricts the mesh keys (an owner-only ACL on Windows). The test starts from a 0644 file holding a value, runs the init, and requires 0600 with the value kept.",
+      "defended_by": "The .env is written into a fresh file mkstemp creates 0600, restricted (an owner-only ACL on Windows) and renamed over the old one, so no secret is ever written into a file with a wider mode. The test starts from a 0644 file holding a value and a second hard link to it, runs the init, and requires 0600 with the value kept, the old file's contents untouched through the link, and no staged file left behind.",
       "file": "tools/synqt/tests/test_docker.py",
       "test": "test_an_entity_env_is_readable_by_its_owner_alone"
     }
