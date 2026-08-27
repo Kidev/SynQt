@@ -204,7 +204,7 @@ def authored_source_path(entity: Dict[str, Any], point: Dict[str, Any]) -> str:
 
 
 def entity_file_path(entity: Dict[str, Any]) -> str:
-    """Where an entity own QML lives. A client uses `Main.qml`, which the generated main.cpp
+    """Where an entity's own QML lives. A client uses `Main.qml`, which the generated main.cpp
     loads by name. Every other entity uses its own name, and that file is also the Source of
     the point it owns.
     """
@@ -324,7 +324,7 @@ def serves_inbound(entity: Dict[str, Any]) -> bool:
 
 
 def network_helpers(entity: Dict[str, Any]) -> List[str]:
-    """The helper names this entity `network:` block puts in its QML scope. Also read by the
+    """The helper names this entity's `network:` block puts in its QML scope. Also read by the
     reserved-name rule.
     """
     helpers: List[str] = []
@@ -340,8 +340,9 @@ def network_helpers(entity: Dict[str, Any]) -> List[str]:
 # `shared:` belongs to the entity, not to a link.
 #
 #   shared: true    one Source for everybody (the default). Each slot still runs with the
-# calling Caller bound. shared: false   one Source per caller. A browser caller is a
-# session, so tabs share one and a private window gets its own.
+#                   calling Caller bound.
+#   shared: false   one Source per caller. A browser caller is a session, so tabs share one
+#                   and a private window gets its own.
 
 
 def is_shared(entity: Dict[str, Any]) -> bool:
@@ -384,11 +385,11 @@ def accessor_name(owner: str) -> str:
 
 
 def contract_of(point: Dict[str, Any]) -> str:
-    """The type a connect point `export:` becomes: its owner, capitalized.
+    """The type a connect point's `export:` becomes: its owner, capitalized.
 
     `Edge` is the entity, the root type of `web/edge/Edge.qml`, and the consumer accessor.
     The copy the compiler reads is renamed under `generated/`
-    (:func:`generated_source_path`). `contract:` is read only for framework points, whose
+    (:func:`contract_path`). `contract:` is read only for framework points, whose
     contracts ship in the runtime libraries (`sessions` carries `SessionStore`); `synqt
     check` refuses it in a project.
     """
@@ -585,7 +586,7 @@ def bundles_for(config: Dict[str, Any],
 
 
 def desktop_output_dir(config: Dict[str, Any], client: Dict[str, Any]) -> str:
-    """Where a client native desktop build lands, project-root relative, with the platform
+    """Where a client's native desktop build lands, project-root relative, with the platform
     folder beneath (docs/desktop.md). One client uses `build/client-desktop`; more clients
     get one directory each.
     """
@@ -786,6 +787,22 @@ def origin_model(config: Dict[str, Any]) -> str:
     return model.strip() if isinstance(model, str) else ""
 
 
+def organization(config: Dict[str, Any]) -> Tuple[str, str]:
+    """The organization a client's own settings are filed under, and its domain.
+
+    ``project.organization``, or the project name when it says nothing: Qt's settings keep
+    nothing on WebAssembly or Windows without one. ``project.organization_domain`` is empty
+    unless written; macOS files settings under it when it is set.
+    """
+    project = config.get("project")
+    project = project if isinstance(project, dict) else {}
+    name = project.get("organization")
+    if not isinstance(name, str) or not name.strip():
+        name = str(project.get("name") or "app")
+    domain = project.get("organization_domain")
+    return name.strip(), domain.strip() if isinstance(domain, str) else ""
+
+
 def default_scope(config: Dict[str, Any]) -> str:
     """``scopes.default``: the scope a brand new, unauthenticated session runs at."""
     scopes = config.get("scopes")
@@ -930,7 +947,7 @@ def dev_stub_port(config: Dict[str, Any]) -> int:
 
 
 def dev_stub_users(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Who the development sign-in offers, always at least one. The project mapping hook maps
+    """Who the development sign-in offers, always at least one. The project's mapping hook maps
     each to a scope, so `synqt dev` exercises the shipping hook.
     """
     declared = identity_dev_stub(config).get("users")
@@ -1178,7 +1195,7 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The identity and session links `identity.provider_entity` implies, or [].
 
     Owned by the auth entity and consumed by every web edge that serves login, with the
-    usual transport resolution (mutual TLS on loopback unless the auth entity `mesh:` block
+    usual transport resolution (mutual TLS on loopback unless the auth entity's `mesh:` block
     says otherwise). Empty when no provider is configured.
     """
     owner = provider_entity(config)
@@ -1201,7 +1218,7 @@ def auth_connect_points(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def with_auth_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
-    """`config` with the auth entity implied links appended to ``connect_points``.
+    """`config` with the links the auth entity implies appended to ``connect_points``.
 
     Runs once at each entry point that reads the whole topology (generation, the topology
     writer, validation). Idempotent. A declared connect point of the same name wins, and
@@ -1213,7 +1230,6 @@ def with_auth_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
     expanded = dict(config)
     expanded["connect_points"] = list(connect_points(config)) + extra
     return expanded
-
 
 
 # The monitoring fan-in: one connect point, owned by the monitor, consumed by every service,
@@ -1311,7 +1327,7 @@ def monitor_watches(entity: Dict[str, Any]) -> bool:
 
 
 def with_monitoring_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
-    """`config` with the monitor implied link appended to ``connect_points``.
+    """`config` with the link the monitor implies appended to ``connect_points``.
 
     Runs where :func:`with_auth_connect_points` runs. Idempotent; a declared point of the
     same name wins. The input is never mutated.
@@ -1325,7 +1341,7 @@ def with_monitoring_connect_points(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def client_secret_variable(provider: Dict[str, Any]) -> str:
-    """The environment variable holding this provider client secret.
+    """The environment variable holding this provider's client secret.
 
     Read from the edge environment at start-up, so the secret never appears in generated
     source or a binary. A literal is refused.

@@ -158,3 +158,39 @@ class ShapeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OrganizationTest(unittest.TestCase):
+    """What an app's own settings are filed under. Without an organization Qt's settings keep
+    nothing on WebAssembly (no localStorage prefix) or Windows (no registry key), so the
+    client always names one: the project, unless `project.organization` says otherwise.
+    """
+
+    def main(self, config):
+        return maingen.render_client_main(config, uri="App", entity=config["entities"][0])
+
+    def test_a_project_that_says_nothing_is_its_own_organization(self):
+        source = self.main(project())
+        self.assertIn('QCoreApplication::setOrganizationName(QStringLiteral("app"));', source)
+        self.assertNotIn("setOrganizationDomain", source)
+
+    def test_a_declared_organization_and_domain_are_the_ones_set(self):
+        config = project()
+        config["project"]["organization"] = 'Acme "North"'
+        config["project"]["organization_domain"] = "acme.example"
+        source = self.main(config)
+        self.assertIn('setOrganizationName(QStringLiteral("Acme \\"North\\""));', source)
+        self.assertIn('setOrganizationDomain(QStringLiteral("acme.example"));', source)
+        # Named before anything could construct a QSettings.
+        self.assertLess(source.index("setOrganizationName"), source.index("SynClientConfig config;"))
+
+    def test_an_organization_that_is_not_text_is_refused(self):
+        for key in ("organization", "organization_domain"):
+            config = project()
+            config["project"][key] = ["acme"]
+            self.assertTrue(any(f"project.{key}" in m for m in errors(config)), key)
+
+    def test_a_blank_organization_is_refused(self):
+        config = project()
+        config["project"]["organization"] = "  "
+        self.assertTrue(any("project.organization" in m for m in errors(config)))

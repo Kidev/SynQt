@@ -635,6 +635,12 @@ def render_client_main(config: Dict[str, Any], uri: str,
 
     # The path the edge accepts the upgrade on.
     sync_route_literal = cxx_string_literal(appmodel.sync_route(config))
+    organization_name, organization_domain = appmodel.organization(config)
+    organization_lines = ("    QCoreApplication::setOrganizationName(QStringLiteral(\""
+                          f"{cxx_string_literal(organization_name)}\"));")
+    if organization_domain:
+        organization_lines += ("\n    QCoreApplication::setOrganizationDomain(QStringLiteral(\""
+                               f"{cxx_string_literal(organization_domain)}\"));")
 
     # Every accessor bound with setContextProperty needs its complete type here: synclient.h
     # only forward-declares them, and an incomplete type binds to the deleted QVariant(T*)
@@ -857,6 +863,9 @@ int main(int argc, char *argv[])
 
     QGuiApplication app{{argc, argv}};
 
+    // What the app's own settings are filed under (project.organization).
+{organization_lines}
+
     // `import SynQt` brings QtQuick with it, so Main.qml and every view need one import
     // line. Registered before the engine is created.
     SynQt::registerModuleImports();
@@ -961,7 +970,7 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     # reach a consumed point before the first browser arrives.
     singleton_instances = _singleton_instantiations(singletons or [])
     # Cross-origin isolation: forced by a multi-threaded client, or set on its own. The edge
-    # then serves COOP/COEP and adds worker-src 'self' blob: (pitfall 13).
+    # then serves COOP/COEP and adds worker-src 'self' blob:.
     coi_literal = "true" if clientbuild.cross_origin_isolation(config) else "false"
     sw_literal = "true" if clientcache.uses_service_worker(config) else "false"
 

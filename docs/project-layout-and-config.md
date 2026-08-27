@@ -144,6 +144,12 @@ project:
 entity builds against and, through it, the client's Emscripten version (see
 [build system and CLI](build-system-and-cli.md)).
 
+`organization` names what the client's own settings are filed under: a `Settings` object in
+QML, or `QSettings` in C++. It defaults to `name`. Qt keeps no settings on WebAssembly or
+Windows without one, so the client always sets it. `organization_domain` is optional; macOS
+files settings under the domain when one is set. Changing either after release leaves
+visitors' saved settings under the old name.
+
 The scaffold writes no `origin_model`. Without it, the project is same origin: the client
 and the web edge share one origin, the session cookie is first party, and the content
 security policy and the upgrade origin check stay simple. This page assumes that setup.

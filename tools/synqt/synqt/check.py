@@ -47,6 +47,22 @@ def _named_point_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+def _organization_messages(config: Dict[str, Any]) -> List[str]:
+    """`project.organization` and `project.organization_domain`: text when written."""
+    project = config.get("project")
+    project = project if isinstance(project, dict) else {}
+    messages: List[str] = []
+    for key in ("organization", "organization_domain"):
+        if key not in project:
+            continue
+        value = project[key]
+        if not isinstance(value, str) or not value.strip():
+            default = ("the project name" if key == "organization" else "no domain")
+            messages.append(f"error: project.{key} must be text, not {value!r}; leave it "
+                            f"out for {default}")
+    return messages
+
+
 def _entity_name_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a name that cannot be used everywhere an entity name is used.
 
@@ -495,6 +511,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     entities = {e.get("name"): e for e in declared}
     if not entities:
         return False, ["error: no entities declared"]
+    messages += _organization_messages(config)
     messages += _entity_name_messages(declared)
     messages += _qml_uri_messages(config, declared)
     messages += _duplicate_messages(
@@ -645,7 +662,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         endpoint = endpoints.get(name, {})
 
         # A local-socket link must be explicit, and every one is reported. Its Caller.entity is
-        # trusted by colocation, not authenticated (pitfall 7); a privileged owner must require
+        # trusted by colocation, not authenticated; a privileged owner must require
         # Caller.isEntityVerified.
         if endpoint.get("transport") == "local":
             if not connect_point.get("transport_local_explicit", True):
@@ -680,8 +697,8 @@ def validate(config: Dict[str, Any], *, release: bool = False,
             messages.append(f"error: client '{name}' must not carry a provider/secret block")
         messages += _client_env_messages(name, entity)
 
-    # A multi-threaded WASM client needs SharedArrayBuffer, so it needs cross-origin isolation
-    # (pitfall 13).
+    # A multi-threaded WASM client needs SharedArrayBuffer, so it needs cross-origin
+    # isolation.
     threads = str((config.get("build") or {}).get("client_threads", "single")).lower()
     if threads not in ("single", "multi"):
         messages.append(
