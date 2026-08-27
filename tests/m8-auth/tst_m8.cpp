@@ -2701,6 +2701,53 @@ private slots:
         return edge;
     }
 
+    // Anyone can open a pending login with a GET, and each is held until it completes or
+    // five minutes pass. A table that refused new logins once full was a lockout any one
+    // address could keep up at a few requests a second. Full, it now makes room by dropping
+    // the oldest pending login, whose visitor only has to start again.
+    void aFullLoginTableMakesRoomRatherThanLockingEveryoneOut()
+    {
+        IdentityConfig config;
+        config.enabled = true;
+        config.allowDevStub = true;
+        config.providers = {stubProvider(m_stub->baseUrl())};
+        OAuthBackend backend{config};
+
+        QString oldest;
+        for (int opened{0}; opened < OAuthBackend::MaxPendingLogins; ++opened) {
+            const OAuthBackend::BeginResult begun{
+                backend.begin(QStringLiteral("stub"), edgeUrl(QStringLiteral("/auth/callback")))};
+            QVERIFY2(!begun.state.isEmpty(), qPrintable(begun.error));
+            if (oldest.isEmpty()) {
+                oldest = begun.state;
+            }
+        }
+        QString tokenKey;
+        QVERIFY2(exchangeOn(&backend, &tokenKey),
+                 "a login begun on a full table must still complete");
+        const OAuthBackend::ExchangeResult evicted{
+            backend.exchange(oldest, QStringLiteral("any-code"),
+                             edgeUrl(QStringLiteral("/auth/callback")), QString{})};
+        QVERIFY2(!evicted.error.isEmpty(), "the oldest pending login makes the room");
+    }
+
+    // One visitor can start at most so many logins a minute, so no single address can churn
+    // the table fast enough to drop another visitor's login before it returns. The limit is
+    // far above what a person, or an office behind one address, starts.
+    void oneVisitorStartsBoundedLoginsAMinute()
+    {
+        QQmlEngine engine;
+        std::unique_ptr<WebEdge> edge{
+            edgeWithHook(&engine, QStringLiteral(M8_SRCDIR "/web/identity/map.qml"))};
+        QVERIFY2(edge->start(), qPrintable(edge->errorString()));
+        const QUrl login{urlFor(edge->serverPort(), QStringLiteral("/auth/login?provider=stub"))};
+        for (int started{0}; started < IdentityProvider::MaxLoginsPerVisitorMinute; ++started) {
+            const Response answer{get(login)};
+            QVERIFY2(answer.status == 302, qPrintable(QString::number(answer.status)));
+        }
+        QCOMPARE(get(login).status, 429);
+    }
+
     void aHookAnswerOutsideTheVocabularyFailsTheLoginClosed()
     {
         // The vocabulary has four scopes, so 4 is one past the end. The answer is an index

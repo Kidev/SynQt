@@ -40,6 +40,11 @@ class OAuthBackend : public QObject
     Q_OBJECT
 
 public:
+    /// How many logins may wait for the browser to return from the provider at once. Each
+    /// holds a QOAuth2AuthorizationCodeFlow for up to five minutes and anyone can open one,
+    /// so the count is bounded; far above real concurrency.
+    static constexpr int MaxPendingLogins{1024};
+
     explicit OAuthBackend(IdentityConfig config, QObject *parent = nullptr);
     ~OAuthBackend() override;
 

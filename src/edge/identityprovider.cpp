@@ -32,6 +32,7 @@
 #include <QUrlQuery>
 #include <QtQml/qqmlengine.h>
 
+#include <algorithm>
 #include <utility>
 
 // Asks the running thread for its stack size, which Qt has no API for. The nesting bound
@@ -136,6 +137,9 @@ QHttpServerResponse notFound()
 /// distinguishable: a client that read it as "credential dead" would delete the visitor's
 /// stored sign-in because of someone else behind the same address. `Retry-After` is the
 /// rest of the window.
+/// The fixed window a visitor's requests are counted in (overVisitorLimit).
+constexpr qint64 kVisitorWindowMs{60 * 1000};
+
 QHttpServerResponse tooManyRequests(qint64 retryAfterMs)
 {
     QHttpServerResponse response{QHttpServerResponse::StatusCode::TooManyRequests};
@@ -464,8 +468,8 @@ IdentityProvider::ExchangeOutcome IdentityProvider::exchangeCode(const QString &
     // The ceiling covers both identity modes, because both wait in a nested event loop. In
     // provider_entity mode the wait is for the auth entity. In process it is
     // `OAuthBackend::exchange` around the token exchange, which is reachable: the callback
-    // route is open, a valid state passes the first check, and up to `kMaxPendingLogins`
-    // can be in flight at once.
+    // route is open, a valid state passes the first check, and up to
+    // `OAuthBackend::MaxPendingLogins` can be in flight at once.
     const WaitScope wait{&m_waits};
     if (!wait.isTaken()) {
         return ExchangeOutcome{QVariantMap{}, QString{},
@@ -627,8 +631,45 @@ QVariantMap IdentityProvider::tokensForSession(const QByteArray &sessionId) cons
     return {};  // provider_entity mode: tokens live only on the auth entity
 }
 
+qint64 IdentityProvider::overVisitorLimit(QHash<QString, RateWindow> &table,
+                                          const QHttpServerRequest &request, int limit)
+{
+    // The visitor address, not the peer: behind a balancer the peer is one address for
+    // everybody.
+    const QString visitor{m_clientAddress
+                              ? m_clientAddress->resolve(request.remoteAddress(),
+                                                         request.value("X-Forwarded-For"))
+                              : request.remoteAddress().toString()};
+    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
+
+    // Enforce the table ceiling first, as in webedge.cpp's sign-in gate: a reference from
+    // operator[] does not survive a prune (QHash::erase moves later entries), and only
+    // expired windows are dropped. A table still full after that refuses.
+    constexpr int kMaxRateEntries{4096};
+    if (pruneRateWindows(table, now, kVisitorWindowMs, kMaxRateEntries)) {
+        return kVisitorWindowMs;
+    }
+
+    RateWindow &window{table[visitor]};
+    if (now - window.startedMs > kVisitorWindowMs) {
+        window.startedMs = now;
+        window.count = 0;
+    }
+    if (++window.count > limit) {
+        return std::max<qint64>(1, window.startedMs + kVisitorWindowMs - now);
+    }
+    return 0;
+}
+
 QHttpServerResponse IdentityProvider::handleLogin(const QHttpServerRequest &request)
 {
+    // Each login started holds a pending flow on the engine for up to five minutes, and the
+    // engine drops its oldest one when full. The window keeps any one address from churning
+    // that table fast enough to drop another visitor's login before it returns.
+    if (const qint64 wait{overVisitorLimit(m_loginRate, request, MaxLoginsPerVisitorMinute)};
+        wait > 0) {
+        return tooManyRequests(wait);
+    }
     expireClaims();
     const QUrlQuery query{request.url().query()};
     QString providerName{query.queryItemValue(QStringLiteral("provider"))};
@@ -899,37 +940,16 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
     // Per-address fixed window, limiting the cost of a guess: a 256-bit secret is not
     // brute-forced, but no one should buy a database read per packet.
     constexpr int kMaxAttemptsPerWindow{30};
-    constexpr qint64 kWindowMs{60 * 1000};
-    // The visitor address, not the peer: behind a balancer the peer is one address for
-    // everybody.
-    const QString peer{m_clientAddress
-                           ? m_clientAddress->resolve(request.remoteAddress(),
-                                                      request.value("X-Forwarded-For"))
-                           : request.remoteAddress().toString()};
-    const qint64 now{QDateTime::currentMSecsSinceEpoch()};
-
-    // Enforce the table ceiling first, as in webedge.cpp's sign-in gate: a reference from
-    // operator[] does not survive a prune (QHash::erase moves later entries), and only
-    // expired windows are dropped. A table still full after that refuses.
-    constexpr int kMaxRateEntries{4096};
-    if (pruneRateWindows(m_deviceRate, now, kWindowMs, kMaxRateEntries)) {
-        return tooManyRequests(kWindowMs);
-    }
-
-    RateWindow &window{m_deviceRate[peer]};
-    if (now - window.startedMs > kWindowMs) {
-        window.startedMs = now;
-        window.count = 0;
-    }
-    if (++window.count > kMaxAttemptsPerWindow) {
-        return tooManyRequests(window.startedMs + kWindowMs - now);
+    if (const qint64 wait{overVisitorLimit(m_deviceRate, request, kMaxAttemptsPerWindow)};
+        wait > 0) {
+        return tooManyRequests(wait);
     }
 
     // Checked before the credential is spent: redeeming rotates it, and a rotation that is
     // never returned leaves the client unable to sign in. Like the rate limit, it says
     // nothing about the credential and tells the client to wait.
     if (!m_sessions->hasRoom()) {
-        return tooManyRequests(kWindowMs);
+        return tooManyRequests(kVisitorWindowMs);
     }
 
     const QUrlQuery body{QString::fromUtf8(request.body())};
@@ -960,7 +980,7 @@ QHttpServerResponse IdentityProvider::handleDevice(const QHttpServerRequest &req
     if (sessionId.isEmpty()) {
         // hasRoom() just said yes and nothing runs in between, so this is not reached.
         // Refused rather than answering with an empty session.
-        return tooManyRequests(kWindowMs);
+        return tooManyRequests(kVisitorWindowMs);
     }
     bindFamily(sessionId, redemption.next.family);
     return sessionAnswer(sessionId, redemption.next.family, redemption.next.secret,
@@ -1179,7 +1199,7 @@ IdentityProvider::LoginContext IdentityProvider::LoginContext::fromJson(const QS
 
 void IdentityProvider::expireClaims()
 {
-    // Swept on entry to the two routes that add a claim, so an uncollected code never
+    // Swept on entry to the login route and the claim route, so an uncollected code never
     // outlives its minute. An expiring claim takes nothing with it; its session follows the
     // session manager's own rules.
     //

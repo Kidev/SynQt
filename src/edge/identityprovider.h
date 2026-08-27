@@ -59,6 +59,9 @@ class IdentityProvider : public QObject
     Q_OBJECT
 
 public:
+    /// How many logins one visitor address may start in a minute.
+    static constexpr int MaxLoginsPerVisitorMinute{120};
+
     IdentityProvider(IdentityConfig config, SessionManager *sessions, QQmlEngine *engine,
                      QString edgeOrigin, CookiePolicy cookie, QObject *parent = nullptr);
     ~IdentityProvider() override;
@@ -230,6 +233,13 @@ private:
     /// guessing hopeless. It is what keeps a guesser from costing the edge a database read
     /// per attempt.
     QHash<QString, RateWindow> m_deviceRate;
+    /// The same, for the logins each address starts (MaxLoginsPerVisitorMinute).
+    QHash<QString, RateWindow> m_loginRate;
+
+    /// Count this request in the visitor's fixed one-minute window in `table`. Returns 0
+    /// when it is within `limit`, else how long to wait in milliseconds.
+    qint64 overVisitorLimit(QHash<QString, RateWindow> &table,
+                            const QHttpServerRequest &request, int limit);
 
     /// What this edge is waiting on right now. Each wait is a nested event loop that keeps
     /// serving requests, so waits nest and their depth follows the request rate. Two numbers

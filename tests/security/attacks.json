@@ -1202,6 +1202,13 @@
       "defended_by": "The export lints name a point after its owner, as everything else does. The test provokes an export refusal and requires the owner's name and no 'None'.",
       "file": "tools/synqt/tests/test_exports.py",
       "test": "test_a_point_is_named_after_its_owner_in_every_message"
+    },
+    {
+      "id": "a-few-requests-a-second-lock-every-visitor-out-of-signing-in",
+      "what": "Anyone can open a pending login with a GET to /auth/login, each is held five minutes, and the table of them refused new logins once it held 1024. About 3.4 anonymous requests a second from one address kept it full, and every real visitor was refused sign-in for as long as that lasted.",
+      "defended_by": "A full table drops its oldest pending login to start the new one, so nobody is refused; the visitor whose login was dropped starts again. Each visitor address may start at most 120 logins a minute, so one address cannot churn the table faster than a login completes. The tests fill the table and require a new login to complete and the oldest to be gone, and require the 121st start from one address in a minute to be answered 429 after 120 redirects.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "aFullLoginTableMakesRoomRatherThanLockingEveryoneOut"
     }
   ]
 }

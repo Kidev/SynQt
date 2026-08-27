@@ -226,9 +226,10 @@ internet cannot reach it. A database entity:
 - is not a web edge, so it never serves a client and never faces the internet;
 - owns connect points that only the entities needing its data consume (usually the
   edge or a few services), and consumes nothing the browser owns;
-- checks the calling entity inside its slots, so even a compromised cache that somehow
-  reached it would fail the `Caller.entity` check;
-- keeps its own secrets (the data file path, any encryption key) in its own `.env`,
+- accepts only the consumers its connect point lists, so a compromised cache is refused
+  when it tries to acquire the point, and a slot can add a `Caller.entity` check where
+  the point has two consumers and one may do less;
+- keeps its own secrets (an engine password, any encryption key) in its own `.env`,
   which it does not share with the edge.
 
 The browser reaches the database only through the connect points the edge implements
@@ -470,8 +471,11 @@ merely hidden, a browser console could read them.
 
 - **Logins in flight and callbacks in exchange.** The login path spends two different
   resources, so it has two ceilings. A pending login holds a flow object for its five
-  minutes, and `/auth/login` is open, so at most a thousand logins may be in flight;
-  past that the route refuses instead of allocating more. A callback waits for the
+  minutes, and `/auth/login` is open, so at most 1024 logins may be in flight. A full
+  table drops its oldest pending login to start the new one, whose visitor then starts
+  again; refusing new logins instead would let whoever keeps the table full turn every
+  visitor away. One visitor address may start at most 120 logins a minute, so no single
+  address churns the table faster than a real login completes. A callback waits for the
   token exchange inside a nested event loop, which keeps serving requests while it
   waits. Callbacks that arrive together nest one loop inside another, and the stack is
   what runs out. So at most sixty-four exchanges run at once, whether identity runs on
@@ -504,11 +508,13 @@ merely hidden, a browser console could read them.
 - **Heartbeat and reconnection.** The QtRO heartbeat detects dead connections so their
   resources are freed. Capped exponential backoff keeps clients from hammering an
   entity that is recovering.
-- **Input bounds.** These are the application's job. A slot's arguments arrive typed
-  but not bounded, so validate length, range and shape before acting on them, for
-  correctness and so no caller can spend the owner's time or memory. The framework
-  guarantees that only declared slots are reachable and only declared fields come back.
-  It cannot know that your `add(string text)` should refuse a megabyte.
+- **Input bounds.** The contract sets them. An argument declared with a size
+  (`string[280]`, `list[20]`, `var[4096]`) is refused at the owner's boundary when it is
+  larger, before the slot runs (see
+  [the types a contract can name](programming-model.md#the-types-a-contract-can-name)).
+  An unsized `add(string text)` accepts a megabyte, so size every argument that reaches
+  storage or a label. Range and shape (a positive amount, a known status) remain the
+  slot's to check.
 - **Databases.** The relational entity type serializes writes and sets a busy timeout,
   so concurrent transactions cannot deadlock the entity (SQLite blocks under concurrent
   writers). See [entities](entities.md).
@@ -692,7 +698,7 @@ protects the page's markup, never the data the page reads later.
   process environment, in that entity's build only. A client target that references an
   `env:` value is a build error, so configuration cannot carry a secret to the browser.
 - **Each entity holds only the secrets it needs.** The OAuth2 client secret lives on the
-  edge. The database file path and any data encryption key live on the database.
+  edge. An engine password and any data encryption key live on the database.
 - **The mesh CA private key never reaches a running entity.** It is the system's most
   sensitive secret. It only issues entity certificates, on a developer machine or from
   a CI secret store. It is never shipped to a running entity and never committed. A
@@ -703,20 +709,20 @@ protects the page's markup, never the data the page reads later.
   call sites record a handle, never the secret: a session is the SHA-256 handle
   `Caller.session.key`, never the credential the browser sends; a refused upgrade logs
   the reason and the peer, never the cookie or header; a mesh peer is its verified
-  certificate subject; tokens and private key material never reach a trace call.
-  Second, the pipeline redacts. Every event passes through `Tracer::record`, which
-  replaces with `[redacted]` the value of any attribute whose name names a credential:
-  `password`, `passphrase`, `secret`, `token`, `authorization`, `cookie`, `credential`,
-  `bearer`, and `api key` or `private key` in any spelling, matched case insensitively
-  anywhere in the name (so `set-cookie`, `refreshToken` and `clientSecret` are
-  covered). It keeps the name, so the record shows that a value was withheld. It runs
-  below anything QML can reach, so it covers
+  certificate subject; tokens and private key material never reach a trace call. Second,
+  the pipeline redacts. Every event passes through `Tracer::record`, which replaces with
+  `[redacted]` the value of any attribute whose name names a credential: `password`,
+  `passphrase`, `secret`, `token`, `authorization`, `cookie`, `credential`, `bearer`, and
+  `apikey` or `privatekey` written whole or with `_` or `-`, matched case insensitively
+  anywhere in the name (so `set-cookie`, `refreshToken` and `clientSecret` are covered).
+  It keeps the name, so the record shows that a value was withheld. It runs below
+  anything QML can reach, so it covers
   [`Log`](runtime-api.md#log-what-an-entity-records-about-itself) too:
   `Log.warn("refused", { authorization: header })` does not put a bearer token in the
   operator's console. It does not inspect values, because a filter that guesses what a
   secret looks like will miss and still look like a guarantee. It does not inspect the
-  message either, which is prose an operator wrote and searches on. So redaction backs
-  up careful call sites and does not replace them: a credential passed under a name that
+  message either, which is prose an operator wrote and searches on. So redaction backs up
+  careful call sites and does not replace them: a credential passed under a name that
   does not say what it is gets recorded, as in any other log.
 
 ## Development code cannot ship

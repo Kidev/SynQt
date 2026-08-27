@@ -78,11 +78,6 @@ QString insecureEndpoint(const IdentityProviderConfig &provider)
     return QString{};
 }
 
-// How many logins may wait for the browser to return from the provider at once. Each holds
-// a QOAuth2AuthorizationCodeFlow for up to five minutes, and anyone can open one with a GET
-// to /auth/login, so the count is bounded. Far above real concurrency.
-constexpr int kMaxPendingLogins{1024};
-
 // The maximum size of a provider response. Token responses and profiles are a few hundred
 // bytes; QNetworkReply buffers the whole body, so without a ceiling the responder decides
 // the memory cost.
@@ -251,14 +246,20 @@ OAuthBackend::BeginResult OAuthBackend::begin(const QString &providerName,
         result.error = QStringLiteral("provider names no issuer");
         return result;
     }
-    // Bounded before the flow is built, so a refused login costs one comparison.
-    // expirePending runs first, so this is reached only when that many logins are really in
-    // flight.
-    if (m_pending.size() >= kMaxPendingLogins) {
-        qWarning("SynQt: %d logins are already in flight and none has completed; refusing "
-                 "this one rather than growing further", kMaxPendingLogins);
-        result.error = QStringLiteral("too many logins in flight");
-        return result;
+    // Bounded, and full only after expirePending: then the oldest pending login makes room.
+    // Refusing the new one instead would let whoever keeps the table full turn every visitor
+    // away; dropping the oldest costs its visitor a second attempt.
+    if (m_pending.size() >= MaxPendingLogins) {
+        auto oldest{m_pending.begin()};
+        for (auto it{m_pending.begin()}; it != m_pending.end(); ++it) {
+            if (it->createdMs < oldest->createdMs) {
+                oldest = it;
+            }
+        }
+        qWarning("SynQt: %d logins are in flight; dropping the oldest to start this one",
+                 MaxPendingLogins);
+        oldest->flow->deleteLater();
+        m_pending.erase(oldest);
     }
 
     QOAuth2AuthorizationCodeFlow *flow{makeFlow(*provider, redirectUri)};
