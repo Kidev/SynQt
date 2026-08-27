@@ -184,3 +184,57 @@ def test_a_property_bound_to_the_entitys_own_singleton_is_typed_from_it(tmp_path
     found = infer.owner_members(project, config, _point(config, "edge"))
     assert (found["itemName"].type, found["itemName"].certain) == ("string", True)
     assert (found["highBid"].type, found["highBid"].certain) == ("int", True)
+
+
+# What the contract compiler will refuse, said at check time
+
+
+def _compile_errors(project, config=None):
+    return [message for message
+            in checkmod.lint_contract_compiles(config or _config(project), project)
+            if message.startswith("error:")]
+
+
+def test_the_examples_compile_as_they_are_written():
+    for name in ("gavel", "arena", "plaza", "stall"):
+        project = EXAMPLES / name
+        config = yaml.safe_load((project / "synqt.yaml").read_text())
+        assert checkmod.lint_contract_compiles(config, project) == [], name
+
+
+def test_a_name_the_contract_compiler_refuses_is_reported_by_check(tmp_path):
+    """The build would stop on it; check says so first, with the line and the reason."""
+    project = _copy(tmp_path)
+    config = _edit(project, "      <admin> slot closeLot(",
+                   "      slot refund(int class)\n      <admin> slot closeLot(")
+    messages = _compile_errors(project, config)
+    assert any("connect point 'edge'" in m and "slot refund(int class)" in m and "C++" in m
+               for m in messages), messages
+
+
+def test_a_slot_past_the_argument_limit_is_reported_by_check(tmp_path):
+    project = _copy(tmp_path)
+    eleven = ", ".join(f"int a{i}" for i in range(11))
+    config = _edit(project, "      <admin> slot closeLot(",
+                   f"      slot many({eleven})\n      <admin> slot closeLot(")
+    messages = _compile_errors(project, config)
+    assert any("'many'" in m and "10" in m for m in messages), messages
+
+
+def test_a_point_is_named_after_its_owner_in_every_message(tmp_path):
+    """A point has no `name:`; a message that read one would say 'None'."""
+    project = _copy(tmp_path)
+    config = _edit(project, "      <admin> slot closeLot(",
+                   "      slot refund(int amount)\n      <admin> slot closeLot(")
+    messages = _errors(project, config)
+    assert messages and all("'None'" not in m for m in messages), messages
+    assert any("connect point 'edge'" in m for m in messages), messages
+
+
+def test_check_itself_fails_on_what_the_compiler_refuses(tmp_path):
+    project = _copy(tmp_path)
+    _edit(project, "      <admin> slot closeLot(",
+          "      prop bool ready\n      <admin> slot closeLot(")
+    ok, messages = checkmod.check_project(project)
+    assert not ok
+    assert any("`prop bool ready`" in m and "'ready'" in m for m in messages), messages

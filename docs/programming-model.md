@@ -166,7 +166,8 @@ rest unbounded.
 ### The names a contract can use
 
 Every name in a contract becomes a C++ name in the generated code, and the generated
-classes already have members of their own. The build stops, naming the member, on:
+classes already have members of their own. `synqt check` and the build both refuse, naming
+the member:
 
 - a C++ keyword or one of the words Qt defines as a macro (`class`, `default`, `new`,
   `emit`, `signals`) as any name;

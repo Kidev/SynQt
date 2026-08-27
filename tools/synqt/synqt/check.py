@@ -2596,7 +2596,7 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
     """
     messages: List[str] = []
     for point in appmodel.app_points(appmodel.connect_points(config)):
-        where = f"connect point '{point.get('name')}'"
+        where = f"connect point '{appmodel.point_name(point)}'"
         if not contractgen.has_export(point):
             messages.append(
                 f"error: {where}: no 'export:' block, so nothing may cross it. Write what "
@@ -2959,6 +2959,42 @@ def _member_name(line: str) -> str:
     return declared[1] if declared else ""
 
 
+def lint_contract_compiles(config: Dict[str, Any],
+                           project_dir: os.PathLike[str] | str) -> List[str]:
+    """Run the contract compiler's parser over every export, as the build will.
+
+    A name it refuses (a C++ keyword, a member the generated classes already have, a slot past
+    its argument limit) would otherwise stop the build inside generated code. A point with a
+    name-only line the owner cannot expand is left to :func:`lint_exports`.
+    """
+    from synqt import designdoc  # here: designdoc reads this module at import time
+
+    root = Path(project_dir)
+    try:
+        _, parser = designdoc._synqtc()
+    except designdoc.DesignDocError as error:
+        return [f"warn: the contracts were not compiled here: {error}"]
+    from synqtc.errors import SynError
+
+    messages: List[str] = []
+    for point in appmodel.app_points(appmodel.connect_points(config)):
+        if not contractgen.has_export(point):
+            continue
+        source = contractgen.resolved_source(root, config, point)
+        if any(contractgen.bare_name(line) for line in source.splitlines()):
+            continue
+        name = appmodel.contract_of(point)
+        try:
+            parser.parse_text(source, path=f"{name}.syn", stem=name)
+        except SynError as error:
+            lines = source.splitlines()
+            written = lines[error.line - 1].strip() if 0 < error.line <= len(lines) else ""
+            at = f" `{written}`:" if written else ""
+            messages.append(f"error: connect point '{appmodel.point_name(point)}':{at} "
+                            f"{error.message}")
+    return messages
+
+
 def lint_exports(config: Dict[str, Any],
                  project_dir: os.PathLike[str] | str) -> List[str]:
     """Hold every exported member to the owner Source that implements it.
@@ -2973,7 +3009,7 @@ def lint_exports(config: Dict[str, Any],
     for point in appmodel.app_points(appmodel.connect_points(config)):
         if not contractgen.has_export(point):
             continue   # lint_contracts says so in its own words
-        where = f"connect point '{point.get('name')}'"
+        where = f"connect point '{appmodel.point_name(point)}'"
         implemented = infer.owner_members(root, config, point)
         if not implemented:
             # No Source, or a wrong root: lint_connect_point_sources reports it.
@@ -3425,6 +3461,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     contract_messages = lint_contracts(config)
     contract_messages += lint_capture(config)
     export_messages = lint_exports(config, project_dir)
+    export_messages += lint_contract_compiles(config, project_dir)
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
     source_messages = lint_connect_point_sources(config, project_dir)

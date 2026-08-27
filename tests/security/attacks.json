@@ -1195,6 +1195,13 @@
       "defended_by": "The .env is written into a fresh file mkstemp creates 0600, restricted (an owner-only ACL on Windows) and renamed over the old one, so no secret is ever written into a file with a wider mode. The test starts from a 0644 file holding a value and a second hard link to it, runs the init, and requires 0600 with the value kept, the old file's contents untouched through the link, and no staged file left behind.",
       "file": "tools/synqt/tests/test_docker.py",
       "test": "test_an_entity_env_is_readable_by_its_owner_alone"
+    },
+    {
+      "id": "a-refused-export-is-reported-against-no-point",
+      "what": "`synqt check` named the connect point in its export messages by a `name:` field points no longer have, so every refusal about an export read \"connect point 'None'\" and did not say which of a project's points was wrong.",
+      "defended_by": "The export lints name a point after its owner, as everything else does. The test provokes an export refusal and requires the owner's name and no 'None'.",
+      "file": "tools/synqt/tests/test_exports.py",
+      "test": "test_a_point_is_named_after_its_owner_in_every_message"
     }
   ]
 }
