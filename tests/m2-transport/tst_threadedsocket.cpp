@@ -70,6 +70,9 @@ public:
     void setReadBufferLimit(qint64 bytes) { m_readBufferLimit = bytes; }
     void setWriteBufferLimit(qint64 bytes) { m_writeBufferLimit = bytes; }
     void setWriteStallTimeout(int milliseconds) { m_writeStallMs = milliseconds; }
+    /// Written by the edge's own thread before the connection is handed to its thread,
+    /// with the move made through moveSocketToThread() as the edge makes it.
+    void setWrittenBeforeTheMove(const QByteArray &bytes) { m_beforeMove = bytes; }
 
     /// Listen, and accept a peer that never reads: a raw socket that speaks the upgrade
     /// by hand, exactly as tst_wstransport's Link does for the unsplit device, so the
@@ -127,7 +130,16 @@ private:
                 m_transport->setWriteBufferLimit(m_writeBufferLimit);
                 m_transport->setWriteStallTimeout(m_writeStallMs);
                 m_transport->open(QIODevice::ReadWrite);
-                m_channel->moveToThread(&m_ioThread);
+                if (m_beforeMove.isEmpty()) {
+                    m_channel->moveToThread(&m_ioThread);
+                    continue;
+                }
+                // In two halves, so the second pushes the first over the batch limit and
+                // sends it alone, at once.
+                const qsizetype half{m_beforeMove.size() / 2};
+                m_transport->write(m_beforeMove.left(half));
+                m_transport->write(m_beforeMove.mid(half));
+                m_transport->moveSocketToThread(&m_ioThread);
             }
         });
         return true;
@@ -167,6 +179,7 @@ private:
     QThread m_ioThread;
     SocketChannel *m_channel{nullptr};
     QScopedPointer<WebSocketTransport> m_transport;
+    QByteArray m_beforeMove;
     QList<QByteArray> m_clientReceived;
     qint64 m_writeBatchLimit{WebSocketTransport::DefaultWriteBatchLimit};
     qint64 m_readBufferLimit{WebSocketTransport::DefaultReadBufferLimit};
@@ -323,6 +336,7 @@ private slots:
     void writingReachesAPeerAcrossTheThread();
     void everythingReceivedArrivesInOrder();
     void aBatchNeverExceedsItsLimit();
+    void whatWasSentBeforeTheMoveIsSentFromTheSocketsThread();
     void aMessageLargerThanTheBatchLimitStillGoesWhole();
     void shutdownClosesASocketOnAnotherThread();
     void aPeerThatStopsReadingIsAbortedOnItsOwnThread();
@@ -402,6 +416,21 @@ void TestThreadedSocket::aBatchNeverExceedsItsLimit()
                  qPrintable(QStringLiteral("a batch of %1 bytes passed the 1000 byte limit")
                                 .arg(message.size())));
     }
+}
+
+void TestThreadedSocket::whatWasSentBeforeTheMoveIsSentFromTheSocketsThread()
+{
+    // A message over the batch limit is handed to the socket's thread at once, as a call
+    // queued to whichever thread holds the socket right then. Written before the socket
+    // moves, that call would run on the old thread against a socket that has left it.
+    QTest::failOnWarning(QRegularExpression{QStringLiteral("another thread|different thread")});
+    ThreadedLink link;
+    link.setWriteBatchLimit(1000);
+    QByteArray written{700, 'y'};
+    written.append(QByteArray{700, 'z'});
+    link.setWrittenBeforeTheMove(written);
+    QVERIFY(link.connectPair());
+    QTRY_COMPARE(link.clientStream(), written);
 }
 
 void TestThreadedSocket::aMessageLargerThanTheBatchLimitStillGoesWhole()
@@ -533,7 +562,7 @@ void TestThreadedSocket::destroyingTheDeviceDestroysItsSocketOnItsOwnThread()
     // A QWebSocket torn down from a thread that is not its own leaves socket notifiers
     // being disabled from the wrong side, which Qt refuses to do, so the device asks for
     // the channel to be deleted on its thread rather than deleting it. Two things are
-    // worth pinning. That the deletion happens at all (a deferred delete only runs if
+    // worth pinning: that the deletion happens at all (a deferred delete only runs if
     // something delivers it, and at shutdown the only thing left to do that is the event
     // loop being quit), and that the thread which runs the destructor is the channel's own.
     ThreadedLink link;

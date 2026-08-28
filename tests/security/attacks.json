@@ -1209,6 +1209,13 @@
       "defended_by": "A full table drops its oldest pending login to start the new one, so nobody is refused; the visitor whose login was dropped starts again. Each visitor address may start at most 120 logins a minute, so one address cannot churn the table faster than a login completes. The tests fill the table and require a new login to complete and the oldest to be gone, and require the 121st start from one address in a minute to be answered 429 after 120 redirects.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "aFullLoginTableMakesRoomRatherThanLockingEveryoneOut"
+    },
+    {
+      "id": "bytes-written-before-a-connection-moves-are-lost",
+      "what": "A batch closed at the size ceiling crossed to the socket's thread at once, as a call queued to whichever thread held the socket then. Written before the edge handed a new connection to its socket thread, that call ran after the move on the old thread: the socket was written from the wrong thread (Qt's socket-notifier warning) and the bytes were lost, which a framed QtRO stream cannot survive.",
+      "defended_by": "A closed batch waits for the same end-of-pass drain as the open one and crosses, in order, to the thread the socket is on when it crosses; a queued call that still finds its socket moved re-queues itself to the socket's thread. The test writes two halves past the ceiling before moving the connection through moveSocketToThread, fails on any cross-thread warning, and requires the whole stream in order.",
+      "file": "tests/m2-transport/tst_threadedsocket.cpp",
+      "test": "whatWasSentBeforeTheMoveIsSentFromTheSocketsThread"
     }
   ]
 }

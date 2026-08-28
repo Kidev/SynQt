@@ -148,7 +148,7 @@ private:
     void scheduleBatchFlush();
     /// Add one QtRO message to the batch waiting to cross to the socket's thread.
     qint64 batchData(const char *data, qint64 maxSize);
-    /// Hand the accumulated batch to the channel, if there is one waiting.
+    /// Hand every waiting batch to the channel now, if there is one.
     void sendBatch();
     /// Send every batch this thread gathered during one pass, one crossing per socket
     /// thread rather than one per connection. Runs on the QtRO host's thread.
@@ -172,6 +172,9 @@ private:
     /// What has been written since the last flush, waiting to cross as one message. Only
     /// the split form uses it. The unsplit one hands each message straight to the socket.
     QByteArray m_writeBatch;
+    /// Batches closed at the size ceiling during this pass, oldest first, waiting for the
+    /// same drain as m_writeBatch.
+    QList<QByteArray> m_fullBatches;
     QUrl m_url;
     qint64 m_readBufferLimit{DefaultReadBufferLimit};
     qint64 m_writeBatchLimit{DefaultWriteBatchLimit};

@@ -72,9 +72,8 @@ void deliverBatches(QThread *thread, QList<ChannelBatch> &&batches)
     }
     QObject *context{QAbstractEventDispatcher::instance(thread)};
     if (!context) {
-        // A socket thread whose event loop has not started yet (every split connection
-        // until the pool takes it). The channel is still on this thread, so calling it
-        // directly is safe.
+        // A thread with no event dispatcher yet: its loop has not started. The call is
+        // queued to the channel, whose events wait for that loop.
         for (ChannelBatch &item : batches) {
             if (!item.channel) {
                 continue;
@@ -92,9 +91,23 @@ void deliverBatches(QThread *thread, QList<ChannelBatch> &&batches)
         context,
         [batches = std::move(batches)]() {
             for (const ChannelBatch &item : batches) {
-                if (item.channel) {
-                    item.channel->send(item.batch);
+                if (!item.channel) {
+                    continue;
                 }
+                if (item.channel->thread() == QThread::currentThread()) {
+                    item.channel->send(item.batch);
+                    continue;
+                }
+                // Moved since this was queued (moveSocketToThread): the socket is written
+                // only from its own thread.
+                QMetaObject::invokeMethod(
+                    item.channel.data(),
+                    [channel = item.channel, batch = item.batch]() {
+                        if (channel) {
+                            channel->send(batch);
+                        }
+                    },
+                    Qt::QueuedConnection);
             }
         },
         Qt::QueuedConnection);
@@ -265,11 +278,13 @@ qint64 WebSocketTransport::writeBatchLimit() const
 
 void WebSocketTransport::moveSocketToThread(QThread *thread)
 {
-    if (m_channel) {
-        // The channel, not the socket: the QWebSocket and the raw socket are its children,
-        // so one move takes the whole connection.
-        m_channel->moveToThread(thread);
+    if (!m_channel) {
+        return;
     }
+    // The channel, not the socket: the QWebSocket and the raw socket are its children, so
+    // one move takes the whole connection. What was written before the move is still on
+    // this side, in the batches drainBatches() sends to wherever the socket is by then.
+    m_channel->moveToThread(thread);
 }
 
 void WebSocketTransport::shutdown(QWebSocketProtocol::CloseCode closeCode,
@@ -590,12 +605,20 @@ void WebSocketTransport::drainBatches()
             continue;
         }
         transport->m_flushQueued = false;
-        if (!transport->m_channel || transport->m_writeBatch.isEmpty()) {
+        if (!transport->m_channel) {
             continue;
         }
-        byThread[transport->m_channel->thread()].append(
-            ChannelBatch{transport->m_channel, std::move(transport->m_writeBatch)});
-        transport->m_writeBatch.clear();
+        // The thread the socket is on now, which is not always the one it was on when the
+        // bytes were written: a connection is handed to its socket thread after it opens.
+        QList<ChannelBatch> &share{byThread[transport->m_channel->thread()]};
+        for (QByteArray &full : transport->m_fullBatches) {
+            share.append(ChannelBatch{transport->m_channel, std::move(full)});
+        }
+        transport->m_fullBatches.clear();
+        if (!transport->m_writeBatch.isEmpty()) {
+            share.append(ChannelBatch{transport->m_channel, std::move(transport->m_writeBatch)});
+            transport->m_writeBatch.clear();
+        }
     }
     for (auto it = byThread.begin(); it != byThread.end(); ++it) {
         deliverBatches(it.key(), std::move(it.value()));
@@ -610,29 +633,37 @@ void WebSocketTransport::drainBatches()
 qint64 WebSocketTransport::batchData(const char *data, qint64 maxSize)
 {
     // The ceiling applies to what goes on the wire, so it is checked before the append: the
-    // gathered batch leaves alone and this message starts the next one. sendBatch(), not
-    // flushNow(), so the device keeps exactly one pending flush registration.
+    // gathered batch is closed and this message starts the next one. The closed one waits
+    // for the same drain as the rest of the pass, so it crosses in order and to the thread
+    // the socket is on when it crosses.
     if (!m_writeBatch.isEmpty() && m_writeBatchLimit > 0
         && (static_cast<qint64>(m_writeBatch.size()) + maxSize) > m_writeBatchLimit) {
-        sendBatch();
+        m_fullBatches.append(std::move(m_writeBatch));
+        m_writeBatch.clear();
     }
     m_writeBatch.append(data, static_cast<qsizetype>(maxSize));
     scheduleBatchFlush();
     return maxSize;
 }
 
-/// Send this connection's batch alone, ahead of the rest of the pass: for a message that
-/// would exceed the size ceiling, and for a deliberate close. Both go through
+/// Send everything this connection has waiting, now and alone, ahead of the rest of the
+/// pass: for a deliberate close, and on a thread with no event loop to wait for. Through
 /// deliverBatches(), so this connection's bytes stay in order.
 void WebSocketTransport::sendBatch()
 {
-    if (m_writeBatch.isEmpty() || !m_channel) {
+    if (!m_channel || (m_writeBatch.isEmpty() && m_fullBatches.isEmpty())) {
         return;
     }
     // Moved, not copied: the batch is the device's one allocation per pass.
     QList<ChannelBatch> alone;
-    alone.append(ChannelBatch{m_channel, std::move(m_writeBatch)});
-    m_writeBatch.clear();
+    for (QByteArray &full : m_fullBatches) {
+        alone.append(ChannelBatch{m_channel, std::move(full)});
+    }
+    m_fullBatches.clear();
+    if (!m_writeBatch.isEmpty()) {
+        alone.append(ChannelBatch{m_channel, std::move(m_writeBatch)});
+        m_writeBatch.clear();
+    }
     deliverBatches(m_channel->thread(), std::move(alone));
 }
 
