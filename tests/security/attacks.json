@@ -1223,6 +1223,13 @@
       "defended_by": "Loopback is decided by parsing the host as an address (127.0.0.0/8, ::1); a NO_PROXY entry drops a port only in `host:port` or `[address]:port` form, and an address entry matches that address alone. The tests send a 127-prefixed name and a trailing-dot name through the proxy, and keep 127.0.0.9, [::1] and each listed address direct.",
       "file": "tests/m2-transport/tst_proxypolicy.cpp",
       "test": "loopbackIsAnAddressNotAName"
+    },
+    {
+      "id": "a-cache-hands-a-compressed-body-to-a-client-that-cannot-read-it",
+      "what": "The edge gave a bundle file's plain, gzip and Brotli bodies one strong ETag, and only the encoded bodies said they vary with Accept-Encoding. A shared cache could store the plain response and serve it, or revalidate an encoded one with a 304 against the plain tag, so a client could be handed a body in an encoding it never asked for.",
+      "defended_by": "The edge picks the representation before the conditional check; each encoding carries its own ETag (`\"<tag>-br\"`, `\"<tag>-gzip\"`), a validator earns a 304 for its own representation only, and every representation of a file with variants carries `Vary: Accept-Encoding`. The test compares the two tags, requires Vary on the plain body, and requires a 304 for the gzip tag only when gzip is accepted.",
+      "file": "tests/m5-webedge/tst_m5.cpp",
+      "test": "eachEncodingIsItsOwnRepresentation"
     }
   ]
 }

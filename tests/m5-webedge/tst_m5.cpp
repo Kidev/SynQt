@@ -23,6 +23,7 @@
 #include <QQmlEngine>
 #include <QRemoteObjectDynamicReplica>
 #include <QRemoteObjectNode>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QSslConfiguration>
 #include <QSslKey>
@@ -118,6 +119,23 @@ private:
         QNetworkRequest request{QUrl{url}};
         request.setSslConfiguration(insecureClientConfig());
         useOnlyTheCookiesNamedHere(request);
+        QNetworkReply *reply{m_nam.get(request)};
+        QSignalSpy finished{reply, &QNetworkReply::finished};
+        if (!finished.wait(5000)) {
+            return nullptr;
+        }
+        return reply;
+    }
+
+    QNetworkReply *httpGet(const QString &url, const QByteArray &header,
+                           const QByteArray &value, const QByteArray &secondHeader,
+                           const QByteArray &secondValue)
+    {
+        QNetworkRequest request{QUrl{url}};
+        request.setSslConfiguration(insecureClientConfig());
+        useOnlyTheCookiesNamedHere(request);
+        request.setRawHeader(header, value);
+        request.setRawHeader(secondHeader, secondValue);
         QNetworkReply *reply{m_nam.get(request)};
         QSignalSpy finished{reply, &QNetworkReply::finished};
         if (!finished.wait(5000)) {
@@ -336,7 +354,7 @@ private slots:
     void theEdgeRefusesToStartWithAKeyItCannotRead()
     {
         // The other half. An edge told to terminate TLS and unable to says so and stops,
-        // rather than listening on a port whose handshake can never complete. Which reads
+        // rather than listening on a port whose handshake can never complete, which reads
         // to a visitor as a site that is down and to an operator as nothing at all.
         QQmlEngine engine;
         WebEdgeConfig config{makeConfig(false)};
@@ -467,6 +485,63 @@ private slots:
         QFile::remove(gz.fileName());
     }
 
+    // Each encoding of a file is a different representation, so each has its own strong
+    // ETag (RFC 9110 section 8.8.3), and a validator for one earns a 304 for that one only.
+    // Every representation of a file that has variants says it varies with
+    // Accept-Encoding, the plain one included, or a shared cache could hand the compressed
+    // body to a client that never asked for it.
+    void eachEncodingIsItsOwnRepresentation()
+    {
+        const QString bundle{QStringLiteral(M5_SRCDIR "/bundle")};
+        QFile plain{QDir{bundle}.filePath(QStringLiteral("m5-variants.js"))};
+        QVERIFY(plain.open(QIODevice::WriteOnly));
+        plain.write(QByteArrayLiteral("// m5 variants, plain"));
+        plain.close();
+        QFile gz{QDir{bundle}.filePath(QStringLiteral("m5-variants.js.gz"))};
+        QVERIFY(gz.open(QIODevice::WriteOnly));
+        gz.write(QByteArrayLiteral("m5 variants, gzip"));
+        gz.close();
+        const auto removeFiles{qScopeGuard([&]() {
+            QFile::remove(plain.fileName());
+            QFile::remove(gz.fileName());
+        })};
+
+        QQmlEngine engine;
+        WebEdge edge{makeConfig(false), &engine};
+        QVERIFY2(edge.start(), qPrintable(edge.errorString()));
+        const QString url{edge.httpOrigin() + QStringLiteral("/m5-variants.js")};
+
+        QNetworkReply *zipped{httpGet(url, "Accept-Encoding", "gzip")};
+        QVERIFY(zipped != nullptr);
+        QCOMPARE(zipped->rawHeader("Content-Encoding"), QByteArray("gzip"));
+        const QByteArray zippedTag{zipped->rawHeader("ETag")};
+        zipped->deleteLater();
+
+        QNetworkReply *identity{httpGet(url, "Accept-Encoding", "identity")};
+        QVERIFY(identity != nullptr);
+        QVERIFY(identity->rawHeader("Content-Encoding").isEmpty());
+        QCOMPARE(identity->rawHeader("Vary"), QByteArray("Accept-Encoding"));
+        const QByteArray identityTag{identity->rawHeader("ETag")};
+        identity->deleteLater();
+
+        QVERIFY(!zippedTag.isEmpty());
+        QVERIFY(!identityTag.isEmpty());
+        QVERIFY2(zippedTag != identityTag, zippedTag.constData());
+
+        QNetworkReply *revalidated{httpGet(url, "Accept-Encoding", "gzip",
+                                           "If-None-Match", zippedTag)};
+        QVERIFY(revalidated != nullptr);
+        QCOMPARE(revalidated->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 304);
+        revalidated->deleteLater();
+
+        QNetworkReply *other{httpGet(url, "Accept-Encoding", "identity",
+                                     "If-None-Match", zippedTag)};
+        QVERIFY(other != nullptr);
+        QCOMPARE(other->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+        QCOMPARE(other->readAll(), QByteArray("// m5 variants, plain"));
+        other->deleteLater();
+    }
+
     // A compressed copy older than the file it was made from is a copy of an older file.
     // `synqt dev` rebuilds the client in place and leaves the copies the first build wrote,
     // and every browser accepts gzip, so serving the stale copy would hide every edit to
@@ -532,18 +607,20 @@ private slots:
         request.setSslConfiguration(insecureClientConfig());
         socket.open(request);
 
-        QScopedPointer<QRemoteObjectDynamicReplica> replica{node.acquireDynamic(QStringLiteral("greeting"))};
-        QVERIFY2(replica->waitForSource(5000), "authorized upgrade did not expose the connect point");
+        QScopedPointer<QRemoteObjectDynamicReplica> replica{
+            node.acquireDynamic(QStringLiteral("greeting"))};
+        QVERIFY2(replica->waitForSource(5000),
+                 "authorized upgrade did not expose the connect point");
         QCOMPARE(replica->property("value").toInt(), 7);
     }
 
     // Ending a session ends the connections it authorized.
     //
-    // Which connect points a connection hosts is decided once, at accept, from the scope
-    // the session held then, and every property and model on them replicates for as long as
-    // the socket is open. So revoking a session (signing out) or letting it expire has to
-    // take the socket with it. Refusing new slot calls is not enough: without closing the
-    // socket, everything the owner pushes would go on arriving in a tab that signed out.
+    // Which connect points a connection hosts follows the session's scope, and every
+    // property and model on them replicates for as long as the socket is open. So revoking
+    // a session (signing out) or letting it expire has to take the socket with it. Refusing
+    // new slot calls is not enough: without closing the socket, everything the owner pushes
+    // would go on arriving in a tab that signed out.
     void revokingASessionClosesTheConnectionsItAuthorized()
     {
         QQmlEngine engine;
@@ -1262,8 +1339,8 @@ private slots:
     void connectionCapRefusesTheOneOverTheLimit()
     {
         // docs/security.md states these caps are applied inside the verifier, "so a
-        // connection over the cap is refused before a socket exists". Nothing checked that,
-        // and a cap that is only documented is a cap.
+        // connection over the cap is refused before a socket exists". This checks it: a cap
+        // that is only documented caps nothing.
         WebEdgeConfig config{makeConfig(false)};
         config.maxConnectionsPerIp = 1;
         QQmlEngine engine;
@@ -1353,8 +1430,8 @@ private slots:
         openAs(&first, liveCookie(), "198.51.100.7");
         QTRY_VERIFY(firstConnected.count() >= 1);
 
-        // A different visitor through the same balancer. accepted. Before the resolver
-        // this was refused, because both of them were 127.0.0.1.
+        // A different visitor through the same balancer is accepted, although both arrive
+        // from 127.0.0.1.
         QWebSocket second;
         QSignalSpy secondConnected{&second, &QWebSocket::connected};
         openAs(&second, liveCookie(), "198.51.100.8");
@@ -1945,7 +2022,7 @@ private slots:
 
     void aNamedIdentityGoesThroughTheProjectsOwnMappingHook()
     {
-        // The reason to name somebody rather than pick a scope. Seeing what the project's
+        // The reason to name somebody rather than pick a scope: seeing what the project's
         // own rule makes of them. The hook's answer is what the session gets, the file's
         // scope is what the picker listed, and where they differ the page shows both,
         // because that disagreement is the thing worth seeing.

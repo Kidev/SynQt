@@ -100,6 +100,16 @@ QByteArray bundleContentType(const QString &path)
     return {};
 }
 
+// The ETag of one encoding of a bundle file: the file's own tag, told apart by the
+// encoding (`"abc"` becomes `"abc-br"`). Empty stays empty; no encoding keeps the file's tag.
+QByteArray representationTag(const QByteArray &fileTag, const QByteArray &encoding)
+{
+    if (fileTag.isEmpty() || encoding.isEmpty() || !fileTag.endsWith('"')) {
+        return fileTag;
+    }
+    return fileTag.chopped(1) + '-' + encoding + '"';
+}
+
 // The conditional-GET reply when the caller already holds this exact resource, or nothing
 // when the body must be sent. Not on WebEdge: the header only forward-declares
 // QHttpServerResponse.
@@ -537,7 +547,8 @@ constexpr int kMaxSignInsPerWindow{10};
 /// by the caller.
 constexpr int kMaxTabNonce{32};
 constexpr qint64 kSignInWindowMs{60 * 1000};
-/// How many addresses the window table may name before it is dropped and started again.
+/// How many addresses the window table may name. Full, it drops expired windows, and a
+/// table still full refuses every sign-in for the rest of the window.
 constexpr int kMaxRateEntries{4096};
 
 } // namespace
@@ -1412,47 +1423,67 @@ void WebEdge::registerBundleRoutes()
             // refused first.
             return shellOrNotFound(root, asset, request);
         }
-        if (auto notModified{notModifiedFor(request, etagFor(resolved))}) {
-            return std::move(*notModified);
-        }
         // Serve a precompressed variant (Brotli or gzip) when the client accepts it; the
         // resource keeps its type through Content-Encoding. The .wasm and the Emscripten
         // glue .js are the largest files on a first visit.
+        //
+        // Chosen before the conditional check, because each encoding is its own
+        // representation with its own ETag, and a validator for one earns a 304 for that one
+        // only (RFC 9110 section 8.8.3).
         const QByteArray mime{bundleContentType(resolved)};
+        QByteArray encoding;
+        QByteArray encodedBody;
+        bool hasVariants{false};
         if (!mime.isEmpty()) {
             const QByteArray accept{request.value("Accept-Encoding")};
-            const auto encoded{[&](const char *suffix,
-                                   const char *encoding) -> std::optional<QHttpServerResponse> {
-                if (!accept.contains(encoding)) {
-                    return std::nullopt;
-                }
-                QFile file{resolved + QLatin1String(suffix)};
-                if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
-                    return std::nullopt;
-                }
+            const QDateTime sourceTime{QFileInfo{resolved}.lastModified()};
+            const std::pair<const char *, const char *> variants[]{{".br", "br"},
+                                                                   {".gz", "gzip"}};
+            for (const auto &[suffix, name] : variants) {
+                const QFileInfo variant{resolved + QLatin1String(suffix)};
                 // A variant older than its source is stale (`synqt dev` rebuilds in place
-                // and leaves the first build's variants), so the file itself is served.
-                if (file.fileTime(QFileDevice::FileModificationTime)
-                    < QFileInfo{resolved}.lastModified()) {
-                    return std::nullopt;
+                // and leaves the first build's variants), so it is not a representation.
+                if (!variant.isFile() || variant.lastModified() < sourceTime) {
+                    continue;
                 }
-                QHttpServerResponse response{mime, file.readAll()};
-                QHttpHeaders headers{response.headers()};
-                headers.append(QHttpHeaders::WellKnownHeader::ContentEncoding,
-                               QByteArray{encoding});
-                headers.append(QHttpHeaders::WellKnownHeader::Vary,
-                               QByteArrayLiteral("Accept-Encoding"));
-                response.setHeaders(std::move(headers));
-                return response;
-            }};
-            if (auto response{encoded(".br", "br")}) {
-                return std::move(*response);
-            }
-            if (auto response{encoded(".gz", "gzip")}) {
-                return std::move(*response);
+                hasVariants = true;
+                if (!encoding.isEmpty() || !accept.contains(name)) {
+                    continue;
+                }
+                QFile file{variant.filePath()};
+                if (file.open(QIODevice::ReadOnly)) {
+                    encoding = name;
+                    encodedBody = file.readAll();
+                }
             }
         }
-        return QHttpServerResponse::fromFile(resolved);
+        const QByteArray etag{representationTag(etagFor(resolved), encoding)};
+        const auto described{[&](QHttpServerResponse &response) {
+            QHttpHeaders headers{response.headers()};
+            if (!encoding.isEmpty()) {
+                headers.append(QHttpHeaders::WellKnownHeader::ContentEncoding, encoding);
+            }
+            // Every representation of a file that has variants says so, the plain one
+            // included, or a shared cache could hand an encoded body to a client that never
+            // asked for it.
+            if (hasVariants) {
+                headers.append(QHttpHeaders::WellKnownHeader::Vary,
+                               QByteArrayLiteral("Accept-Encoding"));
+            }
+            if (!etag.isEmpty()) {
+                headers.replaceOrAppend(QHttpHeaders::WellKnownHeader::ETag, etag);
+            }
+            response.setHeaders(std::move(headers));
+        }};
+        if (auto notModified{notModifiedFor(request, etag)}) {
+            described(*notModified);
+            return std::move(*notModified);
+        }
+        QHttpServerResponse response{encoding.isEmpty()
+                                         ? QHttpServerResponse::fromFile(resolved)
+                                         : QHttpServerResponse{mime, encodedBody}};
+        described(response);
+        return response;
     });
     // The application shell for any unmatched path, so a deep link or a refresh on
     // "/c/summer-sale" loads the app instead of a 404.
