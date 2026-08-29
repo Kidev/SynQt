@@ -1216,6 +1216,13 @@
       "defended_by": "A closed batch waits for the same end-of-pass drain as the open one and crosses, in order, to the thread the socket is on when it crosses; a queued call that still finds its socket moved re-queues itself to the socket's thread. The test writes two halves past the ceiling before moving the connection through moveSocketToThread, fails on any cross-thread warning, and requires the whole stream in order.",
       "file": "tests/m2-transport/tst_threadedsocket.cpp",
       "test": "whatWasSentBeforeTheMoveIsSentFromTheSocketsThread"
+    },
+    {
+      "id": "a-name-that-looks-local-skips-the-egress-proxy",
+      "what": "An entity decides which outbound calls skip the configured proxy. Loopback was a prefix test on the name, so `127.anything.example` went direct around an egress proxy; and a `::1` entry in NO_PROXY was cut at its first colon into an empty entry whose suffix, a dot, sent every name written with a trailing dot direct as well.",
+      "defended_by": "Loopback is decided by parsing the host as an address (127.0.0.0/8, ::1); a NO_PROXY entry drops a port only in `host:port` or `[address]:port` form, and an address entry matches that address alone. The tests send a 127-prefixed name and a trailing-dot name through the proxy, and keep 127.0.0.9, [::1] and each listed address direct.",
+      "file": "tests/m2-transport/tst_proxypolicy.cpp",
+      "test": "loopbackIsAnAddressNotAName"
     }
   ]
 }

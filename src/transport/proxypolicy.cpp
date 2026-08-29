@@ -3,6 +3,7 @@
 
 #include "proxypolicy.h"
 
+#include <QHostAddress>
 #include <QNetworkAccessManager>
 #include <QNetworkProxy>
 #include <QUrl>
@@ -73,6 +74,21 @@ QNetworkProxy proxyFrom(const QString &value)
     return proxy;
 }
 
+/// The host a `NO_PROXY` entry names, with any port dropped (the host decides the
+/// bypass): `example.com:443`, `[fd00::7]:443` and `10.0.0.5:8443` name a host and a port,
+/// while `::1` is an IPv6 address, whose colons are not a port.
+QString hostOf(const QString &entry)
+{
+    if (entry.startsWith(QLatin1Char('['))) {
+        const qsizetype close{entry.indexOf(QLatin1Char(']'))};
+        return close > 1 ? entry.mid(1, close - 1) : QString{};
+    }
+    if (entry.count(QLatin1Char(':')) == 1) {
+        return entry.section(QLatin1Char(':'), 0, 0);
+    }
+    return entry;
+}
+
 /// Hosts always reached directly: the `NO_PROXY` list, plus loopback.
 class DirectHosts
 {
@@ -86,10 +102,8 @@ public:
             const QString trimmed{entry.trimmed()};
             if (trimmed == QLatin1String("*")) {
                 m_all = true;
-            } else if (!trimmed.isEmpty()) {
-                // A port on an entry (`example.com:443`) is ignored; the host decides the
-                // bypass.
-                m_hosts.append(trimmed.section(QLatin1Char(':'), 0, 0).toLower());
+            } else if (const QString host{hostOf(trimmed)}; !host.isEmpty()) {
+                m_hosts.append(host.toLower());
             }
         }
     }
@@ -100,11 +114,22 @@ public:
             return true;
         }
         const QString lowered{host.toLower()};
-        if (lowered == QLatin1String("localhost") || lowered.endsWith(QLatin1String(".localhost"))
-            || lowered.startsWith(QLatin1String("127.")) || lowered == QLatin1String("::1")) {
+        // An address is compared as an address: 127.0.0.0/8 and ::1 are this host, and a
+        // name that merely starts with "127." is somebody's domain.
+        QHostAddress address;
+        const bool isAddress{address.setAddress(lowered)};
+        if ((isAddress && address.isLoopback()) || lowered == QLatin1String("localhost")
+            || lowered.endsWith(QLatin1String(".localhost"))) {
             return true;
         }
         for (const QString &entry : m_hosts) {
+            QHostAddress listed;
+            if (listed.setAddress(entry)) {
+                if (isAddress && listed == address) {
+                    return true;
+                }
+                continue;
+            }
             // `.example.com` covers only subdomains; `example.com` covers the name and its
             // subdomains, as curl reads it.
             const QString suffix{entry.startsWith(QLatin1Char('.')) ? entry

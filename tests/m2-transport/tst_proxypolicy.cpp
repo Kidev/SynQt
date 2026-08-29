@@ -6,11 +6,10 @@
 // Qt's default is the machine's proxy configuration. For a service that is wrong twice
 // over. It takes its routing from whoever is logged in, and on Windows resolving it runs
 // WinHTTP's proxy auto-detection on the calling thread, which Qt's own documentation warns
-// "may take several seconds". That is not a hypothetical. It is how a gateway whose QML
-// called one URL from Component.onCompleted took forty seconds to start serving, because
-// its inbound listener starts after the entity's own file has run. So an entity reads its
-// egress route from its own environment, the way every other server runtime does, and
-// these are the cases that says.
+// "may take several seconds". A gateway whose QML calls one URL from Component.onCompleted
+// starts serving only after that, because its inbound listener starts after the entity's
+// own file has run. So an entity reads its egress route from its own environment, the way
+// every other server runtime does, and these cases pin that down.
 //
 // The factory reads the environment once, when it is created, so every case here sets the
 // variables it means and then makes a fresh manager.
@@ -134,6 +133,35 @@ private slots:
                  QNetworkProxy::NoProxy);
         QCOMPARE(chosenFor(QStringLiteral("http://localhost:18456/health")).type(),
                  QNetworkProxy::NoProxy);
+    }
+
+    void anAddressEntryCoversThatAddressAndNothingElse()
+    {
+        // `::1` is an address, not a host with a port. Cut at its first colon it would become
+        // an empty entry, whose suffix, ".", would match every name written with a trailing
+        // dot.
+        qputenv("HTTPS_PROXY", "http://gateway.internal:3128");
+        qputenv("NO_PROXY", "::1,[fd00::7]:443,10.0.0.5:8443");
+        QCOMPARE(chosenFor(QStringLiteral("https://api.example.com./")).type(),
+                 QNetworkProxy::HttpProxy);
+        QCOMPARE(chosenFor(QStringLiteral("https://[fd00::7]/")).type(),
+                 QNetworkProxy::NoProxy);
+        QCOMPARE(chosenFor(QStringLiteral("https://10.0.0.5/")).type(),
+                 QNetworkProxy::NoProxy);
+        QCOMPARE(chosenFor(QStringLiteral("https://10.0.0.6/")).type(),
+                 QNetworkProxy::HttpProxy);
+    }
+
+    void loopbackIsAnAddressNotAName()
+    {
+        // Only an address in 127.0.0.0/8 is this host. A name that starts with the same
+        // digits is somebody's domain, and goes where every other name goes.
+        qputenv("HTTPS_PROXY", "http://gateway.internal:3128");
+        QCOMPARE(chosenFor(QStringLiteral("https://127.attacker.example/")).type(),
+                 QNetworkProxy::HttpProxy);
+        QCOMPARE(chosenFor(QStringLiteral("https://127.0.0.9/")).type(),
+                 QNetworkProxy::NoProxy);
+        QCOMPARE(chosenFor(QStringLiteral("https://[::1]/")).type(), QNetworkProxy::NoProxy);
     }
 
     void aStarBypassesEverything()
