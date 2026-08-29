@@ -134,7 +134,8 @@ IdentityProviderConfig stubOidcProvider(const QString &base, const QString &name
     provider.tokenUrl = QUrl{base + QStringLiteral("/token")};
     provider.clientId = QStringLiteral("stub-client");
     provider.clientSecret = QStringLiteral("stub-secret");
-    provider.scopes = {QStringLiteral("openid"), QStringLiteral("email"), QStringLiteral("profile")};
+    provider.scopes = {QStringLiteral("openid"), QStringLiteral("email"),
+                       QStringLiteral("profile")};
     provider.useIdToken = true;
     provider.jwksUrl = QUrl{base + QStringLiteral("/jwks")};
     provider.issuer = issuer;
@@ -231,7 +232,8 @@ public:
     /// An RS256 token under \a kid carrying \a audience, expiring \a expiresIn from now.
     /// One audience is written as a string, more than one as an array, as providers do.
     QString sign(const QString &kid, const QStringList &audience,
-                 std::chrono::seconds expiresIn, const QString &nonce) const
+                 std::chrono::seconds expiresIn, const QString &nonce,
+                 const QString &party = QString{}) const
     {
         using Json = jwt::traits::kazuho_picojson;
         Json::array_type audiences;
@@ -244,6 +246,9 @@ public:
             builder.set_audience(audience.first().toStdString());
         } else {
             builder.set_audience(audiences);
+        }
+        if (!party.isEmpty()) {
+            builder.set_payload_claim("azp", jwt::claim(party.toStdString()));
         }
         return QString::fromStdString(
             builder
@@ -910,7 +915,8 @@ private:
     Response completeLoginOn(quint16 port, const QString &providerQuery,
                              QUrlQuery *authQuery = nullptr)
     {
-        const Response login{get(QUrl{urlFor(port, QStringLiteral("/auth/login") + providerQuery)})};
+        const Response login{
+            get(QUrl{urlFor(port, QStringLiteral("/auth/login") + providerQuery)})};
         if (authQuery) {
             *authQuery = QUrlQuery{QUrl{login.location}.query()};
         }
@@ -974,9 +980,11 @@ private slots:
         QVERIFY2(login.location.startsWith(m_stub->baseUrl() + QStringLiteral("/authorize")),
                  qPrintable(login.location));
         const QUrlQuery authQuery{QUrl{login.location}.query()};
-        QCOMPARE(authQuery.queryItemValue(QStringLiteral("client_id")), QStringLiteral("stub-client"));
+        QCOMPARE(authQuery.queryItemValue(QStringLiteral("client_id")),
+                 QStringLiteral("stub-client"));
         QCOMPARE(authQuery.queryItemValue(QStringLiteral("response_type")), QStringLiteral("code"));
-        QCOMPARE(authQuery.queryItemValue(QStringLiteral("code_challenge_method")), QStringLiteral("S256"));
+        QCOMPARE(authQuery.queryItemValue(QStringLiteral("code_challenge_method")),
+                 QStringLiteral("S256"));
         QVERIFY(!authQuery.queryItemValue(QStringLiteral("code_challenge")).isEmpty());
         const QString state{authQuery.queryItemValue(QStringLiteral("state"))};
         QVERIFY(!state.isEmpty());
@@ -1010,7 +1018,8 @@ private slots:
         QVERIFY(record != nullptr);
         QCOMPARE(record->scope, QStringLiteral("moderator"));  // map.qml mapped octocat
         QCOMPARE(record->identity.value(QStringLiteral("sub")).toString(), QStringLiteral("1001"));
-        QCOMPARE(record->identity.value(QStringLiteral("login")).toString(), QStringLiteral("octocat"));
+        QCOMPARE(record->identity.value(QStringLiteral("login")).toString(),
+                 QStringLiteral("octocat"));
         QCOMPARE(record->identity.value(QStringLiteral("email")).toString(),
                  QStringLiteral("octocat@example.com"));
 
@@ -1037,7 +1046,8 @@ private slots:
         QVERIFY2(!callback.setCookie.isEmpty(),
                  "a verified ID token must create a session");
 
-        const SessionRecord *record{m_edge->sessionManager()->lookup(sessionToken(callback.setCookie))};
+        const SessionRecord *record{
+            m_edge->sessionManager()->lookup(sessionToken(callback.setCookie))};
         QVERIFY(record != nullptr);
         QCOMPARE(record->identity.value(QStringLiteral("sub")).toString(), QStringLiteral("1001"));
         QCOMPARE(record->identity.value(QStringLiteral("email")).toString(),
@@ -1296,11 +1306,19 @@ private slots:
 
         QVERIFY2(verifies(signer.sign(QStringLiteral("own"), ours, 5 * minute, nonce), provider),
                  qPrintable(error));
-        QVERIFY2(verifies(signer.sign(QStringLiteral("own"), {QStringLiteral("another-client"), QStringLiteral("own-client")},
-                                      5 * minute, nonce), provider),
+        // Issued to this client among others: `azp` names this client.
+        const QStringList withOwn{QStringLiteral("another-client"), QStringLiteral("own-client")};
+        QVERIFY2(verifies(signer.sign(QStringLiteral("own"), withOwn, 5 * minute, nonce,
+                                      QStringLiteral("own-client")),
+                          provider),
                  qPrintable(error));
-        QVERIFY(!verifies(signer.sign(QStringLiteral("own"), {QStringLiteral("another-client"), QStringLiteral("a-third")},
-                                      5 * minute, nonce), provider));
+        // The same audiences with no `azp`: which party it was issued to is not said.
+        QVERIFY(!verifies(signer.sign(QStringLiteral("own"), withOwn, 5 * minute, nonce),
+                          provider));
+        QCOMPARE(error, QStringLiteral("ID-token authorized party is not this client"));
+        const QStringList withoutOwn{QStringLiteral("another-client"), QStringLiteral("a-third")};
+        QVERIFY(!verifies(signer.sign(QStringLiteral("own"), withoutOwn, 5 * minute, nonce),
+                          provider));
         QCOMPARE(error, QStringLiteral("ID-token audience mismatch"));
 
         QVERIFY(!verifies(signer.sign(QStringLiteral("own"), ours, -60 * minute, nonce),
@@ -1673,6 +1691,75 @@ private slots:
         }
     }
 
+    /// A token issued to several parties, and a key published for something else.
+    ///
+    /// OpenID Connect Core 3.1.3.7: a token with more than one audience must name the
+    /// party it was issued to in `azp`, and an `azp` present must be this client; otherwise a
+    /// token another relying party asked for, that lists this one among its audiences, signs
+    /// the visitor in here. A key whose `use` is not `sig`, or whose `alg` is not the token's,
+    /// was not published to verify ID tokens (RFC 7517 sections 4.2 and 4.4).
+    void anIdTokenForAnotherPartyOrUnderTheWrongKeyIsRefused_data()
+    {
+        QTest::addColumn<QStringList>("audiences");
+        QTest::addColumn<QString>("party");
+        QTest::addColumn<QString>("use");
+        QTest::addColumn<QString>("alg");
+        QTest::addColumn<QString>("reason");
+        const QString client{QStringLiteral("stub-client")};
+        QTest::newRow("several audiences, no azp")
+            << QStringList{QStringLiteral("another-app")} << QString{} << QStringLiteral("sig")
+            << QStringLiteral("RS256") << QStringLiteral("authorized party");
+        QTest::newRow("azp names another client")
+            << QStringList{} << QStringLiteral("another-app") << QStringLiteral("sig")
+            << QStringLiteral("RS256") << QStringLiteral("authorized party");
+        QTest::newRow("a key for encryption")
+            << QStringList{} << QString{} << QStringLiteral("enc") << QStringLiteral("RS256")
+            << QStringLiteral("not published for signatures");
+        QTest::newRow("a key for another algorithm")
+            << QStringList{} << QString{} << QStringLiteral("sig") << QStringLiteral("PS256")
+            << QStringLiteral("not published for RS256");
+        QTest::newRow("pass: several audiences, azp this client")
+            << QStringList{QStringLiteral("another-app")} << client << QStringLiteral("sig")
+            << QStringLiteral("RS256") << QString{};
+        QTest::newRow("pass: a key that states neither")
+            << QStringList{} << QString{} << QString{} << QString{} << QString{};
+    }
+
+    void anIdTokenForAnotherPartyOrUnderTheWrongKeyIsRefused()
+    {
+        QFETCH(QStringList, audiences);
+        QFETCH(QString, party);
+        QFETCH(QString, use);
+        QFETCH(QString, alg);
+        QFETCH(QString, reason);
+
+        StubIdentityServer stub{StubIdentityServer::DevOnly{}};
+        stub.setClientCredentials(QStringLiteral("stub-client"), QStringLiteral("stub-secret"));
+        QVERIFY(stub.start());
+        stub.setIssuer(stub.baseUrl());
+        stub.setExtraAudiences(audiences);
+        stub.setAuthorizedParty(party);
+        stub.setPublishedKeyUse(use, alg);
+
+        const QString nonce{QStringLiteral("nonce-for-the-party-checks")};
+        const QString token{mintIdTokenFrom(&stub, nonce)};
+        QVERIFY2(!token.isEmpty(), "the stub provider issued no ID token");
+        IdentityProviderConfig against{
+            stubOidcProvider(stub.baseUrl(), QStringLiteral("verifier"), stub.baseUrl())};
+
+        QNetworkAccessManager network;
+        JwksVerifier verifier{&network};
+        QString why;
+        const QVariantMap claims{verified(&verifier, token, against, nonce, &why)};
+        if (reason.isEmpty()) {
+            QVERIFY2(!claims.isEmpty(), qPrintable(why));
+            return;
+        }
+        QVERIFY2(claims.isEmpty(), "the token verified");
+        QVERIFY2(why.contains(reason),
+                 qPrintable(QStringLiteral("refused with '%1', expected '%2'").arg(why, reason)));
+    }
+
     /// Another site must not be able to sign a visitor out by navigating them here.
     ///
     /// Logout is reached by a GET, because that is what `Session.logout()` does on both
@@ -1789,7 +1876,8 @@ private slots:
             connect(client, &MeshClient::connected, node,
                     [node, sessions, &attached](QIODevice *device) {
                 node->addClientSideConnection(device);
-                QRemoteObjectDynamicReplica *replica{node->acquireDynamic(QStringLiteral("sessions"))};
+                QRemoteObjectDynamicReplica *replica{
+                    node->acquireDynamic(QStringLiteral("sessions"))};
                 // Owned by the node, which meshScope destroys after the cache above: the
                 // receiver goes first, the Replica second, which is the order this Replica
                 // needs (it frees a metaobject the receiver is connected through).
@@ -1986,8 +2074,8 @@ private slots:
 
         QQmlEngine engine;
         engine.rootContext()->setContextProperty(QStringLiteral("IdentityEngine"), &service);
-        QQmlComponent component{&engine,
-                                QUrl::fromLocalFile(QStringLiteral(M8_SRCDIR "/auth/Identity.qml"))};
+        QQmlComponent component{
+            &engine, QUrl::fromLocalFile(QStringLiteral(M8_SRCDIR "/auth/Identity.qml"))};
         QScopedPointer<QObject> source{component.create()};
         QVERIFY2(!source.isNull(), qPrintable(component.errorString()));
 
@@ -2647,7 +2735,8 @@ private slots:
         WebEdge edge{config, &engine};
         QVERIFY2(edge.start(), qPrintable(edge.errorString()));
 
-        QNetworkRequest request{QUrl{QStringLiteral("http://127.0.0.1:%1/auth/login").arg(edge.serverPort())}};
+        QNetworkRequest request{
+            QUrl{QStringLiteral("http://127.0.0.1:%1/auth/login").arg(edge.serverPort())}};
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                              QNetworkRequest::ManualRedirectPolicy);
         QNetworkReply *reply{m_browser.get(request)};
@@ -2702,8 +2791,8 @@ private slots:
     }
 
     // Anyone can open a pending login with a GET, and each is held until it completes or
-    // five minutes pass. A table that refused new logins once full was a lockout any one
-    // address could keep up at a few requests a second. Full, it now makes room by dropping
+    // five minutes pass. A table that refused new logins once full would be a lockout any
+    // one address could keep up at a few requests a second. Full, it makes room by dropping
     // the oldest pending login, whose visitor only has to start again.
     void aFullLoginTableMakesRoomRatherThanLockingEveryoneOut()
     {

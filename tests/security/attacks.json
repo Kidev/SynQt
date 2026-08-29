@@ -1230,6 +1230,13 @@
       "defended_by": "The edge picks the representation before the conditional check; each encoding carries its own ETag (`\"<tag>-br\"`, `\"<tag>-gzip\"`), a validator earns a 304 for its own representation only, and every representation of a file with variants carries `Vary: Accept-Encoding`. The test compares the two tags, requires Vary on the plain body, and requires a 304 for the gzip tag only when gzip is accepted.",
       "file": "tests/m5-webedge/tst_m5.cpp",
       "test": "eachEncodingIsItsOwnRepresentation"
+    },
+    {
+      "id": "an-id-token-issued-to-another-party-signs-in-here",
+      "what": "The ID-token verifier took any correctly signed token that listed this client among its audiences, whoever it was issued to: a token another relying party asked for, naming several audiences, signed a visitor in here. It also accepted a key the provider published for encryption or for another algorithm.",
+      "defended_by": "A token with more than one audience, or with an `azp` claim, must name this client in `azp` (OpenID Connect Core 3.1.3.7), and a key that states a `use` or an `alg` must state `sig` and `RS256`. The tests have the stub provider sign for several audiences with and without `azp`, name another client in `azp`, and publish the key for encryption and for PS256, and require each to be refused; the pass cases keep an `azp` naming this client and a key that states neither.",
+      "file": "tests/m8-auth/tst_m8.cpp",
+      "test": "anIdTokenForAnotherPartyOrUnderTheWrongKeyIsRefused"
     }
   ]
 }

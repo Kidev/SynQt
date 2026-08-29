@@ -165,8 +165,11 @@ std::string StubIdentityServer::signIdToken(const QString &nonce,
                                             const QVariantMap &user) const
 {
     auto builder{jwt::create()};
+    picojson::array audiences{picojson::value{m_clientId.toStdString()}};
+    for (const QString &audience : m_extraAudiences) {
+        audiences.emplace_back(audience.toStdString());
+    }
     builder.set_issuer(m_issuer.toStdString())
-        .set_audience(m_clientId.toStdString())
         .set_issued_at(std::chrono::system_clock::now())
         .set_key_id(m_kid.toStdString())
         .set_payload_claim("email",
@@ -183,6 +186,14 @@ std::string StubIdentityServer::signIdToken(const QString &nonce,
                                    ? user.value(QStringLiteral("sub"))
                                    : user.value(QStringLiteral("id"))};
         builder.set_subject(subject.toString().toStdString());
+    }
+    if (audiences.size() == 1) {
+        builder.set_audience(audiences.front().get<std::string>());
+    } else {
+        builder.set_audience(audiences);
+    }
+    if (!m_authorizedParty.isEmpty()) {
+        builder.set_payload_claim("azp", jwt::claim(m_authorizedParty.toStdString()));
     }
     if (!m_omittedClaims.contains(QStringLiteral("email_verified"))) {
         builder.set_payload_claim("email_verified", verifiedClaim(user));
@@ -217,6 +228,22 @@ void StubIdentityServer::omitIdTokenClaim(const QString &claim)
 void StubIdentityServer::restoreIdTokenClaim(const QString &claim)
 {
     m_omittedClaims.remove(claim);
+}
+
+void StubIdentityServer::setExtraAudiences(const QStringList &audiences)
+{
+    m_extraAudiences = audiences;
+}
+
+void StubIdentityServer::setAuthorizedParty(const QString &party)
+{
+    m_authorizedParty = party;
+}
+
+void StubIdentityServer::setPublishedKeyUse(const QString &use, const QString &alg)
+{
+    m_keyUse = use;
+    m_keyAlg = alg;
 }
 
 bool StubIdentityServer::start(quint16 port)
@@ -434,11 +461,15 @@ QHttpServerResponse StubIdentityServer::handleUserinfo(const QHttpServerRequest 
 QHttpServerResponse StubIdentityServer::handleJwks(const QHttpServerRequest &)
 {
     QJsonObject key{{QStringLiteral("kty"), QStringLiteral("RSA")},
-                    {QStringLiteral("use"), QStringLiteral("sig")},
-                    {QStringLiteral("alg"), QStringLiteral("RS256")},
                     {QStringLiteral("kid"), m_kid},
                     {QStringLiteral("n"), m_jwkModulus},
                     {QStringLiteral("e"), m_jwkExponent}};
+    if (!m_keyUse.isEmpty()) {
+        key.insert(QStringLiteral("use"), m_keyUse);
+    }
+    if (!m_keyAlg.isEmpty()) {
+        key.insert(QStringLiteral("alg"), m_keyAlg);
+    }
     return QHttpServerResponse{QJsonObject{{QStringLiteral("keys"), QJsonArray{key}}}};
 }
 

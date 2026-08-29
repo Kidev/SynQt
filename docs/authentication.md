@@ -39,6 +39,9 @@ The defaults `synqt add auth` sets:
   identity, because Qt does not verify ID tokens. Qt has no JWT or JWKS API, so the
   framework verifies with the pinned `jwt-cpp` library (MIT, through vcpkg), and fetches
   and caches the JWKS with QNetworkAccessManager. No cryptography is written by hand.
+  The key must be RSA, and a key that states a `use` or an `alg` must state `sig` and
+  `RS256`. The token must name this client among its audiences, and a token with several
+  audiences, or with an `azp` claim, must name this client in `azp`.
 - **A nonce on every OpenID Connect authorization request,** checked against the `nonce`
   claim in the returned ID token. It binds that token to this login, so a token replayed
   from elsewhere fails. It is separate from the state: the state protects the callback,
@@ -83,8 +86,10 @@ To require login for the whole app instead of allowing anonymous reading:
 synqt add auth github --required
 ```
 
-This sets `identity.required: true`, so a browser that has not signed in cannot acquire
-any scoped connect point and is sent to log in first.
+This sets `identity.required: true`, so the edge refuses the connection of a browser that
+has not signed in, before any connect point exists. Until then the client stays
+`reconnecting` with `Session.isAuthenticated` false, so show a sign-in button that calls
+`Session.login()`.
 
 ## The development sign-in
 

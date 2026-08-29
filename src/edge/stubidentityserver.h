@@ -6,7 +6,10 @@
 // release build fails naming the mistake rather than on whichever Qt header it could
 // not find afterwards.
 #ifndef SYNQT_DEV_TOOLS
-#error "stubidentityserver.h is development-only. It is compiled into SynQtEdge only when CMake is configured with -DSYNQT_DEV_TOOLS=ON, which `synqt dev` does and `synqt build` never does. If you are reading this from a release build, something is including a development header: fix the include rather than turning the option on."
+#error "stubidentityserver.h is development-only. It is compiled into SynQtEdge only when CMake is \
+configured with -DSYNQT_DEV_TOOLS=ON, which `synqt dev` does and `synqt build` never does. \
+If you are reading this from a release build, something is including a development \
+header: fix the include rather than turning the option on."
 #endif
 
 #ifndef SYNQT_STUBIDENTITYSERVER_H
@@ -17,6 +20,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 
 #include <string>
@@ -66,6 +70,12 @@ public:
     void omitIdTokenClaim(const QString &claim);
     /// Sign `claim` again after omitIdTokenClaim.
     void restoreIdTokenClaim(const QString &claim);
+    /// Sign the ID token for these audiences as well as the client, and with this `azp`
+    /// (none when empty), to drive the verifier's checks on a token issued to several.
+    void setExtraAudiences(const QStringList &audiences);
+    void setAuthorizedParty(const QString &party);
+    /// Publish the signing key with this `use` and `alg` (none when empty).
+    void setPublishedKeyUse(const QString &use, const QString &alg);
 
     /// Answer a refresh without `expires_in`, which RFC 6749 section 5.1 only recommends.
     void setRefreshOmitsExpiry(bool omits);
@@ -120,6 +130,10 @@ private:
     QString m_kid;
     /// Claims left out of a signed ID token, so the fake can misbehave (omitIdTokenClaim).
     QSet<QString> m_omittedClaims;
+    QStringList m_extraAudiences;
+    QString m_authorizedParty;
+    QString m_keyUse{QStringLiteral("sig")};
+    QString m_keyAlg{QStringLiteral("RS256")};
     /// Whether a refresh answer names a lifetime (setRefreshOmitsExpiry).
     bool m_refreshOmitsExpiry{false};
     /// How long /token sits on a ready answer (setTokenDelayMs).

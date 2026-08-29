@@ -238,6 +238,16 @@ QVariantMap JwksVerifier::checkToken(const QStringList &parts, const QJsonObject
     if (jwk.value(QStringLiteral("kty")).toString() != QLatin1String("RSA")) {
         return fail(QStringLiteral("the ID token's signing key is not RSA"));
     }
+    // A key that states its purpose must state this one (RFC 7517 sections 4.2 and 4.4): a
+    // key published to encrypt, or for another algorithm, does not vouch for an ID token.
+    if (jwk.contains(QStringLiteral("use"))
+        && jwk.value(QStringLiteral("use")).toString() != QLatin1String("sig")) {
+        return fail(QStringLiteral("the ID token's key is not published for signatures"));
+    }
+    if (jwk.contains(QStringLiteral("alg"))
+        && jwk.value(QStringLiteral("alg")).toString() != QLatin1String("RS256")) {
+        return fail(QStringLiteral("the ID token's key is not published for RS256"));
+    }
 
     // Build the RSA public key from the JWK modulus and exponent, and verify the RS256
     // signature over the exact signing input (base64url header "." base64url payload).
@@ -270,6 +280,15 @@ QVariantMap JwksVerifier::checkToken(const QStringList &parts, const QJsonObject
     const QString audience{provider.audience.isEmpty() ? provider.clientId : provider.audience};
     if (!audienceMatches(payload.value(QStringLiteral("aud")), audience)) {
         return fail(QStringLiteral("ID-token audience mismatch"));
+    }
+    // OpenID Connect Core 3.1.3.7: a token for several audiences names the party it was
+    // issued to, and an `azp` present must be this client. Otherwise a token another
+    // relying party asked for, listing this one too, would sign the visitor in here.
+    const QJsonValue audiences{payload.value(QStringLiteral("aud"))};
+    const bool several{audiences.isArray() && audiences.toArray().size() > 1};
+    const QJsonValue party{payload.value(QStringLiteral("azp"))};
+    if ((several || !party.isUndefined()) && party.toString() != provider.clientId) {
+        return fail(QStringLiteral("ID-token authorized party is not this client"));
     }
     // `exp` is required by OpenID Connect and required here. A token without one has no
     // bounded lifetime, so a copy would sign in forever. The 60 seconds cover clock
