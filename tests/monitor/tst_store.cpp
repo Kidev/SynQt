@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The monitor's history. What it has to get right is the two things an operator does with
-// it. Ask it questions, and not have it fill the disk.
+// it: ask it questions, and not have it fill the disk.
 
 #include "eventstore.h"
 #include "monitorservice.h"
@@ -193,7 +193,7 @@ private slots:
     // The number arrives from a console over a connect point as a plain `int` (the
     // contract vocabulary sizes strings and lists and has nothing to say about integers),
     // and every row it asks for is built into a QVariantList and serialized back over the
-    // link. Unbounded, one question was a way to make the monitor materialize its whole
+    // link. Unbounded, one question would be a way to make the monitor materialize its whole
     // table at once, which is the one thing every other stage of this pipeline (the ring,
     // the batch, the spool, the retention) is bounded against.
     void oneQuestionCannotAskForTheWholeTable()
@@ -276,6 +276,31 @@ private slots:
         const QList<TraceEvent> left{store.query(EventQuery{})};
         QVERIFY(!left.isEmpty());
         QCOMPARE(left.first().message, QStringLiteral("event 11 1999"));
+    }
+
+    // A sweep runs every few minutes on the monitor's only thread. A store under its cap
+    // has nothing to give back, and rewriting it (VACUUM) on every sweep would stall the
+    // console for as long as the rewrite takes, which grows with the store.
+    void aStoreUnderItsCapIsNotRewritten()
+    {
+        QTemporaryDir dir;
+        const QString path{dir.filePath(QStringLiteral("events.db"))};
+        EventStore store{path};
+        QVERIFY(store.open());
+        QList<TraceEvent> batch;
+        for (int index{0}; index < 500; ++index) {
+            batch.append(made(QStringLiteral("web"), Category::Call, Severity::Info,
+                              QStringLiteral("event %1").arg(index), 1750000000000 + index));
+        }
+        QVERIFY(store.append(batch));
+        QVERIFY(store.retire(0, 64 * 1024 * 1024));  // settle whatever the first sweep does
+        const QDateTime written{QFileInfo{path}.lastModified()};
+        const qint64 rows{store.count()};
+
+        QTest::qWait(20);
+        QVERIFY(store.retire(0, 64 * 1024 * 1024));
+        QCOMPARE(QFileInfo{path}.lastModified(), written);
+        QCOMPARE(store.count(), rows);
     }
 
     // The console's gate. An operator with the right password is let in, and nobody else:

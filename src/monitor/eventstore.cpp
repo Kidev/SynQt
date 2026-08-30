@@ -321,12 +321,29 @@ qint64 EventStore::count() const
     return query.value(0).toLongLong();
 }
 
+qint64 EventStore::usedBytes() const
+{
+    // The pages in use, counted by SQLite itself: the file's size would include pages a
+    // delete freed but nothing gave back, and pages still in the write-ahead log.
+    QSqlQuery pragma{m_db};
+    const auto read{[&pragma](const QString &name) -> qint64 {
+        if (!pragma.exec(QStringLiteral("PRAGMA ") + name) || !pragma.next()) {
+            return 0;
+        }
+        return pragma.value(0).toLongLong();
+    }};
+    const qint64 pages{read(QStringLiteral("page_count"))};
+    const qint64 free{read(QStringLiteral("freelist_count"))};
+    return (pages - free) * read(QStringLiteral("page_size"));
+}
+
 bool EventStore::retire(int maxAgeDays, qint64 maxBytes)
 {
     if (!m_open) {
         return false;
     }
     const bool hasFts{m_hasFts};
+    qint64 deleted{0};
     if (maxAgeDays > 0) {
         const qint64 cutoff{QDateTime::currentMSecsSinceEpoch()
                             - (static_cast<qint64>(maxAgeDays) * 86400000LL)};
@@ -344,20 +361,14 @@ bool EventStore::retire(int maxAgeDays, qint64 maxBytes)
             m_errorString = drop.lastError().text();
             return false;
         }
+        deleted += drop.numRowsAffected();
     }
 
     if ((maxBytes > 0) && (m_path != QLatin1String(":memory:"))) {
-        // Rows, not bytes, because SQLite reports the file size, not the table's. Measure,
-        // trim, measure again; the estimate only needs to be close, since the loop makes it
-        // exact.
+        // Rows, not bytes, because SQLite deletes rows. Measure, trim, measure again; the
+        // estimate only needs to be close, since the loop makes it exact.
         for (int pass{0}; pass < 24; ++pass) {
-            // Reclaim before measuring. A delete only frees pages inside the file, so the
-            // size moves only after VACUUM, and in WAL mode the freed pages stay in the log
-            // until a checkpoint. Measuring before both reads a stale size.
-            QSqlQuery reclaim{m_db};
-            reclaim.exec(QStringLiteral("VACUUM"));
-            reclaim.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"));
-            const qint64 size{QFileInfo{m_path}.size()};
+            const qint64 size{usedBytes()};
             if (size <= maxBytes) {
                 break;
             }
@@ -389,7 +400,16 @@ bool EventStore::retire(int maxAgeDays, qint64 maxBytes)
                 m_errorString = drop.lastError().text();
                 return false;
             }
+            deleted += drop.numRowsAffected();
         }
+    }
+
+    // A delete frees pages inside the file only. The file gives them back once, after the
+    // trimming, and only when something went: a store under its cap is not rewritten.
+    if ((deleted > 0) && (m_path != QLatin1String(":memory:"))) {
+        QSqlQuery reclaim{m_db};
+        reclaim.exec(QStringLiteral("VACUUM"));
+        reclaim.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"));
     }
     return true;
 }

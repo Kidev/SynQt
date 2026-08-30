@@ -1237,6 +1237,13 @@
       "defended_by": "A token with more than one audience, or with an `azp` claim, must name this client in `azp` (OpenID Connect Core 3.1.3.7), and a key that states a `use` or an `alg` must state `sig` and `RS256`. The tests have the stub provider sign for several audiences with and without `azp`, name another client in `azp`, and publish the key for encryption and for PS256, and require each to be refused; the pass cases keep an `azp` naming this client and a key that states neither.",
       "file": "tests/m8-auth/tst_m8.cpp",
       "test": "anIdTokenForAnotherPartyOrUnderTheWrongKeyIsRefused"
+    },
+    {
+      "id": "every-retention-sweep-stalls-the-monitor",
+      "what": "The event store measured its size by rewriting itself first: every retention sweep ran VACUUM and a WAL checkpoint before each of up to 24 measurements, even for a store far under its cap. On the monitor's only thread that stalled ingest and the console for as long as a full rewrite of the store took, every few minutes, and longer the more the monitor held.",
+      "defended_by": "The store measures the bytes its pages in use hold, as SQLite counts them (page_count less freelist_count, times page_size), which needs no rewrite, and gives freed pages back with one VACUUM only after a sweep deleted something. The test sweeps a store under its cap twice and requires the file to be untouched by the second sweep; the existing cap test still requires the file under its limit afterwards.",
+      "file": "tests/monitor/tst_store.cpp",
+      "test": "aStoreUnderItsCapIsNotRewritten"
     }
   ]
 }

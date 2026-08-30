@@ -76,6 +76,8 @@ public:
     bool retire(int maxAgeDays, qint64 maxBytes);
 
 private:
+    /// The bytes the store's pages in use hold (retire() measures its cap with it).
+    qint64 usedBytes() const;
     bool applySchema();
 
     QSqlDatabase m_db;
