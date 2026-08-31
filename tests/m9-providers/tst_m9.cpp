@@ -1501,6 +1501,50 @@ private slots:
         checkIds(*docs);
     }
 
+    // `Docs.update` answers how many documents changed. A document the change leaves as it
+    // was is not one of them, whichever engine holds it: MongoDB counts modified, not
+    // matched, and code that branches on the answer must not behave differently per engine.
+    void anUpdateCountsOnlyTheDocumentsItChanged()
+    {
+        const auto checkCount{[](IDocumentProvider &docs) {
+            const QString collection{QStringLiteral("m9_changed")};
+            docs.remove(collection, {});
+            docs.insert(collection, {{QStringLiteral("lot"), 1}, {QStringLiteral("state"),
+                                                                   QStringLiteral("open")}});
+            docs.insert(collection, {{QStringLiteral("lot"), 1}, {QStringLiteral("state"),
+                                                                   QStringLiteral("closed")}});
+            QCOMPARE(docs.update(collection, {{QStringLiteral("lot"), 1}},
+                                 {{QStringLiteral("state"), QStringLiteral("closed")}}), 1);
+            QCOMPARE(docs.update(collection, {{QStringLiteral("lot"), 1}},
+                                 {{QStringLiteral("state"), QStringLiteral("closed")}}), 0);
+            docs.remove(collection, {});
+        }};
+
+        MemoryDocumentProvider memory{ProviderConfig{}};
+        QVERIFY(memory.connect(nullptr));
+        checkCount(memory);
+        if (QTest::currentTestFailed()) {
+            return;
+        }
+
+        if (!qEnvironmentVariableIsSet("SYNQT_TEST_MONGO_URI")) {
+            QSKIP("no live mongodb for the second half (tests/lib/live-engines.sh up, then env)");
+        }
+        ProviderConfig mongo;
+        mongo.name = QStringLiteral("mongodb");
+        mongo.uri = qEnvironmentVariable("SYNQT_TEST_MONGO_URI");
+        mongo.database = qEnvironmentVariable("SYNQT_TEST_MONGO_DB", QStringLiteral("synqt"));
+        mongo.tls = false;
+        mongo.release = false;
+        QString error;
+        std::unique_ptr<IDocumentProvider> docs{makeDocumentProvider(mongo, &error)};
+        if (docs == nullptr) {
+            QSKIP(qPrintable(QStringLiteral("mongodb provider not built: %1").arg(error)));
+        }
+        QVERIFY2(docs->connect(&error), qPrintable(error));
+        checkCount(*docs);
+    }
+
     // Verified TLS to a live Redis. The TLS port answers a provider holding the right CA;
     // a certificate from another CA is refused; and a certificate that does not name the host
     // is refused too, which hiredis does not check by itself: it passes the name as SNI and

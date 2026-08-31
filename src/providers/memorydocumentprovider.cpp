@@ -76,10 +76,20 @@ int MemoryDocumentProvider::update(const QString &collection, const QVariantMap 
     int changed{0};
     QList<QVariantMap> &documents{m_collections[collection]};
     for (QVariantMap &document : documents) {
-        if (matches(document, filter)) {
-            for (auto it{change.constBegin()}; it != change.constEnd(); ++it) {
+        if (!matches(document, filter)) {
+            continue;
+        }
+        // Counted when something in it changed, as MongoDB counts modified documents: a
+        // match the change leaves as it was is not a change.
+        bool modified{false};
+        for (auto it{change.constBegin()}; it != change.constEnd(); ++it) {
+            const auto held{document.constFind(it.key())};
+            if (held == document.constEnd() || held.value() != it.value()) {
                 document.insert(it.key(), it.value());
+                modified = true;
             }
+        }
+        if (modified) {
             ++changed;
         }
     }

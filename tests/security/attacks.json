@@ -1251,6 +1251,13 @@
       "defended_by": "The exporter's manager takes the same proxy policy as every other outbound call. The test names a proxy in HTTPS_PROXY and a collector on another host, and requires the export to arrive at the proxy as a CONNECT to that collector.",
       "file": "tests/monitor/tst_export.cpp",
       "test": "theCollectorIsReachedThroughTheEntitysProxy"
+    },
+    {
+      "id": "an-update-answers-differently-per-engine",
+      "what": "Docs.update is documented to answer how many documents changed. The memory provider counted every document the filter matched, MongoDB counted the ones it modified, so the same entity code (a guard on 'did this update do anything') behaved one way under `synqt test` and in development and another in production.",
+      "defended_by": "The memory provider counts a document only when a field the change names differs from what it held, as MongoDB counts modified documents. The test updates two matched documents of which one already holds the value, then repeats the update, and requires 1 and then 0 from the memory engine and from a live MongoDB.",
+      "file": "tests/m9-providers/tst_m9.cpp",
+      "test": "anUpdateCountsOnlyTheDocumentsItChanged"
     }
   ]
 }
