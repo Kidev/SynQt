@@ -3,6 +3,8 @@
 
 #include "otlpexporter.h"
 
+#include "proxypolicy.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkReply>
@@ -278,6 +280,8 @@ OtlpExporter::OtlpExporter(const OtlpSettings &settings)
     , m_refused{settings.endpoint.isValid() && !isExportableCollector(settings.endpoint)}
 {
     m_network.setTransferTimeout(qMax(1, m_settings.timeoutMs));
+    // Out through the entity's own proxy settings, as every other outbound call leaves.
+    applyEnvironmentProxy(&m_network);
     if (m_refused) {
         // Logged once at startup, not per batch. The events are still stored and served to
         // the console; only the cold tier is off, and dropped() counts it.

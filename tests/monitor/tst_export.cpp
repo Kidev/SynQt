@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The cold tier. Handing the same events to whatever the operator already runs.
+// The cold tier: handing the same events to whatever the operator already runs.
 //
 // Two things have to hold. The encoding has to be the one OpenTelemetry publishes, field
 // name for field name, because "nearly OTLP" is a format with no consumers. And a
@@ -21,6 +21,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -428,6 +429,41 @@ private slots:
                                   + QByteArrayLiteral(" HTTP/1.1"));
     }
 
+    // The exporter leaves the host the way every other outbound call does
+    // (applyEnvironmentProxy): through the proxy the entity's own environment names. A
+    // collector on another network is often reachable only that way, and Qt's default
+    // manager ignores those variables here and, on Windows, asks WinHTTP on the calling
+    // thread instead.
+    void theCollectorIsReachedThroughTheEntitysProxy()
+    {
+        QTcpServer proxy;
+        QVERIFY(proxy.listen(QHostAddress::LocalHost));
+        QByteArray asked;
+        connect(&proxy, &QTcpServer::newConnection, &proxy, [&proxy, &asked]() {
+            QTcpSocket *socket{proxy.nextPendingConnection()};
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, &asked]() {
+                if (asked.isEmpty() && socket->canReadLine()) {
+                    asked = socket->readLine().trimmed();
+                    socket->abort();
+                }
+            });
+        });
+        const QByteArray address{QByteArrayLiteral("http://127.0.0.1:")
+                                 + QByteArray::number(proxy.serverPort())};
+        const QByteArray previous{qgetenv("HTTPS_PROXY")};
+        qputenv("HTTPS_PROXY", address);
+        const auto restore{qScopeGuard([&]() {
+            previous.isNull() ? qunsetenv("HTTPS_PROXY") : qputenv("HTTPS_PROXY", previous);
+        })};
+
+        OtlpSettings settings;
+        settings.endpoint = QUrl{QStringLiteral("https://collector.example:4318")};
+        OtlpExporter exporter{settings};
+        exporter.take({record(QStringLiteral("web"), QStringLiteral("placeBid"))});
+        QTRY_VERIFY_WITH_TIMEOUT(!asked.isEmpty(), 5000);
+        QCOMPARE(asked, QByteArrayLiteral("CONNECT collector.example:4318 HTTP/1.1"));
+    }
+
     void aPlaintextCollectorOnAnotherHostIsRefusedAndNotQuietlyFed()
     {
         // A batch is the record of every refusal, every caller and every peer, and the
@@ -479,7 +515,7 @@ private slots:
         qunsetenv(OtlpExporter::headerVariable());
 
         // A collector's API key is a credential, so it lives where every other credential
-        // in SynQt lives. The entity's environment, never `synqt.yaml`.
+        // in SynQt lives: the entity's environment, never `synqt.yaml`.
         QVERIFY(OtlpExporter::headersFromEnvironment().isEmpty());
     }
 };

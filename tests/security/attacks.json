@@ -1244,6 +1244,13 @@
       "defended_by": "The store measures the bytes its pages in use hold, as SQLite counts them (page_count less freelist_count, times page_size), which needs no rewrite, and gives freed pages back with one VACUUM only after a sweep deleted something. The test sweeps a store under its cap twice and requires the file to be untouched by the second sweep; the existing cap test still requires the file under its limit afterwards.",
       "file": "tests/monitor/tst_store.cpp",
       "test": "aStoreUnderItsCapIsNotRewritten"
+    },
+    {
+      "id": "the-security-record-leaves-by-a-route-nobody-configured",
+      "what": "Every outbound call an entity makes leaves through the proxy its own environment names (applyEnvironmentProxy), except the monitor's OTLP export, whose network manager kept Qt's default: on Linux it ignored the proxy variables, so a collector reachable only through the egress proxy never received the security record, and on Windows it resolved the machine's proxy on the calling thread.",
+      "defended_by": "The exporter's manager takes the same proxy policy as every other outbound call. The test names a proxy in HTTPS_PROXY and a collector on another host, and requires the export to arrive at the proxy as a CONNECT to that collector.",
+      "file": "tests/monitor/tst_export.cpp",
+      "test": "theCollectorIsReachedThroughTheEntitysProxy"
     }
   ]
 }
