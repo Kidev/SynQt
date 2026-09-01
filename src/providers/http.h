@@ -4,6 +4,8 @@
 #ifndef SYNQT_HTTP_H
 #define SYNQT_HTTP_H
 
+#include "promise.h"
+
 #include <QJSValue>
 #include <QMap>
 #include <QObject>
@@ -19,35 +21,6 @@ class QNetworkReply;
 QT_END_NAMESPACE
 
 namespace SynQt {
-
-/// The result of one Http call. A minimal promise. `Http.get(url).then(onOk, onErr)` runs
-/// onOk({ status, body, json }) on success or onErr(message) on failure. Settles once;
-/// then() attached after settling fires immediately.
-class HttpPromise : public QObject
-{
-    Q_OBJECT
-
-public:
-    HttpPromise(QJSEngine *engine, QObject *parent = nullptr);
-
-    Q_INVOKABLE void then(const QJSValue &onFulfilled,
-                          const QJSValue &onRejected = QJSValue());
-
-    void resolve(const QVariantMap &response);
-    void reject(const QString &message);
-
-private:
-    void deliver();
-
-    QJSEngine *m_engine;
-    QJSValue m_onFulfilled;
-    QJSValue m_onRejected;
-    QVariantMap m_response;
-    QString m_error;
-    bool m_settled{false};
-    bool m_ok{false};
-    bool m_handled{false};
-};
 
 /// One place an entity may call out to, as `network.outbound` declared it: a URL prefix,
 /// optionally named, optionally with headers. Headers such as an API key are read from the
@@ -77,13 +50,13 @@ public:
 
     QString url() const;
 
-    Q_INVOKABLE HttpPromise *get(const QString &path = QString(),
+    Q_INVOKABLE SynQt::Promise *get(const QString &path = QString(),
                                  const QVariantMap &headers = QVariantMap());
-    Q_INVOKABLE HttpPromise *post(const QString &path, const QVariant &body = QVariant(),
+    Q_INVOKABLE SynQt::Promise *post(const QString &path, const QVariant &body = QVariant(),
                                   const QVariantMap &headers = QVariantMap());
-    Q_INVOKABLE HttpPromise *put(const QString &path, const QVariant &body = QVariant(),
+    Q_INVOKABLE SynQt::Promise *put(const QString &path, const QVariant &body = QVariant(),
                                  const QVariantMap &headers = QVariantMap());
-    Q_INVOKABLE HttpPromise *del(const QString &path = QString(),
+    Q_INVOKABLE SynQt::Promise *del(const QString &path = QString(),
                                  const QVariantMap &headers = QVariantMap());
 
 private:
@@ -112,20 +85,20 @@ public:
     /// that name. Named entries only. A bare prefix has nothing to be called.
     Q_INVOKABLE SynQt::HttpEndpoint *api(const QString &name) const;
 
-    Q_INVOKABLE HttpPromise *get(const QString &url,
+    Q_INVOKABLE SynQt::Promise *get(const QString &url,
                                  const QVariantMap &headers = QVariantMap());
-    Q_INVOKABLE HttpPromise *post(const QString &url, const QVariant &body = QVariant(),
+    Q_INVOKABLE SynQt::Promise *post(const QString &url, const QVariant &body = QVariant(),
                                   const QVariantMap &headers = QVariantMap());
-    Q_INVOKABLE HttpPromise *put(const QString &url, const QVariant &body = QVariant(),
+    Q_INVOKABLE SynQt::Promise *put(const QString &url, const QVariant &body = QVariant(),
                                  const QVariantMap &headers = QVariantMap());
-    Q_INVOKABLE HttpPromise *del(const QString &url,
+    Q_INVOKABLE SynQt::Promise *del(const QString &url,
                                  const QVariantMap &headers = QVariantMap());
 
     /// The prefixes this helper was built with, as declared. Read by tests and by the
     /// rejection message, so the two cannot describe different lists.
     QStringList allowed() const;
 
-    HttpPromise *send(const QString &method, const QString &url, const QVariant &body,
+    SynQt::Promise *send(const QString &method, const QString &url, const QVariant &body,
                       const QVariantMap &headers);
 
 private:

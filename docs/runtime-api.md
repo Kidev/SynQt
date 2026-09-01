@@ -671,7 +671,7 @@ belongs in a relational entity.
 | `Http.del(url, headers?)` | promise | issue a DELETE. |
 | `endpoint.get(path?, headers?)` | promise | the same four, with `path` resolved against the endpoint's base. |
 | `endpoint.url` | string | the base this endpoint resolves against. |
-| `promise.then(onOk, onError?)` | - | `onOk({ status, body, json })` on success, `onError(message)` on failure. `json` is there when the reply said it was JSON. Settles once, and a handler attached in the same statement fires as soon as it settles. |
+| `promise.then(onOk, onError?)` | promise | `onOk({ status, body, json })` on success, `onError(message)` on failure. `json` is there when the reply said it was JSON. Settles once, and a handler attached in the same statement fires as soon as it settles. The promise is the one a returning slot answers with, so `.catchError(...)` and chaining work the same way. |
 
 ```qml
 Http.get("https://api.example.com/rates")

@@ -1258,6 +1258,13 @@
       "defended_by": "The memory provider counts a document only when a field the change names differs from what it held, as MongoDB counts modified documents. The test updates two matched documents of which one already holds the value, then repeats the update, and requires 1 and then 0 from the memory engine and from a live MongoDB.",
       "file": "tests/m9-providers/tst_m9.cpp",
       "test": "anUpdateCountsOnlyTheDocumentsItChanged"
+    },
+    {
+      "id": "a-chained-call-hands-on-a-promise-instead-of-its-answer",
+      "what": "A `.then` handler that started another asynchronous step and returned its promise settled the next step with the promise object itself, so `slot().then(v => other(v)).then(w => ...)` received a QObject where the answer belonged and acted on it; a rejection of the inner call was never seen. The Http helper's promise had a different shape again (one handler pair, no chaining, no catchError).",
+      "defended_by": "A handler that returns a SynQt promise or any thenable settles the next step with that promise's outcome, the waiting step kept alive under the promise it waits on; `then` takes the rejection handler as its second argument; and Http answers with the same promise type as a returning slot. The test chains through a pending SynQt promise and through a rejected JavaScript promise and requires the inner outcomes, and runs clean under AddressSanitizer.",
+      "file": "tests/consumer-facade/tst_consumer.cpp",
+      "test": "aHandlerThatReturnsAPromiseIsWaitedFor"
     }
   ]
 }

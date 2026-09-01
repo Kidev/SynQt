@@ -4,8 +4,9 @@
 // EntityRuntime is type-aware. Given an entity with a type and a provider config, the
 // runtime builds and connects the provider and injects that type's helper into every owned
 // Source's QML context, with no manual injection. One test per type (relational -> Db,
-// cache -> Cache, document -> Docs, api -> Http, jobs -> Jobs), each proving the helper
-// reached QML and works, plus the failure paths: a provider that selects nothing stops the
+// cache -> Cache, document -> Docs, jobs -> Jobs) and one for Http, which any entity that
+// declares `network.outbound` gets, each proving the helper reached QML and works, plus the
+// failure paths: a provider that selects nothing stops the
 // entity, and one that will not connect is fatal for a database and survivable for a cache
 // or a document store.
 
@@ -353,7 +354,7 @@ private slots:
         // Release is the runtime's default and the topology said so explicitly: a plaintext
         // call is refused before a socket is opened, and the promise says why.
         engine.globalObject().setProperty(QStringLiteral("failure"), QString{});
-        HttpPromise *promise{http->get(QStringLiteral("http://127.0.0.1:1/feed"))};
+        SynQt::Promise *promise{http->get(QStringLiteral("http://127.0.0.1:1/feed"))};
         QVERIFY(promise != nullptr);
         promise->then(QJSValue{},
                       engine.evaluate(QStringLiteral("(function(e) { failure = e; })")));

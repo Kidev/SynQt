@@ -55,11 +55,18 @@ set_target_properties(SynQtProviders PROPERTIES AUTOMOC ON)
 
 target_include_directories(SynQtProviders PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
+# SynQtConsumer for the Promise the Http helper answers with, the same one a returning slot
+# answers with.
+if(NOT TARGET SynQtConsumer)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../consumer" "${CMAKE_BINARY_DIR}/SynQtConsumer")
+endif()
+
 target_link_libraries(SynQtProviders PUBLIC
     Qt6::Core
     Qt6::Sql
     Qt6::Network
     Qt6::Qml
+    SynQtConsumer
 )
 
 # The redis wrapper, built only when hiredis is available. External libraries are recorded

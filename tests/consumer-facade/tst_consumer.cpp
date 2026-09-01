@@ -9,7 +9,7 @@
 //
 // plus the facade forwarding the connect point's push property, model, void slot and
 // signal. The connect point is hosted in-process over the real WebSocketTransport, acquired
-// as a typed Replica, wrapped in its generated ArenaConsumer... WidgetConsumer facade, and
+// as a typed Replica, wrapped in its generated WidgetConsumer facade, and
 // consumed from a real QML document exactly as the client runtime exposes it.
 
 #include "rep_widget_merged.h"
@@ -113,6 +113,39 @@ private slots:
         delete answered;
     }
 
+    // A handler that starts another asynchronous step returns its promise, and the next
+    // step waits for it: `slot().then(v => other(v)).then(w => ...)` receives other's
+    // answer, not the promise object. Rejections follow the same way, and `then` takes the
+    // rejection handler as its second argument, as JavaScript's does.
+    void aHandlerThatReturnsAPromiseIsWaitedFor()
+    {
+        QJSEngine engine;
+        engine.globalObject().setProperty(QStringLiteral("seen"), QJSValue{QStringLiteral("")});
+        SynQt::Promise *later{SynQt::Promise::pending(&engine)};
+        engine.globalObject().setProperty(QStringLiteral("later"), engine.newQObject(later));
+        QQmlEngine::setObjectOwnership(later, QQmlEngine::CppOwnership);
+
+        SynQt::Promise *first{SynQt::Promise::resolved(QVariant{1}, &engine)};
+        first->then(engine.evaluate(QStringLiteral("(function (v) { return later; })")))
+            ->then(engine.evaluate(QStringLiteral("(function (v) { seen = 'got:' + v; })")));
+        QCOMPARE(engine.globalObject().property(QStringLiteral("seen")).toString(), QString{});
+        later->resolve(QVariant{7});
+        QCOMPARE(engine.globalObject().property(QStringLiteral("seen")).toString(),
+                 QStringLiteral("got:7"));
+
+        // A JavaScript promise is waited for too.
+        engine.globalObject().setProperty(QStringLiteral("seen"), QJSValue{QStringLiteral("")});
+        SynQt::Promise *second{SynQt::Promise::resolved(QVariant{1}, &engine)};
+        second->then(engine.evaluate(QStringLiteral(
+                         "(function (v) { return Promise.reject('late'); })")))
+            ->then(QJSValue{},
+                   engine.evaluate(QStringLiteral("(function (r) { seen = 'lost:' + r; })")));
+        // Waiting runs the event loop, and a settled promise retires itself a turn later,
+        // with the chain parented to it, so none is deleted here.
+        QTRY_COMPARE(engine.globalObject().property(QStringLiteral("seen")).toString(),
+                     QStringLiteral("lost:late"));
+    }
+
     void facadeSurfacesAndErgonomics()
     {
         // Owner: host the Widget Source over a plaintext WebSocket (no registry).
@@ -167,7 +200,8 @@ private slots:
         // late, and the assertions below then prove the same facade is the one the link fills.
         QQmlEngine engine;
         engine.rootContext()->setContextProperty(QStringLiteral("Server"), &accessor);
-        QQmlComponent component{&engine, QUrl::fromLocalFile(QStringLiteral(SRCDIR "/client/Main.qml"))};
+        QQmlComponent component{&engine,
+                                QUrl::fromLocalFile(QStringLiteral(SRCDIR "/client/Main.qml"))};
         QScopedPointer<QObject> root{component.create()};
         QVERIFY2(!root.isNull(), qPrintable(component.errorString()));
 
@@ -265,8 +299,8 @@ private slots:
 
     // Every mesh link is a dynamic Replica, which declares a returning slot as returning
     // QRemoteObjectPendingCall rather than QRemoteObjectPendingReply<T>. Asked for the typed
-    // reply, invokeMethod refused the call as a return type mismatch, so `.then(...)` on
-    // anything an entity called over the mesh never ran.
+    // reply, invokeMethod would refuse the call as a return type mismatch, and `.then(...)` on
+    // anything an entity calls over the mesh would never run.
     void aReturningSlotResolvesOverADynamicReplica()
     {
         QWebSocketServer server{QStringLiteral("dynamic"), QWebSocketServer::NonSecureMode};

@@ -1713,7 +1713,7 @@ private slots:
         // being called or the plaintext check is never the one that speaks.
         Http release{&network, &engine, /*release*/ true,
                      {HttpEndpointConfig{{}, QStringLiteral("http://example.internal/"), {}}}};
-        HttpPromise *refused{release.get(QStringLiteral("http://example.internal/data"))};
+        SynQt::Promise *refused{release.get(QStringLiteral("http://example.internal/data"))};
         refused->then(QJSValue(),
                       engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
         QVERIFY2(probe.last.toString().contains(QStringLiteral("plaintext")),
@@ -1734,14 +1734,14 @@ private slots:
         });
         const QString base{QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort())};
         Http dev{&network, &engine, /*release*/ false, {HttpEndpointConfig{{}, base, {}}}};
-        HttpPromise *ok{dev.get(base)};
+        SynQt::Promise *ok{dev.get(base)};
         ok->then(engine.evaluate(QStringLiteral("(function(r){ probe.record(r.body); })")));
         QTRY_COMPARE(probe.last.toString(), QStringLiteral("hi"));
         probe.last = QVariant{};
 
         // And nowhere else. The allowlist is the whole of what this entity may reach, so a
         // URL outside it is refused here rather than sent and refused by somebody else.
-        HttpPromise *elsewhere{dev.get(QStringLiteral("http://127.0.0.1:1/other"))};
+        SynQt::Promise *elsewhere{dev.get(QStringLiteral("http://127.0.0.1:1/other"))};
         elsewhere->then(QJSValue(),
                         engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
         QVERIFY2(probe.last.toString().contains(QStringLiteral("network.outbound")),
@@ -1801,7 +1801,7 @@ private slots:
         };
         for (const QString &url : escapes) {
             probe.last = QVariant{};
-            HttpPromise *refused{gateway.get(url)};
+            SynQt::Promise *refused{gateway.get(url)};
             refused->then(QJSValue(),
                           engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
             QVERIFY2(probe.last.toString().contains(QStringLiteral("network.outbound")),
@@ -1815,7 +1815,7 @@ private slots:
                                        QStringLiteral("https://api.example.com:443/v1/x"),
                                        QStringLiteral("https://API.EXAMPLE.COM/v1/x")}) {
             probe.last = QVariant{};
-            HttpPromise *sent{gateway.get(allowed)};
+            SynQt::Promise *sent{gateway.get(allowed)};
             sent->then(QJSValue(),
                        engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
             QVERIFY2(!probe.last.toString().contains(QStringLiteral("network.outbound")),
@@ -2072,7 +2072,7 @@ private slots:
     }
 
     // Settles `promise` into `probe`: the response map on success, the message on failure.
-    static void settleInto(QJSEngine &engine, HttpPromise *promise)
+    static void settleInto(QJSEngine &engine, SynQt::Promise *promise)
     {
         promise->then(engine.evaluate(QStringLiteral("(function(r){ probe.record(r); })")),
                       engine.evaluate(QStringLiteral("(function(m){ probe.record(m); })")));
@@ -2098,7 +2098,7 @@ private slots:
         Http http{&network, &engine, /*release*/ false, {endpoint}};
         HttpEndpoint *upstream{http.api(QStringLiteral("upstream"))};
         QVERIFY(upstream != nullptr);
-        const auto sent{[&](HttpPromise *promise) {
+        const auto sent{[&](SynQt::Promise *promise) {
             probe.last = QVariant{};
             const qsizetype before{far.requests.size()};
             settleInto(engine, promise);

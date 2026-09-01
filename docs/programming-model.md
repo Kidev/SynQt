@@ -40,7 +40,7 @@ The owner names the contract: the exported type is the owner's name, capitalized
 `edge` entity exports `Edge`, the QML type at the root of the owner's Source file and the
 name a consumer's attached handlers use. Contracts sit on top of QtRemoteObjects rep
 files. The build writes one `.syn` per point under `generated/` and generates the QtRO
-Source and Replica from it. Never edit that file; edit the `export:` block, which
+Source and Replica from it. To change that file, edit the `export:` block, which
 rewrites it.
 
 ### Exporting by name
@@ -103,8 +103,7 @@ How each member maps to the QtRO semantics in the generated rep:
   Each role has a declared type. A value that does not convert refuses the publish, with a
   message naming the model, the role and the row, so a row that does not match the
   contract never reaches a consumer. Declare a role `var` only if it really can hold
-  anything. Today the owner replaces rows wholesale; finer row updates would be an
-  optimization behind the same declaration.
+  anything. The owner replaces the rows wholesale on every publish.
 - **A model flows from owner to consumers only.** A consumer cannot write to it, even though
   the underlying Qt type has `setData`. To change owner state, a consumer calls a slot,
   where `Caller` exists and the owner decides.
@@ -116,7 +115,9 @@ How each member maps to the QtRO semantics in the generated rep:
   call, as here, instead of storing the promise for a later frame: a promise is retired
   once it has settled and delivered. When the link drops during a call, the call is
   rejected when the link returns, so a chained `.catchError(reason => ...)` runs instead
-  of waiting forever.
+  of waiting forever. A handler that starts another asynchronous step returns its promise,
+  and the next `.then` waits for that step's answer:
+  `Books.find(id).then(book => Prices.quote(book.isbn)).then(price => ...)`.
 
 An `export:` block may also declare plain data records for use in signatures. They compile
 to QtRO POD types passed by value:
@@ -218,8 +219,8 @@ The keys that matter:
   before the framework acquires the Replica for them. A user below that scope never gets
   the object, so cannot call its slots.
 - **`export`.** What may cross, written on the point. The type it becomes is the owner's
-  name capitalized: `owner: edge` exports `Edge`. Nothing names it separately, and it has
-  no suffix.
+  name capitalized: `owner: edge` exports `Edge`. It has no separate name and no
+  suffix.
 - **`server`.** The file that implements the connect point. Its root element is the
   contract, so `web/edge/Edge.qml` opens with `Edge { ... }`. That file is the entity, so
   `server` defaults to the entity's own file and most points never set it. Both ends of a
@@ -262,8 +263,8 @@ caller. See [scope down the chain](runtime-api.md#scope-down-the-chain).
 
 The gate controls what crosses, not what is declared. The member stays in the contract, so
 a consumer's `Server.storefront` has an `auditLog` model either way. For a caller without
-the scope, it is never seeded, never followed and never sent: the rows are never delivered,
-rather than delivered and hidden. A gated `slot` is refused before the owner's QML sees the
+the scope, it is never seeded, never followed and never sent, so the rows stay on the
+owner. A gated `slot` is refused before the owner's QML sees the
 call, and a gated `signal` is not delivered.
 
 The gate follows the session, not the connection. A visitor who signs in sees what they
@@ -293,7 +294,7 @@ Now the record of a call to `placeBid` includes `amount`. You set it per member,
 contract or entity. An operator chasing a refused bid wants to know the amount, but nobody
 wants a monitor that quietly collects every value the system handles. A record outlives
 its session, is read by people it is not about, and goes wherever an operator sends it, so
-what it holds must be a decision, not a default.
+each captured value is a choice somebody made.
 
 `synqt check` refuses `capture` on a member whose arguments carry an identity (`sub`,
 `email`, `login`, directly or inside a `record`), because that would make the operations
@@ -310,8 +311,8 @@ Longer text is cut, and a `list`, `var` or `record` that serializes to more is r
 a note saying how much was dropped. Capture only members with small values; bounding their
 arguments in the contract (`string[80]`, `list[20]`) keeps every capture whole.
 
-`capture` is not a reserved word. A slot may still be named `capture`; what follows the
-word tells the compiler which one you mean.
+`capture` stays free as a name: a slot may be called `capture`, and what follows the word
+tells the compiler which one you mean.
 
 ### Handing callers on: `behind:`
 
@@ -337,8 +338,8 @@ step: a tier carries exactly the members the front offers its callers, no more a
 fewer.
 
 Callers of one scope and no other reach an entity behind a front, so it authorizes on
-`Caller` and never asks about scope. Nothing enforces that at run time because nothing
-has to. And with a tier per process, an admin surface's rows never exist in the process
+`Caller` and never asks about scope; the topology already guarantees it. With a tier per
+process, an admin surface's rows never exist in the process
 serving anonymous visitors.
 
 The tier that answers a caller follows their scope for the life of the connection, not
@@ -440,7 +441,7 @@ function add(text) {
 
 So `Server` means "the edge this browser client talks to". The general form is
 `<EntityName>.<member>`: the owner's configured name, capitalized like a QML type. Entity
-`store` appears as `Store`, entity `edge` as `Edge`. There is no second level, because an
+`store` appears as `Store`, entity `edge` as `Edge`. The name has one level, because an
 entity has one connect point. (`Server` is the client's alias for its edge, whatever the
 edge entity is named.)
 
@@ -604,7 +605,8 @@ On the client, session state is read only through `Session`:
 
 - `Session.scope`, `Session.hasScope(name)`.
 - `Session.state`: `offline`, `connecting`, `connected`, `reconnecting`.
-- `Session.identity`: the authenticated identity, or null when anonymous.
+- `Session.identity`: the authenticated identity, or null when anonymous, and
+  `Session.isAuthenticated`, true when there is one.
 - `Session.login()` and `Session.logout()`.
 
 Scope checks on the client (hiding a button) only improve the user experience; they are
@@ -639,7 +641,7 @@ in `Main.qml` renders `Router.pageComponent`, and views bind to `Router.path`,
 [runtime API reference](runtime-api.md#client-router), and the keys in
 [configuration](project-layout-and-config.md#router-and-routes-client-navigation).
 
-A guard redirects; it keeps nothing secret. A privileged screen shows nothing useful
+A guard only redirects. A privileged screen shows nothing useful
 without its privileged connect points, which the edge refuses to a session below their
 scope, and which often reach services the browser cannot reach at all.
 
@@ -677,6 +679,6 @@ edge.
 - **The framework** moves the bytes, reconnects, authenticates every link, and keeps state
   separate per session or per calling entity when you ask.
 
-There is no single Server object or Client object to subclass. There are entities, the
-connect points they own and consume, the callers that reach them, and the contracts that
-define what may travel.
+The model has entities, the connect points they own and consume, the callers that reach
+them, and the contracts that define what may travel. It has no single Server or Client
+object to subclass.

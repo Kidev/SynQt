@@ -82,65 +82,6 @@ QByteArray bodyBytes(const QVariant &value)
 
 } // namespace
 
-HttpPromise::HttpPromise(QJSEngine *engine, QObject *parent)
-    : QObject{parent}
-    , m_engine{engine}
-{
-}
-
-void HttpPromise::then(const QJSValue &onFulfilled, const QJSValue &onRejected)
-{
-    m_onFulfilled = onFulfilled;
-    m_onRejected = onRejected;
-    if (m_settled) {
-        deliver();
-    }
-}
-
-void HttpPromise::resolve(const QVariantMap &response)
-{
-    if (m_settled) {
-        return;  // the first answer is the answer. See reject()
-    }
-    m_response = response;
-    m_ok = true;
-    m_settled = true;
-    deliver();
-}
-
-void HttpPromise::reject(const QString &message)
-{
-    // The first answer wins. A refused redirect rejects here and aborts the reply, whose
-    // `finished` then arrives with Qt's "Operation canceled"; this guard keeps the real
-    // reason and avoids a second deleteLater.
-    if (m_settled) {
-        return;
-    }
-    m_error = message;
-    m_ok = false;
-    m_settled = true;
-    deliver();
-}
-
-void HttpPromise::deliver()
-{
-    if (m_handled || !m_settled) {
-        return;
-    }
-    if (m_ok && m_onFulfilled.isCallable()) {
-        m_handled = true;
-        m_onFulfilled.call(QJSValueList{m_engine->toScriptValue(m_response)});
-    } else if (!m_ok && m_onRejected.isCallable()) {
-        m_handled = true;
-        m_onRejected.call(QJSValueList{m_engine->toScriptValue(m_error)});
-    }
-    // Settled, so the promise is done. It is a child of the Http helper, which lives as
-    // long as the entity, so it is retired after this turn, after `Http.get(url).then(...)`
-    // has attached a handler, whether or not one was attached. A call nobody reads (a
-    // fire-and-forget POST) must not accumulate.
-    deleteLater();
-}
-
 HttpEndpoint::HttpEndpoint(Http *http, HttpEndpointConfig config, QObject *parent)
     : QObject{parent}
     , m_http{http}
@@ -173,24 +114,24 @@ QString HttpEndpoint::resolve(const QString &path) const
     return base + path;
 }
 
-HttpPromise *HttpEndpoint::get(const QString &path, const QVariantMap &headers)
+Promise *HttpEndpoint::get(const QString &path, const QVariantMap &headers)
 {
     return m_http->send(QStringLiteral("GET"), resolve(path), QVariant{}, headers);
 }
 
-HttpPromise *HttpEndpoint::post(const QString &path, const QVariant &body,
+Promise *HttpEndpoint::post(const QString &path, const QVariant &body,
                                 const QVariantMap &headers)
 {
     return m_http->send(QStringLiteral("POST"), resolve(path), body, headers);
 }
 
-HttpPromise *HttpEndpoint::put(const QString &path, const QVariant &body,
+Promise *HttpEndpoint::put(const QString &path, const QVariant &body,
                                const QVariantMap &headers)
 {
     return m_http->send(QStringLiteral("PUT"), resolve(path), body, headers);
 }
 
-HttpPromise *HttpEndpoint::del(const QString &path, const QVariantMap &headers)
+Promise *HttpEndpoint::del(const QString &path, const QVariantMap &headers)
 {
     return m_http->send(QStringLiteral("DELETE"), resolve(path), QVariant{}, headers);
 }
@@ -292,30 +233,30 @@ const HttpEndpointConfig *Http::match(const QUrl &url) const
     return nullptr;
 }
 
-HttpPromise *Http::get(const QString &url, const QVariantMap &headers)
+Promise *Http::get(const QString &url, const QVariantMap &headers)
 {
     return send(QStringLiteral("GET"), url, QVariant{}, headers);
 }
 
-HttpPromise *Http::post(const QString &url, const QVariant &body, const QVariantMap &headers)
+Promise *Http::post(const QString &url, const QVariant &body, const QVariantMap &headers)
 {
     return send(QStringLiteral("POST"), url, body, headers);
 }
 
-HttpPromise *Http::put(const QString &url, const QVariant &body, const QVariantMap &headers)
+Promise *Http::put(const QString &url, const QVariant &body, const QVariantMap &headers)
 {
     return send(QStringLiteral("PUT"), url, body, headers);
 }
 
-HttpPromise *Http::del(const QString &url, const QVariantMap &headers)
+Promise *Http::del(const QString &url, const QVariantMap &headers)
 {
     return send(QStringLiteral("DELETE"), url, QVariant{}, headers);
 }
 
-HttpPromise *Http::send(const QString &method, const QString &url, const QVariant &body,
+Promise *Http::send(const QString &method, const QString &url, const QVariant &body,
                         const QVariantMap &headers)
 {
-    HttpPromise *promise{new HttpPromise{m_engine, this}};
+    Promise *promise{Promise::pending(m_engine, this)};
     const QUrl target{url};
 
     // The allowlist first: this entity may call these places and no others. The error lists
