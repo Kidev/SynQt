@@ -47,6 +47,37 @@ def _named_point_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+#: The sections synqt.yaml may hold at its top level, and the shape each one has.
+_SECTIONS: Dict[str, type] = {
+    "project": dict, "entities": list, "connect_points": list, "scopes": dict,
+    "security": dict, "identity": dict, "privacy": dict, "build": dict, "monitoring": dict,
+    "routes": list, "router": dict, "client": dict, "mesh": dict, "check": dict,
+}
+
+
+def _section_messages(config: Dict[str, Any]) -> List[str]:
+    """Refuse a top-level key the tools do not read, and a section of the wrong shape.
+
+    Checked before anything reads a section: a key nothing reads is ignored without a word
+    (a typo, or `public:` written outside the web edge it belongs to), and a section of the
+    wrong shape would stop the readers with a traceback instead of a message.
+    """
+    messages: List[str] = []
+    for key, value in config.items():
+        expected = _SECTIONS.get(str(key))
+        if expected is None:
+            messages.append(
+                f"error: '{key}' is not a top-level section of synqt.yaml, so nothing reads "
+                f"it. The sections are {', '.join(sorted(_SECTIONS))}; `public`, `tls` and "
+                f"`network` belong to an entity")
+            continue
+        if value is not None and not isinstance(value, expected):
+            shape = "a mapping" if expected is dict else "a list"
+            messages.append(f"error: {key}: must be {shape}, not {type(value).__name__} "
+                            f"{value!r}"[:200])
+    return messages
+
+
 def _organization_messages(config: Dict[str, Any]) -> List[str]:
     """`project.organization` and `project.organization_domain`: text when written."""
     project = config.get("project")
@@ -506,7 +537,9 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     certificate an error; a release build does not require one, because the CA key is never on
     the build machine (docs/security.md).
     """
-    messages: List[str] = []
+    messages: List[str] = _section_messages(config)
+    if messages:
+        return False, messages
     declared = [e for e in config.get("entities", []) if isinstance(e, dict)]
     entities = {e.get("name"): e for e in declared}
     if not entities:
@@ -3471,6 +3504,9 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     config = resolved.config
     ok, messages = validate(config, release=release, project_dir=project_dir,
                             starting=starting)
+    if _section_messages(config):
+        # The lints below read the sections, and cannot read ones of the wrong shape.
+        return False, [f"note: {source} applied" for source in resolved.sources] + messages
     # The lints below read the expanded topology, framework links included; `validate` reads it
     # as written. Without this, the console client would resolve to the application edge.
     config = appmodel.with_monitoring_connect_points(config)

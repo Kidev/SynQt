@@ -148,8 +148,9 @@ by being named in the wrong section.
 On the host, write `db/relational/store/.env` and `web/edge/.env` with the values the
 references name, readable only by the user the entities run as. Each entity directory's
 `.env.example` lists them. In a pipeline, `SYNQT_<SECTION>_<KEY>` environment variables
-cover overrides that are not secret (`SYNQT_PUBLIC_PORT=443`), and your orchestrator's
-secret mechanism covers the rest.
+cover overrides of a top-level section that are not secret
+(`SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS=5000`), a profile file covers an entity's settings
+(its port, its address), and your orchestrator's secret mechanism covers the rest.
 
 ## 6. Start it
 

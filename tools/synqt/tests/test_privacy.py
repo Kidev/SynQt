@@ -128,7 +128,8 @@ class MissingBlockTest(unittest.TestCase):
 class ShapeTest(unittest.TestCase):
     def test_a_non_map_block_is_refused(self):
         found = errors(project(["policy"]))
-        self.assertTrue([m for m in found if "privacy must be a map" in m], found)
+        self.assertTrue([m for m in found if m.startswith("error: privacy: must be a mapping")],
+                        found)
 
     def test_a_non_text_url_is_refused(self):
         found = errors(project({"policy": 42}))

@@ -16,24 +16,19 @@ the first red pipeline is a real failure.
 
 ## Step 1: Say what production is different about
 
-Your `gavel` project has one topology. Production changes a few of its values: the port,
-the TLS certificate, and the database's address. Do not copy the file; put the
-differences in a profile beside it.
+Your `gavel` project has one topology. Production changes a few of its values: the port
+the edge listens on, the address browsers reach it at, and where each entity is reached on
+the private network. Do not copy the file; put the differences in a profile beside it.
 
 Create `synqt.production.yaml` in the project root:
 
 ```yaml
 # synqt.production.yaml
 # Applied with: --profile production. Only the keys that differ from synqt.yaml.
-public:
-  port: 443
-  tls:
-    cert_file: certs/edge/fullchain.pem
-    key_file: certs/edge/privkey.pem
-
 entities:
   - name: edge
     public:
+      port: 443
       origin: https://gavel.example.com
     mesh:
       host: 10.0.0.10
@@ -42,6 +37,9 @@ entities:
     mesh:
       host: 10.0.0.20
 ```
+
+An entity in a profile is matched by its `name`, and only the keys written under it change.
+The edge keeps the `tls:` block `synqt.yaml` gives it, and every other entity is untouched.
 
 Two properties of this file matter more than its values.
 
@@ -73,8 +71,8 @@ to a system you ship:
 - an external provider may not connect in plaintext.
 
 Run it now and read the output. With the profile above and the auction's `synqt.yaml`, it
-passes. Then break it on purpose: delete the `tls:` block from `synqt.production.yaml` and
-run it again.
+passes. Then break it on purpose: delete the edge's `tls:` block from `synqt.yaml` and run
+it again.
 
 ```text
 error: web edge 'edge' has no tls section, so a release build would serve the browser

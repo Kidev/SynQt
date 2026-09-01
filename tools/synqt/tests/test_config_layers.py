@@ -24,8 +24,8 @@ def write(root: Path, name: str, data: dict) -> None:
 BASE = {
     "project": {"name": "app", "origin_model": "same_origin"},
     "build": {"client_threads": "single", "desktop": {"edge_url": "ws://localhost:8080/sync"}},
-    "public": {"host": "0.0.0.0", "port": 8080},
-    "security": {"allowed_origins": ["self"]},
+    "security": {"allowed_origins": ["self"], "handshake_timeout_ms": 10000,
+                 "csp": "default-src 'self'"},
     "mesh": {"require_mtls_cross_host": True},
     "scopes": {"order": ["anonymous", "user", "moderator"]},
     "entities": [
@@ -42,9 +42,9 @@ BASE = {
 
 class MergeTest(unittest.TestCase):
     def test_a_mapping_merges_key_by_key_and_leaves_siblings_alone(self):
-        merged = configmod.merge({"public": {"host": "0.0.0.0", "port": 8080}},
-                                 {"public": {"port": 443}})
-        self.assertEqual(merged, {"public": {"host": "0.0.0.0", "port": 443}})
+        merged = configmod.merge({"security": {"csp": "x", "handshake_timeout_ms": 10000}},
+                                 {"security": {"handshake_timeout_ms": 5000}})
+        self.assertEqual(merged, {"security": {"csp": "x", "handshake_timeout_ms": 5000}})
 
     def test_a_named_list_merges_entry_by_entry_on_name(self):
         merged = configmod.merge(BASE, {"entities": [{"name": "database",
@@ -55,6 +55,17 @@ class MergeTest(unittest.TestCase):
         self.assertEqual(database["settings"], {"path": "data/app.db"})
         self.assertEqual([e["name"] for e in merged["entities"]],
                          ["web", "database", "client"])
+
+    def test_a_connect_point_merges_on_its_owner(self):
+        # A point has no name; its owner names it. A profile that adjusts one point keeps
+        # the rest of it, and every other point.
+        base = dict(BASE, connect_points=[{"owner": "database", "consumers": ["web"]},
+                                          {"owner": "web", "consumers": ["client"]}])
+        merged = configmod.merge(base, {"connect_points": [{"owner": "database",
+                                                           "host": "10.0.0.10"}]})
+        self.assertEqual(merged["connect_points"],
+                         [{"owner": "database", "consumers": ["web"], "host": "10.0.0.10"},
+                          {"owner": "web", "consumers": ["client"]}])
 
     def test_a_named_list_appends_an_entry_the_base_did_not_have(self):
         merged = configmod.merge(BASE, {"entities": [{"name": "cache", "type": "service"}]})
@@ -72,8 +83,8 @@ class MergeTest(unittest.TestCase):
         self.assertEqual(len(merged["entities"]), 3)
 
     def test_the_base_is_not_mutated(self):
-        configmod.merge(BASE, {"public": {"port": 443}})
-        self.assertEqual(BASE["public"]["port"], 8080)
+        configmod.merge(BASE, {"security": {"handshake_timeout_ms": 5000}})
+        self.assertEqual(BASE["security"]["handshake_timeout_ms"], 10000)
 
 
 class ProfileTest(unittest.TestCase):
@@ -82,12 +93,17 @@ class ProfileTest(unittest.TestCase):
             root = Path(tmp)
             write(root, "synqt.yaml", BASE)
             write(root, "synqt.production.yaml",
-                  {"public": {"port": 443, "tls": {"cert_file": "certs/fullchain.pem"}},
-                   "entities": [{"name": "database", "mesh": {"host": "10.0.0.10"}}]})
+                  {"security": {"handshake_timeout_ms": 5000},
+                   "entities": [{"name": "web", "public": {"port": 443},
+                                 "tls": {"cert_file": "certs/fullchain.pem"}},
+                                {"name": "database", "mesh": {"host": "10.0.0.10"}}]})
             resolved = configmod.resolve(root, profile="production", env={})
-            self.assertEqual(resolved.config["public"]["port"], 443)
-            self.assertEqual(resolved.config["public"]["host"], "0.0.0.0")
+            self.assertEqual(resolved.config["security"]["handshake_timeout_ms"], 5000)
+            self.assertEqual(resolved.config["security"]["csp"], "default-src 'self'")
             self.assertEqual(resolved.sources, ["synqt.production.yaml"])
+            web = next(e for e in resolved.config["entities"] if e["name"] == "web")
+            self.assertEqual(web, {"name": "web", "type": "web_edge", "public": {"port": 443},
+                                   "tls": {"cert_file": "certs/fullchain.pem"}})
             database = next(e for e in resolved.config["entities"]
                             if e["name"] == "database")
             self.assertEqual(database["mesh"]["host"], "10.0.0.10")
@@ -96,9 +112,9 @@ class ProfileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write(root, "synqt.yaml", BASE)
-            write(root, "synqt.production.yaml", {"public": {"port": 443}})
+            write(root, "synqt.production.yaml", {"security": {"handshake_timeout_ms": 5000}})
             resolved = configmod.resolve(root, env={})
-            self.assertEqual(resolved.config["public"]["port"], 8080)
+            self.assertEqual(resolved.config["security"]["handshake_timeout_ms"], 10000)
             self.assertEqual(resolved.sources, [])
 
     def test_a_missing_profile_file_is_an_error(self):
@@ -130,9 +146,10 @@ class EnvironmentTest(unittest.TestCase):
             return configmod.resolve(root, env=env)
 
     def test_it_overrides_a_top_level_section_key(self):
-        resolved = self.resolve({"SYNQT_PUBLIC_PORT": "443"})
-        self.assertEqual(resolved.config["public"]["port"], 443)
-        self.assertEqual(resolved.sources, ["SYNQT_PUBLIC_PORT -> public.port"])
+        resolved = self.resolve({"SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS": "5000"})
+        self.assertEqual(resolved.config["security"]["handshake_timeout_ms"], 5000)
+        self.assertEqual(resolved.sources,
+                         ["SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS -> security.handshake_timeout_ms"])
 
     def test_it_resolves_a_nested_key_against_the_structure_that_exists(self):
         # build.desktop.edge_url, resolved by the existing structure, not the underscores.
@@ -146,11 +163,11 @@ class EnvironmentTest(unittest.TestCase):
         base = dict(BASE, monitoring={"sample_ratio": 0.5})
         resolved = self.resolve({"SYNQT_SECURITY_ALLOWED_ORIGINS": "self, https://a.example",
                                  "SYNQT_MONITORING_SAMPLE_RATIO": "0.25",
-                                 "SYNQT_PUBLIC_WORKERS": "3"}, base)
+                                 "SYNQT_SECURITY_MAX_MESSAGE_BYTES": "65536"}, base)
         self.assertEqual(resolved.config["security"]["allowed_origins"],
                          ["self", "https://a.example"])
         self.assertEqual(resolved.config["monitoring"]["sample_ratio"], 0.25)
-        self.assertEqual(resolved.config["public"]["workers"], 3)
+        self.assertEqual(resolved.config["security"]["max_message_bytes"], 65536)
 
     def test_a_value_that_is_not_the_type_there_is_refused_by_name(self):
         base = dict(BASE, monitoring={"sample_ratio": 0.5})
@@ -183,7 +200,7 @@ class EnvironmentTest(unittest.TestCase):
 
     def test_a_bad_integer_is_an_error(self):
         with self.assertRaises(configmod.ConfigError):
-            self.resolve({"SYNQT_PUBLIC_PORT": "https"})
+            self.resolve({"SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS": "soon"})
 
     def test_a_string_key_keeps_the_string_yaml_would_have_eaten(self):
         # The existing type is string, so "no" and "1.10" stay strings.
@@ -199,26 +216,30 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(resolved.config["security"]["allowed_origins"], ["self"])
 
     def test_a_new_leaf_under_an_existing_section_is_allowed(self):
-        resolved = self.resolve({"SYNQT_PUBLIC_TLS_TERMINATED_UPSTREAM": "true"})
-        self.assertIs(resolved.config["public"]["tls_terminated_upstream"], True)
+        resolved = self.resolve({"SYNQT_SECURITY_CROSS_ORIGIN_ISOLATION": "true"})
+        self.assertIs(resolved.config["security"]["cross_origin_isolation"], True)
 
     def test_it_applies_over_the_profile_not_under_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write(root, "synqt.yaml", BASE)
-            write(root, "synqt.production.yaml", {"public": {"port": 443}})
+            write(root, "synqt.production.yaml", {"security": {"handshake_timeout_ms": 5000}})
             resolved = configmod.resolve(root, profile="production",
-                                         env={"SYNQT_PUBLIC_PORT": "8443"})
-            self.assertEqual(resolved.config["public"]["port"], 8443)
+                                         env={"SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS": "7000"})
+            self.assertEqual(resolved.config["security"]["handshake_timeout_ms"], 7000)
             self.assertEqual(resolved.sources,
-                             ["synqt.production.yaml", "SYNQT_PUBLIC_PORT -> public.port"])
+                             ["synqt.production.yaml",
+                              "SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS -> "
+                              "security.handshake_timeout_ms"])
 
     def test_it_does_not_mutate_the_configuration_it_was_given(self):
-        config = {"public": {"port": 8080}}
-        merged, applied = configmod.apply_env(config, {"SYNQT_PUBLIC_PORT": "443"})
-        self.assertEqual(merged["public"]["port"], 443)
-        self.assertEqual(config["public"]["port"], 8080)
-        self.assertEqual(applied, ["SYNQT_PUBLIC_PORT -> public.port"])
+        config = {"security": {"handshake_timeout_ms": 10000}}
+        merged, applied = configmod.apply_env(config,
+                                              {"SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS": "5000"})
+        self.assertEqual(merged["security"]["handshake_timeout_ms"], 5000)
+        self.assertEqual(config["security"]["handshake_timeout_ms"], 10000)
+        self.assertEqual(applied,
+                         ["SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS -> security.handshake_timeout_ms"])
 
 
 class ValidationSeesTheResolvedConfigTest(unittest.TestCase):

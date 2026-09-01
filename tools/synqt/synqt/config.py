@@ -59,20 +59,30 @@ def config_filenames(profile: Optional[str] = None) -> Tuple[str, ...]:
     return ("synqt.yaml",)
 
 
+def _entry_key(item: Any) -> Any:
+    """What names one entry of a keyed list: an entity by its ``name``, a connect point by
+    its ``owner`` (a point has no name of its own).
+    """
+    if not isinstance(item, dict):
+        return None
+    return item.get("name") or item.get("owner")
+
+
 def _is_named_list(value: Any) -> bool:
-    """A list of mappings that all carry a ``name``: ``entities`` and ``connect_points``,
-    merged by name.
+    """A list of mappings that each carry a key (:func:`_entry_key`): ``entities`` and
+    ``connect_points``, merged entry by entry.
     """
     return (isinstance(value, list) and bool(value)
-            and all(isinstance(item, dict) and item.get("name") for item in value))
+            and all(_entry_key(item) for item in value))
 
 
 def merge(base: Any, override: Any) -> Any:
     """Layer ``override`` onto ``base``, key by key.
 
-    Mappings merge recursively. A name-keyed list merges entry by entry on ``name``, keeping
-    the base order and appending new entries. Every other list and scalar is replaced
-    outright, so ``consumers`` or ``scopes.order`` is never half-merged.
+    Mappings merge recursively. A keyed list merges entry by entry (entities on ``name``,
+    connect points on ``owner``), keeping the base order and appending new entries. Every
+    other list and scalar is replaced outright, so ``consumers`` or ``scopes.order`` is never
+    half-merged.
     """
     if isinstance(base, dict) and isinstance(override, dict):
         merged = dict(base)
@@ -80,10 +90,10 @@ def merge(base: Any, override: Any) -> Any:
             merged[key] = merge(merged[key], value) if key in merged else value
         return merged
     if _is_named_list(base) and _is_named_list(override):
-        by_name = {item["name"]: item for item in base}
-        ordered = [item["name"] for item in base]
+        by_name = {_entry_key(item): item for item in base}
+        ordered = [_entry_key(item) for item in base]
         for item in override:
-            name = item["name"]
+            name = _entry_key(item)
             if name in by_name:
                 by_name[name] = merge(by_name[name], item)
             else:
@@ -238,7 +248,6 @@ def resolve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = Non
 
     config, applied = apply_env(config, env)
     sources.extend(applied)
-    # The default contract name, filled in once here for every reader.
     return Resolved(config=config, sources=sources)
 
 

@@ -1413,33 +1413,35 @@ needs them.
 
 ```yaml
 # synqt.production.yaml, applied with: synqt build --release --profile production
-public:
-  port: 443
-  tls:
-    cert_file: certs/edge/fullchain.pem
-    key_file: certs/edge/privkey.pem
-
 entities:
-  - name: database          # matched by name, and the rest of the entry is untouched
+  - name: edge              # matched by name, and the rest of the entry is untouched
+    public:
+      port: 443
+    tls:
+      cert_file: certs/edge/fullchain.pem
+      key_file: certs/edge/privkey.pem
+  - name: database
     mesh:
       host: 10.0.0.10
 ```
 
-`entities` and `connect_points` merge entry by entry on `name`, so a profile can adjust one
-entity without restating the topology. Every other list, such as a connect point's
+`entities` merge entry by entry on `name`, and `connect_points` on `owner`, so a profile
+can adjust one entity or one point without restating the topology. Every other list, such as a connect point's
 `consumers` or `scopes.order`, is replaced whole, because its members and order are its
 value. A profile changes and adds, but never removes. There is no delete syntax: dropping a
 consumer or an entity is a security change, and it belongs in the file that declares the
 list, not in an overlay.
 
 An environment override names a key inside a section the configuration already declares:
-`SYNQT_PUBLIC_PORT=443`, `SYNQT_BUILD_DESKTOP_EDGE_URL=wss://app.example.com/sync` (the
-nested path follows the existing structure, so it sets `build.desktop.edge_url`, not
-`build.desktop_edge_url`). A variable that names no declared section is ignored, which
-keeps the runtime's own `SYNQT_ROOT`, `SYNQT_EDGE_URL` and `SYNQT_TEST_*` out of the
-topology. So is a bare section such as `SYNQT_ENTITIES`, and any path that would reach into
-a list. The value takes the key's existing type, so `SYNQT_PROJECT_NAME=no` stays the
-string `no` instead of becoming `false`.
+`SYNQT_SECURITY_HANDSHAKE_TIMEOUT_MS=5000`,
+`SYNQT_BUILD_DESKTOP_EDGE_URL=wss://app.example.com/sync` (the nested path follows the
+existing structure, so it sets `build.desktop.edge_url`, not `build.desktop_edge_url`). A
+variable that names no declared section is ignored, which keeps the runtime's own
+`SYNQT_ROOT`, `SYNQT_EDGE_URL` and `SYNQT_TEST_*` out of the topology. So is a bare section
+such as `SYNQT_ENTITIES`, and any path that would reach into a list, so an entity's settings,
+which sit in the `entities` list, are changed in a profile, never from the environment. The
+value takes the key's existing type, so `SYNQT_PROJECT_NAME=no` stays the string `no` instead
+of becoming `false`.
 
 Every layer is validated. Profile files and `SYNQT_...` overrides follow the same rules as
 `synqt.yaml`, so neither can slip in a literal password or a release edge without TLS.
