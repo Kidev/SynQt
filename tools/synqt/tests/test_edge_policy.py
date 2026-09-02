@@ -18,8 +18,8 @@ def base_config(**overrides):
     config = {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "type": "client", "path": "client"},
-            {"name": "web", "type": "web_edge", "path": "web"},
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge"},
         ],
         "connect_points": [
             {"owner": "web", "consumers": ["client"]},
@@ -335,7 +335,7 @@ class TestEnvFile(unittest.TestCase):
 
     def test_both_mains_load_the_project_env_file(self):
         config = base_config()
-        config["entities"].append({"name": "database", "type": "relational", "path": "database"})
+        config["entities"].append({"name": "database", "type": "relational"})
         self.assertIn('loadEnvFile(QStringLiteral(".env"));', render(config))
         service = maingen.render_service_main(config, config["entities"][2])
         self.assertIn('loadEnvFile(QStringLiteral(".env"));', service)
@@ -397,7 +397,7 @@ class TestInboundTrustedProxies(unittest.TestCase):
     def api_entity(self, **inbound):
         settings = {"port": 8443, "api_keys": "env:KEYS"}
         settings.update(inbound)
-        return {"name": "gateway", "type": "api", "path": "gateway",
+        return {"name": "gateway", "type": "api",
                 "network": {"inbound": settings}}
 
     def render_api(self, entity):

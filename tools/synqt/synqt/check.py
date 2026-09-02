@@ -78,6 +78,58 @@ def _section_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+#: The keys an entity may carry. A key nothing reads is a mistake: a misspelled `shared:`
+#: would leave the entity shared across every caller.
+_ENTITY_KEYS = frozenset({
+    "name", "type", "targets", "shared", "provider", "settings", "schema", "mesh", "public",
+    "tls", "network", "identity", "bundles", "routes", "env", "replicas", "threads",
+    "console", "edge", "export", "retention",
+})
+
+#: The keys a connect point may carry. `name` and `contract` have rules of their own; the
+#: tools write `framework` on the points they add, never a project.
+_POINT_KEYS = frozenset({
+    "owner", "consumers", "export", "scope", "server", "transport", "host", "port",
+    "socket", "behind", "name", "contract", "transport_local_explicit",
+})
+
+#: Point keys accepted and not offered: refused elsewhere with a reason, or written by the tools.
+_POINT_KEYS_UNLISTED = frozenset({"name", "contract", "transport_local_explicit"})
+
+
+def _key_messages(config: Dict[str, Any]) -> List[str]:
+    """Refuse a key on an entity or a connect point that nothing reads, naming it. A typo is
+    otherwise ignored without a word, and on a point it can be the gate (`scop: admin`).
+    """
+    messages: List[str] = []
+    for entity in config.get("entities") or []:
+        if not isinstance(entity, dict):
+            continue
+        name = entity.get("name") or "?"
+        for key in entity:
+            if str(key) not in _ENTITY_KEYS:
+                messages.append(
+                    f"error: entity '{name}': '{key}' is not a key an entity has, so nothing "
+                    f"reads it. The keys are {', '.join(sorted(_ENTITY_KEYS))}")
+    for point in config.get("connect_points") or []:
+        if not isinstance(point, dict):
+            continue
+        owner = point.get("owner") or "?"
+        for key in point:
+            if str(key) == "framework":
+                messages.append(
+                    f"error: the connect point owned by '{owner}' says framework:, which the "
+                    f"tools write on the points they add themselves; a project's own point "
+                    f"cannot carry it, since it takes the point out of the contract checks")
+            elif str(key) not in _POINT_KEYS and str(key) != "instance":
+                # `instance:` was a point key once, and its own message says where it went.
+                messages.append(
+                    f"error: the connect point owned by '{owner}': '{key}' is not a key a "
+                    f"point has, so nothing reads it. The keys are "
+                    f"{', '.join(sorted(_POINT_KEYS - _POINT_KEYS_UNLISTED))}")
+    return messages
+
+
 def _organization_messages(config: Dict[str, Any]) -> List[str]:
     """`project.organization` and `project.organization_domain`: text when written."""
     project = config.get("project")
@@ -544,6 +596,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     entities = {e.get("name"): e for e in declared}
     if not entities:
         return False, ["error: no entities declared"]
+    messages += _key_messages(config)
     messages += _organization_messages(config)
     messages += _entity_name_messages(declared)
     messages += _qml_uri_messages(config, declared)

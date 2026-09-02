@@ -22,9 +22,9 @@ def base_config():
     return {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "type": "client", "path": "client"},
-            {"name": "web", "type": "web_edge", "path": "web"},
-            {"name": "store", "type": "service", "path": "store"},
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge"},
+            {"name": "store", "type": "service"},
         ],
         "connect_points": [
             {"owner": "web", "consumers": ["client"]},

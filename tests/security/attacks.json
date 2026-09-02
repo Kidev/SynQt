@@ -1272,6 +1272,13 @@
       "defended_by": "`synqt check` (and the validation before every build) refuses a top-level key that is not a section, naming the sections, and a section of the wrong shape, before anything reads them; profiles merge connect points on their owner; the documented profiles put the edge's keys under the edge. The tests refuse each section in the wrong shape, a typo and a top-level `public:`, require check to report rather than fail, and merge a profile's point into the base point.",
       "file": "tools/synqt/tests/test_check_sections.py",
       "test": "test_a_key_the_tools_do_not_read_is_refused_by_name"
+    },
+    {
+      "id": "a-misspelled-entity-key-fails-open",
+      "what": "An entity or connect point key the tools do not read was ignored without a word, so a misspelled `sharde: false` left the entity shared between every caller and a misspelled `scpoe: admin` left a connect point open to every session, with `synqt check` reporting a valid topology.",
+      "defended_by": "`synqt check` (and the validation before every build) refuses an entity key or a connect point key that is not one the tools read, naming the key and listing the ones it has, and refuses `framework:` on a point the project declares. The tests refuse a misspelled entity key and a misspelled point key, and require every example project to pass.",
+      "file": "tools/synqt/tests/test_check_sections.py",
+      "test": "test_a_misspelled_point_key_is_refused_by_name"
     }
   ]
 }

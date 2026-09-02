@@ -16,9 +16,9 @@ def base_config(**identity):
     config = {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "type": "client", "path": "client",
+            {"name": "client", "type": "client",
              "targets": ["wasm", "desktop"]},
-            {"name": "web", "type": "web_edge", "path": "web"},
+            {"name": "web", "type": "web_edge"},
         ],
         "connect_points": [{"owner": "web", "consumers": ["client"]}],
         "build": {"desktop": {"edge_url": "wss://app.example/sync"}},

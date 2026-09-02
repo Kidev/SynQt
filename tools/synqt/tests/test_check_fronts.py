@@ -25,10 +25,10 @@ def base_config():
         "project": {"name": "app"},
         "scopes": {"order": ["anonymous", "user", "admin"]},
         "entities": [
-            {"name": "client", "type": "client", "path": "client"},
-            {"name": "web", "type": "web_edge", "path": "web"},
-            {"name": "lobby", "path": "lobby"},
-            {"name": "backoffice", "path": "backoffice"},
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge"},
+            {"name": "lobby"},
+            {"name": "backoffice"},
         ],
         "connect_points": [
             {"owner": "web", "consumers": ["client"],
@@ -64,7 +64,7 @@ def test_a_front_whose_tiers_agree_with_it_says_nothing():
 
 def test_a_front_must_be_owned_by_a_web_edge():
     def not_an_edge(config):
-        config["entities"][1] = {"name": "web", "path": "web"}
+        config["entities"][1] = {"name": "web"}
 
     assert any("not a web_edge entity" in message for message in errors(not_an_edge))
 
@@ -110,7 +110,7 @@ def test_a_scope_sent_somewhere_it_cannot_go_is_refused(tier, expected):
 def test_a_scope_sent_to_an_entity_that_owns_no_point_is_refused():
     # An entity that is not a client still has nothing to answer a call.
     def sends_to_an_idler(config):
-        config["entities"].append({"name": "idle", "path": "idle"})
+        config["entities"].append({"name": "idle"})
         front(config)["behind"]["user"] = "idle"
 
     assert any("owns no connect point" in message
@@ -183,9 +183,9 @@ def scope_gate_config():
         "project": {"name": "app"},
         "scopes": {"order": ["anonymous", "user", "admin"]},
         "entities": [
-            {"name": "client", "type": "client", "path": "client"},
-            {"name": "web", "type": "web_edge", "path": "web"},
-            {"name": "db", "path": "db"},
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge"},
+            {"name": "db"},
         ],
         "connect_points": [
             {"owner": "web", "consumers": ["client"], "scope": "user",

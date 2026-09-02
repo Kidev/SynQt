@@ -17,9 +17,9 @@ def base_config(**overrides):
     config = {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "type": "client", "path": "client"},
-            {"name": "web", "type": "web_edge", "path": "web"},
-            {"name": "database", "type": "relational", "path": "database"},
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge"},
+            {"name": "database", "type": "relational"},
         ],
         "connect_points": [
             {"owner": "web", "consumers": ["client"]},
@@ -239,7 +239,7 @@ class DesktopClientTest(unittest.TestCase):
         """A desktop-only client needs no web edge in the project; it dials `edge_url`."""
         config = {
             "project": {"name": "app"},
-            "entities": [{"name": "client", "type": "client", "path": "client",
+            "entities": [{"name": "client", "type": "client",
                           "targets": ["desktop"]}],
             "build": {"desktop": {"edge_url": "wss://app.example/sync"}},
         }
@@ -248,7 +248,7 @@ class DesktopClientTest(unittest.TestCase):
     def test_a_client_built_for_the_browser_as_well_still_needs_one(self):
         config = {
             "project": {"name": "app"},
-            "entities": [{"name": "client", "type": "client", "path": "client",
+            "entities": [{"name": "client", "type": "client",
                           "targets": ["wasm", "desktop"]}],
             "build": {"desktop": {"edge_url": "wss://app.example/sync"}},
         }

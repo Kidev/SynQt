@@ -75,3 +75,39 @@ def test_the_examples_use_only_sections_the_tools_read():
         config = yaml.safe_load((EXAMPLE.parent / name / "synqt.yaml").read_text())
         ok, messages = check.validate(config)
         assert not any("top-level" in message for message in messages), (name, messages)
+
+
+def test_a_misspelled_entity_key_is_refused_by_name():
+    # `sharde: false` read as nothing would leave the entity shared across every caller.
+    config = _config()
+    edge = next(entity for entity in config["entities"] if entity["name"] == "edge")
+    edge["sharde"] = False
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any("'sharde'" in message and "'edge'" in message for message in messages), messages
+
+
+def test_a_misspelled_point_key_is_refused_by_name():
+    # `scop: admin` read as nothing would leave the point open to every scope.
+    config = _config()
+    config["connect_points"][0]["scop"] = "admin"
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any("'scop'" in message for message in messages), messages
+
+
+def test_a_project_point_cannot_call_itself_a_framework_point():
+    # The tools mark the points they add with `framework:`, and the contract and export lints
+    # skip those. Written by hand, it would take a project's own point out of them.
+    config = _config()
+    config["connect_points"][0]["framework"] = True
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any("framework" in message for message in messages), messages
+
+
+def test_the_examples_use_only_keys_the_tools_read():
+    for name in ("gavel", "arena", "plaza", "stall"):
+        config = yaml.safe_load((EXAMPLE.parent / name / "synqt.yaml").read_text())
+        ok, messages = check.validate(config)
+        assert not any("nothing reads it" in message for message in messages), (name, messages)

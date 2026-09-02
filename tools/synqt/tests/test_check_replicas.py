@@ -14,17 +14,17 @@ from synqt import appmodel, check
 
 def replicated(count=4, **edge_keys):
     """A front-shaped project: the edge hands callers to a tier and implements nothing."""
-    edge = {"name": "web", "type": "web_edge", "path": "web", "replicas": count,
+    edge = {"name": "web", "type": "web_edge", "replicas": count,
             "public": {"origin": "https://app.example.com",
                        "trusted_proxies": ["10.0.0.1"]}}
     edge.update(edge_keys)
     return {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "type": "client", "path": "client"},
+            {"name": "client", "type": "client"},
             edge,
-            {"name": "desk", "type": "service", "path": "desk"},
-            {"name": "auth", "type": "service", "path": "auth"},
+            {"name": "desk", "type": "service"},
+            {"name": "auth", "type": "service"},
         ],
         "connect_points": [
             {"owner": "web", "consumers": ["client"], "behind": {"anonymous": "desk"}},

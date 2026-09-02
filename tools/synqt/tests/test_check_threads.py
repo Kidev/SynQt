@@ -14,14 +14,14 @@ from synqt import appmodel, check, maingen
 
 
 def project(**edge_keys):
-    edge = {"name": "web", "type": "web_edge", "path": "web"}
+    edge = {"name": "web", "type": "web_edge"}
     edge.update(edge_keys)
     return {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "type": "client", "path": "client"},
+            {"name": "client", "type": "client"},
             edge,
-            {"name": "desk", "type": "service", "path": "desk"},
+            {"name": "desk", "type": "service"},
         ],
         "connect_points": [
             {"owner": "web", "consumers": ["client"]},

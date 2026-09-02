@@ -17,8 +17,8 @@ def project(privacy=None, identity=True):
     config = {
         "project": {"name": "app"},
         "entities": [
-            {"name": "client", "type": "client", "path": "client"},
-            {"name": "web", "type": "web_edge", "path": "web"},
+            {"name": "client", "type": "client"},
+            {"name": "web", "type": "web_edge"},
         ],
         "connect_points": [{"owner": "web", "consumers": ["client"]}],
     }
@@ -116,8 +116,8 @@ class MissingBlockTest(unittest.TestCase):
         config = {
             "project": {"name": "app"},
             "entities": [
-                {"name": "store", "type": "service", "path": "store"},
-                {"name": "jobs", "type": "service", "path": "jobs"},
+                {"name": "store", "type": "service"},
+                {"name": "jobs", "type": "service"},
             ],
             "connect_points": [{"owner": "store", "consumers": ["jobs"]}],
         }
