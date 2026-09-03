@@ -103,11 +103,39 @@ def assemble_bundle(wasm_dir: Path, client_dir: Path, config: Dict[str, Any],
                                 clientshell.render_service_worker_js(target))
         extra += 1
 
+    drop_stale_variants(client_dir)
     # Written last. Precompression has not run, so .br/.gz are not listed.
     if app_js is not None and (client_dir / f"{target}.wasm").is_file():
         manifest.write(client_dir, f"{target}.wasm")
         return count + extra + 1
     return count + extra
+
+
+#: The precompressed variants written beside a bundle file, and served in its place.
+_VARIANT_SUFFIXES = (".br", ".gz")
+
+
+def drop_stale_variants(client_dir: Path) -> int:
+    """Delete every .br/.gz that was not written from its file as it stands now. Returns how
+    many were deleted.
+
+    :func:`precompress` stamps a variant with its source's modification time. A file copied in
+    from another build keeps that build's time, which can be older than the variants of the
+    last release build, and the edge serves a variant that is not older than its source.
+    """
+    dropped = 0
+    for suffix in _VARIANT_SUFFIXES:
+        for variant in Path(client_dir).glob(f"*{suffix}"):
+            source = variant.with_name(variant.name[:-len(suffix)])
+            try:
+                current = (source.is_file()
+                           and variant.stat().st_mtime_ns == source.stat().st_mtime_ns)
+            except OSError:
+                current = False
+            if not current:
+                variant.unlink(missing_ok=True)
+                dropped += 1
+    return dropped
 
 
 def _desktop_edge_url(config: Dict[str, Any]) -> Optional[str]:
@@ -572,61 +600,84 @@ _COMPRESSIBLE = ("*.wasm", "*.js", "*.html", "*.json", "*.svg")
 
 
 def _is_current(variant: Path, source_mtime: int) -> bool:
-    """Whether a compressed variant was written from the asset as it stands now."""
+    """Whether a compressed variant was written from the asset as it stands now: it carries
+    the asset's modification time, which a rebuilt or swapped-in asset does not keep.
+    """
     try:
-        return variant.stat().st_mtime_ns >= source_mtime
+        return variant.stat().st_mtime_ns == source_mtime
     except OSError:
         return False
+
+
+def _write_variant(variant: Path, data: bytes, source_mtime: int) -> None:
+    variant.write_bytes(data)
+    os.utime(variant, ns=(source_mtime, source_mtime))
 
 
 def precompress(client_dir: Path) -> int:
     """Brotli and gzip every compressible bundle asset, beside the original. The edge picks per
     request from Accept-Encoding. Returns how many assets were compressed.
 
-    An asset whose variants are newer is skipped: Brotli over a large `.wasm` takes tens of
+    An asset whose variants are current is skipped: Brotli over a large `.wasm` takes tens of
     seconds. The bundle is assembled with `shutil.copy2`, which keeps the timestamp of an
     artifact that was not rebuilt.
     """
+    try:
+        import brotli
+    except ImportError:
+        brotli = None
     count = 0
     for pattern in _COMPRESSIBLE:
         for asset in sorted(Path(client_dir).glob(pattern)):
             source_mtime = asset.stat().st_mtime_ns
             gzipped = asset.with_name(asset.name + ".gz")
             brotlied = asset.with_name(asset.name + ".br")
-            try:
-                import brotli
-            except ImportError:
-                brotli = None
             needs_gzip = not _is_current(gzipped, source_mtime)
             needs_brotli = brotli is not None and not _is_current(brotlied, source_mtime)
             if not needs_gzip and not needs_brotli:
                 continue
             data = asset.read_bytes()
             if needs_gzip:
-                gzipped.write_bytes(gzip.compress(data, 9))
+                _write_variant(gzipped, gzip.compress(data, 9), source_mtime)
             if needs_brotli:
-                brotlied.write_bytes(brotli.compress(data))
+                _write_variant(brotlied, brotli.compress(data), source_mtime)
             count += 1
     return count
 
 
-def write_process_manifest(config: Dict[str, Any], build_dir: Path) -> Path:
-    """A dependency-ordered start plan: owners before consumers, only the edge public."""
+def _binds_public(entity: Dict[str, Any]) -> bool:
+    """Whether an entity listens beyond this machine: a web edge, and a monitor whose console
+    is bound off loopback.
+    """
+    if appmodel.is_edge(entity):
+        return True
+    if not appmodel.serves_browser(entity):
+        return False
+    host = str(appmodel.public_settings(entity).get("host") or "127.0.0.1").strip()
+    return host not in ("127.0.0.1", "localhost", "::1")
+
+
+def write_process_manifest(config: Dict[str, Any], build_dir: Path,
+                           platform: Optional[str] = None) -> Path:
+    """A dependency-ordered start plan: owners before consumers, and which entities face the
+    public interface. Binary names carry the suffix of `platform` (the host by default).
+    """
     order = run.startup_order(config)
-    edges = {e.get("name") for e in config.get("entities", [])
-             if appmodel.is_edge(e)}
+    by_name = {str(e.get("name") or ""): e for e in appmodel.entities(config)}
+    suffix = ".exe" if (platform or toolchain.host_platform()) == "windows" else ""
     processes = [{
         "entity": name,
-        "binary": f"build/{name}/{name}",
-        "bind": "public" if name in edges else "loopback",
+        "binary": f"build/{name}/{name}{suffix}",
+        "bind": "public" if _binds_public(by_name.get(name, {})) else "loopback",
         "mesh_cert": f"synqt/mesh/{name}.crt",
         "mesh_key": f"synqt/mesh/{name}.key",
         "ca_cert": "synqt/mesh/ca.crt",
     } for name in order]
+    bundles = {name: f"{folder}/" for name, folder in client_bundle_targets(config).items()}
     manifest = {"start_order": order, "processes": processes,
-                "client_served_from": "build/client/"}
+                "client_served_from": bundles}
     path = build_dir / "process-manifest.json"
-    path.write_text(json.dumps(manifest, indent=2) + "\n")
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return path
 
 

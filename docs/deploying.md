@@ -177,7 +177,7 @@ Every build writes `build/process-manifest.json`, the start plan:
       "ca_cert": "synqt/mesh/ca.crt"
     }
   ],
-  "client_served_from": "build/client/"
+  "client_served_from": {"app": "build/client/"}
 }
 ```
 
@@ -186,10 +186,12 @@ It answers a supervisor's three questions:
 - **`start_order`** lists owners before consumers, so an owner is up before its consumers
   try to acquire a replica. Consumers retry, so the order is a convenience: starting out
   of order turns a clean boot into a wait.
-- **`bind`** says which entities face the public interface (the web edges) and which stay
-  on `loopback`.
+- **`bind`** says which entities face the public interface (the web edges, and a monitor
+  whose console is bound off loopback) and which stay on `loopback`.
 - **Each entry names the files that entity expects.** Check them before deciding a start
   failure is a code problem.
+
+`client_served_from` names the directory each browser client's bundle is in, by client.
 
 For a quick run on one host:
 

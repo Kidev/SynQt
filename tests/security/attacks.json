@@ -1,4 +1,24 @@
 {
+  "_about": [
+    "Every attack SynQt claims to defend, and the test that proves it still fails.",
+    "",
+    "This is an index, not a suite. Each of these tests lives beside the code it is about,",
+    "because that is where somebody changing that code will run it; what this file adds is",
+    "the other half, which no scattered set of tests can give on its own: a list of the",
+    "attack surface that can be read in one sitting, and a guard that fails when an entry",
+    "names a test that is no longer there. tools/synqt/tests/test_security_index.py is that",
+    "guard, and it runs in the ordinary pytest job on all three platforms.",
+    "",
+    "The rule for adding one: a defect found by review or by report gets a test that fails",
+    "without the fix, and an entry here. Proving the test catches the bug is done by reverting",
+    "the fix and watching it go red; the entry is what stops that proof from being a thing",
+    "somebody did once.",
+    "",
+    "Adding one is a text edit, not a re-serialisation. This file is written by hand at one",
+    "space of indent with long single-line strings, and json.dump would reflow all of it: an",
+    "entry appended that way arrives as a 750-line diff nobody can review, which is how a",
+    "one-entry change stops being reviewable."
+  ],
   "attacks": [
     {
       "id": "delegated-answers-nobody-is-waiting-for",
@@ -1287,26 +1307,20 @@
       "defended_by": "Both go through the same escaping as every other value. The test generates a client main from a notice name holding a quote and requires it escaped.",
       "file": "tools/synqt/tests/test_graphics.py",
       "test": "test_a_notice_name_is_escaped_into_the_generated_main"
+    },
+    {
+      "id": "a-stale-precompressed-variant-is-served-for-a-new-build",
+      "what": "A bundle file's .br and .gz were kept whenever they were newer than the file, and the edge serves a variant that is not older than its file. `synqt dev` after `synqt build --release` copies the debug build in with its own, older time, so the browser was sent the release variants beside the debug runtime.",
+      "defended_by": "A variant carries its file's exact modification time and counts as current only while they match; assembling a bundle deletes every variant that does not, and precompression rewrites them. The tests swap an older build in and require the variants rewritten from it, and require assembly to drop the stale ones.",
+      "file": "tools/synqt/tests/test_tool.py",
+      "test": "test_assembling_a_bundle_drops_the_variants_of_another_build"
+    },
+    {
+      "id": "the-start-plan-names-what-is-not-there",
+      "what": "build/process-manifest.json named build/client/ as the bundle whatever the clients were called and however many there were, named binaries without the .exe Windows gives them, and marked a monitor bound on every interface as loopback, so a supervisor fed from it started the wrong files and left a public port unaccounted for.",
+      "defended_by": "The manifest names each browser client's own bundle directory, binaries with the platform's suffix, and a monitor bound off loopback as public. The test reads all three back for a two-client project on Windows and Linux.",
+      "file": "tools/synqt/tests/test_tool.py",
+      "test": "test_manifest_names_what_each_entity_really_is"
     }
-  ],
-  "_about": [
-    "Every attack SynQt claims to defend, and the test that proves it still fails.",
-    "",
-    "This is an index, not a suite. Each of these tests lives beside the code it is about,",
-    "because that is where somebody changing that code will run it; what this file adds is",
-    "the other half, which no scattered set of tests can give on its own: a list of the",
-    "attack surface that can be read in one sitting, and a guard that fails when an entry",
-    "names a test that is no longer there. tools/synqt/tests/test_security_index.py is that",
-    "guard, and it runs in the ordinary pytest job on all three platforms.",
-    "",
-    "The rule for adding one: a defect found by review or by report gets a test that fails",
-    "without the fix, and an entry here. Proving the test catches the bug is done by reverting",
-    "the fix and watching it go red; the entry is what stops that proof from being a thing",
-    "somebody did once.",
-    "",
-    "Adding one is a text edit, not a re-serialisation. This file is written by hand at one",
-    "space of indent with long single-line strings, and json.dump would reflow all of it: an",
-    "entry appended that way arrives as a 750-line diff nobody can review, which is how a",
-    "one-entry change stops being reviewable."
   ]
 }

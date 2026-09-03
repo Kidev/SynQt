@@ -195,7 +195,7 @@ class PrecompressTest(unittest.TestCase):
             self.assertTrue((client / (name + ".br")).exists(), name)
 
     def test_an_unchanged_asset_is_not_compressed_again(self):
-        # Variants newer than their source are not recompressed.
+        # Variants written from the source as it stands are not recompressed.
         client = Path(tempfile.mkdtemp())
         asset = client / "client.wasm"
         asset.write_bytes(b"\x00asm" + b"x" * 5000)
@@ -210,6 +210,38 @@ class PrecompressTest(unittest.TestCase):
         os.utime(asset, ns=(later, later))
         self.assertEqual(buildmod.precompress(client), 1)
         self.assertGreater((client / "client.wasm.gz").stat().st_mtime_ns, stamped)
+
+    def test_an_older_build_swapped_in_is_compressed_again(self):
+        # `synqt build` after `synqt build --release`: the debug artifact is copied in with
+        # its own, older time, and the release variants beside it are newer than it.
+        client = Path(tempfile.mkdtemp())
+        asset = client / "client.wasm"
+        asset.write_bytes(b"\x00asm release" + b"x" * 5000)
+        buildmod.precompress(client)
+        debug = b"\x00asm debug" + b"y" * 5000
+        earlier = asset.stat().st_mtime_ns - 60_000_000_000
+        asset.write_bytes(debug)
+        os.utime(asset, ns=(earlier, earlier))
+        self.assertEqual(buildmod.precompress(client), 1)
+        self.assertEqual(gzip.decompress((client / "client.wasm.gz").read_bytes()), debug)
+
+    def test_assembling_a_bundle_drops_the_variants_of_another_build(self):
+        # `synqt dev` assembles without precompressing, so a variant of the last release
+        # build would be served in place of the file it no longer matches.
+        client = Path(tempfile.mkdtemp())
+        asset = client / "client.wasm"
+        asset.write_bytes(b"\x00asm release" + b"x" * 5000)
+        (client / "index.html").write_text("<!doctype html>" + "x" * 5000)
+        buildmod.precompress(client)
+        earlier = asset.stat().st_mtime_ns - 60_000_000_000
+        asset.write_bytes(b"\x00asm debug")
+        os.utime(asset, ns=(earlier, earlier))
+        self.assertEqual(buildmod.drop_stale_variants(client), 2)
+        self.assertFalse((client / "client.wasm.gz").exists())
+        self.assertTrue((client / "index.html.gz").exists())
+        # A variant whose file is gone goes with it.
+        (client / "index.html").unlink()
+        self.assertEqual(buildmod.drop_stale_variants(client), 2)
 
     def test_compressing_twice_does_not_compress_the_compressed(self):
         # A second pass does not compress the variants (no client.wasm.gz.gz).
@@ -239,6 +271,34 @@ class ManifestTest(unittest.TestCase):
         binds = {p["entity"]: p["bind"] for p in manifest["processes"]}
         self.assertEqual(binds["web"], "public")
         self.assertEqual(binds["database"], "loopback")
+        self.assertEqual(manifest["client_served_from"], {"client": "build/client/"})
+
+    def test_manifest_names_what_each_entity_really_is(self):
+        # Each client's own bundle, the binary as Windows names it, and a monitor whose
+        # console is bound off loopback faces the public interface too.
+        config = {
+            "entities": [
+                {"name": "app", "type": "client"},
+                {"name": "admin", "type": "client"},
+                {"name": "web", "type": "web_edge"},
+                {"name": "ops", "type": "monitor", "public": {"host": "0.0.0.0"}},
+            ],
+            "connect_points": [{"owner": "web", "consumers": ["app", "admin"]}],
+        }
+        build_dir = Path(tempfile.mkdtemp())
+        manifest = json.loads(buildmod.write_process_manifest(
+            config, build_dir, platform="windows").read_text())
+        self.assertEqual(manifest["client_served_from"],
+                         {"app": "build/client-app/", "admin": "build/client-admin/"})
+        processes = {p["entity"]: p for p in manifest["processes"]}
+        self.assertEqual(processes["web"]["binary"], "build/web/web.exe")
+        self.assertEqual(processes["ops"]["bind"], "public")
+        config["entities"][3]["public"] = {}
+        manifest = json.loads(buildmod.write_process_manifest(
+            config, build_dir, platform="linux").read_text())
+        processes = {p["entity"]: p for p in manifest["processes"]}
+        self.assertEqual(processes["ops"]["bind"], "loopback")
+        self.assertEqual(processes["web"]["binary"], "build/web/web")
 
 
 class AssembleBundleTest(unittest.TestCase):

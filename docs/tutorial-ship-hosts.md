@@ -106,7 +106,7 @@ needs:
       "ca_cert": "synqt/mesh/ca.crt"
     }
   ],
-  "client_served_from": "build/client/"
+  "client_served_from": {"app": "build/client/"}
 }
 ```
 
@@ -119,6 +119,8 @@ It answers a supervisor's three questions:
   second, the topology is wrong, not the host.
 - **Each entry names the files that entity expects.** Check that list before deciding a
   start failure is a code problem; it usually is not.
+
+`client_served_from` names the directory the `app` bundle is in, which the edge serves.
 
 ## Step 4: Start it by hand, once
 
