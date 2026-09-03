@@ -197,7 +197,7 @@ def _qml_uri_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) ->
 
 
 def _entity_type_messages(declared: List[Dict[str, Any]]) -> List[str]:
-    """Refuse a `type:` that is not one of the eight."""
+    """Refuse a `type:` that is not one of the types."""
     messages: List[str] = []
     for entity in declared:
         name = str(entity.get("name") or "?")
@@ -912,7 +912,14 @@ def _edge_tls_messages(entities: Dict[str, Any], web_edges: Set[str],
     messages: List[str] = []
     for name in sorted(web_edges):
         entity = entities[name]
-        if (entity.get("public") or {}).get("tls_terminated_upstream"):
+        upstream = appmodel.public_settings(entity).get("tls_terminated_upstream")
+        if upstream is True:
+            continue
+        if upstream not in (None, False):
+            # The string "false" is truthy, so anything but a boolean is refused.
+            messages.append(
+                f"error: web edge '{name}' has public.tls_terminated_upstream {upstream!r}; "
+                "it must be true or false")
             continue
         tls = entity.get("tls")
         if not isinstance(tls, dict):
@@ -1442,6 +1449,7 @@ def _monitor_entity_messages(config: Dict[str, Any], entities: Dict[str, Any],
             f"monitoring.entity implies; rename it, because the monitor '{owner}' owns "
             f"'{appmodel.MONITOR_POINT}' and every service consumes it")
     messages += _monitor_export_messages(owner, entity, release)
+    messages += _monitor_number_messages(owner, entity)
     messages += _monitor_reach_messages(config, owner, entity)
     messages += _monitor_consumer_messages(config, owner, entities)
     return messages
@@ -1451,9 +1459,10 @@ def _public_port_messages(entities: Dict[str, Any]) -> List[str]:
     """Two browser-facing entities cannot share a port.
 
     The edge and the monitor both default to 8443, and an unset `public.port` counts as that
-    default.
+    default. An unset host is the default bind: every interface for an edge, loopback for a
+    monitor. A wildcard bind holds the port on every address.
     """
-    seen: Dict[Tuple[str, int], str] = {}
+    seen: List[Tuple[str, int, str]] = []
     messages: List[str] = []
     for name in sorted(entities):
         entity = entities[name]
@@ -1461,16 +1470,31 @@ def _public_port_messages(entities: Dict[str, Any]) -> List[str]:
             continue
         public = appmodel.public_settings(entity)
         port = appmodel.public_port(entity)
-        host = str(public.get("host") or "127.0.0.1")
-        taken = seen.get((host, port))
+        default_host = "0.0.0.0" if appmodel.is_edge(entity) else "127.0.0.1"
+        host = str(public.get("host") or default_host).strip()
+        taken = next((other for other_host, other_port, other in seen
+                      if other_port == port and _binds_overlap(host, other_host)), None)
         if taken is not None:
             messages.append(
                 f"error: entities '{taken}' and '{name}' both serve browsers on "
                 f"{host}:{port}; only one of them can bind it, so give one a port of its "
                 "own (public.port)")
             continue
-        seen[(host, port)] = name
+        seen.append((host, port, name))
     return messages
+
+
+def _binds_overlap(first: str, second: str) -> bool:
+    """Whether two bind addresses would hold the same port: the same address, either one a
+    wildcard, or two names for loopback.
+    """
+    def normal(host: str) -> str:
+        host = host.strip("[]").lower()
+        return "127.0.0.1" if host == "localhost" else host
+    wildcards = ("", "0.0.0.0", "::")
+    first = normal(first)
+    second = normal(second)
+    return first == second or first in wildcards or second in wildcards
 
 
 def _monitor_reach_messages(config: Dict[str, Any], owner: str,
@@ -1627,16 +1651,52 @@ def _monitor_export_messages(owner: str, entity: Dict[str, Any],
                 messages.append(
                     f"error: entity '{owner}': export.jsonl names no path, so nothing is "
                     "written and nothing says so; give it a file or drop the block")
-            if int(jsonl.get("max_bytes", 64 * 1024 * 1024) or 0) <= 0:
+            max_bytes = jsonl.get("max_bytes", 64 * 1024 * 1024)
+            keep = jsonl.get("keep", 5)
+            if not _is_whole(max_bytes) or not _is_whole(keep):
+                messages.append(
+                    f"error: entity '{owner}': export.jsonl max_bytes and keep are whole "
+                    f"numbers, not {max_bytes!r} and {keep!r}")
+            elif max_bytes <= 0:
                 messages.append(
                     f"warn: entity '{owner}': export.jsonl sets no max_bytes, so the file "
                     "grows without a bound; the monitor then fills the disk of the machine "
                     "it is watching unless something else is rotating that file")
-            if int(jsonl.get("keep", 5) or 0) < 1:
+            if _is_whole(max_bytes) and _is_whole(keep) and keep < 1:
                 messages.append(
                     f"error: entity '{owner}': export.jsonl keeps {jsonl.get('keep')} "
                     "rotations, so rotating deletes the history instead of keeping it; "
                     "keep at least 1")
+    return messages
+
+
+def _is_whole(value: Any) -> bool:
+    """A YAML whole number. A boolean is an int to Python and is not one here."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+#: The monitor's numbers, each with the least it may be. 0 turns a retention bound off.
+_MONITOR_NUMBERS = (("retention", "max_age_days", 0), ("retention", "max_bytes", 0),
+                    ("export.otlp", "max_in_flight", 1), ("export.otlp", "timeout_ms", 1))
+
+
+def _monitor_number_messages(owner: str, entity: Dict[str, Any]) -> List[str]:
+    """Every number the monitor's main is generated with is a whole number in range."""
+    messages: List[str] = []
+    for block, key, least in _MONITOR_NUMBERS:
+        settings: Any = entity
+        for part in block.split("."):
+            settings = settings.get(part) if isinstance(settings, dict) else None
+        if not isinstance(settings, dict) or key not in settings:
+            continue
+        value = settings[key]
+        if not _is_whole(value) or value < least:
+            messages.append(
+                f"error: entity '{owner}': {block}.{key} must be a whole number of at least "
+                f"{least}, not {value!r}")
+    if entity.get("retention") is not None and not isinstance(entity.get("retention"), dict):
+        messages.append(f"error: entity '{owner}': retention must be a block, e.g. "
+                        "'retention: {max_age_days: 14}'")
     return messages
 
 
@@ -1843,7 +1903,7 @@ def _privacy_messages(config: Dict[str, Any]) -> List[str]:
             messages.append(
                 "warn: this project declares no `privacy:` block, so its client has no "
                 "privacy policy link, no legal notice and no retention period of its own "
-                "(it inherits %d days). See docs/privacy.md"
+                "(it inherits %d days). See https://synqt.org/privacy/"
                 % appmodel.DEFAULT_RETENTION_DAYS)
         return messages
     if not isinstance(privacy, dict):
@@ -1863,7 +1923,7 @@ def _privacy_messages(config: Dict[str, Any]) -> List[str]:
             + ("is" if len(blank) == 1 else "are")
             + " blank, so LegalFooter leaves "
             + ("that link" if len(blank) == 1 else "those entries")
-            + " out. See docs/privacy.md")
+            + " out. See https://synqt.org/privacy/")
 
     retention = privacy.get("retention_days")
     if retention is not None:
@@ -2076,7 +2136,7 @@ def _reserved_edge_paths(config: Dict[str, Any]) -> Set[str]:
     """
     entities = [e for e in (config.get("entities") or []) if isinstance(e, dict)]
     web_edges = [e for e in entities if _is_web_edge(e)]
-    sync_routes = {(e.get("public") or {}).get("sync_route", "/sync") for e in web_edges}
+    sync_routes = {appmodel.public_settings(e).get("sync_route", "/sync") for e in web_edges}
     reserved = sync_routes or {"/sync"}
 
     # The OAuth routes exist only when `identity` is configured (webedge.cpp).
@@ -2326,9 +2386,7 @@ def lint_routes(config: Dict[str, Any],
 
 
 def _edge_folder(config: Dict[str, Any]) -> str:
-    """The folder the edge-delivered pages live under, or "" when there is no edge. Uses
-    :func:`_edge_entity_name`, which also recognises a bare `kind: web_edge`.
-    """
+    """The folder the edge-delivered pages live under, or "" when there is no edge."""
     name = _edge_entity_name(config)
     for entity in appmodel.entities(config):
         if name and entity.get("name") == name:
@@ -2340,8 +2398,7 @@ def _edge_entity_name(config: Dict[str, Any]) -> Optional[str]:
     """The name of the project web_edge entity, also the directory of its pages
     (`<edge>/pages`, directly under the project root).
 
-    Recognised as `_is_web_edge` does, plus a bare `kind: web_edge`. None when the project has no
-    web_edge entity.
+    Recognised as `_is_web_edge` does. None when the project has no web_edge entity.
     """
     for entity in config.get("entities") or []:
         if not isinstance(entity, dict):
@@ -2724,7 +2781,6 @@ def lint_contracts(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
-
 #: Field and parameter names that identify a person. Monitoring records are read by
 #: operators, kept past the session and exported, so they must not hold identities.
 _IDENTITY_FIELDS = ("sub", "email", "login")
@@ -2800,10 +2856,6 @@ def _slot_parameters(statement: str) -> List[Tuple[str, str]]:
         if len(words) >= 2:
             pairs.append((words[-1], words[-2]))
     return pairs
-
-
-def _base_type(spelling: str) -> str:
-    return spelling.split("[", 1)[0]
 
 
 def _record_fields(code: List[str]) -> Dict[str, List[str]]:
@@ -3029,8 +3081,8 @@ def _tier_for(held: str, tiers: Dict[str, str], order: List[str],
 
 
 def _front_members(point: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    """A point members, or None when its block does not parse. Gates as written, without the
-    point `scope:` (passed to :func:`_reaches` separately).
+    """A point's members, or None when its block does not parse. Gates as written, without the
+    point's `scope:` (passed to :func:`_reaches` separately).
     """
     if not appmodel.contract_of(point):
         return None
@@ -3070,8 +3122,6 @@ def lint_contract_compiles(config: Dict[str, Any],
     its argument limit) would otherwise stop the build inside generated code. A point with a
     name-only line the owner cannot expand is left to :func:`lint_exports`.
     """
-    from synqt import designdoc  # here: designdoc reads this module at import time
-
     root = Path(project_dir)
     try:
         _, parser = designdoc._synqtc()
@@ -3222,7 +3272,7 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
                         types: str = "auto") -> List[str]:
     """Compare each contract with the QML on both ends.
 
-    * A **consumer** naming an undeclared member is an error. The owner Source own state is
+    * A **consumer** naming an undeclared member is an error. The owner Source's own state is
       not judged.
     * A declared member neither end mentions is a note. Points reached by a computed name are
       skipped.
@@ -3499,10 +3549,10 @@ def check_qml_format(project_dir: os.PathLike[str] | str) -> List[str]:
     unformatted: List[str] = []
     for qml in project_qml_files(project_dir):
         result = subprocess.run([qmlformat, "-s", str(settings), str(qml)],
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, encoding="utf-8")
         if result.returncode != 0:
-            continue  # a file qmlformat cannot parse is qmllint's finding to report rather than this one's
-        if result.stdout != qml.read_text():
+            continue  # a file qmlformat cannot parse is qmllint's finding to report
+        if result.stdout != qml.read_text(encoding="utf-8"):
             unformatted.append(str(qml.relative_to(project_dir)))
     if not unformatted:
         return []

@@ -1,24 +1,4 @@
 {
-  "_about": [
-    "Every attack SynQt claims to defend, and the test that proves it still fails.",
-    "",
-    "This is an index, not a suite. Each of these tests lives beside the code it is about,",
-    "because that is where somebody changing that code will run it; what this file adds is",
-    "the other half, which no scattered set of tests can give on its own: a list of the",
-    "attack surface that can be read in one sitting, and a guard that fails when an entry",
-    "names a test that is no longer there. tools/synqt/tests/test_security_index.py is that",
-    "guard, and it runs in the ordinary pytest job on all three platforms.",
-    "",
-    "The rule for adding one: a defect found by review or by report gets a test that fails",
-    "without the fix, and an entry here. Proving the test catches the bug is done by reverting",
-    "the fix and watching it go red; the entry is what stops that proof from being a thing",
-    "somebody did once.",
-    "",
-    "Adding one is a text edit, not a re-serialisation. This file is written by hand at one",
-    "space of indent with long single-line strings, and json.dump would reflow all of it: an",
-    "entry appended that way arrives as a 750-line diff nobody can review, which is how a",
-    "one-entry change stops being reviewable."
-  ],
   "attacks": [
     {
       "id": "delegated-answers-nobody-is-waiting-for",
@@ -1279,6 +1259,54 @@
       "defended_by": "`synqt check` (and the validation before every build) refuses an entity key or a connect point key that is not one the tools read, naming the key and listing the ones it has, and refuses `framework:` on a point the project declares. The tests refuse a misspelled entity key and a misspelled point key, and require every example project to pass.",
       "file": "tools/synqt/tests/test_check_sections.py",
       "test": "test_a_misspelled_point_key_is_refused_by_name"
+    },
+    {
+      "id": "a-proxy-flag-written-as-a-string-turns-off-the-tls-rule",
+      "what": "A release build refuses a web edge with no TLS unless `public.tls_terminated_upstream` says a proxy terminates it. The flag was read for truth, so `tls_terminated_upstream: \"false\"` (or `no` quoted, or 1) switched the rule off and a release edge served plaintext with nothing in front of it.",
+      "defended_by": "Only `true` switches the rule off; any value but a boolean is refused by name. The test writes \"false\", \"no\" and 1 and requires the refusal.",
+      "file": "tools/synqt/tests/test_check_security.py",
+      "test": "test_a_proxy_flag_that_is_not_a_boolean_is_refused"
+    },
+    {
+      "id": "a-wildcard-bind-hides-a-port-clash",
+      "what": "`synqt check` compared browser-facing binds as text and took an unset host as loopback, so a web edge on 0.0.0.0 (its real default) and a monitor on 127.0.0.1 with one port passed, and the second process failed at start with the address in use.",
+      "defended_by": "An unset host is the entity's real default bind, and two binds clash when they are equal, when either is a wildcard, or when both are loopback. The test clashes 0.0.0.0, :: and localhost with loopback and keeps two specific addresses apart.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_a_wildcard_bind_holds_the_port_on_every_address"
+    },
+    {
+      "id": "a-monitor-number-stops-the-generator",
+      "what": "The monitor's retention and exporter numbers went through Python int() into its generated main without being checked, so `max_age_days: 14d` stopped `synqt check` and `synqt build` with a traceback, `timeout_ms: true` compiled as 1 and a negative byte bound compiled as written.",
+      "defended_by": "Validation refuses each of them unless it is a whole number in range, by name, and the generator refuses anything but a whole number rather than converting it. The test writes one bad value per key and requires the refusal.",
+      "file": "tools/synqt/tests/test_monitor_export.py",
+      "test": "test_a_monitor_number_out_of_shape_is_refused"
+    },
+    {
+      "id": "a-config-value-ends-a-generated-string-literal",
+      "what": "Every value written into a generated QStringLiteral is escaped, except `client.graphics_notice` and `build.client_logging`, and the notice is checked only by the lints a build does not run, so a quote in it ended the literal in the client's main.",
+      "defended_by": "Both go through the same escaping as every other value. The test generates a client main from a notice name holding a quote and requires it escaped.",
+      "file": "tools/synqt/tests/test_graphics.py",
+      "test": "test_a_notice_name_is_escaped_into_the_generated_main"
     }
+  ],
+  "_about": [
+    "Every attack SynQt claims to defend, and the test that proves it still fails.",
+    "",
+    "This is an index, not a suite. Each of these tests lives beside the code it is about,",
+    "because that is where somebody changing that code will run it; what this file adds is",
+    "the other half, which no scattered set of tests can give on its own: a list of the",
+    "attack surface that can be read in one sitting, and a guard that fails when an entry",
+    "names a test that is no longer there. tools/synqt/tests/test_security_index.py is that",
+    "guard, and it runs in the ordinary pytest job on all three platforms.",
+    "",
+    "The rule for adding one: a defect found by review or by report gets a test that fails",
+    "without the fix, and an entry here. Proving the test catches the bug is done by reverting",
+    "the fix and watching it go red; the entry is what stops that proof from being a thing",
+    "somebody did once.",
+    "",
+    "Adding one is a text edit, not a re-serialisation. This file is written by hand at one",
+    "space of indent with long single-line strings, and json.dump would reflow all of it: an",
+    "entry appended that way arrives as a 750-line diff nobody can review, which is how a",
+    "one-entry change stops being reviewable."
   ]
 }

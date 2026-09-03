@@ -3,6 +3,8 @@
 
 """The cold tier: the `export:` block, what it refuses, and what it generates."""
 
+import pytest
+
 from synqt import check, maingen
 
 
@@ -90,6 +92,33 @@ def test_a_jsonl_file_with_no_cap_is_warned_about():
 def test_a_jsonl_block_that_keeps_nothing_is_refused():
     findings = _monitor_findings({"jsonl": {"path": "build/ops/events.jsonl", "keep": 0}})
     assert any("keeps 0 rotations" in finding for finding in findings)
+
+
+def test_a_jsonl_bound_that_is_not_a_number_is_refused_rather_than_crashing():
+    findings = _monitor_findings({"jsonl": {"path": "build/ops/events.jsonl",
+                                            "max_bytes": "64MB", "keep": "five"}})
+    assert any("whole numbers" in finding for finding in findings), findings
+
+
+@pytest.mark.parametrize("block, key, value", [
+    ("retention", "max_age_days", "14d"),
+    ("retention", "max_bytes", -1),
+    ("export.otlp", "max_in_flight", 0),
+    ("export.otlp", "timeout_ms", True),
+])
+def test_a_monitor_number_out_of_shape_is_refused(block, key, value):
+    """Each is written into the monitor's generated main, which would otherwise stop with a
+    Python traceback or compile a value that means something else.
+    """
+    config = _config({"otlp": {"endpoint": "http://127.0.0.1:4318"}})
+    monitor = next(entity for entity in config["entities"] if entity.get("type") == "monitor")
+    settings = monitor
+    for part in block.split("."):
+        settings = settings.setdefault(part, {})
+    settings[key] = value
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any(f"{block}.{key}" in message for message in messages), messages
 
 
 def test_an_unknown_export_key_is_refused():

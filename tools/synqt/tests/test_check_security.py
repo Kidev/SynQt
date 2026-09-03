@@ -129,6 +129,16 @@ class EdgeTlsTest(unittest.TestCase):
         config["entities"][1]["public"] = {"tls_terminated_upstream": True}
         self.assertEqual(errors(config, release=True), [])
 
+    def test_a_proxy_flag_that_is_not_a_boolean_is_refused(self):
+        # The string "false" is truthy; read as true it would let a release edge serve
+        # plaintext with no proxy in front of it.
+        for value in ("false", "no", 1):
+            config = base_config()
+            config["entities"][1]["public"] = {"tls_terminated_upstream": value}
+            found = errors(config, release=True)
+            self.assertTrue(any("tls_terminated_upstream" in m and "true or false" in m
+                                for m in found), (value, found))
+
     def test_the_message_names_both_ways_out(self):
         found = errors(base_config(), release=True)
         self.assertTrue(any("tls.cert_file" in m and "tls_terminated_upstream" in m

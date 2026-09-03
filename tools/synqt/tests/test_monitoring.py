@@ -441,7 +441,26 @@ def test_a_port_nobody_wrote_down_is_still_a_port_both_of_them_bind():
     }
     findings = check._public_port_messages(entities)
     assert len(findings) == 1
-    assert f"both serve browsers on 127.0.0.1:{appmodel.DEFAULT_PUBLIC_PORT}" in findings[0]
+    # The edge binds every interface when it names no host, so it holds loopback's port too.
+    assert f"both serve browsers on 0.0.0.0:{appmodel.DEFAULT_PUBLIC_PORT}" in findings[0]
+
+
+def test_a_wildcard_bind_holds_the_port_on_every_address():
+    """An edge on 0.0.0.0 and a monitor on loopback cannot share a port: the monitor's bind
+    fails with the address in use. Loopback written as `localhost` is the same address.
+    """
+    entities = {
+        "web": {"name": "web", "type": "web_edge", "public": {"host": "0.0.0.0"}},
+        "ops": {"name": "ops", "type": "monitor"},
+    }
+    assert len(check._public_port_messages(entities)) == 1
+    entities["web"]["public"]["host"] = "::"
+    assert len(check._public_port_messages(entities)) == 1
+    entities["web"]["public"]["host"] = "localhost"
+    assert len(check._public_port_messages(entities)) == 1
+    # Two specific addresses are two sockets.
+    entities["web"]["public"]["host"] = "10.0.0.5"
+    assert check._public_port_messages(entities) == []
 
 
 def test_the_scaffolder_steps_past_the_default_the_edge_never_wrote_down(tmp_path):

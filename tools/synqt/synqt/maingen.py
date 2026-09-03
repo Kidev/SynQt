@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import appmodel, clientbuild, clientcache, graphics
 
-#: The default of `ApiConfig::maxBodyBytes` (src/gateway/apiconfig.h). The edge HTTP ceiling
+#: The default of `ApiConfig::maxBodyBytes` (src/gateway/apiconfig.h). The edge's HTTP ceiling
 #: is derived from it, so the server never buffers more than the API accepts.
 API_DEFAULT_BODY_BYTES = 1048576
 
@@ -115,7 +115,7 @@ def _option_default(value: Any) -> str:
 
 
 def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[str]:
-    """The `ApiConfig` assignments one entity `network.inbound` block asks for.
+    """The `ApiConfig` assignments one entity's `network.inbound` block asks for.
 
     Only declared keys get a line; the defaults stay in `apiconfig.h`. API keys come through
     `env:`, so the source holds the variable name, never the value.
@@ -186,7 +186,7 @@ def _api_config_lines(entity: Dict[str, Any], inbound: Dict[str, Any]) -> List[s
 
 
 def _env_file_section(entity: Dict[str, Any]) -> str:
-    """The env-file loads that answer this entity ``env:`` references.
+    """The env-file loads that answer this entity's ``env:`` references.
 
     The entity file (``web/edge/.env``) is loaded first, then the project ``.env``.
     `loadEnvFile` never overwrites, so the real environment wins, then the entity file, then
@@ -195,7 +195,8 @@ def _env_file_section(entity: Dict[str, Any]) -> str:
     """
     lines = ["",
              "    // Secrets for this entity's `env:` references, most specific first. Neither",
-             "    // file overwrites a variable the environment already set, and both are optional."]
+             "    // file overwrites a variable the environment already set, and both are",
+             "    // optional."]
     path = appmodel.env_file(entity)
     if path:
         lines.append(f'    loadEnvFile(QStringLiteral("{cxx_string_literal(path)}"));')
@@ -371,8 +372,8 @@ def _dev_stub_lines(config: Dict[str, Any]) -> List[str]:
     """The development sign-in, started in this process and only under `--dev`.
 
     It runs in the edge because the browser already reaches the edge, and not in a promoted
-    auth entity because `StubIdentityServer` is an HTTP server and would change that entity
-    licence position (docs/licensing.md). Three independent gates: the server starts only
+    auth entity because `StubIdentityServer` is an HTTP server and would change that entity's
+    license position (docs/licensing.md). Three independent gates: the server starts only
     with `--dev`, `StubIdentityServer` requires an explicit acknowledgement, and the runtime
     refuses the `devStub` provider entry without the flag.
     """
@@ -427,7 +428,7 @@ def _identity_lines(config: Dict[str, Any], edge: Dict[str, Any]) -> List[str]:
     identity = appmodel.identity_settings(config)
     # `identity.required` is emitted once, as WebEdgeConfig::identityRequired.
     lines = ["    config.identity.enabled = true;"]
-    # Promoted identity: the edge gets the auth entity name and provider names only.
+    # Promoted identity: the edge gets the auth entity's name and provider names only.
     provider_entity = appmodel.provider_entity(config)
     if provider_entity:
         lines.append('    config.identity.providerEntity = QStringLiteral("%s");'
@@ -513,7 +514,7 @@ def _identity_refresh_lines(config: Dict[str, Any], target: str) -> List[str]:
 
 
 def _auth_entity_lines(config: Dict[str, Any]) -> List[str]:
-    """The auth entity identity configuration, as C++.
+    """The auth entity's identity configuration, as C++.
 
     It holds the client secret, the endpoints, the token exchange and the stored tokens. No
     routes and no mapping hook: those stay on the edge.
@@ -528,7 +529,7 @@ def _auth_entity_lines(config: Dict[str, Any]) -> List[str]:
 
 
 def _auth_adoption_lines(mesh_consumed: List[Dict[str, Any]]) -> List[str]:
-    """The edge half of promoted identity: adopt the auth entity two Replicas.
+    """The edge half of promoted identity: adopt the auth entity's two Replicas.
 
     Adopted in C++, because the login routes and the upgrade verifier read them. The
     IdentityProvider delegates the OAuth steps over `identity`, and the SessionManager
@@ -665,7 +666,7 @@ def render_client_main(config: Dict[str, Any], uri: str,
     logging_value = (config.get("build") or {}).get("client_logging")
     if logging_value:
         logging_install = ('    ClientLogging::install(ClientLogging::modeFromName('
-                           f'QStringLiteral("{str(logging_value).lower()}")));')
+                           f'QStringLiteral("{cxx_string_literal(str(logging_value).lower())}")));')
     else:
         logging_install = ("#ifdef QT_NO_DEBUG\n"
                            "    ClientLogging::install(ClientLogging::Mode::Silent);\n"
@@ -716,7 +717,8 @@ def render_client_main(config: Dict[str, Any], uri: str,
     notice = ((config.get("client") or {}).get("graphics_notice") or "")
     notice = notice.strip() if isinstance(notice, str) else ""
     notice_line = (f'\n    config.graphicsNoticeUrl = '
-                   f'QStringLiteral("{_component_url(notice, uri)}");' if notice else "")
+                   f'QStringLiteral("{cxx_string_literal(_component_url(notice, uri))}");'
+                   if notice else "")
 
     # The edge routes `Session.login()` and `Session.logout()` use, only when the project
     # configures identity; both come from the `identity:` block the edge is generated from.
@@ -1345,7 +1347,7 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
     # accessors on the root context.
     singleton_instances = _singleton_instantiations(singletons)
 
-    # The auth entity engines. Built before `runtime.start()`, which creates the shared
+    # The auth entity's engines. Built before `runtime.start()`, which creates the shared
     # Source. The session store reads the same `scopes:` and `identity.session:` blocks as
     # the edge.
     if is_auth:
@@ -1533,7 +1535,7 @@ def _monitor_bundle_defaults(config: Dict[str, Any], entity: Dict[str, Any]) -> 
 
 
 def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
-    """The cold tier, from the monitor `export:` block.
+    """The cold tier, from the monitor's `export:` block.
 
     Off unless written. Returns the construction and its includes, so a monitor without an
     `export:` block links no network client.
@@ -1555,8 +1557,10 @@ def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
     // (src/monitor/otlpexporter.h).
     OtlpSettings otlpSettings;
     otlpSettings.endpoint = QUrl{{QStringLiteral("{cxx_string_literal(endpoint)}")}};
-    otlpSettings.maxInFlight = {int(otlp.get("max_in_flight", 8))};
-    otlpSettings.timeoutMs = {int(otlp.get("timeout_ms", 5000))};
+    otlpSettings.maxInFlight = {_int_literal("export.otlp.max_in_flight",
+                                             otlp.get("max_in_flight", 8))};
+    otlpSettings.timeoutMs = {_int_literal("export.otlp.timeout_ms",
+                                           otlp.get("timeout_ms", 5000))};
     // The API key, if any, comes from this entity's environment, never from synqt.yaml.
     otlpSettings.headers = OtlpExporter::headersFromEnvironment();
     OtlpExporter otlpExporter{{otlpSettings}};
@@ -1569,8 +1573,9 @@ def _monitor_exporters(entity: Dict[str, Any]) -> Tuple[str, str, str]:
     // One JSON object per line, for a file-based collector. Capped and rotated, so the
     // monitor cannot fill its disk.
     JsonlExporter jsonlExporter{{QStringLiteral("{cxx_string_literal(path)}"),
-                                {int(jsonl.get("max_bytes", 64 * 1024 * 1024))}LL,
-                                {int(jsonl.get("keep", 5))}}};
+                                {_int_literal("export.jsonl.max_bytes",
+                                              jsonl.get("max_bytes", 64 * 1024 * 1024))}LL,
+                                {_int_literal("export.jsonl.keep", jsonl.get("keep", 5))}}};
     service.addExporter(&jsonlExporter);""")
 
     if not lines:
@@ -1592,10 +1597,11 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     folder = appmodel.entity_dir(entity)
     public = appmodel.public_settings(entity)
     host = str(public.get("host") or "127.0.0.1")
-    port = int(public.get("port") or 8443)
+    port = _int_literal("public.port", public.get("port", appmodel.DEFAULT_PUBLIC_PORT))
     retention = entity.get("retention") if isinstance(entity.get("retention"), dict) else {}
-    max_age = int(retention.get("max_age_days", 14))
-    max_bytes = int(retention.get("max_bytes", 512 * 1024 * 1024))
+    max_age = _int_literal("retention.max_age_days", retention.get("max_age_days", 14))
+    max_bytes = _int_literal("retention.max_bytes",
+                             retention.get("max_bytes", 512 * 1024 * 1024))
     export_block, export_includes, export_qt_includes = _monitor_exporters(entity)
     bundle_defaults = _monitor_bundle_defaults(config, entity)
 
@@ -1621,7 +1627,6 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     }}"""
     else:
         console_block = "    // No console client, so nothing browser-facing to host."
-
 
     return f"""{_HEADER_CPP}
 // The {name} monitor entity: it keeps every entity's record and serves the operator

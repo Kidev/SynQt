@@ -273,6 +273,19 @@ def test_a_notice_override_becomes_a_module_url(tmp_path):
     assert 'config.graphicsNoticeUrl = QStringLiteral("qrc:/qt/qml/app/MyNotice.qml")' in rendered
 
 
+def test_a_notice_name_is_escaped_into_the_generated_main(tmp_path):
+    # `synqt build` validates the topology without the notice lint, so the generated C++ is
+    # what keeps a quote in the name from ending the literal.
+    from synqt import maingen
+    root = _project(tmp_path)
+    (root / "client" / "app" / "Home.qml").write_text("import QtQuick\nItem {}")
+    base = _config([{"path": "/", "view": "Home.qml"}])
+    base["client"] = {"graphics_notice": 'My"Notice.qml'}
+    config, _ = graphics.resolve(base, root)
+    rendered = maingen.render_client_main(config, "app")
+    assert 'QStringLiteral("qrc:/qt/qml/app/My\\"Notice.qml")' in rendered
+
+
 def test_lint_refuses_a_notice_that_is_not_there(tmp_path):
     from synqt import check
     root = _project(tmp_path)
