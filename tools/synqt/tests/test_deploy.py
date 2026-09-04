@@ -47,6 +47,31 @@ class DeployCommandTest(unittest.TestCase):
         self.assertNotIn("-codesign", " ".join(command))
         self.assertIn("UNSIGNED", note)
 
+    def test_the_tools_read_imports_from_the_client_folder_only(self):
+        # The project root holds every service's QML too, and the client needs none of its
+        # imports.
+        client_dir = self.root / "client" / "app"
+        client_dir.mkdir(parents=True)
+        (self.out / "client.app").mkdir()
+        (self.out / "client.exe").write_bytes(b"MZ")
+        self._tool("macdeployqt")
+        self._tool("windeployqt")
+        with mock.patch.object(deploy, "_run", return_value="") as run:
+            deploy.deploy_client(self.root, "client", self.out, self.resolved, "macos",
+                                 qml_dir=client_dir)
+            self.assertIn(f"-qmldir={client_dir}", run.call_args[0][0])
+            deploy.deploy_client(self.root, "client", self.out, self.resolved, "windows",
+                                 qml_dir=client_dir)
+            command = run.call_args[0][0]
+            self.assertEqual(command[command.index("--qmldir") + 1], str(client_dir))
+        (self.out / "client").write_bytes(b"\x7fELF")
+        with mock.patch.object(deploy, "_qml_modules",
+                               side_effect=deploy.DeployError("scanned")) as scan:
+            with self.assertRaises(deploy.DeployError):
+                deploy.deploy_client(self.root, "client", self.out, self.resolved, "linux",
+                                     qml_dir=client_dir)
+        self.assertEqual(scan.call_args[0][0], client_dir)
+
     def test_macos_refuses_when_there_is_no_bundle(self):
         # macdeployqt accepts only an .app.
         self._tool("macdeployqt")
@@ -266,7 +291,7 @@ class LinuxLayoutTest(unittest.TestCase):
         with mock.patch.object(deploy, "_qml_modules", return_value=list(modules)), \
              mock.patch.object(deploy, "_dynamic_needs",
                                side_effect=lambda path: needs.get(Path(path).name, [])):
-            return deploy._deploy_linux(self.root, "client", self.out, str(self.kit),
+            return deploy._deploy_linux("client", self.out, str(self.kit),
                                         self.root / "client" / "app")
 
     def test_ships_the_libraries_only_a_plugin_or_a_qml_module_needs(self):
@@ -354,7 +379,7 @@ class LinuxLayoutTest(unittest.TestCase):
 
     def test_refuses_without_a_kit_to_take_the_libraries_from(self):
         with self.assertRaises(deploy.DeployError) as caught:
-            deploy._deploy_linux(self.root, "client", self.out, None,
+            deploy._deploy_linux("client", self.out, None,
                                  self.root / "client" / "app")
         self.assertIn("host Qt kit", str(caught.exception))
 

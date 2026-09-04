@@ -110,13 +110,15 @@ deploy_probe() {
 import sys
 from pathlib import Path
 
-from synqt import deploy
+from synqt import appmodel, deploy
 
 root, out, kit, platform = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+client = {"name": sys.argv[5], "type": "client"}
 # --unsigned: a build machine has no signing identity.
 deploy.check_signing_choice(platform, None, True)
 print("   ", deploy.deploy_client(root, sys.argv[5], out, {"host_qt": kit},
-                                  platform, sign=None))
+                                  platform, sign=None,
+                                  qml_dir=root / appmodel.entity_dir(client)))
 PY
 }
 

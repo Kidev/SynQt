@@ -18,8 +18,6 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-from . import appmodel
-
 
 class DeployError(Exception):
     """The deploy step could not run. Carries a message meant for the CLI's output."""
@@ -113,14 +111,21 @@ def check_signing_choice(platform: str, sign: Optional[str], unsigned: bool) -> 
 
 
 def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
-                  platform: str, *, sign: Optional[str] = None) -> str:
-    """Deploy the installed desktop client in `out`. Returns a one-line note for the summary."""
+                  platform: str, *, sign: Optional[str] = None,
+                  qml_dir: Optional[Path] = None) -> str:
+    """Deploy the installed desktop client in `out`. Returns a one-line note for the summary.
+
+    `qml_dir` is the client entity's folder, the QML the deploy tool reads imports from; the
+    project root when omitted. The root also holds every service's QML, whose imports the
+    client does not need.
+    """
     host_qt = resolved.get("host_qt")
+    qml_dir = qml_dir if qml_dir is not None and qml_dir.is_dir() else root
     if platform == "macos":
         app = out / f"{name}.app"
         if not app.is_dir():
             raise DeployError(f"--deploy found no app bundle at {app}.")
-        command = [str(_tool(host_qt, "macdeployqt")), str(app), f"-qmldir={root}"]
+        command = [str(_tool(host_qt, "macdeployqt")), str(app), f"-qmldir={qml_dir}"]
         if sign:
             # macdeployqt's own -codesign, which signs nested frameworks and plugins before
             # the bundle. `codesign --deep` is not a substitute.
@@ -134,7 +139,7 @@ def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
         exe = out / f"{name}.exe"
         if not exe.is_file():
             raise DeployError(f"--deploy found no executable at {exe}.")
-        _run([str(_tool(host_qt, "windeployqt")), "--qmldir", str(root), str(exe)])
+        _run([str(_tool(host_qt, "windeployqt")), "--qmldir", str(qml_dir), str(exe)])
         if sign:
             # The identity is the certificate subject name (signtool /n). Timestamped, so
             # the signature outlives the certificate.
@@ -142,7 +147,7 @@ def deploy_client(root: Path, name: str, out: Path, resolved: Dict[str, Any],
                   "/tr", "http://timestamp.digicert.com", "/td", "sha256", str(exe)])
             return f"deployed and signed {exe.name} as {sign!r}"
         return f"deployed {exe.name} with windeployqt, UNSIGNED (SmartScreen will warn)"
-    return _deploy_linux(root, name, out, host_qt, _client_dir(root, resolved))
+    return _deploy_linux(name, out, host_qt, qml_dir)
 
 
 def _dynamic_needs(path: Path) -> List[str]:
@@ -349,15 +354,7 @@ def _plugin_dirs(reachable: Iterable[str], kit: Path) -> List[str]:
     return directories
 
 
-def _client_dir(root: Path, resolved: Dict[str, Any]) -> Path:
-    """The client entity's own directory, or the project root when it has none yet."""
-    client = appmodel.client_entity(resolved)
-    folder = root / appmodel.entity_dir(client) if client else root
-    return folder if folder.is_dir() else root
-
-
-def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str],
-                  qml_root: Path) -> str:
+def _deploy_linux(name: str, out: Path, host_qt: Optional[str], qml_root: Path) -> str:
     """The portable layout: Qt libraries and QML modules beside the binary, plus a launcher.
 
     Asks `qmlimportscanner` for the imported QML modules, adds the plugin directories their
@@ -376,11 +373,8 @@ def _deploy_linux(root: Path, name: str, out: Path, host_qt: Optional[str],
     for stale in ("lib", "qml", "plugins"):
         shutil.rmtree(out / stale, ignore_errors=True)
 
-    # Scan the client entity directory only, not the project root.
-    scan_root = qml_root
-
     shipped: List[Path] = [binary]
-    modules = _qml_modules(scan_root, kit)
+    modules = _qml_modules(qml_root, kit)
     for relative in modules:
         destination = out / "qml" / relative
         _copy_module(kit / "qml" / relative, destination)

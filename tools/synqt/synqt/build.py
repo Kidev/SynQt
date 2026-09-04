@@ -791,8 +791,9 @@ def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
                     if deploy:
                         # --deploy was asked for, so a failure here fails the build.
                         deploy_notes.append(
-                            deploymod.deploy_client(root, name, out, resolved,
-                                                    desktop_platform(), sign=sign))
+                            deploymod.deploy_client(
+                                root, name, out, resolved, desktop_platform(), sign=sign,
+                                qml_dir=root / appmodel.entity_dir(entity)))
                         (out.parent / "DEPLOY.txt").write_text(
                             _deployed_note(root, name, out, sign))
                     else:
