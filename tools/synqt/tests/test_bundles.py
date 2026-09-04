@@ -91,3 +91,35 @@ def test_two_client_names_that_fold_to_one_uri_are_refused():
     assert not ok
     assert any("admin-ui" in m and "admin_ui" in m and "ShopAdminUi" in m
                for m in messages), messages
+
+
+def test_an_edge_started_with_no_arguments_serves_each_scope_its_own_bundle():
+    """`synqt serve`, a container and a supervisor fed from the start plan run the edge with
+    no `--bundle`. The defaults it was generated with must keep the anonymous scope on its
+    own files, or every visitor is sent the client the block keeps from them.
+    """
+    from synqt import maingen
+    config, edge = _config({"anonymous": "landing/", "user": "app"})
+    main = maingen.render_edge_main(config, edge)
+    defaults = re.search(r"bundleOption\.setDefaultValues\(\{(.*?)\}\);", main, re.S)
+    assert defaults, main
+    assert re.findall(r'QStringLiteral\("([^"]*)"\)', defaults.group(1)) == [
+        "anonymous=web/web/landing", "user=build/client"]
+    assert 'QStringLiteral("build/client")}' not in main
+
+
+def test_an_edge_with_no_block_defaults_to_its_one_clients_bundle():
+    from synqt import maingen
+    config, edge = _config(clients=("app", "gate"))
+    main = maingen.render_edge_main(config, edge)
+    assert 'bundleOption.setDefaultValues({QStringLiteral("build/client-app")});' in main
+
+
+def test_dev_reloads_every_clients_bundle(tmp_path):
+    from synqt import run as runmod
+    config, _ = _config({"anonymous": "app", "user": "gate"}, clients=("app", "gate"))
+    for name in ("app", "gate"):
+        (tmp_path / "build" / f"client-{name}").mkdir(parents=True)
+    runmod._write_dev_reload_harnesses(tmp_path, config)
+    for name in ("app", "gate"):
+        assert (tmp_path / "build" / f"client-{name}" / "synqt-reload.txt").is_file(), name

@@ -1321,6 +1321,13 @@
       "defended_by": "The manifest names each browser client's own bundle directory, binaries with the platform's suffix, and a monitor bound off loopback as public. The test reads all three back for a two-client project on Windows and Linux.",
       "file": "tools/synqt/tests/test_tool.py",
       "test": "test_manifest_names_what_each_entity_really_is"
+    },
+    {
+      "id": "an-edge-started-with-no-arguments-serves-every-scope-the-app",
+      "what": "`bundles:` keeps a client's files from a scope it is not mapped to. The generated edge took its bundles only from --bundle, which `synqt dev` passes and `synqt serve`, the container entrypoint and a supervisor fed from the start plan do not, so the edge fell back to build/client for the default scope and every other scope fell back to it: an anonymous visitor was sent the full client the block was keeping from them.",
+      "defended_by": "The edge's main is generated with each scope's directory as the --bundle default, as the monitor's is, and with the one client's own directory when there is no block. The test reads the defaults out of the generated main for a two-scope block and for a two-client project with none.",
+      "file": "tools/synqt/tests/test_bundles.py",
+      "test": "test_an_edge_started_with_no_arguments_serves_each_scope_its_own_bundle"
     }
   ]
 }

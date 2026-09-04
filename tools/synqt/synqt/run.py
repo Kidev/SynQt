@@ -176,7 +176,8 @@ def serve(project_dir: os.PathLike[str] | str, *, profile: Optional[str] = None)
     if launched:
         lines.append("Launched: " + ", ".join(launched)
                      + ". The web edge binds the public port; others bind loopback.")
-    lines.append("The edge serves the client from build/client/ (or a CDN for split-origin).")
+    lines.append("The edge serves each scope the bundle `bundles:` maps it to, or the one "
+                 "client's (a CDN serves it under split origin).")
     return "\n".join(lines)
 
 
@@ -189,7 +190,9 @@ def _bundle_arguments(root: Path, edge: Dict[str, Any],
     client.
     """
     if not isinstance(edge.get("bundles"), dict) or not edge["bundles"]:
-        return ["--bundle", str(root / "build" / "client")]
+        client = appmodel.client_entity(config)
+        folder = appmodel.bundle_output_dir(config, client) if client else "build/client"
+        return ["--bundle", str(root / folder)]
     clients = {str(entity.get("name") or ""): entity
                for entity in appmodel.entities(config) if appmodel.is_client(entity)}
     arguments: List[str] = []
@@ -345,8 +348,8 @@ def dev(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
         return ("synqt dev: these entities are not built (run 'synqt build' first): "
                 + ", ".join(missing))
 
-    # Give the served bundle its dev live-reload hook before the browser opens.
-    _write_dev_reload_harness(root / "build" / "client")
+    # Give the served bundles their dev live-reload hook before the browser opens.
+    _write_dev_reload_harnesses(root, config)
 
     url = f"http://127.0.0.1:{port}/"
     _wait_for_port(port)
@@ -524,8 +527,15 @@ def _hot_reload(root: Path, state: Dict[str, Any], port: int, client: str,
         _wait_for_port(port)
 
     # A wasm rebuild rewrote the prod index.html. Re-inject the hook and bump the token.
-    _write_dev_reload_harness(root / "build" / "client")
+    _write_dev_reload_harnesses(root, config)
     print("  rebuilt; the browser will reload.")
+
+
+def _write_dev_reload_harnesses(root: Path, config: Dict[str, Any]) -> None:
+    """Install the live-reload hook into every browser client's bundle."""
+    from . import build as buildmod
+    for folder in buildmod.client_bundle_targets(config).values():
+        _write_dev_reload_harness(root / folder)
 
 
 def _write_dev_reload_harness(client_dir: os.PathLike[str] | str) -> None:

@@ -1141,6 +1141,15 @@ def render_edge_main(config: Dict[str, Any], edge: Dict[str, Any],
     # The port and the public certificate stay command-line options, so the topology values
     # become their defaults. `synqt serve` passes no arguments and still gets the configured
     # TLS.
+    # Without a `bundles:` block the one client goes to the default scope, as a bare
+    # directory. With one, each scope's own directory, as the monitor bakes them.
+    if isinstance(edge.get("bundles"), dict) and edge["bundles"]:
+        bundle_defaults = _bundle_defaults(config, edge)
+    else:
+        client = appmodel.client_entity(config)
+        bundle_defaults = 'QStringLiteral("%s")' % cxx_string_literal(
+            appmodel.bundle_output_dir(config, client) if client else "build/client")
+
     public = appmodel.public_settings(edge)
     tls = appmodel.tls_settings(edge)
     port_default = (_int_literal("public.port", public["port"])
@@ -1176,11 +1185,14 @@ int main(int argc, char *argv[])
 
     QCommandLineParser parser;
     parser.addHelpOption();
-    const QCommandLineOption bundleOption{{QStringLiteral("bundle"),
+    QCommandLineOption bundleOption{{QStringLiteral("bundle"),
         QStringLiteral("Bundle to serve, as <scope>=<dir>. Repeatable: this edge serves "
                        "each scope the bundle it is mapped to. A bare <dir> is the "
                        "bundle for the default scope."),
-        QStringLiteral("[scope=]dir"), QStringLiteral("build/client")}};
+        QStringLiteral("[scope=]dir")}};
+    // The build output paths, project-root relative like --qml-dir, so a start with no
+    // arguments serves each scope its own files.
+    bundleOption.setDefaultValues({{{bundle_defaults}}});
     const QCommandLineOption qmlDirOption{{QStringLiteral("qml-dir"),
         QStringLiteral("Directory the entity folders of loadable QML live under."),
         QStringLiteral("dir"), QStringLiteral("generated")}};
@@ -1509,12 +1521,14 @@ QUICK_TEST_MAIN_WITH_SETUP(synqt_app_tests, SynQtTestSetup)
 """
 
 
-def _monitor_bundle_defaults(config: Dict[str, Any], entity: Dict[str, Any]) -> str:
-    """Where each scope's files land, as `<scope>=<dir>` literals.
+def _bundle_defaults(config: Dict[str, Any], entity: Dict[str, Any]) -> str:
+    """Where each scope's files land, as `<scope>=<dir>` literals, for an edge or a monitor
+    with a `bundles:` block.
 
     Resolved as `synqt dev` does (run._bundle_arguments): a value with `/` is a folder in
-    the monitor directory, a bare name is a built client. Baked as option defaults, so a
-    deployment can pass --bundle.
+    the entity directory, a bare name is a built client. Baked as option defaults, so a
+    process started with no arguments (`synqt serve`, a container, a supervisor) serves
+    each scope its own files, and a deployment can still pass --bundle.
     """
     clients = {str(one.get("name") or ""): one for one in appmodel.entities(config)
                if appmodel.is_client(one)}
@@ -1603,7 +1617,7 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     max_bytes = _int_literal("retention.max_bytes",
                              retention.get("max_bytes", 512 * 1024 * 1024))
     export_block, export_includes, export_qt_includes = _monitor_exporters(entity)
-    bundle_defaults = _monitor_bundle_defaults(config, entity)
+    bundle_defaults = _bundle_defaults(config, entity)
 
     # The console sign-in is rate-limited per client address, so the monitor needs the
     # trusted proxies too.
