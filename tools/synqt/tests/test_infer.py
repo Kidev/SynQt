@@ -123,6 +123,33 @@ def test_set_model_gives_a_model_with_the_row_literal_keys():
                                                          ("int", "points")]
 
 
+def test_only_the_sources_own_set_call_publishes_a_model():
+    # `Caller.setScope` and a child's `setProperty` are not the Source's model API, and a
+    # bare call to a function the file declares is that function.
+    owner = textwrap.dedent("""\
+        import SynQt
+
+        Edge {
+            id: auction
+
+            ListModel { id: rows }
+
+            function setMax(amount: int) {
+            }
+
+            function signIn(name: string) {
+                Caller.setScope("user");
+                rows.setProperty(0, "name", name);
+                setMax(3);
+                setItems([{ name: name }]);
+            }
+        }
+        """)
+    _, members = infer.scan_owner("web/edge/Edge.qml", owner)
+    models = sorted(member.name for member in members if member.kind == "model")
+    assert models == ["items"], models
+
+
 def test_every_member_records_the_file_and_line_it_came_from():
     _, members = infer.scan_owner("web/edge/Edge.qml", OWNER)
     assert all(m.evidence and m.evidence[0].startswith("web/edge/Edge.qml:") for m in members)

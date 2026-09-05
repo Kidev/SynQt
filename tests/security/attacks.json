@@ -1349,6 +1349,13 @@
       "defended_by": "Every browser client's own bundle folder is mounted, and `up` refuses to start while any mounted folder is unbuilt, naming it. The tests read the mounts for a two-client project and refuse an `up` with one of two folders built.",
       "file": "tools/synqt/tests/test_command_lines.py",
       "test": "test_every_mounted_bundle_must_be_built_before_docker_starts"
+    },
+    {
+      "id": "infer-writes-a-model-nobody-publishes",
+      "what": "Reading an owner's QML back, `synqt infer` took any `x.setFoo(...)` call for the Source publishing a model `foo`, so a sign-in Source's `Caller.setScope(\"user\")` became `model scope` and a child ListModel's `setProperty` became `model property`, and `synqt infer --write` wrote both into the contract the build then compiled.",
+      "defended_by": "Only `<root id>.set<Model>(...)` and a bare `set<Model>(...)` that is not a function the file declares count as publishing. The test scans a Source that calls Caller.setScope, a child's setProperty, its own setMax and a bare setItems, and requires the one model `items`.",
+      "file": "tools/synqt/tests/test_infer.py",
+      "test": "test_only_the_sources_own_set_call_publishes_a_model"
     }
   ]
 }

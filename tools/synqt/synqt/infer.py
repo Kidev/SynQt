@@ -22,9 +22,6 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from . import appmodel, contractgen, designdoc, qmlscan, typebackend, yamledit
 
-#: An owner file opens with the type its own name declares (`web/edge/Edge.qml` opens `Edge
-#: { ... }`). No other QML file does.
-
 #: `Caller.emitBidRejected(...)` raises the `bidRejected` signal at one caller.
 _EMIT_PREFIX = "emit"
 
@@ -184,7 +181,7 @@ class Edge:
 
 @dataclasses.dataclass(frozen=True)
 class Survey:
-    """One reading of a project QML: the links, and every use across one.
+    """One reading of a project's QML: the links, and every use across one.
 
     `edges` folds both ends into one line per member, as in a contract. `uses` keeps each
     consumer use apart, which a question about one call site needs.
@@ -228,14 +225,15 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
 
     for entity in entities:
         name = str(entity.get("name") or "")
-        # What this entity own files declare, read once.
+        # What this entity's own files declare, read once.
         declared = declared_properties(root, entity)
         for path in _entity_files(root, entity):
             relative = path.relative_to(root).as_posix()
             contract, members = scan_owner(relative, _read_text(path), types, declared)
             if not contract:
                 continue
-            entry = _bucket(found, name, _point_for(points, relative, contract, name), contract)
+            # An owner file implements the owner's point, because an entity has one.
+            entry = _bucket(found, name, name, contract)
             for member in members:
                 _record(entry["members"], member)
 
@@ -272,7 +270,7 @@ def _scan(project_dir: os.PathLike[str] | str, config: Dict[str, Any],
 
 
 def accessors_for(config: Dict[str, Any], entity_name: str) -> Dict[str, str]:
-    """The names this entity QML reaches other entities by, and who each one is. A service uses
+    """The names this entity's QML reaches other entities by, and who each one is. A service uses
     the capitalized owner (`Database`, as `EntityRuntime::accessorName` installs). A client
     uses `Server` for its edge.
     """
@@ -559,12 +557,6 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def _point_for(points: Sequence[Dict[str, Any]], relative: str, contract: str,
-               owner: str) -> str:
-    """Which connect point an owner file implements: the owner's, because it has one."""
-    return owner
-
-
 def _contract_for(points: Sequence[Dict[str, Any]], name: str) -> str:
     for point in points:
         if appmodel.point_name(point) == name:
@@ -587,6 +579,8 @@ def scan_owner(relative_path: str, source: str,
     tokens = qmlscan.tokenize(source)
     members: List[Member] = []
     raised: List[Member] = []
+    # `setWinners(rows)` called bare, kept apart until the file's own functions are known.
+    pushed: List[Tuple[str, Member]] = []
     identifier = _root_identifier(tokens)
     depth = 0
     index = 0
@@ -601,7 +595,8 @@ def scan_owner(relative_path: str, source: str,
             # Signals, model pushes and property writes happen inside functions, so look at
             # any depth.
             consumed = (_read_emitted_signal(reading, tokens, index, members)
-                        or _read_pushed_model(reading, tokens, index, members)
+                        or _read_pushed_model(reading, tokens, index, identifier, members,
+                                              pushed)
                         or _read_raised_signal(reading, tokens, index, identifier, raised)
                         or _read_written_property(reading, tokens, index, identifier,
                                                   members))
@@ -617,6 +612,10 @@ def scan_owner(relative_path: str, source: str,
     slots = {member.name for member in members if member.kind == "slot"}
     for member in raised:
         if member.name not in slots:
+            _record(members, member)
+    # A bare `setMax(amount)` is a call to the file's own function when it declares one.
+    for call, member in pushed:
+        if call not in slots:
             _record(members, member)
     return root, members
 
@@ -954,24 +953,43 @@ def _read_emitted_signal(reading: "_Reading", tokens: Sequence[qmlscan.Token], i
 
 
 def _read_pushed_model(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
-                       members: List[Member]) -> int:
-    """`auction.setWinners([{ ... }])`: the model, and the roles the row literal shows. Rows
-    built elsewhere leave the model uncertain.
+                       identifier: str, members: List[Member],
+                       pushed: List[Tuple[str, Member]]) -> int:
+    """`auction.setWinners([{ ... }])` or a bare `setWinners(rows)`: the model, and the roles
+    the row literal shows. Rows built elsewhere leave the model uncertain.
+
+    Only the Source's own `set<Model>` counts: `Caller.setScope(...)` and
+    `rows.setProperty(...)` belong to something else.
     """
-    if not (_is_ident(_at(tokens, index)) and _is_punct(_at(tokens, index + 1), ".")):
+    token = _at(tokens, index)
+    if not _is_ident(token):
         return 0
-    call = _at(tokens, index + 2)
+    if _is_punct(_at(tokens, index + 1), "."):
+        if not identifier or token.text != identifier:
+            return 0
+        call = _at(tokens, index + 2)
+        paren = index + 3
+        bare = False
+    else:
+        if _is_punct(_at(tokens, index - 1), "."):
+            return 0
+        call = token
+        paren = index + 1
+        bare = True
     if not _is_ident(call):
         return 0
     name = _suffix_after(call.text, _SET_PREFIX)
-    if not name or not _is_punct(_at(tokens, index + 3), "("):
+    if not name or not _is_punct(_at(tokens, paren), "("):
         return 0
-    close = _matching(tokens, index + 3)
+    close = _matching(tokens, paren)
     if close < 0:
         return 0
-    roles = _row_roles(tokens, index + 4, close)
-    _record(members, Member("model", name, roles=roles,
-                            evidence=(_where(reading, call),)))
+    member = Member("model", name, roles=_row_roles(tokens, paren + 1, close),
+                    evidence=(_where(reading, call),))
+    if bare:
+        pushed.append((call.text, member))
+    else:
+        _record(members, member)
     return close + 1 - index
 
 
