@@ -181,8 +181,18 @@ class ComposeTest(unittest.TestCase):
         self.assertEqual(compose["services"]["web"]["ports"], ["8443:8443"])
 
     def test_the_port_can_be_overridden(self):
+        # Published on the other port, onto the one the edge listens on in the container,
+        # which is still synqt.yaml's.
         compose = self._compose(_config(), port=9999)
-        self.assertEqual(compose["services"]["web"]["ports"], ["9999:9999"])
+        self.assertEqual(compose["services"]["web"]["ports"], ["9999:8443"])
+
+    def test_host_mode_mounts_every_clients_bundle(self):
+        config = _config()
+        config["entities"].append({"name": "admin", "type": "client", "edge": "web"})
+        compose = self._compose(config, client="host")
+        volumes = compose["services"]["web"]["volumes"]
+        for folder in ("build/client-client", "build/client-admin"):
+            self.assertIn(f"./{folder}:{docker.APP_DIR}/{folder}:ro", volumes)
 
     def test_the_client_gets_no_container(self):
         # It is a bundle the edge serves, not a process, however it was built.
@@ -666,6 +676,9 @@ class ReplicatedEdgeTest(unittest.TestCase):
                      if service.get("ports")}
         self.assertEqual(list(published), ["front"])
         self.assertEqual(published["front"], ["8443:8443"])
+        compose = yaml.safe_load(docker.render_compose(config, docker.mesh_addresses(config),
+                                                       port=9443))
+        self.assertEqual(compose["services"]["front"]["ports"], ["9443:8443"])
 
     def test_the_front_config_lists_every_replica(self):
         config = _replicated(count=3)

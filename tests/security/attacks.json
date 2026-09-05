@@ -1335,6 +1335,20 @@
       "defended_by": "The build hands the deploy step the client entity's folder, and all three platforms read imports from it. The test requires the folder on each platform's command or scan.",
       "file": "tools/synqt/tests/test_deploy.py",
       "test": "test_the_tools_read_imports_from_the_client_folder_only"
+    },
+    {
+      "id": "docker-publishes-a-port-nothing-listens-on",
+      "what": "`synqt docker init --port P` is documented to publish the edge on another port than the one in synqt.yaml, and generated `P:P`, so the host port led to a container port the edge (still listening on synqt.yaml's port) never opened, and the replicated front's nginx was published the same way.",
+      "defended_by": "The published port maps onto the port the edge or the front listens on inside the container. The tests require `9999:8443` for a single edge and `9443:8443` for the front.",
+      "file": "tools/synqt/tests/test_docker.py",
+      "test": "test_the_port_can_be_overridden"
+    },
+    {
+      "id": "docker-mounts-a-bundle-folder-no-build-writes",
+      "what": "With `--client host`, the compose file mounted ./build/client whatever the clients were, and a project with two browser clients builds them to build/client-<name>, so the edge served an empty directory and `synqt docker up` checked the wrong folder before starting.",
+      "defended_by": "Every browser client's own bundle folder is mounted, and `up` refuses to start while any mounted folder is unbuilt, naming it. The tests read the mounts for a two-client project and refuse an `up` with one of two folders built.",
+      "file": "tools/synqt/tests/test_command_lines.py",
+      "test": "test_every_mounted_bundle_must_be_built_before_docker_starts"
     }
   ]
 }

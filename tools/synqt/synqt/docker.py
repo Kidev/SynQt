@@ -771,6 +771,7 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
     edge_name = edge.get("name") if edge else None
     public = appmodel.public_settings(edge) if edge else {}
     edge_port = int(port or public.get("port") or 8443)
+    listen_port = int(public.get("port") or 8443)
     engine_of = {entity["name"]: (name, spec) for entity, name, spec in engines(config)}
     data_dirs = embedded_data_dirs(config)
     image = f"{project}-synqt:latest"
@@ -834,14 +835,15 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
     for entity in service_entities(config):
         for name in replica_names(entity):
             lines += _entity_service(config, entity, name, addresses, edge_name, engine_of,
-                                     data_dirs, client, edge_port, bool(front))
+                                     data_dirs, client, (edge_port, listen_port),
+                                     bool(front))
 
     if front:
-        lines += _front_service(config, addresses, edge_port)
+        lines += _front_service(config, addresses, (edge_port, listen_port))
 
     for entity, engine_name, spec in engines(config):
         lines += _engine_service(entity, engine_name, spec, addresses[entity["name"]])
-    
+
     lines += [
         "networks:",
         "  # A network with a declared subnet. The entities reach each other by fixed address",
@@ -870,12 +872,13 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
 def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
                     addresses: Dict[str, str], edge_name: Optional[str],
                     engine_of: Dict[str, Any], data_dirs: Dict[str, str], client: str,
-                    edge_port: int, behind_front: bool) -> List[str]:
+                    ports: Tuple[int, int], behind_front: bool) -> List[str]:
     """One entity container.
 
     `name` is the service name, `entity["name"]` the entity name; they differ for a
     replicated web edge. The address and published port follow the service; the engine, data
-    volume and env file follow the entity.
+    volume and env file follow the entity. `ports` is the published port and the one the edge
+    listens on inside the container.
     """
     entity_name = entity["name"]
     is_edge = entity_name == edge_name
@@ -908,9 +911,10 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
         lines.append("      # nothing every time the app is rebuilt.")
         lines.append(f"      - {entity_name}-data:{APP_DIR}/{data_dirs[entity_name]}")
     if is_edge and client == "host":
-        lines.append("      # The browser bundle, built outside with `synqt build`.")
-        lines.append("      # Read-only: the edge serves it and never writes to it.")
-        lines.append(f"      - ./build/client:{APP_DIR}/build/client:ro")
+        lines.append("      # The browser bundles, built outside with `synqt build`.")
+        lines.append("      # Read-only: the edge serves them and never writes to them.")
+        for folder in bundle_folders(config):
+            lines.append(f"      - ./{folder}:{APP_DIR}/{folder}:ro")
     env_file = appmodel.env_file(entity)
     if env_file:
         lines.append("    env_file:")
@@ -922,7 +926,7 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
         lines.append("    # reachable only from inside this network, which is what the")
         lines.append("    # deny-by-default topology looks like written as compose.")
         lines.append("    ports:")
-        lines.append(f'      - "{edge_port}:{edge_port}"')
+        lines.append(f'      - "{ports[0]}:{ports[1]}"')
     elif is_edge:
         lines.append("    # No published port: this replica is reached through 'front'")
         lines.append("    # below, which is the only thing outside this network sees.")
@@ -940,8 +944,10 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
 
 
 def _front_service(config: Dict[str, Any], addresses: Dict[str, str],
-                   edge_port: int) -> List[str]:
-    """The balancer in front of a replicated edge: nginx with a generated configuration."""
+                   ports: Tuple[int, int]) -> List[str]:
+    """The balancer in front of a replicated edge: nginx with a generated configuration. It
+    listens on the edge's own port, published as the first of `ports`.
+    """
     edge = edge_entity(config)
     replicas = replica_names(edge)
     return [
@@ -952,7 +958,7 @@ def _front_service(config: Dict[str, Any], addresses: Dict[str, str],
         "    restart: unless-stopped",
         "    depends_on: [" + ", ".join(replicas) + "]",
         "    ports:",
-        f'      - "{edge_port}:{edge_port}"',
+        f'      - "{ports[0]}:{ports[1]}"',
         "    volumes:",
         f"      - ./{DOCKER_DIR}/{FRONT_FILE}:/etc/nginx/nginx.conf:ro",
         "    networks:",
@@ -1350,13 +1356,27 @@ def _require_generated(root: Path) -> None:
             + ", ".join(missing) + "). Run `synqt docker init` first.")
 
 
+def bundle_folders(config: Dict[str, Any]) -> List[str]:
+    """The project-relative folder of every browser client's bundle."""
+    return [appmodel.bundle_output_dir(config, entity) for entity in appmodel.entities(config)
+            if appmodel.is_client(entity) and "wasm" in appmodel.client_targets(entity)]
+
+
+_BUNDLE_MOUNT = re.compile(r"\./(build/[^\s:\],]+):" + re.escape(APP_DIR) + r"/\1:ro")
+
+
+def mounted_bundles(root: Path) -> List[str]:
+    """The bundle folders the generated compose file mounts from outside the image."""
+    try:
+        text = (root / COMPOSE_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return _BUNDLE_MOUNT.findall(text)
+
+
 def client_is_mounted(root: Path) -> bool:
     """Whether the generated compose file serves the bundle from outside the image."""
-    try:
-        return f"{APP_DIR}/build/client:ro" in (root / COMPOSE_FILE).read_text(
-            encoding="utf-8")
-    except OSError:
-        return False
+    return bool(mounted_bundles(root))
 
 
 def up_command(project_dir: os.PathLike[str] | str, *, detach: bool = False,
@@ -1364,9 +1384,10 @@ def up_command(project_dir: os.PathLike[str] | str, *, detach: bool = False,
     """The command `synqt docker up` runs, after the checks worth making before it."""
     root = Path(project_dir)
     _require_generated(root)
-    if client_is_mounted(root) and not (root / "build" / "client").is_dir():
+    missing = [folder for folder in mounted_bundles(root) if not (root / folder).is_dir()]
+    if missing:
         raise DockerError(
-            "this compose file serves the browser bundle from ./build/client, and there is "
+            f"this compose file serves the browser bundle from ./{missing[0]}, and there is "
             "nothing there yet. Run `synqt build --client wasm` first, or regenerate with "
             "`synqt docker init --force --client image` to build it inside the image.")
     command = compose_command() + ["up"]

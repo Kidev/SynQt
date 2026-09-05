@@ -103,6 +103,19 @@ def test_a_mounted_bundle_that_has_not_been_built_is_refused_before_docker_start
     assert dockermod.up_command(generated)[-1] == "--build"
 
 
+def test_every_mounted_bundle_must_be_built_before_docker_starts(generated):
+    (generated / dockermod.COMPOSE_FILE).write_text(
+        "services:\n  web:\n    volumes:\n"
+        f"      - ./build/client-app:{dockermod.APP_DIR}/build/client-app:ro\n"
+        f"      - ./build/client-admin:{dockermod.APP_DIR}/build/client-admin:ro\n")
+    (generated / "build" / "client-app").mkdir(parents=True)
+    with pytest.raises(dockermod.DockerError) as refused:
+        dockermod.up_command(generated)
+    assert "build/client-admin" in str(refused.value)
+    (generated / "build" / "client-admin").mkdir()
+    assert dockermod.up_command(generated)[-1] == "--build"
+
+
 def test_a_compose_file_that_cannot_be_read_mounts_nothing(tmp_path):
     assert dockermod.client_is_mounted(tmp_path) is False
 
