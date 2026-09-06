@@ -239,3 +239,13 @@ def test_a_front_does_read_back_as_one(tmp_path):
     gate = next(link for link in designdoc.read(project)["links"]
                 if link["owner"] == "gate")
     assert gate["behind"] == {"anonymous": "lobby", "admin": "backoffice"}
+
+
+def test_a_key_of_the_wrong_shape_still_opens_in_the_editor():
+    # The editor is where a broken topology gets fixed, so it reads one it cannot validate:
+    # `bundles:` written as a list reads as none, and a bare target as a list of one.
+    config = {"entities": [{"name": "app", "type": "client", "targets": "wasm"},
+                           {"name": "edge", "type": "web_edge", "bundles": ["app"]}]}
+    entities = {entity["name"]: entity for entity in designdoc.entities_of(config)}
+    assert entities["app"]["targets"] == ["wasm"]
+    assert entities["edge"]["bundles"] == {}

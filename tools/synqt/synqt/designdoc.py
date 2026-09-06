@@ -146,21 +146,29 @@ def _place(entities: List[Dict[str, Any]], stored: Dict[str, Dict[str, Any]]) ->
 
 
 def _entity(entity: Dict[str, Any]) -> Dict[str, Any]:
+    """One entity as the editor draws it. Read without validation, since the editor is where a
+    broken topology gets fixed, so a key of the wrong shape reads as empty and `synqt check`
+    names it.
+    """
     provider = entity.get("provider")
     if isinstance(provider, dict):
         provider = provider.get("name")
+    targets = entity.get("targets")
+    if isinstance(targets, str):
+        targets = [targets]
+    bundles = entity.get("bundles")
     return {
         "id": str(entity.get("name") or ""),
         "name": str(entity.get("name") or ""),
         "type": appmodel.entity_type(entity),
         "provider": str(provider or ""),
-        "targets": [str(target) for target in (entity.get("targets") or [])],
+        "targets": ([str(target) for target in targets]
+                    if isinstance(targets, list) else []),
         "identity": bool(entity.get("identity")),
         # Which bundle this edge serves each scope. The editor writes this key, so it must
         # read it too.
-        "bundles": {str(scope): str(name)
-                    for scope, name in (entity.get("bundles") or {}).items()
-                    if scope and name},
+        "bundles": ({str(scope): str(name) for scope, name in bundles.items()
+                     if scope and name} if isinstance(bundles, dict) else {}),
         # `console` makes the monitor deliver this client; `edge` says which monitor. Read
         # for the same reason as `bundles`.
         "console": bool(entity.get("console")),
@@ -223,7 +231,7 @@ def parse_from_text(text: str, name: str) -> List[Dict[str, Any]]:
 
 def parse_export(name: str, point: Dict[str, Any],
                  owner: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    """The members a connect point ``export:`` block declares. `owner` is what the owner Source
+    """The members a connect point's ``export:`` block declares. `owner` is what the owner Source
     implements, needed to read a bare-name line.
     """
     return parse_from_text(
@@ -363,7 +371,7 @@ def read(project_dir: os.PathLike[str] | str, *,
     seats = _stored_seats(root)
     by_name = {str(entity.get("name") or ""): entity for entity in entities}
     for entity in entities:
-        # The entity own file, so the pane shows the one on disk. For an exporting entity it
+        # The entity's own file, so the pane shows the one on disk. For an exporting entity it
         # is also the Source.
         entity["qml"] = _read_text(root / appmodel.entity_file_path(entity))
         # The relational schema, so the pane shows and edits the real file.
@@ -393,7 +401,7 @@ def read(project_dir: os.PathLike[str] | str, *,
 
 
 def render_export(members: List[Dict[str, Any]]) -> str:
-    """A connect point ``export:`` block, members only, in order (:mod:`synqt.contractgen` adds
+    """A connect point's ``export:`` block, members only, in order (:mod:`synqt.contractgen` adds
     the wrapper). No records. For writing back a link the editor drew, never for rewriting a
     hand-written block.
     """
@@ -521,7 +529,7 @@ def to_config(document: Dict[str, Any], *,
 
 
 def _write_scopes(config: Dict[str, Any], document: Dict[str, Any]) -> None:
-    """Put the document scope vocabulary into the configuration.
+    """Put the document's scope vocabulary into the configuration.
 
     The order is the authority ranking and the member values of the generated Scope enum, so
     a reorder renumbers it. The default is checked against the new order.

@@ -1363,6 +1363,13 @@
       "defended_by": "The directive opens the function. The test requires every generated boot and reload script to open its function with it.",
       "file": "tools/synqt/tests/test_tool.py",
       "test": "test_every_generated_script_opens_in_strict_mode"
+    },
+    {
+      "id": "a-misshaped-key-locks-the-editor-out",
+      "what": "The design editor reads synqt.yaml without validating it, because it is where a broken topology gets fixed. `bundles:` written as a list stopped the read with an AttributeError, answered as a 500 for the whole page, so the editor would not open on the project it was meant to repair; a bare `targets: wasm` was read letter by letter.",
+      "defended_by": "The entity read takes only the shapes it understands: a non-map `bundles:` reads as none and a bare target as a list of one, and `synqt check` names the misshaped key. The test reads both shapes back.",
+      "file": "tools/synqt/tests/test_designdoc.py",
+      "test": "test_a_key_of_the_wrong_shape_still_opens_in_the_editor"
     }
   ]
 }
