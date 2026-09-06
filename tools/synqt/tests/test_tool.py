@@ -681,6 +681,13 @@ class DevReloadHarnessTest(unittest.TestCase):
         self.assertIn('fetch("synqt-reload.txt"', script)
         self.assertIn("window.location.reload()", script)
 
+    def test_every_generated_script_opens_in_strict_mode(self):
+        # A "use strict" after the first statement is an ordinary string, not a directive.
+        for script in (clientshell.render_dev_reload_js(),
+                       clientshell.render_boot_js("client", {})):
+            body = script[script.index("(function () {") + len("(function () {"):]
+            self.assertTrue(body.lstrip().startswith('"use strict";'), body[:80])
+
     def test_harness_injects_once_and_bumps_the_token(self):
         client = Path(tempfile.mkdtemp())
         (client / "index.html").write_text(

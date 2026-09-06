@@ -555,6 +555,8 @@ def render_dev_reload_js() -> str:
 // each rebuild and reloads the page when it changes. External and eval-free, for the
 // edge CSP; the fetch is same-origin (connect-src 'self').
 (function () {
+    "use strict";
+
     // Dev has no shell cache (build.client_cache is http), but a production build
     // loaded from this origin may have left its worker installed, which would serve a
     // cached shell over the dev build. Evict it.
@@ -563,8 +565,6 @@ def render_dev_reload_js() -> str:
             registrations.forEach(function (registration) { registration.unregister(); });
         }).catch(function () {});
     }
-
-    "use strict";
 
     var baseline = null;
 

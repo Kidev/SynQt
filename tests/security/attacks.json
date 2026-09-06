@@ -1356,6 +1356,13 @@
       "defended_by": "Only `<root id>.set<Model>(...)` and a bare `set<Model>(...)` that is not a function the file declares count as publishing. The test scans a Source that calls Caller.setScope, a child's setProperty, its own setMax and a bare setItems, and requires the one model `items`.",
       "file": "tools/synqt/tests/test_infer.py",
       "test": "test_only_the_sources_own_set_call_publishes_a_model"
+    },
+    {
+      "id": "the-dev-reload-script-was-never-strict",
+      "what": "The live-reload script `synqt dev` injects wrote \"use strict\" after its first statement, where it is an ordinary string, so the script ran in sloppy mode while it read as strict.",
+      "defended_by": "The directive opens the function. The test requires every generated boot and reload script to open its function with it.",
+      "file": "tools/synqt/tests/test_tool.py",
+      "test": "test_every_generated_script_opens_in_strict_mode"
     }
   ]
 }
