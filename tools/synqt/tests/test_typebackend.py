@@ -95,13 +95,13 @@ def test_a_longer_name_beginning_the_same_way_is_not_the_expression():
 
 
 def test_auto_falls_back_and_says_which_it_used(tmp_path, monkeypatch):
-    monkeypatch.setattr(typebackend, "available", lambda: False)
+    monkeypatch.setattr(typebackend, "available", lambda project_dir=None: False)
     backend = typebackend.resolve("auto", tmp_path)
     assert isinstance(backend, typebackend.HeuristicBackend)
 
 
 def test_ts_refuses_rather_than_falling_back(tmp_path, monkeypatch):
-    monkeypatch.setattr(typebackend, "available", lambda: False)
+    monkeypatch.setattr(typebackend, "available", lambda project_dir=None: False)
     with pytest.raises(typebackend.TypeBackendError) as caught:
         typebackend.resolve("ts", tmp_path)
     assert "ts-morph" in str(caught.value)
@@ -119,3 +119,32 @@ def test_a_binding_expression_is_extracted_as_well_as_a_function_body(tmp_path):
     (tmp_path / "A.qml").write_text(qml)
     body = dict(typebackend.extract(tmp_path))["A.qml"]
     assert "1 + 2" in body and 'g("a")' in body
+
+
+def test_ts_morph_is_looked_for_where_the_backend_will_run(tmp_path, monkeypatch):
+    # The backend runs node from the project, so a ts-morph installed only in the directory
+    # synqt was started from must not select it for a project that lacks one.
+    with_it = tmp_path / "with"
+    without = tmp_path / "without"
+    with_it.mkdir()
+    without.mkdir()
+
+    def run_node(arguments, request, working_dir):
+        if Path(working_dir).resolve() != with_it.resolve():
+            raise typebackend.TypeBackendError("Cannot find module 'ts-morph'")
+        return []
+
+    monkeypatch.setattr(typebackend.shutil, "which", lambda name: "/usr/bin/node")
+    monkeypatch.setattr(typebackend, "_run_node", run_node)
+    monkeypatch.setattr(typebackend, "_probed", {})
+    monkeypatch.chdir(with_it)
+    assert isinstance(typebackend.resolve("auto", without), typebackend.HeuristicBackend)
+    assert isinstance(typebackend.resolve("auto", with_it), typebackend.TsBackend)
+
+
+def test_the_generated_mirror_is_not_read_twice(tmp_path):
+    (tmp_path / "web" / "edge").mkdir(parents=True)
+    (tmp_path / "web" / "edge" / "Edge.qml").write_text("import SynQt\nEdge {}\n")
+    (tmp_path / "generated" / "web" / "edge").mkdir(parents=True)
+    (tmp_path / "generated" / "web" / "edge" / "Edge.qml").write_text("import SynQt\nEdge {}\n")
+    assert [path for path, _ in typebackend.extract(tmp_path)] == ["web/edge/Edge.qml"]

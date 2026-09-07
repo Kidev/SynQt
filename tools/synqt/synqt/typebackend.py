@@ -34,8 +34,9 @@ _TIMEOUT_SECONDS = 60
 #: The kinds `qmlscan` gives a literal, which are the only tokens that prove a type.
 _LITERAL_KINDS = ("string", "int", "real", "bool")
 
-#: What a directory of build output or installed packages holds is not this project's QML.
-_SKIPPED = ("build", "node_modules")
+#: What a directory of build output, installed packages or the generated mirror holds is not
+#: this project's QML.
+_SKIPPED = ("build", "node_modules", "generated")
 
 #: A declared property's value in the synthesized scope, chosen so the checker reads back
 #: the declared type: a fraction for `real`, a whole number for `int`. Anything that is not
@@ -47,7 +48,8 @@ _PLACEHOLDERS = {"string": '""', "int": "0", "real": "0.5", "double": "0.5",
 _CONTINUES = ("+", "-", "*", "/", "%", "<", ">", "=", "&", "|", "?", ":", ",", ".", "!",
               "~", "^")
 
-_probed: Optional[bool] = None
+#: Whether ts-morph loads, per directory node is run from, probed once each.
+_probed: Dict[str, bool] = {}
 
 
 class TypeBackendError(Exception):
@@ -113,14 +115,16 @@ class TsBackend:
         return [_answer(str(answer.get("type") or "var"), "ts") for answer in answers]
 
 
-def available() -> bool:
-    """Whether the TypeScript backend can run here: node, and a reachable `ts-morph`. Probed
-    once per process.
+def available(project_dir: os.PathLike[str] | str | None = None) -> bool:
+    """Whether the TypeScript backend can run for this project: node, and a `ts-morph` that
+    loads from the project directory, which is where the backend runs. Probed once per
+    directory.
     """
-    global _probed
-    if _probed is None:
-        _probed = _probe()
-    return _probed
+    working = Path(project_dir) if project_dir is not None else Path.cwd()
+    key = str(working.resolve())
+    if key not in _probed:
+        _probed[key] = _probe(working)
+    return _probed[key]
 
 
 def resolve(mode: str, project_dir: os.PathLike[str] | str) -> object:
@@ -132,7 +136,7 @@ def resolve(mode: str, project_dir: os.PathLike[str] | str) -> object:
                                % (mode, ", ".join(MODES)))
     if mode == "heuristic":
         return HeuristicBackend()
-    if available():
+    if available(project_dir):
         return TsBackend(project_dir)
     if mode == "ts":
         raise TypeBackendError(
@@ -406,12 +410,12 @@ def _answer(type_name: str, source: str) -> Answer:
     return Answer(type_name, type_name not in ("", "var"), source)
 
 
-def _probe() -> bool:
+def _probe(working_dir: Path) -> bool:
     """Whether node is on the path and can load `ts-morph` from where it will be asked to."""
     if not shutil.which("node"):
         return False
     try:
-        _run_node(["--probe"], None, Path.cwd())
+        _run_node(["--probe"], None, working_dir)
     except TypeBackendError:
         return False
     return True
