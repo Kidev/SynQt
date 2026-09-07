@@ -303,7 +303,8 @@ def _apply_entities(work: Path, current: Dict[str, Any], wanted: Dict[str, Any],
         _edit_config(work, lambda text: yamledit.remove_item(text, "entities", name))
         _note(reasons, "synqt.yaml", f"'{name}' removed")
         folder = appmodel.entity_dir(was[name])
-        directory = work / folder
+        # The name came from synqt.yaml, which the editor opens unvalidated.
+        directory = _inside(work, folder)
         if directory.is_dir():
             shutil.rmtree(directory)
             removed.add(folder)

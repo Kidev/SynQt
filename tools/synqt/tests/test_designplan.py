@@ -830,3 +830,28 @@ def test_an_entity_named_by_a_path_is_refused(tmp_path):
     with pytest.raises(designplan.DesignPlanError, match="not an entity name"):
         designplan.compute(project, document)
     assert not list(tmp_path.parent.rglob("escaped*"))
+
+
+def test_removing_an_entity_named_by_a_path_deletes_nothing_outside(tmp_path, monkeypatch):
+    # The editor opens a synqt.yaml that `synqt check` refuses, so a name read from disk is
+    # held to the project too before its folder is deleted. The scratch copy is made under
+    # tmp_path, so the name below leads from it to `keep`.
+    import tempfile
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    project = _copy(tmp_path / "inside", "gavel")
+    keep = tmp_path / "keep"
+    keep.mkdir()
+    (keep / "file.txt").write_text("still here\n")
+    escape = "../../../../keep"
+    config_path = project / "synqt.yaml"
+    config = yaml.safe_load(config_path.read_text())
+    config["entities"].append({"name": escape, "type": "client"})
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    document = designdoc.read(project)
+    document["entities"] = [entity for entity in document["entities"]
+                            if entity["name"] != escape]
+    with pytest.raises(designplan.DesignPlanError, match="outside the project"):
+        designplan.compute(project, document)
+    assert (keep / "file.txt").is_file()
