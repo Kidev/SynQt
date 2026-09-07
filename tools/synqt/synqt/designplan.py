@@ -70,12 +70,14 @@ class Plan:
 def compute(project_dir: os.PathLike[str] | str, document: Dict[str, Any], *,
             profile: Optional[str] = None) -> Plan:
     """The change set `document` implies for the project at `project_dir`."""
-    root = Path(project_dir)
+    # Resolved, because the working copy is named after it and `.` has no name.
+    root = Path(project_dir).resolve()
     current = designdoc.read(root, profile=profile)
     base = configmod.load(root, profile=profile)
     stale = bool(document.get("sourceHash")) and \
         document["sourceHash"] != current["sourceHash"]
 
+    _refuse_unusable_names(document)
     wanted, reasons = _settled(current, document)
     with tempfile.TemporaryDirectory(prefix="synqt-design-") as scratch:
         work = Path(scratch) / root.name
@@ -88,6 +90,34 @@ def compute(project_dir: os.PathLike[str] | str, document: Dict[str, Any], *,
     unwritable = _uncompilable_contracts(wanted)
     return Plan(changes=tuple(changes), findings=tuple(findings) + tuple(unwritable),
                 ok=ok and not unwritable, git=_git_position(root), stale=stale)
+
+
+def _refuse_unusable_names(document: Dict[str, Any]) -> None:
+    """Refuse a document naming an entity by something that is not an entity name.
+
+    Every file the plan writes is placed by an entity name, so `../elsewhere` would write
+    outside the project while the plan is still being worked out, before anybody has seen
+    it.
+    """
+    named = [entity.get("name") for entity in document.get("entities") or []]
+    for link in document.get("links") or []:
+        named.append(link.get("owner"))
+        named += list(link.get("consumers") or [])
+    for name in named:
+        if not isinstance(name, str) or not appmodel.is_valid_entity_name(name):
+            raise DesignPlanError(
+                f"{str(name)[:80]!r} is not an entity name: one starts with a letter and is "
+                f"made of letters, digits, underscores and hyphens, up to "
+                f"{appmodel.ENTITY_NAME_MAX} characters")
+
+
+def _inside(work: Path, relative: str) -> Path:
+    """`relative` under the working copy, refused when it leads anywhere else."""
+    target = (work / relative).resolve()
+    if work.resolve() not in target.parents:
+        raise DesignPlanError(
+            f"'{relative}' is outside the project, and the editor writes only inside it")
+    return target
 
 
 def _with_scaffolded_monitors(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -360,7 +390,7 @@ def _write_source(work: Path, link: Dict[str, Any], points: Dict[str, Dict[str, 
     point = points.get(link["name"]) or {}
     relative = str(link.get("server") or point.get("server")
                    or appmodel.source_path(owning, contract))
-    target = work / relative
+    target = _inside(work, relative)
     edited = _edited_qml(link)
     existing = _text_of(target) if target.exists() else None
     # Overwrite the entity file only if it is still exactly what the scaffolder wrote.
@@ -396,7 +426,7 @@ def _write_entity_qml(work: Path, entity: Dict[str, Any],
     :func:`_edited_qml`).
     """
     relative = appmodel.entity_file_path(entity)
-    target = work / relative
+    target = _inside(work, relative)
     edited = _edited_qml(entity)
     if edited is None:
         # Missing: write it fresh.
@@ -423,7 +453,7 @@ def _write_entity_schema(work: Path, entity: Dict[str, Any],
     if not isinstance(text, str) or not text:
         return
     relative = f"{appmodel.entity_dir(entity)}/schema.sql"
-    target = work / relative
+    target = _inside(work, relative)
     if target.exists() and text == _text_of(target):
         return
     _note(reasons, relative, f"the schema for '{entity['name']}' was edited")

@@ -1370,6 +1370,20 @@
       "defended_by": "The entity read takes only the shapes it understands: a non-map `bundles:` reads as none and a bare target as a list of one, and `synqt check` names the misshaped key. The test reads both shapes back.",
       "file": "tools/synqt/tests/test_designdoc.py",
       "test": "test_a_key_of_the_wrong_shape_still_opens_in_the_editor"
+    },
+    {
+      "id": "the-editor-writes-outside-the-project-before-showing-anything",
+      "what": "The design editor promises nothing is written until its change set has been read and applied, and only inside the project. Working out the plan writes the drawn files into a scratch copy, and a link's `server:` path or an entity name from the page was joined onto it unchecked, so `../../somewhere/file.qml` was written outside the copy, with the page's text, while the plan the editor then showed listed no change.",
+      "defended_by": "A document whose entity, owner or consumer names are not entity names is refused, and every file the plan writes must resolve inside the working copy. The tests send a Source path outside the project and an entity named by a path, require the refusal, and require that no file was written.",
+      "file": "tools/synqt/tests/test_designplan.py",
+      "test": "test_a_source_path_outside_the_project_is_refused_before_anything_is_written"
+    },
+    {
+      "id": "the-editor-cannot-plan-from-the-project-directory",
+      "what": "`synqt design` starts in the current directory by default, and the plan names its working copy after the project directory. `.` has no name, so the working copy was the scratch directory itself, the copy into it failed, and no change set could be worked out at all.",
+      "defended_by": "The project directory is resolved before it is named, in the server and in the plan. The test computes a plan from `.` inside a project.",
+      "file": "tools/synqt/tests/test_designplan.py",
+      "test": "test_a_plan_computes_from_the_project_directory_itself"
     }
   ]
 }

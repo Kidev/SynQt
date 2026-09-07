@@ -796,3 +796,37 @@ def test_a_project_with_no_scopes_block_gets_a_whole_one(tmp_path):
     # With the settings that belong beside the order.
     assert written["scopes"] == {"order": ["anonymous", "user"], "hierarchical": True,
                                  "default": "anonymous"}
+
+
+def test_a_plan_computes_from_the_project_directory_itself(tmp_path, monkeypatch):
+    # `synqt design` runs from the project by default, so the directory it gets is `.`.
+    project = _copy(tmp_path, "gavel")
+    monkeypatch.chdir(project)
+    document = designdoc.read(".")
+    document["entities"].append(_feeds())
+    plan = designplan.compute(".", document)
+    assert any(change.path.startswith("service/feeds/") for change in plan.changes)
+
+
+def test_a_source_path_outside_the_project_is_refused_before_anything_is_written(tmp_path):
+    # Nothing is written until the change set has been read, and then only inside the project.
+    project = _copy(tmp_path / "inside", "gavel")
+    document = designdoc.read(project)
+    link = next(link for link in document["links"] if link["owner"] == "books")
+    link["server"] = "../../outside.qml"
+    link["qml"] = "Item {}\n"
+    link["qmlEdited"] = True
+    with pytest.raises(designplan.DesignPlanError, match="outside the project"):
+        designplan.compute(project, document)
+    assert not list(tmp_path.rglob("outside.qml"))
+
+
+def test_an_entity_named_by_a_path_is_refused(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    document = designdoc.read(project)
+    entity = _feeds()
+    entity["name"] = "../../escaped"
+    document["entities"].append(entity)
+    with pytest.raises(designplan.DesignPlanError, match="not an entity name"):
+        designplan.compute(project, document)
+    assert not list(tmp_path.parent.rglob("escaped*"))

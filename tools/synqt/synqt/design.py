@@ -378,7 +378,7 @@ def make_server(project_dir: os.PathLike[str] | str, *, port: int, token: str,
     """A server for one project, bound to loopback and not yet serving. `port` 0 lets the OS
     pick; the bound port is ``server_port``.
     """
-    root = Path(project_dir)
+    root = Path(project_dir).resolve()
     if not (root / "synqt.yaml").is_file():
         raise DesignError(f"{root} is not a SynQt project (no synqt.yaml)")
     if not token:
