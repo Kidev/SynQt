@@ -71,14 +71,16 @@ def report(project_dir: os.PathLike[str] | str,
     mesh = root / "synqt" / "mesh"
     lines.append("  Mesh certificates:")
     if not (mesh / "ca.crt").exists():
-        lines.append("    - no production CA (run 'synqt mesh init'); 'synqt dev' uses a throwaway dev CA.")
+        lines.append("    - no production CA (run 'synqt mesh init'); 'synqt dev' uses a "
+                     "throwaway dev CA.")
     for entity in config.get("entities", []):
         if appmodel.is_client(entity):
             continue
         name = entity.get("name")
         have = (mesh / f"{name}.crt").exists()
         lines.append(f"    - {name}: "
-                     + ("certificate present" if have else "no certificate (run 'synqt mesh cert %s')" % name))
+                     + ("certificate present" if have
+                        else "no certificate (run 'synqt mesh cert %s')" % name))
 
     # Provider engines/drivers.
     host_qt = toolchain.resolve(root, threads=threads).get("host_qt")

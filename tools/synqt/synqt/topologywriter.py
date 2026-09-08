@@ -125,7 +125,8 @@ def _schema_steps(root: Path, entity: Dict[str, Any]) -> List[str]:
     schema_file = root / appmodel.entity_dir(entity) / "schema.sql"
     if not schema_file.exists():
         return []
-    code = "\n".join(line.split("--", 1)[0] for line in schema_file.read_text().splitlines())
+    schema = schema_file.read_text(encoding="utf-8")
+    code = "\n".join(line.split("--", 1)[0] for line in schema.splitlines())
     return [statement.strip() for statement in code.split(";") if statement.strip()]
 
 

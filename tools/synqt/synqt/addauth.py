@@ -217,7 +217,7 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
     config_path = root / "synqt.yaml"
     config: Dict[str, Any] = {}
     if config_path.exists():
-        loaded = yaml.safe_load(config_path.read_text()) or {}
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         if not isinstance(loaded, dict):
             raise AddAuthError("synqt.yaml is not a mapping")
         config = loaded
@@ -229,7 +229,7 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
     # Spliced into the text, keeping the author's comments and formatting.
     hook_relative = hook_path(config)
     section = identity_section(provider, required, provider_entity, hook_relative)
-    existing = config_path.read_text() if config_path.exists() else ""
+    existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     text = yamledit.set_scalar(existing, "identity", section)
 
     # A project that signs people in must declare its scopes. These four are the ones the
@@ -239,7 +239,7 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
         text = yamledit.set_scalar(text, "scopes", {"order": list(SCAFFOLD_SCOPES),
                                                     "hierarchical": True,
                                                     "default": SCAFFOLD_SCOPES[0]})
-    config_path.write_text(text)
+    config_path.write_text(text, encoding="utf-8")
 
     # Document the variable with no value (`GITHUB_CLIENT_SECRET=`). The development sign-in
     # needs none: `synqt dev` mints its secret per run.
@@ -248,15 +248,15 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
         secret_env = _secret_env(provider)
         lines: List[str] = []
         if env_example.exists():
-            lines = env_example.read_text().splitlines()
+            lines = env_example.read_text(encoding="utf-8").splitlines()
         if not any(line.startswith(secret_env + "=") for line in lines):
             lines.append(f"{secret_env}=")
-            env_example.write_text("\n".join(lines) + "\n")
+            env_example.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # Scaffold the mapping hook (never overwrite an edited one).
     hook = root / hook_relative
     if not hook.exists():
         hook.parent.mkdir(parents=True, exist_ok=True)
-        hook.write_text(MAP_HOOK)
+        hook.write_text(MAP_HOOK, encoding="utf-8")
 
     return manual_steps(provider, provider_entity, hook_relative)

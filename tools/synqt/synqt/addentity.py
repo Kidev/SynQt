@@ -68,7 +68,7 @@ class AddEntityError(Exception):
 
 
 def entity_qml(entity_type: str, name: str) -> str:
-    """An entity own file, showing the helper its type gives it.
+    """An entity's own file, showing the helper its type gives it.
 
     Marked ``pragma Shared`` (``synqt build`` writes ``pragma Singleton`` into the engine
     copy). `synqt add connect-point` rewrites it into the Source while it is untouched.
@@ -220,11 +220,16 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
         raise AddEntityError(
             f"provider '{provider}' is not a {entity_type} provider; "
             f"one of {PROVIDERS[family]}")
-    # Built before the name check: `Http` is only reserved when `network.outbound` is
-    # declared.
     if entity_type == "monitor":
         # A monitor has its own scaffold (monitorscaffold).
         return monitorscaffold.scaffold(project_dir, name)
+    if not appmodel.is_valid_entity_name(name):
+        raise AddEntityError(
+            f"'{name[:80]}' cannot be an entity name; an entity name starts with a letter and "
+            f"is made of letters, digits, underscores and hyphens, up to "
+            f"{appmodel.ENTITY_NAME_MAX} characters")
+    # Built before the name check: `Http` is only reserved when `network.outbound` is
+    # declared.
     block = entity_block(name, entity_type, provider)
     try:
         addcontract.check_qml_name(f"{name[:1].upper()}{name[1:]}",
@@ -236,27 +241,28 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     config_path = root / "synqt.yaml"
     config: Dict[str, Any] = {}
     if config_path.exists():
-        config = yaml.safe_load(config_path.read_text()) or {}
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     entities: List[Dict[str, Any]] = config.get("entities") or []
     if any(isinstance(e, dict) and e.get("name") == name for e in entities):
         raise AddEntityError(f"an entity named '{name}' already exists")
 
     # Spliced into the text, keeping the author's comments and formatting.
     if not config_path.exists():
-        config_path.write_text("entities: []\n")
-    config_path.write_text(yamledit.append_item(config_path.read_text(), "entities", block))
+        config_path.write_text("entities: []\n", encoding="utf-8")
+    text = config_path.read_text(encoding="utf-8")
+    config_path.write_text(yamledit.append_item(text, "entities", block), encoding="utf-8")
 
     # The entity folder and file, plus a schema for relational. No Source until the entity
     # exports a point.
     entity_dir = root / appmodel.entity_dir(block)
     entity_dir.mkdir(parents=True, exist_ok=True)
     own = appmodel.entity_file_path(block)
-    (root / own).write_text(entity_qml(entity_type, name))
+    (root / own).write_text(entity_qml(entity_type, name), encoding="utf-8")
     if entity_type == "relational":
         (entity_dir / "schema.sql").write_text(
             "-- forward-only migrations, one statement per step\n"
             "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
-            "                    text TEXT NOT NULL, author TEXT NOT NULL);\n")
+            "                    text TEXT NOT NULL, author TEXT NOT NULL);\n", encoding="utf-8")
 
     # The external credential variable, with no value (`DB_PASSWORD=`).
     chosen = provider or (PROVIDERS[family][0] if family else None)
@@ -264,10 +270,10 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     if chosen in _EXTERNAL:
         secret_env = _EXTERNAL[chosen]["secret_env"]
         env_example = root / ".env.example"
-        lines = env_example.read_text().splitlines() if env_example.exists() else []
+        lines = env_example.read_text(encoding="utf-8").splitlines() if env_example.exists() else []
         if not any(line.startswith(secret_env + "=") for line in lines):
             lines.append(f"{secret_env}=")
-            env_example.write_text("\n".join(lines) + "\n")
+            env_example.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     steps = [f"Entity '{name}' scaffolded ({entity_type}"
              + (f", provider {chosen}" if chosen else "") + ")."]
@@ -281,7 +287,7 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
                          "(LGPLv2.1), never Oracle's GPLv2-only libmysqlclient (see "
                          "https://synqt.org/licensing/).")
     # Regenerate the app so the new entity has its main.cpp, CMake target and preset.
-    config = yaml.safe_load(config_path.read_text()) or {}
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     presets.write(root, config)
     appgen.generate(root, config)
 
@@ -298,5 +304,5 @@ def list_providers() -> str:
     lines = ["Available providers per family (default first):"]
     for family, providers in PROVIDERS.items():
         lines.append(f"  {family}: {', '.join(providers)}")
-    lines.append("  (entity types: relational, cache, document, api, jobs, service)")
+    lines.append(f"  (entity types: {', '.join(TYPES)})")
     return "\n".join(lines)

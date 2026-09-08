@@ -93,7 +93,7 @@ def assemble_bundle(wasm_dir: Path, client_dir: Path, config: Dict[str, Any],
         shutil.copy2(source, client_dir / source.name)
         count += 1
     (client_dir / "index.html").write_text(
-        clientshell.render_client_shell(f"{target}.js", config, project_dir))
+        clientshell.render_client_shell(f"{target}.js", config, project_dir), encoding="utf-8")
     writer.write_if_changed(client_dir / "synqt-boot.js",
                             clientshell.render_boot_js(target, config))
     extra = 2
@@ -783,7 +783,7 @@ def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
                 (out / "THIRD-PARTY-LICENSES").write_text(
                     licenses.generate(entity, target=target,
                                       qt_license_mode=qt_license_mode, config=config,
-                                      project_dir=root))
+                                      project_dir=root), encoding="utf-8")
                 # Install the desktop client beside its licenses, before the note that names
                 # it.
                 if target == "desktop":
@@ -795,9 +795,10 @@ def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
                                 root, name, out, resolved, desktop_platform(), sign=sign,
                                 qml_dir=root / appmodel.entity_dir(entity)))
                         (out.parent / "DEPLOY.txt").write_text(
-                            _deployed_note(root, name, out, sign))
+                            _deployed_note(root, name, out, sign), encoding="utf-8")
                     else:
-                        (out.parent / "DEPLOY.txt").write_text(_deploy_note(root, name, out))
+                        (out.parent / "DEPLOY.txt").write_text(_deploy_note(root, name, out),
+                                                               encoding="utf-8")
                 produced.append(f"{folder}/ ({target})")
         else:
             out = build_dir / name
@@ -806,7 +807,8 @@ def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
                 licenses.generate(entity, qt_license_mode=qt_license_mode, config=config,
                                   linked=licenses.provider_libraries(
                                       root / profiles.build_dir("host", profile_name,
-                                                                dev_tools=dev_tools))))
+                                                                dev_tools=dev_tools))),
+                encoding="utf-8")
             # into build/<entity>/, which `synqt serve` launches. It holds the last profile
             # built.
             _install_binary(build_dir, name, out, profile_name, dev_tools)

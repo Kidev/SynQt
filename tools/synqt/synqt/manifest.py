@@ -54,5 +54,5 @@ def write(client_dir: Path, wasm_name: str) -> Path:
     """Write ``synqt-manifest.json`` into the bundle and return its path."""
     path = Path(client_dir) / MANIFEST_NAME
     payload = json.dumps(manifest(client_dir, wasm_name), indent=2, sort_keys=True)
-    path.write_text(payload + "\n")
+    path.write_text(payload + "\n", encoding="utf-8")
     return path

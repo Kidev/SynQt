@@ -89,7 +89,7 @@ def ensure_gitignored(project_dir: os.PathLike[str] | str) -> None:
     gitignore = Path(project_dir) / ".gitignore"
     rules = ["synqt/mesh/*.key", "synqt/mesh/dev/", "synqt/toolchain/",
              devidentities.FILE_NAME]
-    existing = gitignore.read_text().splitlines() if gitignore.exists() else []
+    existing = gitignore.read_text(encoding="utf-8").splitlines() if gitignore.exists() else []
     added = [rule for rule in rules if rule not in existing]
     if added:
         with gitignore.open("a") as handle:
@@ -121,7 +121,7 @@ def init(project_dir: os.PathLike[str] | str, *, dev: bool = False, force: bool 
         "basicConstraints=critical,CA:TRUE\n"
         "keyUsage=critical,keyCertSign,cRLSign\n"
         "subjectKeyIdentifier=hash\n"
-        "authorityKeyIdentifier=keyid:always\n")
+        "authorityKeyIdentifier=keyid:always\n", encoding="utf-8")
     try:
         _reserve_key(ca_key)
         _openssl("genrsa", "-out", str(ca_key), "2048")
@@ -174,7 +174,7 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
         "extendedKeyUsage=serverAuth,clientAuth\n"
         f"subjectAltName=DNS:{entity}\n"
         "subjectKeyIdentifier=hash\n"
-        "authorityKeyIdentifier=keyid,issuer\n")
+        "authorityKeyIdentifier=keyid,issuer\n", encoding="utf-8")
     try:
         _reserve_key(key)
         _openssl("genrsa", "-out", str(key), "2048")

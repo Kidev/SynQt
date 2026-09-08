@@ -108,8 +108,8 @@ def entity_modules(entity: Dict[str, Any], target: str = "wasm",
     # Qt Gui: the published model is a QStandardItemModel (SynQt::SourceModel), linked by an
     # entity that owns a point. The edge always owns the Pages point and runs a
     # QGuiApplication.
-    if entity_type in ("web_edge", "monitor") or (config is not None
-                                                  and appmodel.owned_by(config, entity.get("name"))):
+    owns_a_point = config is not None and appmodel.owned_by(config, entity.get("name"))
+    if entity_type in ("web_edge", "monitor") or owns_a_point:
         modules.append("Qt Gui")
     if entity_type in ("web_edge", "monitor"):
         modules.append("Qt HTTP Server")

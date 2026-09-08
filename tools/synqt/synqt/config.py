@@ -12,8 +12,8 @@ layers override earlier ones, key by key:
 4. ``SYNQT_<SECTION>_<KEY>`` environment variables, for CI and containers.
 5. CLI flags, applied by the CLI after this module.
 
-A profile changes and adds, never removes, since removing a consumer is a security change.
-An environment variable applies only when its first token names a section the configuration
+A profile changes and adds keys and list entries; it cannot delete one. A plain list it sets
+(``consumers``, ``scopes.order``) replaces the base list whole. An environment variable applies only when its first token names a section the configuration
 already has, which keeps ``SYNQT_ROOT``, ``SYNQT_EDGE_URL`` and the like out of the
 topology. Validation runs on the resolved configuration, so a secret from any layer must be
 an ``env:`` reference.
@@ -105,7 +105,7 @@ def merge(base: Any, override: Any) -> Any:
 
 def _read(path: Path) -> Dict[str, Any]:
     try:
-        loaded = yaml.safe_load(path.read_text()) or {}
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as error:
         raise ConfigError(f"{path.name}: {error}") from error
     if not isinstance(loaded, dict):

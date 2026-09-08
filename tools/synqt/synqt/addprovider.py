@@ -232,14 +232,15 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, family: str) -> str
     out_file = out_dir / f"{name.lower()}provider.cpp"
     if out_file.exists():
         raise AddProviderError(f"{out_file} already exists")
-    out_file.write_text(_skeleton(name, family))
+    out_file.write_text(_skeleton(name, family), encoding="utf-8")
 
     interface = FAMILY_INTERFACE[family][0]
+    reported = "through the interface" if family == "relational" else "in the log"
     return (
         f"Custom {family} provider '{name}' scaffolded at {out_file.relative_to(root)}.\n"
         f"  - Implement the {interface} operations (parameters separate, errors returned).\n"
         f"    It compiles and registers as it is; every operation reports that it is not\n"
-        f"    written yet ({'through the interface' if family == 'relational' else 'in the log'}),\n"
+        f"    written yet ({reported}),\n"
         f"    so nothing fails quietly while you work.\n"
         f"  - Select it with provider.name: custom:{name} in that entity's synqt.yaml block.\n"
         f"    That selection is also what compiles this file into the entity, so the\n"

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
 import yaml
 
 from synqt import addcontract, addentity, addprovider, appmodel
@@ -213,3 +214,20 @@ class AddEntityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("name", ["x" * 65, "../db", "9lives"])
+def test_a_name_that_cannot_be_an_entity_writes_nothing(tmp_path, name):
+    # The name becomes a folder, a CMake target and a certificate subject (64 characters at
+    # most), so it is held to the entity-name rule before anything is written.
+    (tmp_path / "synqt.yaml").write_text("entities: []\n")
+    with pytest.raises(addentity.AddEntityError):
+        addentity.scaffold(tmp_path, name, "service")
+    assert (tmp_path / "synqt.yaml").read_text() == "entities: []\n"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["synqt.yaml"]
+
+
+def test_the_provider_listing_names_every_entity_type():
+    listing = addentity.list_providers()
+    for entity_type in addentity.TYPES:
+        assert entity_type in listing.splitlines()[-1], entity_type

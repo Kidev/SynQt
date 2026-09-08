@@ -98,7 +98,7 @@ def owner_entity(project_dir: os.PathLike[str] | str, owner: str) -> Dict[str, A
     config_path = Path(project_dir) / "synqt.yaml"
     config: Dict[str, Any] = {}
     if config_path.exists():
-        config = yaml.safe_load(config_path.read_text()) or {}
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     for entity in config.get("entities") or []:
         if isinstance(entity, dict) and entity.get("name") == owner:
             return entity
@@ -214,7 +214,7 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, owner: str, *,
     config_path = Path(project_dir) / "synqt.yaml"
     if not config_path.exists():
         raise AddContractError("no synqt.yaml (run 'synqt new' first)")
-    config: Dict[str, Any] = yaml.safe_load(config_path.read_text()) or {}
+    config: Dict[str, Any] = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
     entities = {e.get("name") for e in config.get("entities", []) if isinstance(e, dict)}
     if owner not in entities:
@@ -234,7 +234,7 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, owner: str, *,
     block: Dict[str, Any] = {"owner": owner, "consumers": consumers,
                              "export": _EXPORT_TEMPLATE}
     config_path.write_text(yamledit.append_item(
-        config_path.read_text(), "connect_points", block))
+        config_path.read_text(encoding="utf-8"), "connect_points", block), encoding="utf-8")
     owning = owner_entity(project_dir, owner)
     written = write_source(project_dir, owning, contract, point=owner)
     steps = [f"Added the connect point '{owner}' exports (contract {contract}, "

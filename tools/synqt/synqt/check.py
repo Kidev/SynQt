@@ -2582,7 +2582,7 @@ def lint_loading(project_dir: os.PathLike[str] | str) -> List[str]:
     """
     root = Path(project_dir)
     config_path = root / "synqt.yaml"
-    config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
     loading = ((config or {}).get("build") or {}).get("loading")
     if not isinstance(loading, dict):
         return []
@@ -2676,7 +2676,7 @@ def lint_client_root(project_dir: os.PathLike[str] | str) -> List[str]:
     config_path = root / "synqt.yaml"
     if not config_path.exists():
         return []
-    config = yaml.safe_load(config_path.read_text()) or {}
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
     messages: List[str] = []
     for entity in config.get("entities") or []:

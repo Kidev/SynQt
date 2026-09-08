@@ -545,15 +545,15 @@ def _write_dev_reload_harness(client_dir: os.PathLike[str] | str) -> None:
     client_dir = Path(client_dir)
     if not client_dir.exists():
         return
-    (client_dir / "synqt-dev.js").write_text(clientshell.render_dev_reload_js())
+    (client_dir / "synqt-dev.js").write_text(clientshell.render_dev_reload_js(), encoding="utf-8")
     index = client_dir / "index.html"
     if index.exists():
-        html = index.read_text()
+        html = index.read_text(encoding="utf-8")
         if 'src="synqt-dev.js"' not in html:
             html = html.replace("</body>",
                                 '  <script src="synqt-dev.js"></script>\n</body>')
-            index.write_text(html)
-    (client_dir / "synqt-reload.txt").write_text(f"{time.time_ns()}\n")
+            index.write_text(html, encoding="utf-8")
+    (client_dir / "synqt-reload.txt").write_text(f"{time.time_ns()}\n", encoding="utf-8")
 
 
 def _wait_for_port(port: int, *, timeout_s: float = 10.0) -> bool:

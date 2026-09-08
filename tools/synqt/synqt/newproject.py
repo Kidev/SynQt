@@ -196,7 +196,7 @@ def _config(name: str, entities: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _write_qmlformat_settings(root: Path) -> None:
     """Write the project's qmlformat settings, so check.qml_format has rules to judge by."""
-    (root / ".qmlformat.ini").write_text(QMLFORMAT_INI)
+    (root / ".qmlformat.ini").write_text(QMLFORMAT_INI, encoding="utf-8")
 
 
 def write_gitignore(root: Path) -> None:
@@ -214,7 +214,7 @@ def write_gitignore(root: Path) -> None:
         # machine-specific.
         "synqt/mesh/dev/\nsynqt/mesh/docker-ca.crt\n.env\n"
         # The people this developer signs in as under `synqt dev --identity-picker`.
-        f"{devidentities.FILE_NAME}\n")
+        f"{devidentities.FILE_NAME}\n", encoding="utf-8")
 
 
 def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
@@ -246,20 +246,21 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     if auth:
         # Mark the edge so the license generator knows it links Network Authorization.
         config["entities"][1]["identity"] = True
-    (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+    (root / "synqt.yaml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
     for entity in entities:
         write_entity_qml(root, entity)
 
     write_gitignore(root)
-    (root / ".env.example").write_text("# Entity secrets (env: references), never committed\n")
+    (root / ".env.example").write_text(
+        "# Entity secrets (env: references), never committed\n", encoding="utf-8")
     _write_qmlformat_settings(root)
 
     # A starting entity is scaffolded by `synqt add entity` itself, after .env.example
     # exists (an external provider appends its secret there).
     for entity_name, entity_type in starting or []:
         addentity.scaffold(root, entity_name, entity_type)
-    config = yaml.safe_load((root / "synqt.yaml").read_text())
+    config = yaml.safe_load((root / "synqt.yaml").read_text(encoding="utf-8"))
 
     presets.write(root, config)
     # The buildable app: the CMake and one main.cpp per entity, from the topology.

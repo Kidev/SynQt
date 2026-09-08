@@ -45,7 +45,7 @@ def read(project_dir: os.PathLike[str] | str,
         return [], []
 
     try:
-        document = yaml.safe_load(file.read_text()) or []
+        document = yaml.safe_load(file.read_text(encoding="utf-8")) or []
     except yaml.YAMLError as error:
         # A parse error gives one message for the whole file.
         return [], [f"{FILE_NAME} is not valid YAML and was ignored entirely: {error}"]

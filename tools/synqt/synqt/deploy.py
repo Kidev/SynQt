@@ -408,7 +408,7 @@ def _deploy_linux(name: str, out: Path, host_qt: Optional[str], qml_root: Path) 
         'export LD_LIBRARY_PATH="$here/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"\n'
         'export QML_IMPORT_PATH="$here/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"\n'
         'export QT_PLUGIN_PATH="$here/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"\n'
-        f'exec "$here/{name}" "$@"\n')
+        f'exec "$here/{name}" "$@"\n', encoding="utf-8")
     launcher.chmod(launcher.stat().st_mode | 0o111)
     # No "UNSIGNED" warning on Linux, where unsigned is normal.
     return (f"deployed {name} as a portable layout ({len(libraries)} Qt libraries, "
