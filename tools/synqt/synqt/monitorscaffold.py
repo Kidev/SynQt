@@ -481,19 +481,26 @@ def design_asset() -> Dict[str, Any]:
 
 
 def scaffold(project_dir: os.PathLike[str] | str, name: str) -> str:
-    """Write the monitor, its console client, the gate, and `monitoring.entity`. All four or
-    none.
-    """
+    """Write the monitor, its console client, the gate, and `monitoring.entity`."""
     # Local import: `addentity` imports this module.
     from . import addentity, appgen, presets, yamledit
     import yaml
 
     console = f"{name}-console"
+    # Both names become folders and certificate subjects, and the monitor's is written into
+    # its sign-in page.
+    for wanted in (name, console):
+        if not appmodel.is_valid_entity_name(wanted):
+            raise addentity.AddEntityError(
+                f"'{wanted[:80]}' cannot be an entity name; an entity name starts with a "
+                f"letter and is made of letters, digits, underscores and hyphens, up to "
+                f"{appmodel.ENTITY_NAME_MAX} characters (the console is named "
+                f"'<monitor>-console')")
     root = Path(project_dir)
     config_path = root / "synqt.yaml"
     config: Dict[str, Any] = {}
     if config_path.exists():
-        config = yaml.safe_load(config_path.read_text()) or {}
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     existing = {e.get("name") for e in (config.get("entities") or []) if isinstance(e, dict)}
     for taken in (name, console):
         if taken in existing:
@@ -502,32 +509,35 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str) -> str:
     monitor = monitor_block(name, config)
     monitor["bundles"] = bundles_block(console)
     if not config_path.exists():
-        config_path.write_text("entities: []\n")
+        config_path.write_text("entities: []\n", encoding="utf-8")
 
     # Spliced into the text, keeping the author's comments and formatting.
-    text = config_path.read_text()
+    text = config_path.read_text(encoding="utf-8")
     text = yamledit.append_item(text, "entities", monitor)
     text = yamledit.append_item(text, "entities", console_block(console, name))
-    config_path.write_text(text)
+    config_path.write_text(text, encoding="utf-8")
 
     # Written last, so an interrupted scaffold leaves no entity reporting to a missing
-    # monitor.
-    config = yaml.safe_load(config_path.read_text()) or {}
-    if not appmodel.monitor_entity(config):
-        config_path.write_text(config_path.read_text().rstrip("\n")
-                               + f"\n\nmonitoring:\n  entity: {name}\n")
+    # monitor. Into the `monitoring:` section when there is one, so its other keys stay.
+    text = config_path.read_text(encoding="utf-8")
+    if not appmodel.monitor_entity(yaml.safe_load(text) or {}):
+        try:
+            text = yamledit.set_scalar(text, "monitoring.entity", name)
+        except yamledit.YamlEditError:
+            text = yamledit.set_scalar(text, "monitoring", {"entity": name})
+        config_path.write_text(text, encoding="utf-8")
 
     monitor_dir = root / appmodel.entity_dir(monitor)
     monitor_dir.mkdir(parents=True, exist_ok=True)
     (monitor_dir / "signin").mkdir(exist_ok=True)
-    (monitor_dir / "signin" / "index.html").write_text(signin_page(name))
+    (monitor_dir / "signin" / "index.html").write_text(signin_page(name), encoding="utf-8")
 
     console_entity = console_block(console, name)
     console_dir = root / appmodel.entity_dir(console_entity)
     console_dir.mkdir(parents=True, exist_ok=True)
-    (console_dir / "Main.qml").write_text(console_qml(name))
+    (console_dir / "Main.qml").write_text(console_qml(name), encoding="utf-8")
 
-    config = yaml.safe_load(config_path.read_text()) or {}
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     presets.write(root, config)
     appgen.generate(root, config)
 

@@ -563,3 +563,33 @@ def test_synqt_dev_launches_a_monitor_with_its_own_port_and_its_bundles():
     assert f"operator={Path('/p') / 'build' / 'client-ops-console'}" in command
     # Both halves. It hosts a mesh point as well as serving a console.
     assert "--topology" in command and "--qml-dir" in command
+
+
+def test_scaffolding_a_monitor_keeps_the_monitoring_section_it_finds(tmp_path):
+    # A second top-level `monitoring:` would win over the first, and its levels would go.
+    import yaml
+    from synqt import monitorscaffold
+
+    (tmp_path / "synqt.yaml").write_text(
+        "entities:\n"
+        "  - name: web\n"
+        "    type: web_edge\n"
+        "monitoring:\n"
+        "  levels:\n"
+        "    call: debug\n")
+    monitorscaffold.scaffold(tmp_path, "ops")
+    text = (tmp_path / "synqt.yaml").read_text()
+    assert text.count("monitoring:") == 1, text
+    assert yaml.safe_load(text)["monitoring"] == {"levels": {"call": "debug"}, "entity": "ops"}
+
+
+@pytest.mark.parametrize("name", ["../../ops", "ops<b>", "x" * 60])
+def test_a_monitor_name_that_is_not_an_entity_name_writes_nothing(tmp_path, name):
+    from synqt import addentity, monitorscaffold
+
+    (tmp_path / "synqt.yaml").write_text("entities:\n  - name: web\n    type: web_edge\n")
+    with pytest.raises(addentity.AddEntityError):
+        monitorscaffold.scaffold(tmp_path, name)
+    assert (tmp_path / "synqt.yaml").read_text() == \
+        "entities:\n  - name: web\n    type: web_edge\n"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["synqt.yaml"]

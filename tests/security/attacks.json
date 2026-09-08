@@ -1398,6 +1398,20 @@
       "defended_by": "The probe runs from the project directory and is kept per directory, and the extract skips generated/ like build/. The tests probe two directories of which only one loads ts-morph, and extract a project with a mirrored file.",
       "file": "tools/synqt/tests/test_typebackend.py",
       "test": "test_ts_morph_is_looked_for_where_the_backend_will_run"
+    },
+    {
+      "id": "a-monitor-scaffold-drops-the-monitoring-section",
+      "what": "`synqt add entity <name> --type monitor` wrote `monitoring.entity` by appending a second top-level `monitoring:` whenever the section had no entity, and YAML keeps the last of two equal keys, so the project's own `monitoring.levels` (or any other key there) was silently discarded.",
+      "defended_by": "The entity is set inside the existing section, or the section is added when there is none. The test scaffolds into a project with `monitoring.levels` and requires one section holding both.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_scaffolding_a_monitor_keeps_the_monitoring_section_it_finds"
+    },
+    {
+      "id": "a-monitor-name-is-written-as-a-path-and-into-html",
+      "what": "The monitor scaffolder skipped the name check every other entity type gets, so a name like `../../x` created folders outside the project and was written unescaped into the sign-in page's title and heading.",
+      "defended_by": "The monitor's name and its console's (`<monitor>-console`) must both be entity names before anything is written. The test refuses a path, markup and an over-long name and requires the project untouched.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_a_monitor_name_that_is_not_an_entity_name_writes_nothing"
     }
   ]
 }
