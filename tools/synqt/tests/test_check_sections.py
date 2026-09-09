@@ -125,3 +125,33 @@ def test_a_qt_version_this_synqt_does_not_build_is_refused():
     config["project"]["qt_version"] = toolchain.QT_VERSION
     _, messages = check.validate(config)
     assert not any("qt_version" in message for message in messages), messages
+
+
+@pytest.mark.parametrize("name", ["my shop", "9lives", "shop;rm"])
+def test_a_project_name_cmake_and_qml_cannot_use_is_refused(name):
+    config = _config()
+    config["project"]["name"] = name
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any("project.name" in message for message in messages), messages
+
+
+@pytest.mark.parametrize("name", ["my shop", "9lives"])
+def test_new_and_new_from_an_example_refuse_such_a_name_before_writing(tmp_path, name):
+    from synqt import examples, newproject
+
+    with pytest.raises(newproject.NewProjectError):
+        newproject.scaffold(tmp_path, name)
+    with pytest.raises(newproject.NewProjectError):
+        examples.scaffold(tmp_path, name, "gavel")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_docker_names_the_compose_project_in_lowercase():
+    from synqt import docker
+
+    config = _config()
+    config["project"]["name"] = "Shop"
+    compose = docker.render_compose(config, docker.mesh_addresses(config))
+    assert "name: shop\n" in compose
+    assert "image: shop-synqt:latest" in compose

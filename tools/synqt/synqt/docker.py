@@ -766,7 +766,8 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
     (from :func:`checkout_source`) is the default of `SYNQT_SRC`, so a moved checkout needs
     no regeneration.
     """
-    project = (config.get("project") or {}).get("name") or "synqt-app"
+    # Compose project and image names are lowercase only.
+    project = str((config.get("project") or {}).get("name") or "synqt-app").lower()
     edge = edge_entity(config)
     edge_name = edge.get("name") if edge else None
     public = appmodel.public_settings(edge) if edge else {}

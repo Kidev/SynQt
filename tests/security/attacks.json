@@ -1440,6 +1440,13 @@
       "defended_by": "`synqt check` refuses a written qt_version other than the pin, naming both. The test refuses 6.11.1 and accepts the pin.",
       "file": "tools/synqt/tests/test_check_sections.py",
       "test": "test_a_qt_version_this_synqt_does_not_build_is_refused"
+    },
+    {
+      "id": "a-project-name-breaks-the-build-it-names",
+      "what": "Nothing held `project.name` to any rule, though it is written into the CMake `project()`, the client's QML module URI and the container names: `synqt new \"my shop\"` produced a CMakeLists that does not configure, a leading digit a QML URI no import can name, and any capital letter a compose file Docker rejects.",
+      "defended_by": "`synqt check`, `synqt new` and `synqt new --example` hold the name to the entity-name rule before anything is written, and the docker files lowercase it. The tests refuse a space, a leading digit and a semicolon, require nothing written, and read a lowercased compose project and image.",
+      "file": "tools/synqt/tests/test_check_sections.py",
+      "test": "test_a_project_name_cmake_and_qml_cannot_use_is_refused"
     }
   ]
 }

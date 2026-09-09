@@ -25,15 +25,15 @@ QT_VERSION = toolchain.QT_VERSION
 QMLFORMAT_INI = """; SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 ; SPDX-License-Identifier: Apache-2.0
 ;
-; How `synqt check` judges QML formatting when check.qml_format is on. Shipping one at all
-; is the point. Left to itself qmlformat searches per directory and then falls back to a
-; PER-USER file (~/.config/.qmlformat.ini), so the same QML would get a different answer on
-; each machine and a third in CI. `synqt check` passes this with -s, overriding the lookup,
-; and skips the check entirely if this file is missing rather than guessing.
+; How `synqt check` judges QML formatting when check.qml_format is on. Without this file
+; qmlformat searches per directory and then falls back to a per-user file
+; (~/.config/.qmlformat.ini), so the same QML would get a different answer on each machine
+; and a third in CI. `synqt check` passes this file with -s, which overrides that lookup,
+; and skips the check when the file is missing.
 ;
 ; Indentation, tabs, newlines and semicolons are unambiguous and qmlformat is right
-; about them. Everything that reorders or rewrites your code is off, and each is off for a
-; measured reason, not out of caution:
+; about them. Everything that reorders or rewrites your code is off, each for the reason
+; below:
 ;
 ;   NormalizeOrder=false            The two ordering knobs, mutually exclusive. Normalize
 ;   GroupAttributesTogether=false   sorts each group alphabetically (visible, width, height
@@ -64,8 +64,7 @@ QMLFORMAT_INI = """; SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 ;   SortImports=false               Reorders imports, and qmlformat's own help warns it can
 ;                                   change semantics when two modules export one name.
 ;
-; So what is left is whitespace and semicolons. The parts with one right answer, that no
-; reviewer should spend a comment on. Change any of it. It is your project's QML.
+; What is left is whitespace and semicolons. Change any of it: it is your project's QML.
 
 UseTabs=false
 IndentWidth=4
@@ -126,7 +125,7 @@ def write_client_main(project_dir: os.PathLike[str] | str,
 
 
 def entity_singleton(name: str) -> str:
-    """An entity own QML while the entity exports nothing: one object, alive as long as the
+    """An entity's own QML while the entity exports nothing: one object, alive as long as the
     entity.
 
     Marked ``pragma Shared``, so ``appmodel.discover_singletons`` finds it and the generated
@@ -226,11 +225,16 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,
     use `synqt add entity <name> --type <type>`.
     """
     root = Path(parent_dir) / name
+    # `name` may be a path (`../shop`, `.`); the project is named after its last component.
+    project_name = root.resolve().name
+    if not appmodel.is_valid_project_name(project_name):
+        raise NewProjectError(
+            f"'{project_name}' cannot name a project: a project name starts with a letter and "
+            "is made of letters, digits, underscores and hyphens, because it becomes the "
+            "CMake project, the client's QML module and the container names")
     if root.exists() and any(root.iterdir()):
         raise NewProjectError(f"{root} already exists and is not empty")
     root.mkdir(parents=True, exist_ok=True)
-    # `name` may be a path (`../shop`, `.`); the project is named after its last component.
-    project_name = root.resolve().name
 
     # Named for their role: the client is `client/app/`, the edge `web/edge/`.
     entities: List[Dict[str, Any]] = [

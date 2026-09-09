@@ -133,6 +133,13 @@ ENTITY_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 ENTITY_NAME_MAX = 64
 
 
+def is_valid_project_name(name: str) -> bool:
+    """Whether `name` can name a project. It becomes the CMake `project()`, the QML module URI
+    and the container names, so it takes the entity-name rule.
+    """
+    return is_valid_entity_name(name)
+
+
 def is_valid_entity_name(name: str) -> bool:
     """Whether `name` is usable as an entity name everywhere one is used."""
     return bool(name) and len(name) <= ENTITY_NAME_MAX and ENTITY_NAME.match(name) is not None

@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Tuple
 
 import yaml
 
-from . import appgen, licenses, newproject, presets, yamledit
+from . import appgen, appmodel, licenses, newproject, presets, yamledit
 
 
 class ExampleError(Exception):
@@ -117,6 +117,10 @@ def scaffold(parent_dir: os.PathLike[str] | str, name: str, example: str) -> str
             f"there is no example called '{example}'. This build ships: {known}")
 
     destination = Path(parent_dir) / name
+    if not appmodel.is_valid_project_name(destination.resolve().name):
+        raise newproject.NewProjectError(
+            f"'{destination.resolve().name}' cannot name a project: a project name starts "
+            "with a letter and is made of letters, digits, underscores and hyphens")
     if destination.exists() and any(destination.iterdir()):
         raise newproject.NewProjectError(f"{destination} already exists and is not empty")
     if destination.exists():

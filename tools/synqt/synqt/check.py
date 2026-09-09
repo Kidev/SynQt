@@ -146,6 +146,21 @@ def _organization_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+def _project_name_messages(config: Dict[str, Any]) -> List[str]:
+    """`project.name`, when written, is usable as a CMake project, a QML module URI and a
+    container name.
+    """
+    project = config.get("project")
+    if not isinstance(project, dict) or "name" not in project:
+        return []
+    name = str(project["name"])
+    if appmodel.is_valid_project_name(name):
+        return []
+    return [f"error: project.name '{name[:80]}' cannot be used; a project name starts with "
+            "a letter and is made of letters, digits, underscores and hyphens. It becomes "
+            "the CMake project, the client's QML module and the container names"]
+
+
 def _qt_version_messages(config: Dict[str, Any]) -> List[str]:
     """`project.qt_version`, when written, is the Qt this synqt builds against. The kits are
     resolved for the pin and `find_package` asks for the written version, so any other value
@@ -615,6 +630,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _key_messages(config)
     messages += _organization_messages(config)
     messages += _qt_version_messages(config)
+    messages += _project_name_messages(config)
     messages += _entity_name_messages(declared)
     messages += _qml_uri_messages(config, declared)
     messages += _duplicate_messages(
