@@ -169,6 +169,42 @@ class ToolchainTest(unittest.TestCase):
         self.assertIn(f"-O {qt.parent.as_posix()}", host)
 
 
+class EmscriptenPinTest(unittest.TestCase):
+    """Qt for WebAssembly is built with one Emscripten, and a client linked by another may not
+    run, so the resolver holds emcc to the pin.
+    """
+
+    def _emsdk(self, where: Path, version: str) -> Path:
+        emcc = where / "upstream" / "emscripten" / "emcc"
+        emcc.parent.mkdir(parents=True)
+        emcc.write_text("#!/bin/sh\n")
+        (emcc.parent / "emscripten-version.txt").write_text(f'"{version}"\n')
+        return emcc
+
+    def test_the_projects_emsdk_wins_over_another_version_on_path(self):
+        project = Path(tempfile.mkdtemp())
+        pinned = self._emsdk(project / "synqt" / "toolchain" / "emsdk",
+                             toolchain.EMSCRIPTEN_VERSION)
+        elsewhere = self._emsdk(Path(tempfile.mkdtemp()), "4.0.1")
+        with unittest.mock.patch.object(toolchain.shutil, "which",
+                                        lambda name: str(elsewhere) if name == "emcc" else None):
+            resolved = toolchain.resolve(project)
+        self.assertEqual(resolved["emcc"], str(pinned))
+        self.assertEqual(resolved["emcc_version"], toolchain.EMSCRIPTEN_VERSION)
+
+    def test_only_another_version_is_a_toolchain_that_cannot_build_the_client(self):
+        project = Path(tempfile.mkdtemp())
+        elsewhere = self._emsdk(Path(tempfile.mkdtemp()), "4.0.1")
+        resolved = {"host_qt": "/qt", "wasm_qt": "/qt-wasm", "cmake": "/cmake",
+                    "emcc": str(elsewhere), "emcc_version": "4.0.1",
+                    "host_qt_missing": [], "wasm_qt_missing": []}
+        self.assertFalse(toolchain.is_complete(resolved, need_wasm=True))
+        self.assertTrue(toolchain.is_complete(resolved, need_wasm=False))
+        hints = toolchain.provision_hints(resolved)
+        self.assertTrue(any(f"emsdk install {toolchain.EMSCRIPTEN_VERSION}" in hint
+                            and "4.0.1" in hint for hint in hints), hints)
+
+
 class PrecompressTest(unittest.TestCase):
     def test_wasm_is_brotli_and_gzip_compressed(self):
         client = Path(tempfile.mkdtemp())

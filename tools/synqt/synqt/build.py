@@ -375,6 +375,10 @@ def _cmake_build(project_dir: Path, resolved: Dict[str, Any],
         missing += [f"Qt6{module} missing from the {labels[kit]}"
                     for kit in ("host_qt", "wasm_qt") if kit in pieces
                     for module in (resolved.get(f"{kit}_missing") or [])]
+        version = resolved.get("emcc_version")
+        if need_wasm and version not in (None, toolchain.EMSCRIPTEN_VERSION):
+            missing.append(f"Emscripten {version} where Qt {toolchain.QT_VERSION} needs "
+                           f"{toolchain.EMSCRIPTEN_VERSION}")
         return (f"note: toolchain incomplete ({', '.join(missing)}; run 'synqt doctor' for "
                 "the commands that provision it); skipped compilation, emitted the deploy "
                 "layout and licenses.")

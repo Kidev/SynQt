@@ -142,7 +142,9 @@ project:
 
 `name` is the only required key. `qt_version` pins the toolchain: the Qt version every
 entity builds against and, through it, the client's Emscripten version (see
-[build system and CLI](build-system-and-cli.md)).
+[build system and CLI](build-system-and-cli.md)). A synqt release builds one Qt, so `synqt
+check` refuses any other value, and the build refuses an Emscripten other than the one
+that Qt was built with.
 
 `organization` names what the client's own settings are filed under: a `Settings` object in
 QML, or `QSettings` in C++. It defaults to `name`. Qt keeps no settings on WebAssembly or

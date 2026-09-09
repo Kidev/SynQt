@@ -111,3 +111,17 @@ def test_the_examples_use_only_keys_the_tools_read():
         config = yaml.safe_load((EXAMPLE.parent / name / "synqt.yaml").read_text())
         ok, messages = check.validate(config)
         assert not any("nothing reads it" in message for message in messages), (name, messages)
+
+
+def test_a_qt_version_this_synqt_does_not_build_is_refused():
+    from synqt import toolchain
+
+    config = _config()
+    config["project"] = {"name": "shop", "qt_version": "6.11.1"}
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any("project.qt_version" in message and toolchain.QT_VERSION in message
+               for message in messages), messages
+    config["project"]["qt_version"] = toolchain.QT_VERSION
+    _, messages = check.validate(config)
+    assert not any("qt_version" in message for message in messages), messages

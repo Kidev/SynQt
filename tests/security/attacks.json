@@ -1426,6 +1426,20 @@
       "defended_by": "The name is held to the entity-name rule before anything is written. The test refuses a 65-character name, a path and a leading digit, and requires the project untouched.",
       "file": "tools/synqt/tests/test_addentity.py",
       "test": "test_a_name_that_cannot_be_an_entity_writes_nothing"
+    },
+    {
+      "id": "an-emscripten-off-the-pin-builds-the-client",
+      "what": "The resolver took the first emcc on PATH ahead of the project's own emsdk and never read its version, so a machine with another Emscripten active linked the client with it against a Qt built with 5.0.5, and nothing said the result might not run.",
+      "defended_by": "The resolver reads emscripten-version.txt beside each candidate, prefers one at the pin (the project's emsdk first), and a toolchain whose only emcc is another version is incomplete for a browser build, with the emsdk command that fixes it. The tests resolve with another version on PATH and with only another version.",
+      "file": "tools/synqt/tests/test_tool.py",
+      "test": "test_only_another_version_is_a_toolchain_that_cannot_build_the_client"
+    },
+    {
+      "id": "a-qt-version-the-cli-cannot-build-is-accepted",
+      "what": "`project.qt_version` went into every find_package floor while the kits were resolved for the CLI's own pin, so a project naming another Qt failed to configure against a kit that was not there (a newer version), or built with a Qt it did not name (an older one), and `synqt check` said nothing.",
+      "defended_by": "`synqt check` refuses a written qt_version other than the pin, naming both. The test refuses 6.11.1 and accepts the pin.",
+      "file": "tools/synqt/tests/test_check_sections.py",
+      "test": "test_a_qt_version_this_synqt_does_not_build_is_refused"
     }
   ]
 }

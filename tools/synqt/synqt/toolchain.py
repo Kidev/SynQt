@@ -128,14 +128,35 @@ def missing_modules(kit: Optional[str], modules: Dict[str, str]) -> List[str]:
             if not (cmake / f"Qt6{name}" / f"Qt6{name}Config.cmake").is_file()]
 
 
+def emscripten_version_of(emcc: Optional[str]) -> Optional[str]:
+    """The version an emcc reports in the `emscripten-version.txt` installed beside it, or
+    None when there is no such file to read.
+    """
+    if not emcc:
+        return None
+    try:
+        written = (Path(emcc).resolve().parent / "emscripten-version.txt").read_text(
+            encoding="utf-8")
+    except OSError:
+        return None
+    return written.strip().strip('"') or None
+
+
 def _emsdk(project_dir: os.PathLike[str] | str) -> Optional[Path]:
-    emcc = shutil.which("emcc")
-    if emcc:
-        return Path(emcc)
-    return _first_existing([
-        Path(project_dir) / "synqt" / "toolchain" / "emsdk" / "upstream" / "emscripten" / "emcc",
-        Path("/opt/emsdk/upstream/emscripten/emcc"),
-    ])
+    """The emcc to build with: the first at the pinned version, the project's own emsdk ahead
+    of PATH and /opt/emsdk. With none at the pin, the first found, so the mismatch is named.
+    """
+    candidates = [Path(project_dir) / "synqt" / "toolchain" / "emsdk" / "upstream"
+                  / "emscripten" / "emcc"]
+    on_path = shutil.which("emcc")
+    if on_path:
+        candidates.append(Path(on_path))
+    candidates.append(Path("/opt/emsdk/upstream/emscripten/emcc"))
+    found = [candidate for candidate in candidates if candidate.exists()]
+    pinned = next((candidate for candidate in found
+                   if emscripten_version_of(str(candidate)) in (EMSCRIPTEN_VERSION, None)),
+                  None)
+    return pinned or (found[0] if found else None)
 
 
 def resolve(project_dir: os.PathLike[str] | str, *, threads: str = "single",
@@ -166,6 +187,8 @@ def resolve(project_dir: os.PathLike[str] | str, *, threads: str = "single",
         # The archives each of those add-ons is installed from, for the hints.
         "add_on_archives": extra,
         "emcc": str(emcc) if emcc else None,
+        # Another Emscripten than the one Qt was built with links a client that may not run.
+        "emcc_version": emscripten_version_of(str(emcc) if emcc else None),
         "cmake": shutil.which("cmake"),
         "ninja": shutil.which("ninja"),
     }
@@ -178,6 +201,8 @@ def is_complete(resolved: Dict[str, Any], *, need_wasm: bool = True) -> bool:
     if need_wasm:
         required += ["wasm_qt", "emcc"]
         incomplete += ["wasm_qt_missing"]
+    if need_wasm and resolved.get("emcc_version") not in (None, EMSCRIPTEN_VERSION):
+        return False
     return (all(resolved.get(key) for key in required)
             and not any(resolved.get(key) for key in incomplete))
 
@@ -230,6 +255,9 @@ def provision_hints(resolved: Dict[str, Any]) -> List[str]:
 
     if not resolved.get("emcc"):
         hints.append(f"emsdk install {EMSCRIPTEN_VERSION} && emsdk activate {EMSCRIPTEN_VERSION}")
+    elif resolved.get("emcc_version") not in (None, EMSCRIPTEN_VERSION):
+        hints.append(f"emsdk install {EMSCRIPTEN_VERSION} && emsdk activate {EMSCRIPTEN_VERSION}"
+                     f"   # {resolved['emcc']} is Emscripten {resolved['emcc_version']}")
     return hints
 
 
@@ -273,7 +301,9 @@ def report(project_dir: os.PathLike[str] | str, *, threads: str = "single",
                        ("wasm_qt", f"WebAssembly Qt kit ({resolved['wasm_kit']})"),
                        ("emcc", "Emscripten"), ("cmake", "cmake"), ("ninja", "ninja")]:
         value = resolved.get(key)
-        lines.append(f"  - {label}: {value if value else 'MISSING'}")
+        version = resolved.get("emcc_version") if key == "emcc" else None
+        lines.append(f"  - {label}: {value if value else 'MISSING'}"
+                     + (f" (Emscripten {version})" if version else ""))
         # Listed under the kit that lacks them.
         for module in resolved.get(f"{key}_missing") or []:
             lines.append(f"      missing module: Qt6{module}")

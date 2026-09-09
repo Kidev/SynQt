@@ -146,6 +146,22 @@ def _organization_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+def _qt_version_messages(config: Dict[str, Any]) -> List[str]:
+    """`project.qt_version`, when written, is the Qt this synqt builds against. The kits are
+    resolved for the pin and `find_package` asks for the written version, so any other value
+    configures against a kit that is not there or builds with one the project did not name.
+    """
+    project = config.get("project")
+    if not isinstance(project, dict) or "qt_version" not in project:
+        return []
+    written = str(project["qt_version"]).strip()
+    if written == toolchain.QT_VERSION:
+        return []
+    return [f"error: project.qt_version is {written!r}, and this synqt builds against Qt "
+            f"{toolchain.QT_VERSION} (with Emscripten {toolchain.EMSCRIPTEN_VERSION}); "
+            f"write {toolchain.QT_VERSION}, or use the synqt release that pins {written}"]
+
+
 def _entity_name_messages(declared: List[Dict[str, Any]]) -> List[str]:
     """Refuse a name that cannot be used everywhere an entity name is used.
 
@@ -598,6 +614,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         return False, ["error: no entities declared"]
     messages += _key_messages(config)
     messages += _organization_messages(config)
+    messages += _qt_version_messages(config)
     messages += _entity_name_messages(declared)
     messages += _qml_uri_messages(config, declared)
     messages += _duplicate_messages(
