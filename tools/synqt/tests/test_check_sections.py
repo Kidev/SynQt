@@ -155,3 +155,14 @@ def test_docker_names_the_compose_project_in_lowercase():
     compose = docker.render_compose(config, docker.mesh_addresses(config))
     assert "name: shop\n" in compose
     assert "image: shop-synqt:latest" in compose
+
+
+@pytest.mark.parametrize("key, value", [("same_site", "strict"), ("rotate", False)])
+def test_a_session_setting_nothing_reads_is_refused(key, value):
+    # SameSite follows origin_model and rotation is always on, so either line would only
+    # look like it changed something.
+    config = _config()
+    config.setdefault("identity", {}).setdefault("session", {})[key] = value
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any(f"identity.session.{key}" in message for message in messages), messages

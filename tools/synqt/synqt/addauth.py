@@ -118,11 +118,11 @@ def identity_section(provider: str, required: bool, provider_entity: str,
         "login": "/auth/login",
         "logout": "/auth/logout",
         "providers": [] if development else [provider_template(provider)],
+        # SameSite follows project.origin_model, and the cookie is always httpOnly and
+        # Secure; the session id is replaced on every change of scope.
         "session": {
             "cookie_name": "synqt_session",
-            "same_site": "lax",  # lax for same_origin; the framework sets httpOnly + Secure
             "ttl_minutes": 720,
-            "rotate": True,  # rotate the session id on privilege change
         },
         "mapping": {"hook": hook},
     }

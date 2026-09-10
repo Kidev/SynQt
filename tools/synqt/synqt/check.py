@@ -161,6 +161,10 @@ def _project_name_messages(config: Dict[str, Any]) -> List[str]:
             "the CMake project, the client's QML module and the container names"]
 
 
+#: What `identity.session` holds. The rest of the cookie and the rotation are fixed.
+_SESSION_KEYS = frozenset({"cookie_name", "ttl_minutes"})
+
+
 def _qt_version_messages(config: Dict[str, Any]) -> List[str]:
     """`project.qt_version`, when written, is the Qt this synqt builds against. The kits are
     resolved for the pin and `find_package` asks for the written version, so any other value
@@ -1916,6 +1920,13 @@ def _browser_policy_messages(config: Dict[str, Any], scope_order: List[str],
     messages.extend(_rate_limit_behind_a_balancer_messages(config, security))
 
     session = appmodel.identity_session(config)
+    for key in session:
+        if key not in _SESSION_KEYS:
+            messages.append(
+                f"error: identity.session.{key} is not a setting the session has, so nothing "
+                f"reads it (it has {', '.join(sorted(_SESSION_KEYS))}). SameSite follows "
+                "project.origin_model, and the session id is replaced on every change of "
+                "scope, with nothing to switch off")
     ttl = session.get("ttl_minutes")
     if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int)):
         messages.append(

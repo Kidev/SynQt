@@ -1461,6 +1461,13 @@
       "defended_by": "`synqt docker init` refuses a topology in which two containers would share a service name, naming both. The tests refuse an entity named `mesh-init` and one named after another entity's engine.",
       "file": "tools/synqt/tests/test_docker.py",
       "test": "test_an_entity_named_after_another_entitys_engine_is_refused"
+    },
+    {
+      "id": "a-session-setting-that-only-looks-like-one",
+      "what": "`synqt add auth` wrote `identity.session.same_site: lax` and `rotate: true` into every project, and nothing reads either: SameSite follows project.origin_model and the session id is replaced on every change of scope. Someone tightening the cookie to `strict`, or reading `rotate: false` in a project, was told nothing and got the fixed behaviour.",
+      "defended_by": "The scaffold writes only the two settings the session has, and `synqt check` refuses any other key under identity.session, saying what decides SameSite and rotation. The test refuses `same_site` and `rotate`, and the add-auth test requires only `cookie_name` and `ttl_minutes`.",
+      "file": "tools/synqt/tests/test_check_sections.py",
+      "test": "test_a_session_setting_nothing_reads_is_refused"
     }
   ]
 }

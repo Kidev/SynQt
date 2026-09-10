@@ -63,8 +63,8 @@ class AddAuthTest(unittest.TestCase):
 
         session = identity["session"]
         self.assertEqual(session["cookie_name"], "synqt_session")
-        self.assertEqual(session["same_site"], "lax")
-        self.assertTrue(session["rotate"])
+        # Only what the session reads: SameSite and rotation are not settings.
+        self.assertEqual(set(session), {"cookie_name", "ttl_minutes"})
         # The hook is edge code, so it sits inside the edge entity's own folder.
         self.assertEqual(identity["mapping"]["hook"], "web/edge/identity/map.qml")
 
