@@ -1248,6 +1248,7 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
             "port. Move the engine behind a relational entity of its own, which is where "
             "it belongs regardless (see https://synqt.org/entities/).")
 
+    _refuse_service_collisions(config)
     addresses = mesh_addresses(config, subnet)
     # Decided once and written into both files, so the Dockerfile and compose file agree on
     # the contexts.
@@ -1281,6 +1282,26 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
 
     env_files, generated = ask_secrets(config, root, out=out, source=source)
     return _summary(config, written, env_files, generated, addresses, client, port)
+
+
+def _refuse_service_collisions(config: Dict[str, Any]) -> None:
+    """Refuse two containers under one compose service name. Entities, their replicas, their
+    engines, the front and the certificate issuer share one namespace, and compose merges a
+    repeated key rather than refusing it.
+    """
+    seen: Dict[str, str] = {MESH_SERVICE: "the certificate issuer"}
+    if front_name(config):
+        seen.setdefault(FRONT_SERVICE, "the balancer in front of the edge replicas")
+    owners = [(name, f"entity '{entity['name']}'") for entity in service_entities(config)
+              for name in replica_names(entity)]
+    owners += [(engine_service_name(entity["name"], engine), f"the {engine} engine of "
+                f"'{entity['name']}'") for entity, engine, _ in engines(config)]
+    for name, owner in owners:
+        if name in seen:
+            raise DockerError(
+                f"{owner} and {seen[name]} would both be the compose service '{name}'; "
+                "rename the entity")
+        seen[name] = owner
 
 
 def _summary(config: Dict[str, Any], written: List[str], env_files: List[str],

@@ -368,9 +368,10 @@ Notes:
 - **`name`** identifies the entity everywhere: its directory, its build target, the
   accessor other entities use (capitalized, so `store` becomes `Store`), and the subject of
   its mesh certificate. So it has a fixed shape: it starts with a letter, contains only
-  letters, digits, underscores and hyphens, and has at most 64 characters. `synqt check`
-  refuses anything else, so a space or a dot cannot cause a build failure far from the line
-  that caused it.
+  letters, digits, underscores and hyphens, and has at most 64 characters. `ca` and
+  `docker-ca` are taken, in any case, because the mesh directory keeps the project's
+  certificate authority under those names. `synqt check` refuses anything else, so a space
+  or a dot cannot cause a build failure far from the line that caused it.
 - **`type`** is the one field that says what an entity is: `client`, `web_edge`, or one of
   the types on the [entities](entities.md) page (`relational`, `document`, `cache`, `api`,
   `jobs`, `service`). It decides the entity's folder, the helper the runtime puts in its
@@ -1483,7 +1484,7 @@ first failure. These checks always run:
   look wider than it is.
 - An entity `name` that does not match the shape described [above](#entities-the-topology)
   is rejected: a letter, then letters, digits, underscores and hyphens, up to 64
-  characters. The name is a directory, a build target, an accessor and a certificate
+  characters, and neither `ca` nor `docker-ca`. The name is a directory, a build target, an accessor and a certificate
   subject, so a space or a dot would fail far from the line that caused it. `synqt mesh
   cert` applies the same rule to a name typed at its prompt, because that name reaches
   openssl and the mesh directory.

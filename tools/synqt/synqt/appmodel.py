@@ -132,17 +132,27 @@ ENTITY_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 #: Maximum name length: the 64-character X.509 common name limit.
 ENTITY_NAME_MAX = 64
 
+#: Names the mesh directory already uses for its own files (`ca.key`, `ca.crt`,
+#: `docker-ca.crt`). An entity's certificate is `<name>.crt` beside them, so an entity named
+#: one of these would overwrite the authority. Compared without case, since macOS and
+#: Windows file systems ignore it.
+RESERVED_ENTITY_NAMES = frozenset({"ca", "docker-ca"})
+
+
+def is_reserved_entity_name(name: str) -> bool:
+    return name.lower() in RESERVED_ENTITY_NAMES
+
 
 def is_valid_project_name(name: str) -> bool:
     """Whether `name` can name a project. It becomes the CMake `project()`, the QML module URI
-    and the container names, so it takes the entity-name rule.
+    and the container names, so it takes the entity-name pattern and length.
     """
-    return is_valid_entity_name(name)
+    return bool(name) and len(name) <= ENTITY_NAME_MAX and ENTITY_NAME.match(name) is not None
 
 
 def is_valid_entity_name(name: str) -> bool:
     """Whether `name` is usable as an entity name everywhere one is used."""
-    return bool(name) and len(name) <= ENTITY_NAME_MAX and ENTITY_NAME.match(name) is not None
+    return is_valid_project_name(name) and not is_reserved_entity_name(name)
 
 
 def entity_type(entity: Dict[str, Any]) -> str:

@@ -717,3 +717,31 @@ class ReplicatedInitTest(unittest.TestCase):
             front = (root / f"{docker.DOCKER_DIR}/{docker.FRONT_FILE}").read_text()
             self.assertIn("least_conn;", front)
             self.assertEqual(front.count("server 172."), 3)
+
+
+class ServiceNameTest(unittest.TestCase):
+    """Compose merges a repeated service key, so two containers must never share one."""
+
+    def _init(self, config):
+        root = Path(self._dir())
+        (root / "synqt.yaml").write_text("entities: []\n")
+        return docker.init(root, config, source=None)
+
+    def _dir(self):
+        import tempfile
+        return tempfile.mkdtemp()
+
+    def test_an_entity_named_after_the_certificate_issuer_is_refused(self):
+        config = _config()
+        config["entities"][2]["name"] = "mesh-init"
+        config["connect_points"][1]["owner"] = "mesh-init"
+        with self.assertRaises(docker.DockerError) as caught:
+            self._init(config)
+        self.assertIn("mesh-init", str(caught.exception))
+
+    def test_an_entity_named_after_another_entitys_engine_is_refused(self):
+        config = _with_engine()
+        config["entities"].append({"name": "store-postgres", "type": "service"})
+        with self.assertRaises(docker.DockerError) as caught:
+            self._init(config)
+        self.assertIn("store-postgres", str(caught.exception))

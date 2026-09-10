@@ -1447,6 +1447,20 @@
       "defended_by": "`synqt check`, `synqt new` and `synqt new --example` hold the name to the entity-name rule before anything is written, and the docker files lowercase it. The tests refuse a space, a leading digit and a semicolon, require nothing written, and read a lowercased compose project and image.",
       "file": "tools/synqt/tests/test_check_sections.py",
       "test": "test_a_project_name_cmake_and_qml_cannot_use_is_refused"
+    },
+    {
+      "id": "an-entity-named-ca-destroys-the-mesh-authority",
+      "what": "An entity's certificate is written as `<name>.key` and `<name>.crt` beside the project's certificate authority in synqt/mesh/. `ca` was a valid entity name, so issuing its certificate (`synqt mesh cert --all`, which `synqt dev` runs on every start) unlinked ca.key, truncated ca.crt and then failed, leaving a project whose mesh could never issue again; on macOS and Windows `CA` did the same.",
+      "defended_by": "`ca` and `docker-ca` are reserved entity names in any case: `synqt check` refuses them, naming the authority's files, and `synqt mesh cert` refuses them before touching the directory. The test initialises a CA, asks for each reserved name, requires every file in the directory byte for byte, and issues one more certificate.",
+      "file": "tools/synqt/tests/test_mesh_names.py",
+      "test": "test_a_certificate_named_after_the_authority_is_refused_and_the_authority_kept"
+    },
+    {
+      "id": "two-containers-under-one-compose-service",
+      "what": "The compose file names a service after each entity, each replica, each engine (`<entity>-<engine>`), the front and the certificate issuer (`mesh-init`), and compose merges a repeated key, so an entity named `mesh-init`, `front` or after another entity's engine silently replaced that container.",
+      "defended_by": "`synqt docker init` refuses a topology in which two containers would share a service name, naming both. The tests refuse an entity named `mesh-init` and one named after another entity's engine.",
+      "file": "tools/synqt/tests/test_docker.py",
+      "test": "test_an_entity_named_after_another_entitys_engine_is_refused"
     }
   ]
 }

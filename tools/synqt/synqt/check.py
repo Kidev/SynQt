@@ -194,6 +194,13 @@ def _entity_name_messages(declared: List[Dict[str, Any]]) -> List[str]:
         name = str(name)
         if appmodel.is_valid_entity_name(name):
             continue
+        if appmodel.is_reserved_entity_name(name):
+            messages.append(
+                f"error: entity name '{name}' is taken: synqt/mesh/ already holds "
+                f"'{name.lower()}.crt' and '{name.lower()}.key' for the project's own "
+                "certificate authority, and this entity's certificate would overwrite them. "
+                "Name it something else")
+            continue
         messages.append(
             f"error: entity name '{name[:80]}' cannot be used; an entity name starts with a "
             f"letter and is made of letters, digits, underscores and hyphens, up to "

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from . import devidentities
-from .appmodel import ENTITY_NAME_MAX, is_valid_entity_name
+from .appmodel import ENTITY_NAME_MAX, is_reserved_entity_name, is_valid_entity_name
 
 # Leaf validity: 398 days, the CA/Browser Forum maximum. Apple's verifier rejects a TLS leaf
 # issued after 2020-09-01 valid for longer. The CA gets twice this, so rotating leaves does
@@ -149,6 +149,10 @@ def cert(project_dir: os.PathLike[str] | str, entity: str, *, dev: bool = False,
             "(it authenticates to the edge with a user session, not mutual TLS)")
     # The name comes from a prompt and goes into file names, the subject `/CN=` and the SAN,
     # so it is held to the entity name rule `synqt check` applies.
+    if is_reserved_entity_name(entity):
+        raise MeshError(
+            f"'{entity}' cannot have a certificate: {entity.lower()}.key and "
+            f"{entity.lower()}.crt in the mesh directory are the certificate authority's")
     if not is_valid_entity_name(entity):
         raise MeshError(
             f"'{entity[:80]}' is not usable as an entity name: a name starts with a letter "
