@@ -105,6 +105,45 @@ _SECTION_KEYS: Dict[str, frozenset] = {
 }
 
 
+#: The keys of the blocks inside an entity, by the path from the entity.
+_ENTITY_BLOCK_KEYS: Dict[Tuple[str, ...], frozenset] = {
+    ("public",): frozenset({"host", "port", "origin", "client_route", "sync_route",
+                            "serve_client", "trusted_proxies", "tls_terminated_upstream"}),
+    ("tls",): frozenset({"cert_file", "key_file"}),
+    ("mesh",): frozenset({"host", "port", "socket", "transport"}),
+    ("network",): frozenset({"inbound", "outbound"}),
+    ("network", "inbound"): frozenset({"port", "bind", "tls", "api_keys", "public",
+                                       "key_header", "allowed_origins", "max_body_bytes",
+                                       "rate_per_minute", "max_connections",
+                                       "max_connections_per_ip", "trusted_proxies",
+                                       "reply_timeout_ms", "tls_terminated_upstream"}),
+    ("retention",): frozenset({"max_age_days", "max_bytes"}),
+}
+
+
+def _entity_block_key_messages(config: Dict[str, Any]) -> List[str]:
+    """Refuse a key in an entity's `public:`, `tls:`, `mesh:`, `network:` or `retention:`
+    block that nothing reads. `public.trusted_proxies` misspelled would count every visitor
+    as the balancer.
+    """
+    messages: List[str] = []
+    for entity in appmodel.entities(config):
+        name = entity.get("name") or "?"
+        for path, allowed in _ENTITY_BLOCK_KEYS.items():
+            block: Any = entity
+            for part in path:
+                block = block.get(part) if isinstance(block, dict) else None
+            if not isinstance(block, dict):
+                continue
+            for key in block:
+                if str(key) not in allowed:
+                    where = ".".join(path + (str(key),))
+                    messages.append(
+                        f"error: entity '{name}': {where} is not a setting, so nothing "
+                        f"reads it. {'.'.join(path)} has {', '.join(sorted(allowed))}")
+    return messages
+
+
 def _section_key_messages(config: Dict[str, Any]) -> List[str]:
     """Refuse a key inside a top-level section that nothing reads, naming the section's
     keys.
@@ -684,6 +723,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
         return False, ["error: no entities declared"]
     messages += _key_messages(config)
     messages += _section_key_messages(config)
+    messages += _entity_block_key_messages(config)
     messages += _organization_messages(config)
     messages += _qt_version_messages(config)
     messages += _project_name_messages(config)

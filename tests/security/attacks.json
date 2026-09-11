@@ -1475,6 +1475,13 @@
       "defended_by": "`synqt check` and the validation before every build hold each section to the keys its readers use, naming them; the documented example drops `mesh.ca_cert`. The tests refuse a misspelled key in identity, security, mesh and project, and require every key in the configuration reference's examples to be accepted.",
       "file": "tools/synqt/tests/test_check_sections.py",
       "test": "test_a_key_a_section_does_not_have_is_refused"
+    },
+    {
+      "id": "a-misspelled-entity-block-key-fails-open",
+      "what": "A key inside an entity's `public:`, `tls:`, `mesh:`, `network:` or `retention:` block was read only if a reader asked for it by name, so `public.trusted_proxy` (for trusted_proxies) left every visitor behind a balancer counted as one address, and `network.inbond` left the entity without the API it was meant to serve, both without a word.",
+      "defended_by": "`synqt check` holds each of those blocks to the keys its readers use, naming them. The tests refuse a misspelled key in each block, and require every YAML example in the docs to pass the section, entity and block checks.",
+      "file": "tools/synqt/tests/test_check_sections.py",
+      "test": "test_a_key_an_entity_block_does_not_have_is_refused"
     }
   ]
 }

@@ -196,3 +196,36 @@ def test_every_documented_section_key_is_one_the_check_accepts():
         if not isinstance(parsed, dict):
             continue
         assert check._section_key_messages(parsed) == [], block
+
+
+@pytest.mark.parametrize("path", [("public", "trusted_proxy"), ("tls", "certfile"),
+                                  ("mesh", "hots"), ("network", "inbond"),
+                                  ("network", "inbound", "api_key")])
+def test_a_key_an_entity_block_does_not_have_is_refused(path):
+    # `public.trusted_proxy` read as nothing would leave every visitor counted as one address.
+    config = _config()
+    edge = next(entity for entity in config["entities"] if entity["name"] == "edge")
+    block = edge
+    for part in path[:-1]:
+        block = block.setdefault(part, {})
+    block[path[-1]] = "x"
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any(".".join(path) in message for message in messages), messages
+
+
+def test_every_yaml_example_in_the_docs_uses_only_keys_the_check_accepts():
+    import re
+
+    docs = Path(__file__).resolve().parents[3] / "docs"
+    for page in sorted(docs.glob("*.md")):
+        for block in re.findall(r"```yaml\n(.*?)```", page.read_text(encoding="utf-8"), re.S):
+            try:
+                parsed = yaml.safe_load(block)
+            except yaml.YAMLError:
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            found = (check._section_key_messages(parsed)
+                     + check._entity_block_key_messages(parsed) + check._key_messages(parsed))
+            assert found == [], (page.name, found)
