@@ -75,14 +75,17 @@ class EntityTopologyTest(unittest.TestCase):
         self.config = _config()
         self.endpoints = topologywriter.resolve_endpoints(self.config, "shop")
 
-    def test_credentials_point_at_the_entitys_mesh_material_absolutely(self):
+    def test_paths_are_named_from_the_project_root(self):
+        # Every entity runs from the project root, and a tree built on one machine is copied
+        # to another, so no path may name the build machine's directories.
         topology = topologywriter.entity_topology(
             self.config, self.config["entities"][2], self.root, self.endpoints)
-        creds = topology["credentials"]
-        self.assertTrue(creds["cert"].endswith("synqt/mesh/database.crt"))
-        self.assertTrue(creds["key"].endswith("synqt/mesh/database.key"))
-        self.assertTrue(creds["ca"].endswith("synqt/mesh/ca.crt"))
-        self.assertTrue(Path(creds["cert"]).is_absolute())
+        self.assertEqual(topology["credentials"], {"ca": "synqt/mesh/ca.crt",
+                                                   "cert": "synqt/mesh/database.crt",
+                                                   "key": "synqt/mesh/database.key"})
+        for point in topology["connect_points"]:
+            self.assertFalse(Path(point["server"]).is_absolute(), point["server"])
+        self.assertNotIn(self.root.resolve().as_posix(), json.dumps(topology))
 
     def test_type_and_provider_pass_through_with_secret_as_env_reference(self):
         topology = topologywriter.entity_topology(

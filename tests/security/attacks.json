@@ -1496,6 +1496,13 @@
       "defended_by": "A Source that exists and is rooted at its contract is held to the export however little it implements, and the scaffold writes a Source that implements its starter export. The tests refuse an empty Source under an exported slot and pass a freshly scaffolded point.",
       "file": "tools/synqt/tests/test_exports.py",
       "test": "test_a_source_that_implements_nothing_is_held_to_its_export"
+    },
+    {
+      "id": "a-built-tree-names-the-build-machine",
+      "what": "topology.json named every file an entity opens (its certificate and key, the CA, its Source QML, its spool directory) by the build machine's absolute path, though the deployment guide builds once and copies the tree to each host, so an entity on any host but the build machine could not find its credentials or its Source. The guide also said the QML was compiled into the binary and could stay behind, while the edge and services load it from generated/.",
+      "defended_by": "The topology names those files relative to the project root, and the runtime resolves a relative path against its working directory, which every generated main is started from; an absolute path is kept as written. The guide lists generated/ among what a host needs. The tests read a written topology for any absolute path and resolve a relative one in C++ from a chosen working directory.",
+      "file": "tests/m4-topology/tst_m4.cpp",
+      "test": "topologyPathsResolveFromTheWorkingDirectory"
     }
   ]
 }

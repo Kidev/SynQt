@@ -30,6 +30,7 @@ The edge host:
   build/
     edge/             # the edge binary and its topology.json
     client/           # the bundle it serves
+  generated/web/edge/ # the QML the edge loads at startup
   web/edge/
     .env              # the OAuth client secret
 ```
@@ -46,6 +47,7 @@ The books host:
     books.key
   build/
     books/            # the binary and its topology.json
+  generated/db/relational/books/   # the QML it loads at startup
   db/relational/books/
     .env
     schema.sql
@@ -55,8 +57,8 @@ The books host:
 Three points about these trees:
 
 - **Entity source directories travel, but only for run time files.** On a host,
-  `db/relational/books/` holds `.env`, `schema.sql` and `data/`. The QML is compiled into
-  the binary, so it is not on the host.
+  `db/relational/books/` holds `.env`, `schema.sql` and `data/`. The QML the entity runs
+  is the copy `synqt build` wrote under `generated/`, which travels beside it.
 - **`synqt.yaml` travels,** because the entities use the paths it spells. So does the
   profile, because each entity resolves the same layers the build did.
 - **The data is not in `build/`.** A relational entity opens the file its `settings` name,

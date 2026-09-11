@@ -158,9 +158,9 @@ def _topology(name, config=None):
 def test_a_reporting_entity_is_told_where_it_may_spool():
     # The spool is inside the project.
     spool = _topology("web")["monitoring"]["spool_dir"]
-    # Forward slashes on every host (topologywriter._path). The root is not asserted:
-    # Path("/p") gains a drive on Windows.
-    assert spool == f"{Path('/p').resolve().as_posix()}/build/web/state"
+    # Relative to the project root the entity runs from, forward slashes on every host
+    # (topologywriter._path).
+    assert spool == "build/web/state"
 
 
 

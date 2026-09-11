@@ -95,8 +95,9 @@ build/
   process-manifest.json   # the start plan (see below)
 ```
 
-Each entity's QML is compiled into its binary, so a service directory is small: the
-binary, the `topology.json` it reads at startup, and its licenses. An entity's data does not
+A service directory is small: the binary, the `topology.json` it reads at startup, and its
+licenses. The edge and the services load their QML at startup from the copy `synqt build`
+writes under `generated/`, so that directory is part of what a host needs. An entity's data does not
 move into `build/`. A relational entity applies `db/relational/store/schema.sql` and opens
 the file its `settings` name (`db/relational/store/data/app.db` by default), both relative
 to the project root and inside the entity's own directory. That is why `synqt clean`,
@@ -123,13 +124,15 @@ myapp/
   build/
     <entity>/             # the binary and its topology.json, one per entity running here
     client/               # only on the host whose edge serves the bundle
+  generated/<entity>/     # the QML that entity loads at startup
   <entity>/               # the same entity's runtime files: .env, schema.sql, data/
 ```
 
 Entity source directories travel too, but only for files an entity reads at run time. On
 a deployed host, a relational entity's folder holds its `.env`, `schema.sql` and `data/`;
-the QML is inside the binary. `synqt.yaml` travels because the entities use the paths it
-spells.
+the QML it runs is the copy under `generated/`. Every path in `topology.json` is relative
+to the project root, so the tree works wherever it lands, as long as each entity starts
+there. `synqt.yaml` travels because the entities use the paths it spells.
 
 Service binaries do not bundle Qt. `synqt build` runs no deployment step for them, so a
 service host needs the pinned Qt kit, either in a container image or installed at the

@@ -10,7 +10,9 @@ owns or consumes with a resolved endpoint.
 
 Each endpoint is resolved once, globally, so the owner listens where its consumers dial.
 Ports follow the sorted connect-point list. ``env:`` references are passed through by name.
-Paths are absolute, so the file works from the project root and from a deploy directory.
+Paths are relative to the project root, which every entity runs from, so a tree built on one
+machine and copied to another keeps working; the runtime resolves them against its working
+directory.
 """
 
 from __future__ import annotations
@@ -130,11 +132,15 @@ def _schema_steps(root: Path, entity: Dict[str, Any]) -> List[str]:
     return [statement.strip() for statement in code.split(";") if statement.strip()]
 
 
-def _path(path: Path) -> str:
-    """An absolute path as topology.json carries it, with forward slashes on every platform. Qt
-    accepts '/' everywhere.
+def _path(root: Path, path: Path) -> str:
+    """A path as topology.json carries it: relative to the project root, with forward slashes
+    on every platform (Qt accepts '/' everywhere). A path outside the project stays absolute.
     """
-    return path.resolve().as_posix()
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return resolved.as_posix()
 
 
 def _server_file(root: Path, connect_point: Dict[str, Any],
@@ -146,8 +152,8 @@ def _server_file(root: Path, connect_point: Dict[str, Any],
     owner = owners.get(str(connect_point.get("owner") or ""))
     if owner is None:
         declared = connect_point.get("server")
-        return _path(root / qmlrewrite.mirrored_path(declared)) if declared else ""
-    return _path(root / qmlrewrite.mirrored_path(
+        return _path(root, root / qmlrewrite.mirrored_path(declared)) if declared else ""
+    return _path(root, root / qmlrewrite.mirrored_path(
         appmodel.authored_source_path(owner, connect_point)))
 
 
@@ -166,9 +172,9 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
         # Written only when not the default.
         **({} if appmodel.is_shared(entity) else {"shared": False}),
         "credentials": {
-            "ca": _path(mesh / "ca.crt"),
-            "cert": _path(mesh / f"{name}.crt"),
-            "key": _path(mesh / f"{name}.key"),
+            "ca": _path(root, mesh / "ca.crt"),
+            "cert": _path(root, mesh / f"{name}.crt"),
+            "key": _path(root, mesh / f"{name}.key"),
         },
     }
 
@@ -195,7 +201,7 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
     # directory. Only for an entity that reports.
     if appmodel.monitor_entity(config) and name != appmodel.monitor_entity(config) \
             and not appmodel.is_client(entity):
-        topology["monitoring"] = {"spool_dir": _path(root / "build" / str(name) / "state")}
+        topology["monitoring"] = {"spool_dir": _path(root, root / "build" / str(name) / "state")}
         # Per-category levels, read at startup so an operator can change them without a
         # rebuild.
         levels = appmodel.trace_levels(config)

@@ -3,6 +3,7 @@
 
 #include "topology.h"
 
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -36,6 +37,17 @@ QList<ConnectPointConfig> Topology::consumed() const
 
 namespace {
 
+/// A path from the topology, made absolute against the working directory. Every generated
+/// main runs from the project root, so the topology names its files from there and a tree
+/// copied to another host keeps working. An absolute path is kept as written.
+QString fromProjectRoot(const QString &path)
+{
+    if (path.isEmpty() || QDir::isAbsolutePath(path)) {
+        return path;
+    }
+    return QDir::current().absoluteFilePath(path);
+}
+
 MeshTransportMode transportModeFromString(const QString &value)
 {
     return value == QLatin1String("local") ? MeshTransportMode::LocalSocket
@@ -54,9 +66,12 @@ Topology topologyFromJson(const QJsonObject &object)
     topology.shared = shared;
 
     const QJsonObject credentials{object.value(QStringLiteral("credentials")).toObject()};
-    topology.credentials.caCertPath = credentials.value(QStringLiteral("ca")).toString();
-    topology.credentials.certPath = credentials.value(QStringLiteral("cert")).toString();
-    topology.credentials.keyPath = credentials.value(QStringLiteral("key")).toString();
+    topology.credentials.caCertPath =
+        fromProjectRoot(credentials.value(QStringLiteral("ca")).toString());
+    topology.credentials.certPath =
+        fromProjectRoot(credentials.value(QStringLiteral("cert")).toString());
+    topology.credentials.keyPath =
+        fromProjectRoot(credentials.value(QStringLiteral("key")).toString());
 
     topology.type = object.value(QStringLiteral("type")).toString();
     // The type's provider block: the external `provider` object, or the embedded `settings`
@@ -78,7 +93,7 @@ Topology topologyFromJson(const QJsonObject &object)
 
     // Where this entity spools what a monitor did not take, inside its own build directory.
     const QJsonObject monitoring = object.value(QStringLiteral("monitoring")).toObject();
-    topology.spoolDir = monitoring.value(QStringLiteral("spool_dir")).toString();
+    topology.spoolDir = fromProjectRoot(monitoring.value(QStringLiteral("spool_dir")).toString());
     if (monitoring.contains(QStringLiteral("spool_cap_bytes"))) {
         topology.spoolCapBytes =
             static_cast<qint64>(monitoring.value(QStringLiteral("spool_cap_bytes")).toDouble());
@@ -120,7 +135,8 @@ Topology topologyFromJson(const QJsonObject &object)
         connectPoint.name = entry.value(QStringLiteral("name")).toString();
         connectPoint.contract = entry.value(QStringLiteral("contract")).toString();
         connectPoint.owner = entry.value(QStringLiteral("owner")).toString();
-        connectPoint.serverFile = entry.value(QStringLiteral("server")).toString();
+        connectPoint.serverFile =
+            fromProjectRoot(entry.value(QStringLiteral("server")).toString());
         connectPoint.framework = entry.value(QStringLiteral("framework")).toBool();
         connectPoint.shared = shared;
         const QJsonArray consumers = entry.value(QStringLiteral("consumers")).toArray();

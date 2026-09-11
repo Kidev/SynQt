@@ -15,6 +15,7 @@
 
 #include "thing_sourcehelper.h"  // synqtRegisterThingSources()
 
+#include <QDir>
 #include <QHostAddress>
 #include <QIODevice>
 #include <QJsonDocument>
@@ -62,8 +63,10 @@ MeshCredentials credentialsFor(const QString &entity)
 {
     MeshCredentials credentials;
     credentials.caCertPath = QStringLiteral(M4_CERT_DIR "/ca.crt");
-    credentials.certPath = QStringLiteral(M4_CERT_DIR) + QLatin1Char('/') + entity + QStringLiteral(".crt");
-    credentials.keyPath = QStringLiteral(M4_CERT_DIR) + QLatin1Char('/') + entity + QStringLiteral(".key");
+    credentials.certPath =
+        QStringLiteral(M4_CERT_DIR) + QLatin1Char('/') + entity + QStringLiteral(".crt");
+    credentials.keyPath =
+        QStringLiteral(M4_CERT_DIR) + QLatin1Char('/') + entity + QStringLiteral(".key");
     return credentials;
 }
 
@@ -149,6 +152,35 @@ private slots:
         QCOMPARE(EntityRuntime::accessorName(QStringLiteral("web")), QStringLiteral("Web"));
     }
 
+    // Every generated main runs from the project root, and a tree built on one machine is
+    // copied to another, so the topology names its files from the root. The runtime resolves
+    // them against its working directory; an absolute path is kept as written.
+    void topologyPathsResolveFromTheWorkingDirectory()
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        const QString previous{QDir::currentPath()};
+        const auto restore{qScopeGuard([&previous]() { QDir::setCurrent(previous); })};
+        QVERIFY(QDir::setCurrent(root.path()));
+
+        const QByteArray json{R"json({
+            "entity": "store",
+            "credentials": {"ca": "synqt/mesh/ca.crt", "cert": "synqt/mesh/store.crt",
+                            "key": "/etc/keys/store.key"},
+            "monitoring": {"spool_dir": "build/store/state"},
+            "connect_points": [{"name": "store", "contract": "Store", "owner": "store",
+                                "server": "generated/service/store/Store.qml"}]
+        })json"};
+        const Topology topology{topologyFromJson(QJsonDocument::fromJson(json).object())};
+        const QDir here{root.path()};
+        QCOMPARE(topology.credentials.caCertPath, here.absoluteFilePath("synqt/mesh/ca.crt"));
+        QCOMPARE(topology.credentials.certPath, here.absoluteFilePath("synqt/mesh/store.crt"));
+        QCOMPARE(topology.credentials.keyPath, QStringLiteral("/etc/keys/store.key"));
+        QCOMPARE(topology.spoolDir, here.absoluteFilePath("build/store/state"));
+        QCOMPARE(topology.connectPoints.constFirst().serverFile,
+                 here.absoluteFilePath("generated/service/store/Store.qml"));
+    }
+
     // Every list in a resolved topology.json must survive the parse. It is the one input a
     // generated entity main() has, and a list that comes back empty costs the entity its
     // connect points while it still reports itself up: `QJsonArray a{...}` takes the array
@@ -177,7 +209,8 @@ private slots:
             topologyFromJson(QJsonDocument::fromJson(json).object())};
 
         QCOMPARE(topology.entity, QStringLiteral("database"));
-        QCOMPARE(topology.credentials.certPath, QStringLiteral("database.crt"));
+        QCOMPARE(topology.credentials.certPath, QDir::current().absoluteFilePath(
+                                                    QStringLiteral("database.crt")));
         QCOMPARE(topology.schema.size(), 2);
         QCOMPARE(topology.schema.at(0), QStringLiteral("CREATE TABLE grants (sub TEXT)"));
         QCOMPARE(topology.connectPoints.size(), 1);
@@ -185,7 +218,8 @@ private slots:
         const ConnectPointConfig &access{topology.connectPoints.at(0)};
         QCOMPARE(access.name, QStringLiteral("access"));
         QCOMPARE(access.contract, QStringLiteral("Access"));
-        QCOMPARE(access.serverFile, QStringLiteral("database/Access.qml"));
+        QCOMPARE(access.serverFile,
+                 QDir::current().absoluteFilePath(QStringLiteral("database/Access.qml")));
         // The entity's answer, copied onto every point it owns, because the host of a
         // point is what acts on it.
         QVERIFY(!topology.shared);
@@ -202,8 +236,8 @@ private slots:
     // never declared at all.
     void theOutboundListIsReadInBothSpellings()
     {
-        // Plain literals. Written as raw strings, these three made AutoMoc report that this
-        // file has no Q_OBJECT class, and the test binary failed to link.
+        // Plain literals: written as raw strings, these three make AutoMoc report that this
+        // file has no Q_OBJECT class, and the test binary fails to link.
         const QByteArray json{
             "{\"entity\": \"gateway\", \"network\": {\"outbound\": ["
             "\"https://status.example.com/\","
@@ -267,7 +301,6 @@ private slots:
 
     void twoServiceTopology()
     {
-        //
         // A refusal is also the kind of event an operator needs to be told about, so it is
         // recorded as well as signalled, and the recording is asserted here rather than in
         // a fixture of its own. This is the only place in the tree where a real mesh peer
@@ -381,7 +414,7 @@ private slots:
     // A shared owner is one Source that every consumer reaches through a mirror of its
     // own. It is built when the owner starts, before any consumer exists, so a consumer
     // that joins late sees what it did on completion. A poke from one consumer is seen by
-    // the other, which is the whole point of sharing, and inside the shared Source the
+    // the other, which is what sharing is for, and inside the shared Source the
     // Caller is whoever made the forwarded call, not a Caller fixed at build time.
     void aSharedOwnerIsOneStateMirroredToEveryConsumer()
     {

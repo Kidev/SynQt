@@ -269,7 +269,7 @@ class SourceQmlBridges(unittest.TestCase):
                       session)
 
     def test_the_generated_bridge_is_the_one_m8_proves_over_a_real_mesh_link(self):
-        """The generated bridges are the files the M8 suite proves over a real mesh link."""
+        """The generated bridges are the files tests/m8-auth proves over a real mesh link."""
         from pathlib import Path
         fixtures = Path(__file__).resolve().parents[3] / "tests" / "m8-auth" / "auth"
         for contract, file_name in (("Identity", "Identity.qml"), ("SessionStore", "SessionStore.qml")):
@@ -307,7 +307,8 @@ class BridgesLandWhereTheTopologyLooks(unittest.TestCase):
             self.assertEqual(len(named), 2, topology)
             for server in named:
                 with self.subTest(server=server):
-                    self.assertTrue(Path(server).is_file(),
+                    # Named from the project root, as the runtime resolves it.
+                    self.assertTrue((Path(root) / server).is_file(),
                                     f"{server} is in the topology and not on disk")
 
     def test_a_generated_source_is_not_mirrored_a_second_time(self):
