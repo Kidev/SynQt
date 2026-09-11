@@ -1468,6 +1468,13 @@
       "defended_by": "The scaffold writes only the two settings the session has, and `synqt check` refuses any other key under identity.session, saying what decides SameSite and rotation. The test refuses `same_site` and `rotate`, and the add-auth test requires only `cookie_name` and `ttl_minutes`.",
       "file": "tools/synqt/tests/test_check_sections.py",
       "test": "test_a_session_setting_nothing_reads_is_refused"
+    },
+    {
+      "id": "a-misspelled-section-key-fails-open",
+      "what": "A key inside a top-level section was read only if a reader asked for it by name, so a typo was ignored without a word: `identity.requred: true` left sign-in optional, `security.max_conections_global` left the cap at its default, and the documented `mesh.ca_cert` was never read (the CA path is fixed).",
+      "defended_by": "`synqt check` and the validation before every build hold each section to the keys its readers use, naming them; the documented example drops `mesh.ca_cert`. The tests refuse a misspelled key in identity, security, mesh and project, and require every key in the configuration reference's examples to be accepted.",
+      "file": "tools/synqt/tests/test_check_sections.py",
+      "test": "test_a_key_a_section_does_not_have_is_refused"
     }
   ]
 }

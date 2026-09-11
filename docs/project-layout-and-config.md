@@ -91,8 +91,10 @@ Principles:
   `main.cpp` go to `generated/`, which mirrors the entity folders so two entities of the
   same type keep their own. An entity folder holds only what its author wrote, and "do not
   edit generated files" means one path, not a list of filenames.
-- **Derived folders are git ignored:** `generated/`, `synqt/` (toolchain cache, mesh CA and
-  certificates) and `build/`. Never commit the mesh private key in `synqt/mesh/`.
+- **Derived and private files are git ignored:** `generated/`, `build/`, the toolchain
+  cache in `synqt/toolchain/`, the private keys and the development CA under
+  `synqt/mesh/`, each entity's `.env`, and an embedded database's `data/`. Never commit a
+  mesh private key.
 
 ## The `synqt.yaml` schema
 
@@ -240,8 +242,10 @@ entities:
     targets: [wasm]           # [wasm] (default); add "desktop" for a native app
 ```
 
-A client does not name its edge. There is one web edge, and the topology already says
-which, so a second spelling of the same fact could only disagree and fail silently.
+An application client does not name its edge: the edge's `bundles:` and the topology
+already say which edge serves it, so a second spelling of the same fact could only
+disagree. A monitor's console client writes `edge:` naming the monitor, which the designer
+reads to draw the link.
 
 A web edge entity, with sub sections for its public (internet facing) side, its mesh
 (service to service) side, the public TLS and its env file:
@@ -554,8 +558,7 @@ A value containing `/` is a directory, relative to the edge entity's folder. A b
 a client entity. [`synqt check`](build-system-and-cli.md) refuses anything that could be
 read both ways instead of guessing.
 
-Without a `bundles:` block, the project's one client goes to everybody, as before this key
-existed, so existing projects need no change.
+Without a `bundles:` block, the project's one client goes to everybody.
 
 Two consequences, the first being the reason the key exists:
 
@@ -758,7 +761,7 @@ keeps the Qt half of that measurement
 ([`tests/m5-webedge`](https://github.com/Kidev/SynQt/tree/main/tests/m5-webedge)), and it
 fails the day a Qt release makes this transport possible.
 
-Nothing needs it today: a browser holds the httpOnly cookie, and a native desktop client,
+Nothing needs it: a browser holds the httpOnly cookie, and a native desktop client,
 which terminates its own TLS, presents its stored session directly on the handshake.
 
 ### Serving the client from another origin (deprecated) { #serving-the-client-from-another-origin }
@@ -842,23 +845,21 @@ and none of the above applies. Whether that node owns its connect points or forw
 to an edge behind it is an operational choice the client never sees: it reaches
 everything through `Server` either way.
 
-SynQt is growing in that direction, which is why `split_origin` is not in the scaffold
-and is deprecated. Several edges under one origin, behind whatever forwarder or CDN node
-the deployment already has, give what split origin was for without a third party cookie in
-the critical path. `split_origin` still runs if you need it today, but you carry the
+That is why `split_origin` is not in the scaffold and is deprecated. Several edges under
+one origin ([replicas](deploying.md#8-running-more-than-one-edge)), behind whatever
+forwarder or CDN node the deployment already has, give what split origin was for without
+a third party cookie in the critical path. `split_origin` still runs, but you carry the
 browser policy risk.
 
 ### `mesh` (service to service security)
 
-The TLS policy for the whole mesh: which CA every entity verifies peers against, and the
-release build guarantee that links across hosts use mutual TLS.
+The TLS policy for the whole mesh: the release build guarantee that links across hosts
+use mutual TLS. Every entity verifies its peers against the project CA at
+`synqt/mesh/ca.crt`, and holds its own certificate and key as `synqt/mesh/<entity>.crt` and
+`synqt/mesh/<entity>.key`, which `synqt mesh` issues.
 
 ```yaml
 mesh:
-  ca_cert: synqt/mesh/ca.crt        # the project private CA certificate
-  # Per entity certs and keys are issued by the CLI as synqt/mesh/<entity>.crt
-  # and synqt/mesh/<entity>.key.
-  # Each entity verifies peers against ca_cert with VerifyPeer (mutual TLS).
   require_mtls_cross_host: true      # cross host links must be mTLS; cannot be disabled in release
 ```
 
@@ -1492,8 +1493,8 @@ first failure. These checks always run:
   the second declaration would silently replace the first, and a consumer list narrowed on
   the first would vanish.
 - An `instance` on a connect point is rejected, with a message naming the entity to put
-  `shared:` on instead. The entity decides this now, and a line that does nothing looks
-  exactly like one that works.
+  `shared:` on instead. The entity decides it, and a line that does nothing looks exactly
+  like one that works.
 - A `shared` value other than true or false is rejected, and so is `shared` on a client: a
   client is one browser and shares with nobody.
 - A connect point `scope` missing from `scopes.order` is rejected, and so is a member gated
@@ -1505,8 +1506,8 @@ first failure. These checks always run:
 - A gate below the point's own `scope` is reported. Under hierarchical scopes it is a
   warning (every caller that reached the point already holds it, so it refuses nobody);
   under set-based scopes it is an error (no caller can hold both).
-- `client_threads: multi` without cross origin isolation is rejected (the CLI
-  offers to set it).
+- `client_threads: multi` with `cross_origin_isolation: false` is a warning: a threaded
+  client needs isolation, so the build turns it on and says that it overrode the `false`.
 - A client entity whose `Main.qml` root object is not a window
   (`ApplicationWindow` or `Window`) is rejected. `Main.qml` is the QML engine's root
   object, and the engine shows a root object only if it is a window, so a `Page` or `Item`

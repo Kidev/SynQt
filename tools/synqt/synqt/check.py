@@ -78,6 +78,50 @@ def _section_messages(config: Dict[str, Any]) -> List[str]:
     return messages
 
 
+#: The keys each top-level mapping section may carry, as their readers name them. A key
+#: nothing reads is a mistake, and in some sections it fails open: `identity.requred: true`
+#: leaves sign-in optional.
+_SECTION_KEYS: Dict[str, frozenset] = {
+    "project": frozenset({"name", "version", "qt_version", "origin_model", "organization",
+                          "organization_domain"}),
+    "scopes": frozenset({"order", "hierarchical", "default"}),
+    "security": frozenset({"allowed_origins", "csp", "cross_origin_isolation",
+                           "session_transport", "handshake_timeout_ms",
+                           "max_connections_per_ip", "max_connections_global",
+                           "max_message_bytes", "max_sessions", "keep_alive_timeout_s",
+                           "max_requests_per_second", "max_body_bytes"}),
+    "identity": frozenset({"required", "provider_entity", "flow", "callback", "login",
+                           "logout", "providers", "session", "mapping", "dev_stub", "device",
+                           "refresh", "desktop_session"}),
+    "privacy": frozenset({"policy", "legal_notice", "contact", "cookies", "erasure",
+                          "retention_days"}),
+    "build": frozenset({"client_threads", "client_cache", "client_logging",
+                        "client_asyncify", "desktop", "loading"}),
+    "router": frozenset({"base", "fallback", "mode", "palette"}),
+    "client": frozenset({"graphics_notice"}),
+    "mesh": frozenset({"require_mtls_cross_host"}),
+    "check": frozenset({"qml_format"}),
+    "monitoring": frozenset({"entity", "levels", "capture_identity", "public"}),
+}
+
+
+def _section_key_messages(config: Dict[str, Any]) -> List[str]:
+    """Refuse a key inside a top-level section that nothing reads, naming the section's
+    keys.
+    """
+    messages: List[str] = []
+    for section, allowed in _SECTION_KEYS.items():
+        block = config.get(section)
+        if not isinstance(block, dict):
+            continue
+        for key in block:
+            if str(key) not in allowed:
+                messages.append(
+                    f"error: {section}.{key} is not a setting, so nothing reads it. "
+                    f"{section} has {', '.join(sorted(allowed))}")
+    return messages
+
+
 #: The keys an entity may carry. A key nothing reads is a mistake: a misspelled `shared:`
 #: would leave the entity shared across every caller.
 _ENTITY_KEYS = frozenset({
@@ -639,6 +683,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     if not entities:
         return False, ["error: no entities declared"]
     messages += _key_messages(config)
+    messages += _section_key_messages(config)
     messages += _organization_messages(config)
     messages += _qt_version_messages(config)
     messages += _project_name_messages(config)

@@ -166,3 +166,33 @@ def test_a_session_setting_nothing_reads_is_refused(key, value):
     ok, messages = check.validate(config)
     assert not ok
     assert any(f"identity.session.{key}" in message for message in messages), messages
+
+
+@pytest.mark.parametrize("section, key", [
+    ("identity", "requred"),
+    ("security", "max_conections_global"),
+    ("mesh", "ca_cert"),
+    ("project", "origin"),
+])
+def test_a_key_a_section_does_not_have_is_refused(section, key):
+    # `identity.requred: true` read as nothing would leave sign-in optional.
+    config = _config()
+    config.setdefault(section, {})[key] = True
+    ok, messages = check.validate(config)
+    assert not ok
+    assert any(f"{section}.{key}" in message for message in messages), messages
+
+
+def test_every_documented_section_key_is_one_the_check_accepts():
+    import re
+
+    doc = (Path(__file__).resolve().parents[3] / "docs"
+           / "project-layout-and-config.md").read_text(encoding="utf-8")
+    for block in re.findall(r"```yaml\n(.*?)```", doc, re.S):
+        try:
+            parsed = yaml.safe_load(block)
+        except yaml.YAMLError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        assert check._section_key_messages(parsed) == [], block
