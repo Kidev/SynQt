@@ -238,3 +238,28 @@ def test_check_itself_fails_on_what_the_compiler_refuses(tmp_path):
     ok, messages = checkmod.check_project(project)
     assert not ok
     assert any("`prop bool ready`" in m and "'ready'" in m for m in messages), messages
+
+
+def test_a_source_that_implements_nothing_is_held_to_its_export(tmp_path):
+    # Rooted at its contract and empty: every exported slot would answer with a default.
+    project = tmp_path / "shop"
+    (project / "service" / "store").mkdir(parents=True)
+    (project / "service" / "store" / "Store.qml").write_text(
+        "import SynQt\n\nStore {\n    id: root\n}\n")
+    config = {"entities": [{"name": "store", "type": "service"},
+                           {"name": "web", "type": "web_edge"}],
+              "connect_points": [{"owner": "store", "consumers": ["web"],
+                                  "export": "slot add(string text)\n"}]}
+    found = checkmod.lint_exports(config, project)
+    assert any("'add'" in message for message in found), found
+
+
+def test_a_new_connect_point_passes_check_as_scaffolded(tmp_path):
+    from synqt import addcontract, addentity, newproject
+
+    newproject.scaffold(tmp_path, "shop")
+    project = tmp_path / "shop"
+    addentity.scaffold(project, "store", "service")
+    addcontract.scaffold_connect_point(project, "store", consumers=["edge"])
+    config = yaml.safe_load((project / "synqt.yaml").read_text())
+    assert checkmod.lint_exports(config, project) == []

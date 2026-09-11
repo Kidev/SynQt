@@ -23,6 +23,12 @@ window, and :func:`synqt.check.lint_client_root` reports it.
 
 The pass also writes ``pragma Shared`` (:data:`synqt.appmodel.SHARED_PRAGMA`) as the
 ``pragma Singleton`` the engine knows. A file that already says ``Singleton`` is left as is.
+
+In a connect point's Source, a root ``property`` or ``signal`` named after an exported member
+is how the author writes that member down, and the type is generated with it already. The
+mirror keeps the generated one: ``property int count: 0`` becomes ``count: 0`` and a
+declared contract signal is dropped, on the same lines. A declaration left in place would be
+a new member hiding the generated one, so nothing the owner did would reach a consumer.
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from synqt import appmodel, qmlscan, writer
+from synqt import appmodel, contractgen, qmlscan, writer
 
 #: What a self-named root becomes when nothing of that name exists to be rooted at.
 FALLBACK_ROOT = "QtObject"
@@ -102,14 +108,115 @@ def with_engine_pragmas(source: str) -> str:
     return _SHARED_PRAGMA.sub(r"\1pragma\2Singleton", source)
 
 
+#: Words that may stand before `property` in a declaration.
+_PROPERTY_MODIFIERS = ("readonly", "default", "required", "final", "virtual", "override")
+
+
+def exported_names(point: Dict[str, Any]) -> frozenset:
+    """Every member name a point's `export:` block names, written out or by name only."""
+    names = set()
+    for line in contractgen.export_text(point).splitlines():
+        code = contractgen.split_gate(line.split("//", 1)[0].strip())[1].strip()
+        bare = contractgen.bare_name(line)
+        if bare:
+            names.add(bare)
+            continue
+        words = code.split("(", 1)[0].split()
+        if len(words) >= 2 and words[0] in ("prop", "model", "signal", "slot"):
+            names.add(words[-1])
+    return frozenset(names)
+
+
+def without_contract_declarations(source: str, exported: frozenset) -> str:
+    """`source` with each root `property` and `signal` named in `exported` turned into what the
+    generated type expects: a property keeps only its value (`count: 0`), and a signal goes.
+    Line numbers are kept.
+    """
+    if not exported:
+        return source
+    tokens = qmlscan.tokenize(source)
+    edits: List[Tuple[int, int, str]] = []
+    depth = 0
+    for index, token in enumerate(tokens):
+        if token.kind == "punct" and token.text in ("{", "}"):
+            depth += 1 if token.text == "{" else -1
+            continue
+        if depth != 1 or token.kind != "ident" or token.offset < 0:
+            continue
+        if token.text == "property":
+            edit = _property_edit(source, tokens, index, exported)
+        elif token.text == "signal":
+            edit = _signal_edit(source, tokens, index, exported)
+        else:
+            edit = None
+        if edit is not None:
+            edits.append(edit)
+    for start, end, replacement in sorted(edits, reverse=True):
+        source = source[:start] + replacement + source[end:]
+    return source
+
+
+def _property_edit(source: str, tokens: List[Any], index: int,
+                   exported: frozenset) -> Optional[Tuple[int, int, str]]:
+    """The edit for `[readonly] property <type> <name>[: value]` when <name> is exported."""
+    start = index
+    while start > 0 and tokens[start - 1].kind == "ident" \
+            and tokens[start - 1].text in _PROPERTY_MODIFIERS \
+            and tokens[start - 1].line == tokens[index].line:
+        start -= 1
+    # The name is the last word before the colon, or before the line ends.
+    name = None
+    position = index + 1
+    while position < len(tokens) and tokens[position].line == tokens[index].line:
+        token = tokens[position]
+        if token.kind == "punct" and token.text in (":", ";", "}"):
+            break
+        if token.kind == "ident":
+            name = token
+        position += 1
+    if name is None or name.text not in exported:
+        return None
+    begin = tokens[start].offset
+    followed = position < len(tokens) and tokens[position].text == ":" \
+        and tokens[position].kind == "punct"
+    if followed:
+        return begin, name.offset, ""
+    return begin, name.offset + len(name.text), ""
+
+
+def _signal_edit(source: str, tokens: List[Any], index: int,
+                 exported: frozenset) -> Optional[Tuple[int, int, str]]:
+    """The edit removing `signal <name>[(...)]` when <name> is exported. A parameter list
+    over several lines leaves its line breaks behind.
+    """
+    name = tokens[index + 1] if index + 1 < len(tokens) else None
+    if name is None or name.kind != "ident" or name.text not in exported:
+        return None
+    end = name.offset + len(name.text)
+    after = tokens[index + 2] if index + 2 < len(tokens) else None
+    if after is not None and after.kind == "punct" and after.text == "(":
+        depth = 0
+        for token in tokens[index + 2:]:
+            if token.kind == "punct" and token.text == "(":
+                depth += 1
+            elif token.kind == "punct" and token.text == ")":
+                depth -= 1
+                if depth == 0:
+                    end = token.offset + 1
+                    break
+    begin = tokens[index].offset
+    return begin, end, "\n" * source.count("\n", begin, end)
+
+
 def transformed(relative: str, source: str, contracts: set[str], *,
-                retype: bool = True) -> str:
-    """What `relative` looks like in ``generated/``: engine pragmas, and a loadable root.
-    `retype` is off for a client window; the pragma pass still runs.
+                retype: bool = True, exported: frozenset = frozenset()) -> str:
+    """What `relative` looks like in ``generated/``: engine pragmas, a loadable root, and, in
+    a Source, the contract members it declares left to the generated type. `retype` is off for
+    a client window; the pragma pass still runs.
     """
     if not relative.endswith(".qml"):
         return source
-    text = with_engine_pragmas(source)
+    text = without_contract_declarations(with_engine_pragmas(source), exported)
     if not retype or not needs_retyping(relative, text, contracts):
         return text
     return retyped(text, FALLBACK_ROOT)
@@ -152,6 +259,14 @@ def write_entity_qml(project_dir: os.PathLike[str] | str,
     """
     root = Path(project_dir)
     contracts = set(appmodel.all_contracts(config))
+    # Each Source file, and the member names its point exports.
+    owners = {str(entity.get("name") or ""): entity for entity in appmodel.entities(config)}
+    sources: Dict[str, frozenset] = {}
+    for point in appmodel.app_points(appmodel.connect_points(config)):
+        owning = owners.get(str(point.get("owner") or ""))
+        if owning is None or appmodel.is_front(point) or not contractgen.has_export(point):
+            continue
+        sources[appmodel.authored_source_path(owning, point)] = exported_names(point)
     written: List[str] = []
     for entity in appmodel.entities(config):
         # Never retype a client window: `check.lint_client_root` reports a non-window root.
@@ -160,7 +275,8 @@ def write_entity_qml(project_dir: os.PathLike[str] | str,
             source = (root / relative).read_text(encoding="utf-8", errors="replace")
             target = mirrored_path(relative)
             text = transformed(relative, source, contracts,
-                               retype=relative != window)
+                               retype=relative != window,
+                               exported=sources.get(relative, frozenset()))
             writer.write_if_changed(root / target, text)
             written.append(target)
     return written

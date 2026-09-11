@@ -3298,15 +3298,27 @@ def lint_exports(config: Dict[str, Any],
     for point in appmodel.app_points(appmodel.connect_points(config)):
         if not contractgen.has_export(point):
             continue   # lint_contracts says so in its own words
+        if appmodel.is_front(point):
+            continue   # a front implements nothing; lint_fronts holds it to what is behind
         where = f"connect point '{appmodel.point_name(point)}'"
         implemented = infer.owner_members(root, config, point)
-        if not implemented:
-            # No Source, or a wrong root: lint_connect_point_sources reports it.
-            continue
         server = infer.server_path(config, point)
+        if not implemented and not _rooted_at_contract(root / server, point):
+            # No Source, or a wrong root: lint_connect_point_sources reports it. A Source that
+            # is there and implements nothing is held to the export like any other.
+            continue
         for line in contractgen.export_text(point).splitlines():
             messages += _export_line_messages(line, where, server, implemented)
     return messages
+
+
+def _rooted_at_contract(source: Path, point: Dict[str, Any]) -> bool:
+    """Whether `source` is a readable Source rooted at the point's contract type."""
+    try:
+        text = source.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return qmlscan.root_type(text) == appmodel.contract_of(point)
 
 
 #: What an owner does with each kind of member, in the words its own QML would use.

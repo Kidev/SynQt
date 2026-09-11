@@ -257,3 +257,58 @@ def test_a_clients_window_is_copied_as_written_rather_than_quietly_fixed(tmp_pat
               "connect_points": []}
     qmlrewrite.write_entity_qml(root, config)
     assert "Main {" in (root / "generated/client/app/Main.qml").read_text()
+
+
+SOURCE_DECLARING = """import SynQt
+
+Store {
+    id: root
+
+    readonly property int count: 5
+    property string note: "kept"
+    signal changed
+    signal moved(int x,
+                 int y)
+
+    Item {
+        property int count: 3
+    }
+}
+"""
+
+
+def test_a_declared_contract_member_is_left_to_the_generated_type():
+    # Declared, `count` would be a second property hiding the published one: the owner sets
+    # it and every consumer keeps reading the generated one's 0.
+    mirrored = qmlrewrite.without_contract_declarations(
+        SOURCE_DECLARING, frozenset({"count", "changed", "moved"}))
+    assert "    count: 5\n" in mirrored
+    assert "signal" not in mirrored
+    # What the contract does not name, and anything below the root, is the author's.
+    assert 'property string note: "kept"' in mirrored
+    assert "        property int count: 3" in mirrored
+    # On the same lines, so an engine error still points at the author's file.
+    assert mirrored.count("\n") == SOURCE_DECLARING.count("\n")
+
+
+def test_a_declaration_without_a_value_leaves_nothing_behind():
+    mirrored = qmlrewrite.without_contract_declarations(
+        "Store {\n    id: root\n    property var items\n}\n", frozenset({"items"}))
+    assert "items" not in mirrored
+    assert mirrored.count("\n") == 4
+
+
+def test_the_mirror_of_a_source_drops_what_its_point_exports(tmp_path):
+    (tmp_path / "service" / "store").mkdir(parents=True)
+    (tmp_path / "service" / "store" / "Store.qml").write_text(SOURCE_DECLARING)
+    config = {"entities": [{"name": "store", "type": "service"},
+                           {"name": "web", "type": "web_edge"}],
+              "connect_points": [{"owner": "store", "consumers": ["web"],
+                                  "export": "prop int count\nsignal changed()\n"}]}
+    qmlrewrite.write_entity_qml(tmp_path, config)
+    mirrored = (tmp_path / appmodel.GENERATED_DIR / "service" / "store"
+                / "Store.qml").read_text()
+    assert "    count: 5\n" in mirrored
+    assert "signal changed" not in mirrored
+    # `moved` is not exported, so its declaration is the author's own signal.
+    assert "signal moved" in mirrored

@@ -25,6 +25,17 @@ slot add(string[200] text)        // a consumer -> owner request, so authorize C
 signal changed()                  // the owner notifies consumers
 """
 
+#: The Source that implements :data:`_EXPORT_TEMPLATE`, so a new point passes `synqt check`.
+_STARTER_BODY = """
+    count: 0
+    rowsRows: []
+
+    function add(text: string) {
+        // Authorize Caller here before anything changes.
+        root.changed();
+    }
+"""
+
 _SOURCE_TEMPLATE = """// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
@@ -151,11 +162,15 @@ def declarations_for(members: Optional[List[Dict[str, Any]]]) -> str:
 
 
 def source_stub(contract: str, point: str,
-                members: Optional[List[Dict[str, Any]]] = None) -> str:
-    """An owner-side Source rooted at the contract type, declaring the contract's members."""
-    declared = declarations_for(members)
-    return _SOURCE_TEMPLATE.format(contract=contract, point=point,
-                                   declared=f"\n{declared}\n" if declared else "")
+                members: Optional[List[Dict[str, Any]]] = None, *,
+                body: Optional[str] = None) -> str:
+    """An owner-side Source rooted at the contract type, implementing the contract's members,
+    or holding `body` when one is given.
+    """
+    if body is None:
+        declared = declarations_for(members)
+        body = f"\n{declared}\n" if declared else ""
+    return _SOURCE_TEMPLATE.format(contract=contract, point=point, declared=body)
 
 
 def untouched_scaffold(text: str, entity: Dict[str, Any]) -> bool:
@@ -171,7 +186,8 @@ def untouched_scaffold(text: str, entity: Dict[str, Any]) -> bool:
 
 def write_source(project_dir: os.PathLike[str] | str, owner: Dict[str, Any], contract: str, *,
                  point: str, path: Optional[str] = None,
-                 members: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
+                 members: Optional[List[Dict[str, Any]]] = None,
+                 body: Optional[str] = None) -> Optional[str]:
     """Write the owner-side Source for a connect point, unless the author has one.
 
     Returns the project-relative path when written, None when the file was left alone.
@@ -182,7 +198,7 @@ def write_source(project_dir: os.PathLike[str] | str, owner: Dict[str, Any], con
             target.read_text(encoding="utf-8", errors="replace"), owner):
         return None
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(source_stub(contract, point, members), encoding="utf-8")
+    target.write_text(source_stub(contract, point, members, body=body), encoding="utf-8")
     return relative
 
 
@@ -236,7 +252,8 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, owner: str, *,
     config_path.write_text(yamledit.append_item(
         config_path.read_text(encoding="utf-8"), "connect_points", block), encoding="utf-8")
     owning = owner_entity(project_dir, owner)
-    written = write_source(project_dir, owning, contract, point=owner)
+    # The Source implements the starter export, so the point passes `synqt check` as written.
+    written = write_source(project_dir, owning, contract, point=owner, body=_STARTER_BODY)
     steps = [f"Added the connect point '{owner}' exports (contract {contract}, "
              f"consumers {', '.join(consumers) or 'none'}). "
              "Deny-by-default: only listed consumers may acquire it."]

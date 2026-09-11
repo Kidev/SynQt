@@ -1482,6 +1482,20 @@
       "defended_by": "`synqt check` holds each of those blocks to the keys its readers use, naming them. The tests refuse a misspelled key in each block, and require every YAML example in the docs to pass the section, entity and block checks.",
       "file": "tools/synqt/tests/test_check_sections.py",
       "test": "test_a_key_an_entity_block_does_not_have_is_refused"
+    },
+    {
+      "id": "a-declared-contract-property-never-reaches-a-consumer",
+      "what": "A Source that wrote a contract member down as `property int count` (the form the design editor writes and reads back) declared a second property hiding the one the generated Source type publishes, so the owner set its own copy and every consumer went on reading 0; a declared contract signal was refused as a duplicate. `synqt check` counted the declaration as the implementation. Measured end to end: the owner set 7, the consuming edge read 0, and read 7 with the fix.",
+      "defended_by": "The mirror under generated/, which is what the engine loads, turns a root `property` named in the point's export into an assignment of its value and drops an exported `signal` declaration, on the same lines; anything the export does not name, and anything below the root, is left as written. The tests rewrite a Source with a readonly property, a property with no value, two signals and a nested property of the same name, and mirror a project whose point exports some of them.",
+      "file": "tools/synqt/tests/test_qmlrewrite.py",
+      "test": "test_a_declared_contract_member_is_left_to_the_generated_type"
+    },
+    {
+      "id": "an-empty-source-passes-its-export",
+      "what": "`synqt check` holds every exported member to the owner Source, but skipped the point whenever the Source implemented nothing, a case meant only for a missing or misrooted file, so an exported slot backed by an empty Source passed and answered every call with a default. The `synqt add connect-point` scaffold relied on the skip: it wrote an empty Source under a four-member starter export.",
+      "defended_by": "A Source that exists and is rooted at its contract is held to the export however little it implements, and the scaffold writes a Source that implements its starter export. The tests refuse an empty Source under an exported slot and pass a freshly scaffolded point.",
+      "file": "tools/synqt/tests/test_exports.py",
+      "test": "test_a_source_that_implements_nothing_is_held_to_its_export"
     }
   ]
 }
