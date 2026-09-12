@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-"""M10 toolchain: resolution, .wasm precompression, the process manifest, desktop layout."""
+"""The toolchain: resolution, .wasm precompression, the process manifest, desktop layout."""
 
 import gzip
 import json
@@ -904,3 +904,15 @@ class SourceWatcherTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UserPresetTest(unittest.TestCase):
+    def test_the_user_preset_stub_sets_nothing_the_build_would_not_read(self):
+        # A cache variable no CMake file reads makes every configure through the preset warn
+        # that it was not used.
+        root = Path(tempfile.mkdtemp())
+        from synqt import presets
+        presets.write(root, {"entities": [{"name": "app", "type": "client"}]})
+        user = json.loads((root / "CMakeUserPresets.json").read_text())
+        for preset in user["configurePresets"]:
+            self.assertNotIn("cacheVariables", preset)

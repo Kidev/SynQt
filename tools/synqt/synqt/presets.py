@@ -125,13 +125,12 @@ def write(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     writer.write_if_changed(root / "CMakePresets.json",
                             json.dumps(_presets(config, profile_name, custom_type, strip,
                                                 dev_tools), indent=2) + "\n")
-    # The user preset holds local toolchain overrides.
+    # The user preset holds local toolchain overrides; it starts with none.
     user = {
         "version": 6,
         "configurePresets": [{
             "name": "local",
             "inherits": "host",
-            "cacheVariables": {"SYNQT_LOCAL": "ON"},
         }],
     }
     # Never overwritten once written. Git-ignored by the scaffold.

@@ -1503,6 +1503,13 @@
       "defended_by": "The topology names those files relative to the project root, and the runtime resolves a relative path against its working directory, which every generated main is started from; an absolute path is kept as written. The guide lists generated/ among what a host needs. The tests read a written topology for any absolute path and resolve a relative one in C++ from a chosen working directory.",
       "file": "tests/m4-topology/tst_m4.cpp",
       "test": "topologyPathsResolveFromTheWorkingDirectory"
+    },
+    {
+      "id": "the-user-preset-sets-a-variable-nothing-reads",
+      "what": "Every scaffolded CMakeUserPresets.json set SYNQT_LOCAL=ON, which no CMake file reads, so each configure through the `local` preset ended with CMake's warning that a manually specified variable was not used, the warning a real typo in a cache variable also produces.",
+      "defended_by": "The stub inherits `host` and sets nothing. The test writes the presets and requires no cache variable in the user preset.",
+      "file": "tools/synqt/tests/test_tool.py",
+      "test": "test_the_user_preset_stub_sets_nothing_the_build_would_not_read"
     }
   ]
 }
