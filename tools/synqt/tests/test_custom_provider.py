@@ -9,6 +9,8 @@ selection pulls the file in.
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from synqt import addprovider, cmakegen
 
 
@@ -46,3 +48,13 @@ def test_the_scaffolded_file_lands_where_the_glob_looks():
         assert written.is_file()
         source = written.read_text()
         assert 'SYNQT_REGISTER_PERSISTENCE_PROVIDER("SqlServer", SqlServerProvider)' in source
+
+
+@pytest.mark.parametrize("name", ["../escaped", "my provider", "9Rows", ""])
+def test_a_name_that_cannot_be_a_cpp_class_writes_nothing(tmp_path, name):
+    # The name is the class `<Name>Provider` and the file `<name>provider.cpp`, so a path or
+    # a space would write elsewhere or into C++ that does not compile.
+    with pytest.raises(addprovider.AddProviderError):
+        addprovider.scaffold(tmp_path, name, "cache")
+    assert list(tmp_path.rglob("*.cpp")) == []
+    assert not (tmp_path.parent / "escapedprovider.cpp").exists()

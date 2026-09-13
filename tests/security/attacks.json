@@ -1524,6 +1524,13 @@
       "defended_by": "The report reads only mapping entities and only a mapping provider. The test runs it on a project with both mistakes and requires the report.",
       "file": "tools/synqt/tests/test_doctor.py",
       "test": "test_doctor_reports_on_a_provider_written_as_a_bare_name"
+    },
+    {
+      "id": "a-provider-name-written-as-a-path",
+      "what": "`synqt add provider <name>` used the name unchecked as the C++ class `<Name>Provider`, the string `custom:<Name>` and the file `providers/custom/<name>provider.cpp`, so `../x` wrote the file outside providers/custom/ and a name with a space or a leading digit produced C++ that does not compile.",
+      "defended_by": "The name must start with a letter and hold only letters, digits and underscores before anything is written. The test refuses a path, a space, a leading digit and an empty name, and requires no file written anywhere.",
+      "file": "tools/synqt/tests/test_custom_provider.py",
+      "test": "test_a_name_that_cannot_be_a_cpp_class_writes_nothing"
     }
   ]
 }

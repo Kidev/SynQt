@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 FAMILY_INTERFACE = {
@@ -168,6 +169,11 @@ _INCLUDES = {
 }
 
 
+#: A provider name: it becomes a C++ class (`<Name>Provider`), a file name and the string
+#: `provider.name: custom:<Name>` selects.
+_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
 class AddProviderError(Exception):
     """A scaffolding error surfaced to the CLI (no traceback for the user)."""
 
@@ -225,6 +231,11 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str, family: str) -> str
     if family not in FAMILY_INTERFACE:
         raise AddProviderError(
             f"unknown family '{family}'; one of {sorted(FAMILY_INTERFACE)}")
+    if not _NAME.match(name or ""):
+        raise AddProviderError(
+            f"'{name[:80]}' cannot name a provider: it becomes the C++ class '<name>Provider' "
+            "and a file name, so it starts with a letter and holds only letters, digits and "
+            "underscores")
 
     root = Path(project_dir)
     out_dir = root / "providers" / "custom"
