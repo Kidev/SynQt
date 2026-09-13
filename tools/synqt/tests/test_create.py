@@ -33,11 +33,22 @@ def test_empty_answers_take_the_defaults():
     assert chosen == {"name": "my-app", "auth": None, "entities": []}
 
 
-def test_a_name_is_one_directory_component():
+def test_a_name_is_asked_again_until_it_can_name_a_project():
     out = io.StringIO()
-    # Two refusals, then an acceptable one: a path and a hidden name are not names.
-    assert create.ask_name(out, _answers("some/where", ".hidden", "shop")) == "shop"
-    assert out.getvalue().count("one directory component") == 2
+    # A path, a hidden name, a space and a leading digit are refused before `synqt new`
+    # would refuse them after every other question.
+    assert create.ask_name(out, _answers("some/where", ".hidden", "my shop", "9lives",
+                                         "shop")) == "shop"
+    assert out.getvalue().count("starts with a letter") == 4
+
+
+@pytest.mark.parametrize("name", ["9lives", "my db", "ca", "edge"])
+def test_a_starting_entity_name_is_refused_before_anything_is_written(tmp_path, name):
+    source = _answers("", name, "service", "")
+    with pytest.raises(create.CreateError):
+        create.create(tmp_path, name="shop", source=source, out=io.StringIO(),
+                      interactive=True)
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_a_given_name_is_not_asked_for_again():
@@ -119,3 +130,4 @@ def test_answering_the_questions_matches_the_equivalent_commands():
     finally:
         shutil.rmtree(asked, ignore_errors=True)
         shutil.rmtree(flagged, ignore_errors=True)
+

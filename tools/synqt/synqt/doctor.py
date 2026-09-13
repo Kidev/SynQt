@@ -73,7 +73,7 @@ def report(project_dir: os.PathLike[str] | str,
     if not (mesh / "ca.crt").exists():
         lines.append("    - no production CA (run 'synqt mesh init'); 'synqt dev' uses a "
                      "throwaway dev CA.")
-    for entity in config.get("entities", []):
+    for entity in appmodel.entities(config):
         if appmodel.is_client(entity):
             continue
         name = entity.get("name")
@@ -84,8 +84,9 @@ def report(project_dir: os.PathLike[str] | str,
 
     # Provider engines/drivers.
     host_qt = toolchain.resolve(root, threads=threads).get("host_qt")
-    for entity in config.get("entities", []):
-        provider = (entity.get("provider") or {}).get("name")
+    for entity in appmodel.entities(config):
+        provider = entity.get("provider")
+        provider = provider.get("name") if isinstance(provider, dict) else None
         if provider in ("postgres", "mysql", "mongodb", "redis"):
             lines.append(f"  Provider '{provider}' on entity '{entity.get('name')}':")
             for line in _provider_dependency_lines(provider, host_qt):

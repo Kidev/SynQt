@@ -53,9 +53,10 @@ def ask_name(out: TextIO, source: TextIO, *, suggested: str = "my-app") -> str:
     """The project name, which is also the directory `create` will write into."""
     while True:
         name = _prompt("Project name", default=suggested, out=out, source=source)
-        if name and "/" not in name and "\\" not in name and not name.startswith("."):
+        if appmodel.is_valid_project_name(name):
             return name
-        out.write("  A project name is one directory component, and not a hidden one.\n")
+        out.write("  A project name starts with a letter and is made of letters, digits, "
+                  "underscores and hyphens.\n")
 
 
 def ask_auth(out: TextIO, source: TextIO) -> Optional[str]:
@@ -90,6 +91,13 @@ def ask_entities(out: TextIO, source: TextIO) -> List[Tuple[str, str]]:
             return chosen
         if name in [already for already, _ in chosen]:
             raise CreateError(f"two starting entities are both called '{name}'")
+        # Refused here, before anything is written, rather than by the scaffolder after the
+        # project directory exists.
+        if not appmodel.is_valid_entity_name(name) or name in ("app", "edge"):
+            raise CreateError(
+                f"'{name}' cannot name a starting entity: an entity name starts with a "
+                "letter and is made of letters, digits, underscores and hyphens, and 'app', "
+                "'edge', 'ca' and 'docker-ca' are taken")
         entity_type = _prompt(f"Type for '{name}'", default=appmodel.PLAIN_TYPE, out=out,
                               source=source).strip().lower()
         if entity_type not in addentity.TYPES:
