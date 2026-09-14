@@ -13,12 +13,17 @@ upgrade checks are always on and need no configuration.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
 # PyYAML is imported inside scaffold() only. appmodel reads this module's provider table,
 # and synqt.clientshell (run by tools/wasm-shell.py with no install) imports appmodel, so a
 # module-level import would make PyYAML required there.
+
+
+#: A provider name: it becomes `<NAME>_CLIENT_SECRET` and the host of a template's URLs.
+_PROVIDER_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
 
 class AddAuthError(Exception):
@@ -212,6 +217,12 @@ def scaffold(project_dir: os.PathLike[str] | str, provider: str, *, required: bo
     # Local imports: yamledit imports PyYAML too (see the note at the top).
     import yaml
     from synqt import yamledit
+
+    if not _PROVIDER_NAME.match(provider or ""):
+        raise AddAuthError(
+            f"'{provider[:80]}' cannot name a provider: it becomes the variable "
+            f"<NAME>_CLIENT_SECRET and part of its URLs, so it is lower case letters, digits "
+            "and hyphens, starting with a letter (github, google, my-idp)")
 
     root = Path(project_dir)
     config_path = root / "synqt.yaml"

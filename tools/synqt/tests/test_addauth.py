@@ -133,3 +133,22 @@ class AddAuthTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProviderNameTest(unittest.TestCase):
+    def test_a_provider_name_that_cannot_name_a_variable_writes_nothing(self):
+        # `my idp` would ask for MY IDP_CLIENT_SECRET, which no environment can hold.
+        for name in ("my idp", "GitHub", "idp;x", "../idp", ""):
+            root = Path(tempfile.mkdtemp())
+            (root / "synqt.yaml").write_text("entities: []\n")
+            with self.subTest(name=name):
+                with self.assertRaises(addauth.AddAuthError):
+                    addauth.scaffold(root, name)
+                self.assertEqual((root / "synqt.yaml").read_text(), "entities: []\n")
+                self.assertFalse((root / ".env.example").exists())
+
+    def test_the_names_the_docs_use_are_accepted(self):
+        for name in ("github", "google", "dev", "my-idp"):
+            root = Path(tempfile.mkdtemp())
+            (root / "synqt.yaml").write_text("entities: []\n")
+            addauth.scaffold(root, name)
