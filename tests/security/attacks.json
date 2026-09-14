@@ -1538,6 +1538,13 @@
       "defended_by": "The provider name must be lower case letters, digits and hyphens, starting with a letter, before anything is written. The tests refuse a space, capitals, a semicolon, a path and an empty name with the project untouched, and accept the names the docs use.",
       "file": "tools/synqt/tests/test_addauth.py",
       "test": "test_a_provider_name_that_cannot_name_a_variable_writes_nothing"
+    },
+    {
+      "id": "the-editor-token-stays-in-the-address",
+      "what": "The design editor's token, the only thing keeping other pages and other local users off a server that writes into the project, arrived in the URL fragment and stayed in the address bar for the whole session, so a shared screen, a bookmark or a link copied out of the bar carried it.",
+      "defended_by": "The page keeps the token for its tab in sessionStorage and takes it out of the address with replaceState once read; a reload reads it back from storage. The browser test opens the printed URL, requires the address without the token, reloads, and requires the project still read from the server.",
+      "file": "tests/designer/verify.mjs",
+      "test": "editorOverAProject"
     }
   ]
 }

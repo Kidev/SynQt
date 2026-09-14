@@ -288,6 +288,16 @@ async function editorOverAProject() {
         check(await page.locator("[data-entity]").count() === 3,
               "the project on disk arrives as three entities on the canvas");
 
+        // The token is out of the address once the page has it, so a shared screen or a
+        // copied link does not carry it, and a reload still reaches the server.
+        check(!page.url().includes("token="),
+              "the token is taken out of the address once the page has read it");
+        await page.reload();
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "gavel");
+        check(await page.locator("[data-entity]").count() === 3,
+              "a reload still reaches the server without the token in the address");
+
         // Add a service, and connect it to the edge. The service owns the point, the edge
         // consumes it. Dropped the other way round the page would draw a different project.
         await dropEntity(page, "Service", { x: 430, y: 400 });

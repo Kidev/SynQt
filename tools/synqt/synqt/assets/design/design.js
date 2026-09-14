@@ -3393,8 +3393,28 @@ async function goOffline(reason) {
     say(reason);
 }
 
+// The token arrives once, in the fragment of the URL `synqt design` printed. It is kept for
+// this tab, so a reload still reaches the server, and taken out of the address, so a shared
+// screen, a bookmark or a copied link does not carry it. Without storage it stays in the
+// address, which is where a reload would need it.
+const TOKEN_KEY = "synqt-design-token";
+
+function sessionToken() {
+    const given = fromHash("token");
+    try {
+        if (given) {
+            window.sessionStorage.setItem(TOKEN_KEY, given);
+            forgetInHash("token");
+            return given;
+        }
+        return window.sessionStorage.getItem(TOKEN_KEY) || "";
+    } catch (error) {
+        return given;
+    }
+}
+
 async function load() {
-    state.token = fromHash("token");
+    state.token = sessionToken();
     try {
         const answer = await request("GET", "api/project");
         state.backend = true;
