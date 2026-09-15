@@ -435,12 +435,16 @@ def _run_node(arguments: Sequence[str], request: Optional[Dict[str, object]],
             cwd=str(working_dir) if working_dir.is_dir() else None)
     except (OSError, subprocess.SubprocessError) as error:
         raise TypeBackendError("the type backend could not be started: %s" % error)
-    if finished.returncode != 0:
-        raise TypeBackendError((finished.stderr or "").strip()
-                               or "the type backend exited %d" % finished.returncode)
     try:
         payload = json.loads(finished.stdout or "{}")
     except ValueError:
+        payload = None
+    if finished.returncode != 0:
+        # infer.mjs writes why it failed as {"error": ...} on stdout before it exits.
+        said = payload.get("error") if isinstance(payload, dict) else None
+        raise TypeBackendError(str(said or "").strip() or (finished.stderr or "").strip()
+                               or "the type backend exited %d" % finished.returncode)
+    if payload is None:
         raise TypeBackendError("the type backend answered something that is not JSON")
     if not isinstance(payload, dict):
         raise TypeBackendError("the type backend answered something that is not an object")

@@ -148,3 +148,16 @@ def test_the_generated_mirror_is_not_read_twice(tmp_path):
     (tmp_path / "generated" / "web" / "edge").mkdir(parents=True)
     (tmp_path / "generated" / "web" / "edge" / "Edge.qml").write_text("import SynQt\nEdge {}\n")
     assert [path for path, _ in typebackend.extract(tmp_path)] == ["web/edge/Edge.qml"]
+
+
+def test_a_failed_backend_says_why_it_failed(monkeypatch):
+    # infer.mjs puts the reason on stdout and exits 1; reporting only the exit code loses it.
+    class Finished:
+        returncode = 1
+        stdout = '{"error": "Cannot find module \'ts-morph\'"}'
+        stderr = ""
+
+    monkeypatch.setattr(typebackend.shutil, "which", lambda name: "/usr/bin/node")
+    monkeypatch.setattr(typebackend.subprocess, "run", lambda *a, **k: Finished())
+    with pytest.raises(typebackend.TypeBackendError, match="ts-morph"):
+        typebackend._run_node(["--answer"], {}, Path("."))
