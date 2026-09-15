@@ -28,7 +28,7 @@ runs:
     - name: Cache the QMYSQL plugin built against Connector/C
       if: runner.os == 'Linux'
       id: qmysql-cache
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: ~/.cache/synqt-qmysql
         key: qmysql-${{ runner.os }}-${{ inputs.qt_version }}-${{ hashFiles('tools/qmysql-plugin/build-qmysql-plugin.sh') }}

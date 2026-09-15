@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Install the synqt CLI
         run: curl -fsSL https://get.synqt.org/install.sh | sh
@@ -146,7 +146,7 @@ jobs:
       # an Emscripten toolchain to produce the same bytes.
       - name: Cache the pinned toolchain
         id: toolchain
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: synqt/toolchain
           key: synqt-toolchain-${{ hashFiles('synqt.yaml') }}
@@ -187,7 +187,7 @@ jobs:
         run: synqt build --release --profile production
 
       - name: Keep the artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: gavel-${{ github.sha }}
           path: |

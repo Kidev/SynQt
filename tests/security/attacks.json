@@ -1559,6 +1559,13 @@
       "defended_by": "The page names the files after the edge, as the scaffolder does. The test renders a project through the page's own module and reads the edge's tls block.",
       "file": "tools/synqt/tests/test_designpage.py",
       "test": "test_the_edge_certificate_is_where_synqt_new_puts_it"
+    },
+    {
+      "id": "a-moved-action-tag-runs-in-the-release-job",
+      "what": "The release job published to PyPI through pypa/gh-action-pypi-publish@release/v1, a branch, and most other steps named a major tag (actions/checkout@v7), so whatever was pushed to that branch or tag next would run with the job's tokens.",
+      "defended_by": "Every remote action names one exact release, as a full version tag or a commit SHA with the version beside it, and every copy of an action names the same one. The tests refuse a branch, a major tag and an uncommented SHA, and scan every tracked workflow.",
+      "file": "tools/synqt/tests/test_action_pins.py",
+      "test": "test_every_action_names_an_exact_release"
     }
   ]
 }

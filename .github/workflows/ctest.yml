@@ -39,7 +39,7 @@ jobs:
       relevant: ${{ steps.decide.outputs.relevant }}
       matrix: ${{ steps.matrix.outputs.value }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -79,7 +79,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: ./.github/actions/qt-kit
         with:
@@ -162,7 +162,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: ./.github/actions/qt-kit
         with:
@@ -235,7 +235,7 @@ jobs:
     if: needs.changes.outputs.relevant == 'true'
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: ./.github/actions/qt-kit
         with:
@@ -269,7 +269,7 @@ jobs:
 
       - name: Keep the coverage report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: coverage-cxx
           path: build/coverage/coverage-cxx.json

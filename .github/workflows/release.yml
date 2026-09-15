@@ -43,7 +43,7 @@ jobs:
   installer:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: index.html must be identical to install.sh
         run: |
           if ! diff -u deploy/get.synqt.org/install.sh deploy/get.synqt.org/index.html; then
@@ -61,7 +61,7 @@ jobs:
       pypi: ${{ steps.pep440.outputs.pypi }}
       pypi_version: ${{ steps.pep440.outputs.pypi_version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -121,7 +121,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # A version PEP 440 cannot express skips PyPI.
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
 
@@ -167,7 +167,7 @@ jobs:
             image: quay.io/pypa/manylinux_2_28_aarch64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Stamp the CLI version
         shell: bash
@@ -226,7 +226,7 @@ jobs:
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
 
       # Retried once; the retry overwrites a half-finished attempt.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.1
         id: upload
         continue-on-error: true
         with:
@@ -236,7 +236,7 @@ jobs:
 
       - name: Retry the upload if the artifact endpoint blipped
         if: steps.upload.outcome == 'failure'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ steps.package.outputs.asset }}
           path: out/${{ steps.package.outputs.asset }}
@@ -267,9 +267,9 @@ jobs:
             ext: zip
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -339,7 +339,7 @@ jobs:
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
 
       # Retried once, as in build-linux.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.1
         id: upload
         continue-on-error: true
         with:
@@ -349,7 +349,7 @@ jobs:
 
       - name: Retry the upload if the artifact endpoint blipped
         if: steps.upload.outcome == 'failure'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ steps.package.outputs.asset }}
           path: out/${{ steps.package.outputs.asset }}
@@ -361,11 +361,11 @@ jobs:
     needs: version
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
 
@@ -420,7 +420,7 @@ jobs:
           PY
 
       # Retried once, as in build-linux.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.1
         id: upload
         continue-on-error: true
         with:
@@ -430,7 +430,7 @@ jobs:
 
       - name: Retry the upload if the artifact endpoint blipped
         if: steps.upload.outcome == 'failure'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: pypi-distributions
           path: dist/
@@ -453,10 +453,10 @@ jobs:
           private-key: ${{ secrets.SYNQT_PRIVATE_KEY }}
           permission-contents: write
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Download all build assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.1
         with:
           path: dist
           merge-multiple: true
@@ -465,7 +465,7 @@ jobs:
         run: ls -la dist
 
       - name: Publish the release and tag the build commit
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v3.0.3
         with:
           token: ${{ steps.app-token.outputs.token }}
           tag_name: ${{ needs.version.outputs.tag }}
@@ -504,10 +504,10 @@ jobs:
           echo "not a dry run: publishing $PYPI_VERSION to PyPI"
 
       - name: Download the distributions
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.1
         with:
           name: pypi-distributions
           path: dist
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@v1.14.2

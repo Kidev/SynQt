@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Keep identical across every workflow. Tools/synqt/tests/test_qt_pin.py fails when one drifts.
+  # Keep identical across every workflow: tools/synqt/tests/test_qt_pin.py fails when one drifts.
   AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
 
 jobs:
@@ -47,13 +47,13 @@ jobs:
       QT_ROOT: ${{ github.workspace }}/Qt
       M0_HEADLESS: "1"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: "20"
 
@@ -80,7 +80,7 @@ jobs:
       - name: Cache the Qt kit
         # Covers the from-source QtRemoteObjects too, which installs into the kit prefix.
         id: qt-cache
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: ${{ env.QT_ROOT }}
           key: qt-${{ matrix.label }}-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/browser-matrix.yml') }}
@@ -119,7 +119,7 @@ jobs:
 
       - name: Cache Emscripten
         id: emsdk-cache
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: ~/emsdk
           key: emsdk-${{ runner.os }}-${{ env.EM_VERSION }}-${{ hashFiles('.github/workflows/browser-matrix.yml') }}
@@ -177,7 +177,7 @@ jobs:
 
       - name: Archive the headless run log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: m0-${{ matrix.label }}-log
           path: build/m0-verify.log
@@ -185,7 +185,7 @@ jobs:
 
       - name: Archive the split-origin measurement
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: split-origin-${{ matrix.label }}-report
           path: build/split-origin-report.json

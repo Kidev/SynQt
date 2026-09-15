@@ -42,7 +42,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v7
+    - uses: actions/setup-python@v7.0.0
       with:
         python-version: "3.12"
 
@@ -64,7 +64,7 @@ runs:
     - name: Put MSVC on PATH (Windows)
       # The run scripts configure with -G Ninja on every platform, so cl.exe has to be on PATH.
       if: runner.os == 'Windows'
-      uses: mlocati/setup-msvc@ade6aff3df872d66c12a63dcacdddf0041cb2693
+      uses: mlocati/setup-msvc@ade6aff3df872d66c12a63dcacdddf0041cb2693 # 1.3.1
       with:
         architecture: x64
 
@@ -144,7 +144,7 @@ runs:
 
     - name: Cache the Qt kit
       id: qt-cache
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: ${{ inputs.qt_root }}
         key: qt-${{ inputs.label }}-${{ inputs.qt_version }}-${{ hashFiles('.github/workflows/ctest.yml', '.github/actions/qt-kit/action.yml') }}
@@ -249,7 +249,7 @@ runs:
         fi
 
     - name: Restore the compiler cache
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: ${{ runner.os == 'Windows' && '~/AppData/Local/Mozilla/sccache' || '~/.cache/ccache' }}
         key: cc-${{ inputs.label }}-${{ inputs.phase }}-${{ github.sha }}

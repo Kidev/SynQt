@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Keep identical across every workflow. Tools/synqt/tests/test_qt_pin.py fails when one drifts.
+  # Keep identical across every workflow: tools/synqt/tests/test_qt_pin.py fails when one drifts.
   AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
     outputs:
       relevant: ${{ steps.decide.outputs.relevant }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -57,9 +57,9 @@ jobs:
       JWT_CPP_VERSION: "v0.7.2"
       QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
 
@@ -86,7 +86,7 @@ jobs:
 
       - name: Cache the Qt kit
         id: qt-cache
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: ${{ env.QT_ROOT }}
           key: qt-leaks-${{ env.QT_VERSION }}-${{ hashFiles('.github/workflows/leaks.yml') }}
@@ -142,7 +142,7 @@ jobs:
 
       - name: Keep the sanitizer logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: leakcheck-logs
           path: build/leakcheck/leaks/
