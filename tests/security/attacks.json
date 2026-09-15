@@ -1552,6 +1552,13 @@
       "defended_by": "The answer is read before the exit code, and a failure reports the reason the backend gave. The test fakes a failed run with a reason on stdout and requires it in the error.",
       "file": "tools/synqt/tests/test_typebackend.py",
       "test": "test_a_failed_backend_says_why_it_failed"
+    },
+    {
+      "id": "the-downloaded-edge-looks-for-its-certificate-elsewhere",
+      "what": "A project downloaded from the hosted design page named its edge's certificate certs/web/fullchain.pem whatever the edge was called, while `synqt new` and every deployment page put it at certs/<edge>/ (certs/edge/ for the scaffolded edge), so a downloaded project's release edge looked for its certificate where the guide never puts one.",
+      "defended_by": "The page names the files after the edge, as the scaffolder does. The test renders a project through the page's own module and reads the edge's tls block.",
+      "file": "tools/synqt/tests/test_designpage.py",
+      "test": "test_the_edge_certificate_is_where_synqt_new_puts_it"
     }
   ]
 }

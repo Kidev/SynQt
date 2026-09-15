@@ -811,3 +811,12 @@ def test_every_example_downloads_as_a_project_the_real_check_passes(tmp_path):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_the_edge_certificate_is_where_synqt_new_puts_it(rendered):
+    """The download names the edge's certificate by the edge's own name, as `synqt new` does."""
+    config = yaml.safe_load(next(file["text"] for file in rendered["files"]
+                                 if file["name"] == "gavel/synqt.yaml"))
+    edge = next(entity for entity in config["entities"] if entity["name"] == "edge")
+    assert edge["tls"] == {"cert_file": "certs/edge/fullchain.pem",
+                           "key_file": "certs/edge/privkey.pem"}

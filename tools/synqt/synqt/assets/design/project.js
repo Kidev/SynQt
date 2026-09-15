@@ -3,28 +3,22 @@
 
 // The project a design document describes, rendered as text in the browser.
 //
-// This is for the hosted copy alone. Run locally there is a CLI behind the page: it works
-// the change set out on disk with the same scaffolders `synqt add entity` and `synqt add
-// contract` run, shows it as a diff, and writes nothing until somebody has read it. On
-// synqt.org there is no disk and no CLI, so what the page offers instead is a download, and
-// this is what fills it.
+// For the hosted copy only. Run locally, the CLI behind the page works the change set out on
+// disk with the scaffolders `synqt add entity` and `synqt add contract` run, shows it as a
+// diff, and writes nothing until it is read. On synqt.org there is no disk and no CLI, so the
+// page offers a download, and this fills it.
 //
-// It is a second writer, so it is held to the one job it can do reliably, a project that
-// does not exist yet, rendered from the document alone. It never rewrites a synqt.yaml that
-// is already there. The document models a topology and its contracts and nothing else, so
-// rewriting a file that also holds scopes, security, TLS files and provider settings would
-// quietly drop them. On a real project the original is on disk, and the server is what
-// edits it.
+// It only renders a new project from the document. It never rewrites an existing synqt.yaml:
+// the document models a topology and its contracts and nothing else, so rewriting a file
+// that also holds scopes, security, TLS files and provider settings would drop them.
 //
-// Every entity in the document has a directory here, and every directory has its own file
-// from the moment the entity exists. A client's is `Main.qml`, because the generated client
-// main.cpp loads the QML module's `Main` and nothing else, and every other entity's is a
-// `pragma Shared` file named after it. A Source per owned connect point follows. An entity with
-// no files would be an entity that is on the canvas, is in synqt.yaml, and cannot be found
-// anywhere in the project it belongs to.
+// Every entity has a directory and its own file from the moment it exists: `Main.qml` for a
+// client, since the generated client main.cpp loads the module's `Main`, and a
+// `pragma Shared` file named after any other entity. A Source per owned connect point
+// follows.
 //
-// Pure functions over the document, no DOM: the suite renders a project with node and hands
-// it to `synqt check`, which is what stops this drifting from what `synqt new` writes.
+// Pure functions over the document, no DOM: the suite renders a project with node and runs
+// `synqt check` on it, which keeps this in step with what `synqt new` writes.
 
 import { withoutCommentary } from "./commentary.js";
 import { declarationsFor, reroot, rootTypeSpan, withShared, withoutShared }
@@ -56,11 +50,8 @@ function entityLines(entity) {
     if (entity.identity) {
         lines.push("    identity: true");
     }
-    // The two a console client carries and nothing drawn on the canvas does. They are not
-    // shades of configuration. `console` is what makes the monitor deliver this client
-    // instead of the application's, and `edge` is which monitor delivers it. A console
-    // written without them is an ordinary client sitting in a bundle map that promises an
-    // operator console.
+    // The two keys a console client carries: `console` makes the monitor deliver this client
+    // instead of the application's, and `edge` names the monitor that delivers it.
     if (entity.console) {
         lines.push("    console: true");
     }
@@ -76,20 +67,16 @@ function entityLines(entity) {
     if (entity.provider) {
         lines.push("    provider:", `      name: ${scalar(entity.provider)}`);
     }
-    // The same TLS block `synqt new` writes, pointing at the conventional place for the
-    // certificate. `synqt build --release` and `synqt serve` refuse an edge that names
-    // neither this nor a terminating proxy, so a downloaded project meets that rule from
-    // its first release build rather than at the deployment.
+    // The TLS block `synqt new` writes, pointing at the conventional place for the
+    // certificate, so a downloaded project passes the release TLS rule.
     if (isWebEdge(entity)) {
         lines.push("    tls:",
-                   "      cert_file: certs/web/fullchain.pem",
-                   "      key_file: certs/web/privkey.pem");
+                   `      cert_file: ${scalar(`certs/${entity.name}/fullchain.pem`)}`,
+                   `      key_file: ${scalar(`certs/${entity.name}/privkey.pem`)}`);
     }
-    // Everything else a monitor is, taken from the scaffolder rather than restated here
-    // (monitor.js, generated from synqt/monitorscaffold.py). Loopback, because a console
-    // that shows every request a system has served is not something to put on a public
-    // interface because nobody chose otherwise, and a retention bound, because a store
-    // without one fills the disk of the machine it is watching.
+    // The rest of a monitor comes from the scaffolder (monitor.js, generated from
+    // synqt/monitorscaffold.py): the console on loopback, and a retention bound so the
+    // store cannot fill the disk.
     if (entityType(entity) === "monitor") {
         lines.push("    public:",
                    "      host: 127.0.0.1",
@@ -98,12 +85,9 @@ function entityLines(entity) {
                    `      max_age_days: ${MONITOR_SCAFFOLD.retention.max_age_days}`,
                    `      max_bytes: ${MONITOR_SCAFFOLD.retention.max_bytes}`);
     }
-    // Which scope is served which bundle, the delivery gate. A caller is served the bundle
-    // their scope maps to and no file of any other, so an unauthorized visitor does not
-    // have the privileged bundle on their disk to read. A monitor's is the scaffolder's,
-    // because hiding a console behind a sign-in page is not a per-project choice. Every
-    // other entity writes what the drawing says; the panel shows the mapping from
-    // `bundles`, so a download without it would drop the gate the drawing shows.
+    // Which scope is served which bundle, the delivery gate: a caller gets only the bundle
+    // their scope maps to. A monitor's is the scaffolder's; every other entity writes what
+    // the drawing says.
     const bundles = Object.entries(bundlesOf(entity));
     if (bundles.length) {
         lines.push("    bundles:");
@@ -123,18 +107,14 @@ export function bundlesOf(entity) {
     return entity.bundles && typeof entity.bundles === "object" ? entity.bundles : {};
 }
 
-// One of the scaffolder's templates, with the name of the monitor somebody drew in
-// place of the token it was published with.
+// One of the scaffolder's templates, with the drawn monitor's name in place of the token.
 function forMonitor(text, name) {
     return String(text).split(MONITOR_SCAFFOLD.name_token).join(String(name || ""));
 }
 
-// The console client a drawn monitor implies. A client like any other, marked as the
-// console, whose edge is the monitor. It is derived rather than drawn, the same way
-// `monitoring.entity` below is, because what somebody puts on the canvas is one monitor and
-// what a monitor is made of is four things. `synqt design` reaches the same place from the
-// other end. There the real scaffolder writes it on Apply, and it is a node on the canvas
-// the next time the project is read.
+// The console client a drawn monitor implies: a client marked as the console, whose edge is
+// the monitor. Derived, as `monitoring.entity` is. Under `synqt design` the scaffolder writes
+// it on Apply, and it is a node on the canvas the next time the project is read.
 export function consoleFor(entity) {
     return Object.fromEntries(
         Object.entries(MONITOR_SCAFFOLD.console_block)
@@ -146,14 +126,10 @@ function monitors(design) {
     return (design.entities || []).filter((entity) => entityType(entity) === "monitor");
 }
 
-// Every entity the project holds. The ones somebody drew, and the console each monitor
-// implies that the drawing does not already carry.
-//
-// That second clause is the whole of it. A configuration this writes can be read back, and
-// reading it back turns the derived console into an ordinary drawn entity. Deriving it
-// again from the monitor beside it would then write the same entity twice, and a project
-// with two entities of one name does not build. `synqt design` reaches the same answer from
-// the other end, and for the same reason (designplan._with_scaffolded_monitors).
+// Every entity the project holds: the drawn ones, and the console each monitor implies that
+// the drawing does not already carry. A configuration this writes can be read back, which
+// turns the console into a drawn entity, and deriving it again would write it twice
+// (designplan._with_scaffolded_monitors does the same).
 function allEntities(design) {
     const drawn = (design.entities || []);
     const taken = new Set(drawn.map((entity) => String(entity.name || "")));
@@ -173,9 +149,8 @@ function isWebEdge(entity) {
     return entityType(entity || {}) === "web_edge";
 }
 
-// Whether there is one of this entity for everybody or one per caller, the same rule
-// appmodel.is_shared applies. Shared unless it says otherwise, and never for a client,
-// which is one browser.
+// Whether there is one of this entity for everybody or one per caller, as appmodel.is_shared
+// decides: shared unless it says otherwise, and never a client.
 export function isShared(entity) {
     if (entityType(entity || {}) === "client") {
         return false;
@@ -194,15 +169,9 @@ function linkLines(design, link) {
     if (link.scope) {
         lines.push(`    scope: ${scalar(link.scope)}`);
     }
-    // A front hands each scope's callers to the entity that serves them. Written before the
-    // export block so the two are not separated by it. This is who answers, and that is what
-    // they answer with.
-    // The key being written is what says this point is answered by entities behind it, and
-    // what is under it says which. So the key goes on whenever the switch is on, empty
-    // included: an empty block is a front nobody has wired yet, which `synqt check` warns
-    // about. Written only when something was under it, the editor drew a wedge with scope
-    // seats and handed over a file that said plain edge, and the first thing the reader did
-    // after the download was undo the switch they had thrown.
+    // A front hands each scope's callers to the entity that serves them, written before the
+    // export block. The key is written whenever the switch is on, empty included: an empty
+    // block is a front nobody has wired yet, which `synqt check` warns about.
     if (isFront(link)) {
         const tiers = link.behind || {};
         const scopes = Object.keys(tiers).filter((scope) => tiers[scope]);
@@ -239,16 +208,11 @@ export function renderYaml(design) {
         `  qt_version: ${QT_VERSION}`,
         "",
         "scopes:",
-        // The project's own, where it has any. A project may name scopes of its own (the
-        // arena tutorial gates everything on `player`), and writing the four a scaffold
-        // starts with would hand back a file `synqt check` refuses, on a member that was
-        // drawn correctly.
+        // The project's own scopes where it has any (the arena tutorial gates on `player`).
         `  order: ${listing(scopesOf(design))}`,
         "  hierarchical: true",
-        // The scope a caller with no session holds. The first of the order in every project
-        // that has not said otherwise, and the one it named when it did: the document
-        // carries that name (designdoc.scope_default_of), because a default this writer
-        // could not read is one it would quietly replace on the next export.
+        // The scope a caller with no session holds, as the document carries it
+        // (designdoc.scope_default_of).
         `  default: ${scalar(scopeDefaultOf(design))}`,
         "",
         "security:",
@@ -266,10 +230,8 @@ export function renderYaml(design) {
         ...block("connect_points", design.links || [],
                  (link) => linkLines(design, link)),
         "",
-        // Written last, where `synqt add entity --type monitor` writes it, and only when
-        // there is a monitor to name. It is the whole wiring. The link every service opens
-        // is derived from this line rather than declared, so a project with a monitor and
-        // without it has an entity nothing reports to.
+        // Written last, where `synqt add entity --type monitor` writes it, when there is a
+        // monitor. Every service's link to the monitor is derived from this line.
         ...(monitorName(design)
             ? ["monitoring:", `  entity: ${scalar(monitorName(design))}`, ""]
             : []),
@@ -297,10 +259,8 @@ function memberLine(member) {
     return `${gate}slot ${returned}${member.name}(${params(member.params)})`;
 }
 
-// The folder entities of each type sit in, the same table appmodel.TYPE_FOLDERS holds. An
-// entity's own folder is that one, then its name. Everything the entity is made of lives in
-// there and nowhere else, which is what lets a `.qml` dropped beside it be imported with no
-// wiring at all.
+// The folder entities of each type sit in, as appmodel.TYPE_FOLDERS holds it. An entity's
+// folder is that one, then its name, and everything the entity is made of lives there.
 const TYPE_FOLDERS = {
     client: "client",
     web_edge: "web",
@@ -313,30 +273,17 @@ const TYPE_FOLDERS = {
     service: "service",
 };
 
-// The type a connect point exports: its owner, capitalized, the same rule
-// appmodel.contract_of applies. Nothing names it separately, because the owner names the
-// point, and nothing carries a suffix, because an entity is one file called after itself.
+// The type a connect point exports: its owner, capitalised, as appmodel.contract_of has it.
 export function contractOf(link) {
     const owner = String((link || {}).owner || "");
     return owner ? `${owner[0].toUpperCase()}${owner.slice(1)}` : "";
 }
 
-// What a link is called, the two entities it runs between, in the names their author gave
-// them. The owner's name capitalised is the type a consumer writes in
-// QML and not a name this drawing has anything to do with, so a canvas of entities called
-// `edge` and `app` with the line between them labelled `Edge` gives a reader two spellings of
-// one thing and nothing saying they are one thing.
+// What a link is called: the two entities it runs between, by their own names. `linkTitle`
+// is the text form, for a `title` attribute or a screen reader; on the page, `linkTitleNode`
+// draws the same two ends with an arrow between them.
 //
-// This is the form for the places that take text and nothing else. A `title` attribute, a
-// label read out by a screen reader. On the page itself a link is drawn rather than written,
-// by `linkTitleNode`, with the arrow between the names as an arrow.
-//
-// `consumer` narrows it to one line. Without it the point is named by every consumer it has.
-//
-// The two ends are answered separately as well, because most places that name a link draw it
-// rather than write it. The arrow between the two names is a mark on the page, and the names
-// themselves are coloured for the role each end plays. This is the one reading of a link's
-// name, so the drawn form and the written form can never say different things.
+// `consumer` narrows it to one line. Without it the point is named by every consumer.
 export function linkEnds(link, consumer) {
     const consumers = consumer ? [consumer] : ((link || {}).consumers || []);
     return {owner: (link || {}).owner || "nobody yet",
@@ -353,12 +300,9 @@ export function entityDir(entity) {
     return `${folder}/${entity.name}`;
 }
 
-// Where the owner-side Source and the contract of a connect point live when nothing says
-// otherwise, and what goes in the Source. All three mirror appmodel.source_path,
-// appmodel.contract_path and addcontract.source_stub, which is what the CLI writes for the
-// same gesture. The suite asserts the two agree, because a download whose QML the CLI would
-// not have written is a project that starts differing from itself the moment somebody runs
-// `synqt design` on it.
+// Where the owner-side Source of a connect point lives when nothing says otherwise, and what
+// goes in it, mirroring appmodel.source_path and addcontract.source_stub. The suite asserts
+// the two agree.
 export function sourcePath(owner, contract) {
     return `${entityDir(owner)}/${contract}.qml`;
 }
@@ -379,11 +323,9 @@ ${declared ? "\n" + declared + "\n" : ""}}
 `);
 }
 
-// The client's one entry point. The generated client main.cpp does
-// `engine.loadFromModule(uri, "Main")`, so this file is the root object and its name is not a
-// preference: a client whose window lives in a differently named file builds, loads, logs
-// nothing and renders a blank page. It is the same file `synqt new` writes, and the suite
-// asserts the two are byte for byte the same.
+// The client's entry point. The generated client main.cpp does
+// `engine.loadFromModule(uri, "Main")`, so this file must be called Main.qml. The suite
+// asserts it matches what `synqt new` writes, byte for byte.
 export function clientMain() {
     return withoutCommentary(`${CONTRACT_HEADER}
 import SynQt
@@ -416,19 +358,14 @@ ApplicationWindow {
 `);
 }
 
-// Where each entity's own QML lives, in the order the tree reads: its own file first, then
-// whatever else its type gives it. A `qml` written on the entity or the link wins over the
-// generated one, because that is what the editor stores when somebody types into the pane. The
-// download then holds what they wrote rather than the stub it started from.
-//
-// Every entity has its own file from the moment it exists, before it owns or consumes
-// anything. An entity that is on the canvas and in synqt.yaml with an empty directory beside it
-// is an entity nobody can open.
+// Where each entity's QML lives, in the order the tree reads: its own file first, then
+// whatever else its type gives it. A `qml` stored on the entity or the link (what was typed
+// into the pane) wins over the generated stub.
 export function entityFiles(design, entity) {
     const files = ownFiles(design, entity);
-    // Every other file in the entity's folder, as the project on disk has it: the QML files a
-    // client's window opens, the mapping hook an edge's sign-in reads. `companion` is the path
-    // inside the folder, which is what an edit to one is stored under.
+    // Every other file in the entity's folder, as the project on disk has it (the QML a
+    // client's window opens, an edge's mapping hook). `companion` is the path inside the
+    // folder, which an edit to one is stored under.
     const named = new Set(files.map((file) => file.name));
     for (const companion of entity.files || []) {
         const name = `${entityDir(entity)}/${companion.path}`;
@@ -440,32 +377,26 @@ export function entityFiles(design, entity) {
     return files;
 }
 
-// The files an entity is made of whatever else is in its folder: its own QML, or the Source of
-// the point it exports, and a relational entity's table.
+// The files an entity always has: its own QML or the Source of the point it exports, and a
+// relational entity's table.
 function ownFiles(design, entity) {
     const link = (design.links || []).find(
         (one) => one.owner === entity.name && contractOf(one));
     const files = [];
     if (entityType(entity) === "monitor") {
-        // No file of its own, and the scaffolder writes none either. What a monitor does is
-        // the framework's, down to the connect point it owns, so there is nothing here for
-        // an author to have written. What it does have is the gate an anonymous visitor is
-        // handed instead of the console.
+        // No QML of its own: the framework is the monitor. Its one file is the sign-in page
+        // an anonymous visitor gets instead of the console.
         return [{name: `${entityDir(entity)}/signin/index.html`, owner: entity.name,
                  text: forMonitor(MONITOR_SCAFFOLD.signin_html, entity.name)}];
     }
     if (isFront(link)) {
-        // A front owns a connect point it does not implement. It keeps the session and the
-        // sign-in, and every caller is answered by the entity wired to their scope. So there
-        // is no Source to write here, and writing one anyway is not harmless: `synqt
-        // check` refuses a point whose owner publishes none of what it exports, which is
-        // exactly what an empty Source beside a `behind:` block is.
+        // A front owns a connect point it does not implement, so it has no Source: `synqt
+        // check` would refuse an empty one beside a `behind:` block.
         return [];
     }
     if (entity.console) {
-        // The console client, which is a client whose window nobody writes: it reads the
-        // framework's own `Console` contract, so it is the same three hundred lines for
-        // every project and the scaffolder is what has them (monitor.js).
+        // The console client's window reads the framework's `Console` contract, so it is the
+        // same file in every project, from the scaffolder (monitor.js).
         return [{name: entityQmlPath(entity), owner: entity.name,
                  text: MONITOR_SCAFFOLD.console_qml}];
     }
@@ -473,9 +404,8 @@ function ownFiles(design, entity) {
         files.push({name: entityQmlPath(entity), own: true, owner: entity.name,
                     text: withoutAPoint(entity, entity.qml)});
     } else {
-        // One file: the entity is what it exports. The text somebody declared into on the
-        // entity is the same text the link's Source shows, so it is written once, at the one
-        // path, and the entity's copy wins because that is where the panel writes.
+        // One file: the entity is what it exports. The entity's text wins over the link's,
+        // since the panel writes to the entity.
         const relative = link.server || sourcePath(entity, contractOf(link));
         const written = entity.qml || link.qml;
         files.push({name: relative, own: true, owner: entity.name, link: link.owner,
@@ -484,9 +414,7 @@ function ownFiles(design, entity) {
                         : sourceQml(contractOf(link), link.owner, link.members)});
     }
     if (entityType(entity) === "relational") {
-        // The table the entity's own QML queries. `synqt add entity` writes one beside every
-        // relational entity, and a project downloaded without it is a project whose first
-        // `Db.query` finds no table.
+        // The table the entity's QML queries, as `synqt add entity` writes it.
         files.push({name: `${entityDir(entity)}/schema.sql`, owner: entity.name,
                     text: entity.schema || schemaSql()});
     }
@@ -494,17 +422,10 @@ function ownFiles(design, entity) {
 }
 
 
-// An entity's own file once it exports nothing. What its author already wrote, kept.
-//
-// Only two things change, and neither is theirs. `pragma Shared` goes on, because there is
-// one of an entity and this file is now the entity rather than a caller's surface. The root
-// keeps the entity's own name. `synqt build` retypes a self-named root that resolves to
-// nothing (synqt/qmlrewrite.py), so `Store { }` loads either way and the file goes on
-// reading as the thing it is.
-//
-// Handing back the stub would throw away every property, function and signal in
-// the file and leave an entity that no longer even imports SynQt. Deleting a line on the
-// canvas is not permission to empty a file.
+// An entity's own file once it exports nothing: what its author wrote, kept, with
+// `pragma Shared` added, since the file is now the entity and not a caller's surface. The root
+// keeps its name; `synqt build` retypes a self-named root (synqt/qmlrewrite.py). Removing a
+// link on the canvas never empties a file.
 function withoutAPoint(entity, written) {
     if (!written) {
         return entityQml(entity);
@@ -515,12 +436,9 @@ function withoutAPoint(entity, written) {
     return withShared(written);
 }
 
-// The same file once it exports a connect point. The Source of that point.
-//
-// The pragma comes off, because the file is now the point's Source and the entity's own
-// state moves to a shared file beside it. A root left at the scaffold's `QtObject` is
-// retyped to the contract, which is the one root a Source can have. A root the author wrote
-// themselves is left exactly as it is, and `synqt check` is what has an opinion about it.
+// The same file once it exports a connect point, as that point's Source. The pragma comes
+// off. A root left at the scaffold's `QtObject` is retyped to the contract; a root the author
+// wrote is left alone for `synqt check` to judge.
 function withAPoint(written, contract) {
     const span = rootTypeSpan(written);
     const root = span ? written.slice(span[0], span[1]) : "";
@@ -535,16 +453,13 @@ export function schemaSql() {
         + "                    text TEXT NOT NULL, author TEXT NOT NULL);\n";
 }
 
-// A monitor's console window: the file an operator opens, and so the one the canvas writes
-// under a monitor and the pane opens when one is selected. The monitor has no QML of its own
-// (entityFiles), and the sign-in page it does have is only what an anonymous visitor gets.
+// A monitor's console window, which the pane opens when a monitor is selected.
 export function consoleQmlPath(monitor) {
     return entityQmlPath(consoleFor(monitor));
 }
 
-// The file an entity *is*, as opposed to the connect points it exposes. A client's is the
-// window. Every other entity's is a `pragma Shared` file named after it, which is where state
-// that belongs to the whole entity goes and what its Sources reach for it by name.
+// The file an entity is: a client's window, or a `pragma Shared` file named after any other
+// entity, which holds the entity's state and which its Sources reach by name.
 export function entityQmlPath(entity) {
     if (entityType(entity) === "client") {
         return `${entityDir(entity)}/Main.qml`;
@@ -563,11 +478,10 @@ function capitalised(name) {
     return name ? name[0].toUpperCase() + name.slice(1) : name;
 }
 
-// An entity's own QML. Shared because there is one of this entity. Its Sources may be
-// created per session or per peer, and anything they share has to outlive any one of them.
-// `synqt build` finds it by its `pragma Shared` and registers it under the entity's own QML
-// module, so `${Name}.something` resolves inside every Source this entity owns. The copy the
-// engine loads gets QML's own `pragma Singleton` written into it (synqt/qmlrewrite.py).
+// An entity's own QML, one per entity: its Sources may be per caller, and what they share
+// outlives each of them. `synqt build` finds it by its `pragma Shared` and registers it, so
+// `${Name}.something` resolves in every Source the entity owns; the copy the engine loads
+// carries `pragma Singleton` (synqt/qmlrewrite.py).
 export function entitySingleton(name) {
     const type = capitalised(name);
     return withoutCommentary(`${CONTRACT_HEADER}
@@ -586,10 +500,9 @@ QtObject {
 `);
 }
 
-// Every file the download holds, each under a directory named after the project: the
-// configuration, which carries what crosses every link, and the QML of every entity. A link
-// with nothing on it yet still gets its Source, because the connect point already refers to
-// it and an entity with a connect point and no Source for it does not start.
+// Every file the download holds, under a directory named after the project: the
+// configuration and every entity's files. A link with nothing on it yet still gets its
+// Source, since an entity with a connect point and no Source does not start.
 export function projectFiles(design) {
     const root = String(design.project || "app");
     const files = [{name: `${root}/synqt.yaml`, text: renderYaml(design)}];
