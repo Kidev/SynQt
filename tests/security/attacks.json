@@ -1566,6 +1566,13 @@
       "defended_by": "Every remote action names one exact release, as a full version tag or a commit SHA with the version beside it, and every copy of an action names the same one. The tests refuse a branch, a major tag and an uncommented SHA, and scan every tracked workflow.",
       "file": "tools/synqt/tests/test_action_pins.py",
       "test": "test_every_action_names_an_exact_release"
+    },
+    {
+      "id": "the-windows-cross-build-takes-host-headers",
+      "what": "The Windows cross toolchain searched the Linux host's include directories, so Qt6Gui's WrapVulkanHeaders resolved to /usr/include and every Qt Quick target compiled the MSVC CRT against glibc's headers and failed. The gate's README called that a permanent limit, so no Quick target (the privacy components, the software backend) was ever cross-checked.",
+      "defended_by": "The toolchain never searches /usr/include or /usr/local/include. The test configures a probe through it and requires the host's vulkan header to stay unfound, and runs the same probe through a copy without the rule to show it would be found.",
+      "file": "tools/synqt/tests/test_windows_toolchain.py",
+      "test": "test_a_host_header_is_not_found"
     }
   ]
 }

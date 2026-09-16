@@ -81,3 +81,6 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+# A header has no suffix to tell the host's copy from the target's, so the host include
+# directories are never searched (the Windows kit would otherwise take /usr/include/vulkan).
+list(APPEND CMAKE_IGNORE_PATH /usr/include /usr/local/include)

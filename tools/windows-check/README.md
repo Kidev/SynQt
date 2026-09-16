@@ -19,18 +19,13 @@ types, MSVC STL and SDK header incompatibilities, named-pipe and ACL API usage t
 not compile or link, and ABI-level mistakes. A target that builds here builds under the
 CI's `cl.exe`.
 
-It cannot build a target that links `Qt6::Quick`. Quick pulls in `Qt6::OpenGL`, whose
-`WrapOpenGL` dependency resolves to the Linux box's own `/usr/include`, and the host GL
-headers then collide with the MSVC CRT (a `stdint.h` typedef redefinition, and on from
-there). Nothing is wrong with the code when that happens, and the real Windows column has
-to check that target instead. `tests/graphics` is the one suite this affects:
-`tst_graphics` builds here and `tst_softwarebackend` does not.
-
 It does not catch the exact `cl.exe /W4 /WX` warning verdict, since clang emits its own
-warning set and a specific MSVC warning number can differ, and it catches no runtime
-behaviour at all. The Windows named-pipe ACL semantics that the mesh assertion is about
-need a real Windows kernel, so that verdict stays with the CI. This is a compile-and-ABI
-gate that trims most of the back-and-forth, and it does not replace the Windows column.
+warning set and a specific MSVC warning number can differ, and on its own it runs nothing.
+A built test can run under Wine (below), which answers for Qt's own Windows code paths,
+such as `QSettings` in the registry. The Windows named-pipe ACL semantics that the mesh
+assertion is about need a real Windows kernel, so that verdict stays with the CI. This is
+a compile-and-ABI gate that trims most of the back-and-forth, and it does not replace the
+Windows column.
 
 ## Pieces
 
@@ -79,9 +74,8 @@ tools/windows-check/check-windows.sh tests/m3-mesh   # a real suite (needs OPENS
 Anything linking `SynQtService` (mesh mutual TLS) calls
 `find_package(OpenSSL REQUIRED)`, so those targets need a Windows OpenSSL, meaning import
 libraries and headers, in the directory `OPENSSL_WIN` points at (the one holding
-`include/` and `lib/`). The `winsetup` step fetches the conda-forge `win-64` OpenSSL with
-micromamba, which downloads and extracts the foreign-platform package without running it,
-into `$HOME/.cache/synqt-openssl-win`. Without `OPENSSL_WIN`, `check-windows.sh` still
+`include/` and `lib/`): the `micromamba` line under provisioning puts one in
+`$HOME/.cache/synqt-openssl-win`. Without `OPENSSL_WIN`, `check-windows.sh` still
 runs, since the QtCore probe needs no OpenSSL, and a `SynQtService` target fails at
 `find_package(OpenSSL)` with a clear note.
 
@@ -93,3 +87,16 @@ purposes"*. It is a cross-compile artifact and not a defect. The Windows kit's
 (`qt_generate_deploy_app_script` and friends), which a compile-and-link gate never calls.
 It does not appear on the real Windows CI, where `qtpaths.exe` runs natively, and the gate
 does not fail on it. The `/W4 /WX` warning verdict stays the CI's job.
+
+## Running a test under Wine
+
+A test built here runs under Wine with the Windows kit's DLLs on `WINEPATH`. A test with a
+scene graph also needs the kit's plugins and QML imports, and the offscreen platform:
+
+```sh
+cd build/win-check/tests_privacy
+export WINEPATH="$QT_WIN/bin"
+export QT_PLUGIN_PATH="$QT_WIN/plugins" QML_IMPORT_PATH="$QT_WIN/qml"
+export QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software
+wine tst_privacy.exe -o result.txt,txt    # Wine's console drops QtTest's own output
+```
