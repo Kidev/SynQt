@@ -1573,6 +1573,20 @@
       "defended_by": "The toolchain never searches /usr/include or /usr/local/include. The test configures a probe through it and requires the host's vulkan header to stay unfound, and runs the same probe through a copy without the rule to show it would be found.",
       "file": "tools/synqt/tests/test_windows_toolchain.py",
       "test": "test_a_host_header_is_not_found"
+    },
+    {
+      "id": "the-monitor-console-ignores-its-certificate",
+      "what": "A monitor's tls: block was accepted and never read: its main took --cert and --key with no default, and `synqt serve` passes no arguments, so a console configured for TLS served the operator sign-in in plaintext. A monitor bound off loopback under monitoring.public: acknowledged was not held to the release TLS rule either.",
+      "defended_by": "The monitor main takes its certificate from tls: as option defaults, as the edge does, and `synqt check --release` refuses a monitor off loopback with neither a tls block nor public.tls_terminated_upstream. The tests render the main and run the release check both ways.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_the_monitor_serves_the_certificate_its_tls_block_names"
+    },
+    {
+      "id": "a-public-monitor-ships-without-tls",
+      "what": "A release monitor whose console binds a public interface (monitoring.public: acknowledged) was never held to TLS, so the build passed with the operator password crossing the network in plaintext.",
+      "defended_by": "The release rule the web edge has applies to a monitor off loopback: a tls block with both files, or public.tls_terminated_upstream: true. A loopback monitor needs neither. The tests cover the refusal, both passes and the loopback case.",
+      "file": "tools/synqt/tests/test_monitoring.py",
+      "test": "test_a_released_public_monitor_without_tls_is_refused"
     }
   ]
 }

@@ -1618,6 +1618,11 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
                              retention.get("max_bytes", 512 * 1024 * 1024))
     export_block, export_includes, export_qt_includes = _monitor_exporters(entity)
     bundle_defaults = _bundle_defaults(config, entity)
+    # The certificate `tls:` names, as an option default the way the edge takes it, so a
+    # start with no arguments serves the console over TLS.
+    tls = appmodel.tls_settings(entity)
+    cert_default = _option_default(tls.get("cert_file"))
+    key_default = _option_default(tls.get("key_file"))
 
     # The console sign-in is rate-limited per client address, so the monitor needs the
     # trusted proxies too.
@@ -1701,9 +1706,9 @@ int main(int argc, char *argv[])
         QStringLiteral("Port the console is served on."),
         QStringLiteral("n"), QStringLiteral("{port}")}};
     const QCommandLineOption certOption{{QStringLiteral("cert"),
-        QStringLiteral("TLS certificate for the console."), QStringLiteral("file")}};
+        QStringLiteral("TLS certificate for the console."), QStringLiteral("file"){cert_default}}};
     const QCommandLineOption keyOption{{QStringLiteral("key"),
-        QStringLiteral("TLS private key for the console."), QStringLiteral("file")}};
+        QStringLiteral("TLS private key for the console."), QStringLiteral("file"){key_default}}};
     // Where each scope's files are, as <scope>=<dir>, as a web edge takes them. Only
     // the build knows where each bundle landed (see run._bundle_arguments), so these
     // are paths, not names.

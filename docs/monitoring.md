@@ -307,6 +307,11 @@ monitoring:
   public: acknowledged
 ```
 
+Off loopback, the operator password crosses the network, so a release build also needs
+the console to be TLS: a `tls:` block with `cert_file` and `key_file` on the monitor, or
+`public.tls_terminated_upstream: true` when the proxy terminates it. `synqt check
+--release` refuses anything else.
+
 Two gates apply either way. The bundle is delivered through
 [`bundles:`](project-layout-and-config.md), so an anonymous caller gets the sign-in page and
 cannot address the console bundle at all: it is a 404, not a 403. Signing in raises the same
@@ -375,6 +380,7 @@ On the monitor entity itself:
 | Key | Meaning |
 | --- | --- |
 | `public` | `host` and `port` the console is served on, loopback by default |
+| `tls` | `cert_file` and `key_file` the console is served with, as on a web edge |
 | `retention` | `max_age_days` and `max_bytes`, both applied on a timer |
 | `export` | `otlp` and `jsonl`, both off unless written |
 | `bundles` | what each scope may download; written by the scaffold |

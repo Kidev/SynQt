@@ -677,8 +677,8 @@ def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
         if appmodel.is_client(entity):
             messages.append(
                 f"error: entity '{name}' is the client and sets 'shared'; a client is one "
-                "browser and shares with nobody, so the word says nothing there. Put it on "
-                "the edge if what you meant is a Source per session")
+                "browser and shares with nobody, so the word says nothing there. Write "
+                "'shared: false' on the edge if what you meant is a Source per session")
     return messages
 
 
@@ -898,7 +898,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
                     "transport mtls")
 
     messages += _mesh_policy_messages(config, endpoints, release)
-    messages += _edge_tls_messages(entities, web_edges, release)
+    messages += _edge_tls_messages(entities, web_edges | _public_monitors(entities), release)
     messages += _desktop_client_messages(config, entities, clients, release)
     messages += _identity_messages(config, release)
     if project_dir is not None:
@@ -1028,32 +1028,42 @@ def _link_host(config: Dict[str, Any], connect_point_name: str) -> Optional[str]
     return None
 
 
+def _public_monitors(entities: Dict[str, Any]) -> Set[str]:
+    """The monitors whose console binds off loopback, which `monitoring.public` allows."""
+    return {str(name) for name, entity in entities.items()
+            if appmodel.entity_type(entity) == "monitor"
+            and str(appmodel.public_settings(entity).get("host") or "127.0.0.1").strip()
+            not in ("127.0.0.1", "localhost", "::1")}
+
+
 def _edge_tls_messages(entities: Dict[str, Any], web_edges: Set[str],
                        release: bool) -> List[str]:
     """A release web edge reaches the browser over TLS, and says which end terminates it.
 
     Either the edge terminates TLS itself (`tls.cert_file` and `tls.key_file`), or a reverse
     proxy does and the project sets `public.tls_terminated_upstream`. Reads the entity `tls:`
-    block, never `dev:`.
+    block, never `dev:`. A monitor whose console leaves loopback is held to the same rule,
+    since the operator password crosses that link.
     """
     if not release:
         return []
     messages: List[str] = []
     for name in sorted(web_edges):
         entity = entities[name]
+        kind = "monitor" if appmodel.entity_type(entity) == "monitor" else "web edge"
         upstream = appmodel.public_settings(entity).get("tls_terminated_upstream")
         if upstream is True:
             continue
         if upstream not in (None, False):
             # The string "false" is truthy, so anything but a boolean is refused.
             messages.append(
-                f"error: web edge '{name}' has public.tls_terminated_upstream {upstream!r}; "
+                f"error: {kind} '{name}' has public.tls_terminated_upstream {upstream!r}; "
                 "it must be true or false")
             continue
         tls = entity.get("tls")
         if not isinstance(tls, dict):
             messages.append(
-                f"error: web edge '{name}' has no tls section, so a release build would "
+                f"error: {kind} '{name}' has no tls section, so a release build would "
                 "serve the browser over plaintext; give it tls.cert_file and tls.key_file, "
                 "or set public.tls_terminated_upstream: true if a reverse proxy in front "
                 "of it terminates TLS")
@@ -1061,7 +1071,7 @@ def _edge_tls_messages(entities: Dict[str, Any], web_edges: Set[str],
         missing = [key for key in ("cert_file", "key_file") if not tls.get(key)]
         if missing:
             messages.append(
-                f"error: web edge '{name}' tls is missing {' and '.join(missing)}, so a "
+                f"error: {kind} '{name}' tls is missing {' and '.join(missing)}, so a "
                 "release build has nothing to terminate TLS with")
     return messages
 

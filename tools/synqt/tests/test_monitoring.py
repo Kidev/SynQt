@@ -593,3 +593,60 @@ def test_a_monitor_name_that_is_not_an_entity_name_writes_nothing(tmp_path, name
     assert (tmp_path / "synqt.yaml").read_text() == \
         "entities:\n  - name: web\n    type: web_edge\n"
     assert sorted(path.name for path in tmp_path.iterdir()) == ["synqt.yaml"]
+
+
+# The console's certificate. The operator password crosses this link.
+
+
+def _tls_monitor(host="127.0.0.1", tls=True, upstream=None):
+    monitor = {"name": "ops", "type": "monitor", "public": {"host": host, "port": 9443},
+               "bundles": {"anonymous": "signin/"}}
+    if tls:
+        monitor["tls"] = {"cert_file": "certs/ops/fullchain.pem",
+                          "key_file": "certs/ops/privkey.pem"}
+    if upstream is not None:
+        monitor["public"]["tls_terminated_upstream"] = upstream
+    return {"project": {"name": "demo"},
+            "monitoring": {"entity": "ops", "public": "acknowledged"},
+            "entities": [monitor, {"name": "web", "type": "web_edge",
+                                   "public": {"tls_terminated_upstream": True}},
+                         {"name": "app", "type": "client"}]}
+
+
+def test_the_monitor_serves_the_certificate_its_tls_block_names():
+    from synqt import maingen
+
+    source = maingen.render_monitor_main(_tls_monitor(), _tls_monitor()["entities"][0])
+    # Option defaults, as the edge has, so `synqt serve` (no arguments) serves TLS.
+    assert 'QStringLiteral("certs/ops/fullchain.pem")' in source
+    assert 'QStringLiteral("certs/ops/privkey.pem")' in source
+
+
+def test_a_monitor_with_no_tls_block_still_starts_plaintext():
+    from synqt import maingen
+
+    config = _tls_monitor(tls=False)
+    source = maingen.render_monitor_main(config, config["entities"][0])
+    assert "fullchain.pem" not in source
+    assert 'QStringLiteral("TLS certificate for the console."), QStringLiteral("file")};' \
+        in source
+
+
+def _release_errors(config):
+    return [message for message in check.validate(config, release=True)[1]
+            if message.startswith("error:") and "monitor 'ops'" in message
+            and "tls" in message]
+
+
+def test_a_released_public_monitor_without_tls_is_refused():
+    errors = _release_errors(_tls_monitor(host="0.0.0.0", tls=False))
+    assert errors and "plaintext" in errors[0]
+
+
+def test_a_released_public_monitor_with_tls_or_a_terminating_proxy_passes():
+    assert _release_errors(_tls_monitor(host="0.0.0.0")) == []
+    assert _release_errors(_tls_monitor(host="0.0.0.0", tls=False, upstream=True)) == []
+
+
+def test_a_loopback_monitor_needs_no_certificate():
+    assert _release_errors(_tls_monitor(tls=False)) == []
