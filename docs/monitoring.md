@@ -131,13 +131,13 @@ The call sites guarantee this, and the pipeline adds a backstop for the one plac
 application decides what a record carries. Every event passes through one function on its
 way to the ring buffer, which records as `[redacted]` any attribute whose name names a
 credential (`password`, `passphrase`, `secret`, `token`, `authorization`, `cookie`,
-`credential`, `bearer`, and `api key` or `private key` in any spelling, matched anywhere
-in the name, in any case). It keeps the name, so the record shows a value was withheld. So
-`Log.warn("refused", { authorization: header })` does not put a bearer token in the
-console. It reads names, never values, because a filter that guesses what a secret looks
-like will miss and still look like a guarantee; and it never touches the message, which is
-prose you wrote and search on. Keep credentials out of what you pass it, as with any log;
-the backstop catches what slips through.
+`credential`, `bearer`, and `apikey` or `privatekey` written whole or with `_` or `-`,
+matched anywhere in the name, in any case). It keeps the name, so the record shows a
+value was withheld. So `Log.warn("refused", { authorization: header })` does not put a
+bearer token in the console. It reads names, never values, because a filter that guesses
+what a secret looks like will miss and still look like a guarantee; and it never touches
+the message, which is prose you wrote and search on. Keep credentials out of what you
+pass it, as with any log; the backstop catches what slips through.
 
 **No call arguments unless the member asks.** A recorded call carries its shape: which
 member, whether a person or an entity called, how many arguments, how long it took, and
@@ -379,10 +379,11 @@ On the monitor entity itself:
 
 | Key | Meaning |
 | --- | --- |
-| `public` | `host` and `port` the console is served on, loopback by default |
+| `public` | `host` and `port` the console is served on, loopback by default, and `origin` when a proxy puts it at another address |
 | `tls` | `cert_file` and `key_file` the console is served with, as on a web edge |
 | `retention` | `max_age_days` and `max_bytes`, both applied on a timer |
 | `export` | `otlp` and `jsonl`, both off unless written |
 | `bundles` | what each scope may download; written by the scaffold |
 
-On the console client: `console: true`, and `edge:` naming the monitor.
+On the console client: `console: true`, and `edge:` naming the monitor that serves it,
+which the designer reads to draw that link.

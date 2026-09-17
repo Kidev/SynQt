@@ -650,3 +650,19 @@ def test_a_released_public_monitor_with_tls_or_a_terminating_proxy_passes():
 
 def test_a_loopback_monitor_needs_no_certificate():
     assert _release_errors(_tls_monitor(tls=False)) == []
+
+
+def test_a_monitor_behind_a_proxy_checks_origins_against_its_public_origin():
+    from synqt import maingen
+
+    config = _tls_monitor(host="0.0.0.0")
+    config["entities"][0]["public"]["origin"] = "https://ops.example.com/"
+    source = maingen.render_monitor_main(config, config["entities"][0])
+    assert 'config.origin = QStringLiteral("https://ops.example.com");' in source
+
+
+def test_a_monitor_with_no_public_origin_derives_its_own():
+    from synqt import maingen
+
+    source = maingen.render_monitor_main(_tls_monitor(), _tls_monitor()["entities"][0])
+    assert "config.origin" not in source

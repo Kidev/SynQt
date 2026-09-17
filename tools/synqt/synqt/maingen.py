@@ -1629,6 +1629,11 @@ def render_monitor_main(config: Dict[str, Any], entity: Dict[str, Any],
     proxies = appmodel.trusted_proxies(entity)
     monitor_proxies = ("    config.trustedProxies = {%s};\n" % string_list_literal(proxies)
                        if proxies else "")
+    # Where a browser reaches the console behind a proxy, which is not where it binds. The
+    # upgrade's origin check compares against it.
+    if "origin" in public:
+        monitor_proxies += ('    config.origin = QStringLiteral("%s");\n'
+                            % cxx_string_literal(str(public["origin"]).rstrip("/")))
 
     console = next((cp for cp in appmodel.owned_by(config, name)
                     if appmodel.point_name(cp) == appmodel.MONITOR_CONSOLE_POINT), None)
