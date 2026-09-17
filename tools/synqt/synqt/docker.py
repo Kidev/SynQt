@@ -163,8 +163,36 @@ def service_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def edge_entity(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The first web edge, or None."""
     edges = appmodel.web_edges(config)
     return edges[0] if edges else None
+
+
+def browser_entities(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every container a browser reaches: each web edge, and a monitor for its console."""
+    return [entity for entity in service_entities(config) if appmodel.serves_browser(entity)]
+
+
+def is_monitor(entity: Dict[str, Any]) -> bool:
+    return appmodel.entity_type(entity) == "monitor"
+
+
+def listen_port(entity: Dict[str, Any]) -> int:
+    """The port a browser-facing entity listens on inside its container: its own."""
+    return int(appmodel.public_settings(entity).get("port") or appmodel.DEFAULT_PUBLIC_PORT)
+
+
+def published_ports(config: Dict[str, Any], port: Optional[int] = None) -> Dict[str, int]:
+    """The port on this machine each browser-facing entity is published on, by entity.
+
+    Its own port, except that `port` moves the one web edge of a project that has one.
+    """
+    edges = appmodel.web_edges(config)
+    published: Dict[str, int] = {}
+    for entity in browser_entities(config):
+        moved = port and len(edges) == 1 and appmodel.is_edge(entity)
+        published[entity["name"]] = int(port) if moved else listen_port(entity)
+    return published
 
 
 def _provider(entity: Dict[str, Any]) -> Dict[str, Any]:
@@ -223,13 +251,12 @@ def replica_names(entity: Dict[str, Any]) -> List[str]:
 
 def container_names(config: Dict[str, Any]) -> List[str]:
     """Every container that needs an address, in declaration order. A replicated web edge is N
-    replicas plus the front, last, so adding replicas renumbers nothing.
+    replicas plus its front, and the fronts come last, so adding replicas renumbers nothing.
     """
     names: List[str] = []
     for entity in service_entities(config):
         names += replica_names(entity)
-    if front_name(config):
-        names.append(FRONT_SERVICE)
+    names += [service for _, service in fronts(config)]
     return names
 
 
@@ -240,12 +267,30 @@ FRONT_SERVICE = "front"
 MESH_SERVICE = "mesh-init"
 
 
-def front_name(config: Dict[str, Any]) -> str:
-    """The balancer service name, or empty when the web edge is not replicated."""
-    edge = edge_entity(config)
-    if edge and appmodel.replicas(edge) > 1:
+def front_name(config: Dict[str, Any], edge: Optional[Dict[str, Any]] = None) -> str:
+    """The balancer service in front of `edge` (the first web edge when omitted), or empty
+    when it is not replicated. `front` when it is the project's only web edge, else
+    `<edge>-front`.
+    """
+    edge = edge if edge is not None else edge_entity(config)
+    if not edge or appmodel.replicas(edge) <= 1:
+        return ""
+    if len(appmodel.web_edges(config)) == 1:
         return FRONT_SERVICE
-    return ""
+    return f"{edge['name']}-{FRONT_SERVICE}"
+
+
+def front_file(config: Dict[str, Any], edge: Dict[str, Any]) -> str:
+    """The nginx configuration of one front, under docker/."""
+    if front_name(config, edge) == FRONT_SERVICE:
+        return FRONT_FILE
+    return f"nginx-{edge['name']}.conf"
+
+
+def fronts(config: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
+    """Every replicated web edge and the service that balances it, in declaration order."""
+    return [(edge, front_name(config, edge)) for edge in appmodel.web_edges(config)
+            if front_name(config, edge)]
 
 
 def mesh_addresses(config: Dict[str, Any], subnet: str = DEFAULT_SUBNET) -> Dict[str, str]:
@@ -303,11 +348,14 @@ def secret_names(config: Dict[str, Any]) -> Dict[str, List[str]]:
     # The identity section belongs to whoever runs identity, so it is walked separately.
     identity = appmodel.identity_settings(config)
     if identity:
-        owner = appmodel.provider_entity(config)
-        if not owner:
-            edge = edge_entity(config)
-            owner = edge.get("name") if edge else None
-        if owner:
+        owners = [appmodel.provider_entity(config)]
+        if not owners[0]:
+            # In process, every edge that serves the sign-in holds the secrets.
+            edges = appmodel.web_edges(config)
+            owners = [edge.get("name") for edge in edges
+                      if appmodel.identity_enabled(config, edge)] or \
+                [edge.get("name") for edge in edges[:1]]
+        for owner in filter(None, owners):
             names = wanted.setdefault(owner, [])
             walk(identity, names)
             if not names:
@@ -322,23 +370,26 @@ CALLBACK_KEY = "callback"
 CALLBACK_ROUTE = "/auth/callback"
 
 
-def edge_origin(config: Dict[str, Any], port: Optional[int] = None) -> str:
-    """Where a browser reaches the edge once compose publishes its port: localhost. It becomes
-    the OAuth ``redirect_uri``, ``self`` in ``security.allowed_origins`` and the CSP sync
-    endpoint.
+def edge_origin(config: Dict[str, Any], port: Optional[int] = None,
+                edge: Optional[Dict[str, Any]] = None) -> str:
+    """Where a browser reaches `edge` (the first web edge when omitted) once compose publishes
+    its port: localhost. It becomes the OAuth ``redirect_uri``, ``self`` in
+    ``security.allowed_origins`` and the CSP sync endpoint.
     """
-    edge = edge_entity(config)
-    public = appmodel.public_settings(edge) if edge else {}
-    return f"https://localhost:{int(port or public.get('port') or 8443)}"
+    edge = edge if edge is not None else edge_entity(config)
+    if edge is None:
+        return f"https://localhost:{int(port or appmodel.DEFAULT_PUBLIC_PORT)}"
+    return f"https://localhost:{published_ports(config, port)[edge['name']]}"
 
 
-def callback_url(config: Dict[str, Any], port: Optional[int] = None) -> str:
+def callback_url(config: Dict[str, Any], port: Optional[int] = None,
+                 edge: Optional[Dict[str, Any]] = None) -> str:
     """The full URL an identity provider redirects back to, to register with it."""
     identity = config.get("identity")
     route = CALLBACK_ROUTE
     if isinstance(identity, dict):
         route = str(identity.get(CALLBACK_KEY, CALLBACK_ROUTE))
-    return edge_origin(config, port) + route
+    return edge_origin(config, port, edge) + route
 
 
 def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
@@ -365,13 +416,19 @@ def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
         "entities:",
     ]
     engine_of = {entity["name"]: name for entity, name, _ in engines(config)}
-    edge = edge_entity(config)
-    edge_name = edge.get("name") if edge else None
+    browser = {entity["name"] for entity in browser_entities(config)}
     for entity in service_entities(config):
         name = entity["name"]
         lines.append(f"  - name: {name}")
         lines.append(f"    mesh: {{ host: {addresses[name]} }}")
-        if name == edge_name:
+        if name in browser and is_monitor(entity):
+            lines.append("    # The console, published on this machine's loopback only. Inside")
+            lines.append("    # the container it listens on every interface, because")
+            lines.append("    # loopback there is not where docker delivers the port.")
+            lines.append("    public:")
+            lines.append("      host: 0.0.0.0")
+            lines.append(f"      origin: {edge_origin(config, port, entity)}")
+        elif name in browser:
             lines.append("    # Where a browser reaches this edge, which is not where it")
             lines.append("    # binds: a container listens on every interface, and compose")
             lines.append("    # publishes that port on the machine you are sitting at, so")
@@ -381,9 +438,10 @@ def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
             if appmodel.identity_enabled(config, entity):
                 lines.append("    # It is also where signing in comes back to, which makes")
                 lines.append("    # this the callback URL to register with the provider:")
-                lines.append(f"    #     {callback_url(config, port)}")
+                lines.append(f"    #     {callback_url(config, port, entity)}")
             lines.append("    public:")
-            lines.append(f"      origin: {edge_origin(config, port)}")
+            lines.append(f"      origin: {edge_origin(config, port, entity)}")
+        if name in browser:
             lines.append("    # The browser link, over a certificate the mesh-init container")
             lines.append("    # issues for localhost from the same development authority. A")
             lines.append("    # scaffolded synqt.yaml points `tls:` at a deployment")
@@ -396,6 +454,13 @@ def render_profile(config: Dict[str, Any], addresses: Dict[str, str],
         if name in engine_of:
             lines.append("    provider:")
             lines += _provider_loopback(engine_of[name], name)
+    if any(is_monitor(entity) for entity in browser_entities(config)):
+        lines += ["",
+                  "# The console listens on every interface of its own container, which",
+                  "# `synqt check` refuses unless acknowledged. Compose publishes it on this",
+                  "# machine's loopback and nowhere else.",
+                  "monitoring:",
+                  "  public: acknowledged"]
     lines.append("")
     return "\n".join(lines)
 
@@ -640,7 +705,7 @@ CA_CERT = "synqt/mesh/ca.crt"
 CA_COPY = "synqt/mesh/docker-ca.crt"
 
 
-def render_entrypoint(edge_name: str = "web") -> str:
+def render_entrypoint() -> str:
     """What a container runs: one entity, or the one-shot certificate issuance.
 
     Issuance runs once, so entities never race over it. It issues the mesh certificates
@@ -676,10 +741,10 @@ def render_entrypoint(edge_name: str = "web") -> str:
         f"    synqt mesh cert --all --profile {PROFILE}",
         "    synqt mesh status",
         "",
-        f"    # The browser certificate for '{edge_name}'. It names localhost and lives in its own",
-        "    # directory, because `synqt mesh cert --all` has already written one file per entity",
-        "    # into synqt/mesh/. The extensions go in a file: -addext has produced a duplicate",
-        "    # basicConstraints that Secure Transport on macOS rejects.",
+        "    # The browser certificate every browser-facing entity serves. It names localhost and",
+        "    # lives in its own directory, because `synqt mesh cert --all` has already written one",
+        "    # file per entity into synqt/mesh/. The extensions go in a file: -addext has produced",
+        "    # a duplicate basicConstraints that Secure Transport on macOS rejects.",
         f"    if [ ! -f {EDGE_CERT} ]; then",
         '        echo "mesh: issuing a development certificate for the browser link"',
         f"        mkdir -p {BROWSER_CERT_DIR}",
@@ -768,11 +833,7 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
     """
     # Compose project and image names are lowercase only.
     project = str((config.get("project") or {}).get("name") or "synqt-app").lower()
-    edge = edge_entity(config)
-    edge_name = edge.get("name") if edge else None
-    public = appmodel.public_settings(edge) if edge else {}
-    edge_port = int(port or public.get("port") or 8443)
-    listen_port = int(public.get("port") or 8443)
+    published = published_ports(config, port)
     engine_of = {entity["name"]: (name, spec) for entity, name, spec in engines(config)}
     data_dirs = embedded_data_dirs(config)
     image = f"{project}-synqt:latest"
@@ -832,15 +893,16 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
         "",
     ]
 
-    front = front_name(config)
     for entity in service_entities(config):
+        ports = ((published[entity["name"]], listen_port(entity))
+                 if entity["name"] in published else None)
         for name in replica_names(entity):
-            lines += _entity_service(config, entity, name, addresses, edge_name, engine_of,
-                                     data_dirs, client, (edge_port, listen_port),
-                                     bool(front))
+            lines += _entity_service(config, entity, name, addresses, engine_of, data_dirs,
+                                     client, ports, bool(front_name(config, entity)))
 
-    if front:
-        lines += _front_service(config, addresses, (edge_port, listen_port))
+    for edge, front in fronts(config):
+        lines += _front_service(config, edge, front, addresses,
+                                (published[edge["name"]], listen_port(edge)))
 
     for entity, engine_name, spec in engines(config):
         lines += _engine_service(entity, engine_name, spec, addresses[entity["name"]])
@@ -871,18 +933,18 @@ def render_compose(config: Dict[str, Any], addresses: Dict[str, str], *,
 
 
 def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
-                    addresses: Dict[str, str], edge_name: Optional[str],
-                    engine_of: Dict[str, Any], data_dirs: Dict[str, str], client: str,
-                    ports: Tuple[int, int], behind_front: bool) -> List[str]:
+                    addresses: Dict[str, str], engine_of: Dict[str, Any],
+                    data_dirs: Dict[str, str], client: str,
+                    ports: Optional[Tuple[int, int]], behind_front: bool) -> List[str]:
     """One entity container.
 
     `name` is the service name, `entity["name"]` the entity name; they differ for a
     replicated web edge. The address and published port follow the service; the engine, data
-    volume and env file follow the entity. `ports` is the published port and the one the edge
-    listens on inside the container.
+    volume and env file follow the entity. `ports` is the published port and the one a
+    browser-facing entity listens on inside the container, None for any other.
     """
     entity_name = entity["name"]
-    is_edge = entity_name == edge_name
+    is_edge = ports is not None
     lines = [
         f"  {name}:",
         "    <<: *synqt-entity",
@@ -922,15 +984,21 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
         # `required: false`: a project with no secrets has no .env.
         lines.append(f"      - path: {env_file}")
         lines.append("        required: false")
-    if is_edge and not behind_front:
-        lines.append("    # The only entity with a published port. Everything else is")
-        lines.append("    # reachable only from inside this network, which is what the")
+    if is_edge and is_monitor(entity):
+        lines.append("    # The console, on this machine's loopback only: an operator")
+        lines.append("    # sits here, and nothing else on the network reaches it.")
+        lines.append("    ports:")
+        lines.append(f'      - "127.0.0.1:{ports[0]}:{ports[1]}"')
+    elif is_edge and not behind_front:
+        lines.append("    # A browser-facing entity publishes its port. Everything else")
+        lines.append("    # is reachable only from inside this network, which is what the")
         lines.append("    # deny-by-default topology looks like written as compose.")
         lines.append("    ports:")
         lines.append(f'      - "{ports[0]}:{ports[1]}"')
     elif is_edge:
-        lines.append("    # No published port: this replica is reached through 'front'")
-        lines.append("    # below, which is the only thing outside this network sees.")
+        lines.append("    # No published port: this replica is reached through")
+        lines.append(f"    # '{front_name(config, entity)}' below, which is what outside this")
+        lines.append("    # network sees.")
     if entity_name in engine_of:
         engine_name, _ = engine_of[entity_name]
         # Restated in full: a service key replaces the one the anchor merged, so naming only
@@ -944,40 +1012,42 @@ def _entity_service(config: Dict[str, Any], entity: Dict[str, Any], name: str,
     return lines
 
 
-def _front_service(config: Dict[str, Any], addresses: Dict[str, str],
-                   ports: Tuple[int, int]) -> List[str]:
+def _front_service(config: Dict[str, Any], edge: Dict[str, Any], service: str,
+                   addresses: Dict[str, str], ports: Tuple[int, int]) -> List[str]:
     """The balancer in front of a replicated edge: nginx with a generated configuration. It
     listens on the edge's own port, published as the first of `ports`.
     """
-    edge = edge_entity(config)
     replicas = replica_names(edge)
     return [
-        f"  {FRONT_SERVICE}:",
-        "    # The only published port. The replicas behind it are reachable only inside this",
-        "    # network.",
+        f"  {service}:",
+        f"    # The published port of '{edge['name']}'. The replicas behind it are reachable",
+        "    # only inside this network.",
         "    image: nginx:alpine",
         "    restart: unless-stopped",
         "    depends_on: [" + ", ".join(replicas) + "]",
         "    ports:",
         f'      - "{ports[0]}:{ports[1]}"',
         "    volumes:",
-        f"      - ./{DOCKER_DIR}/{FRONT_FILE}:/etc/nginx/nginx.conf:ro",
+        f"      - ./{DOCKER_DIR}/{front_file(config, edge)}:/etc/nginx/nginx.conf:ro",
         "    networks:",
         "      synqt:",
-        f"        ipv4_address: {addresses[FRONT_SERVICE]}",
+        f"        ipv4_address: {addresses[service]}",
         "",
     ]
 
 
-def render_front_config(config: Dict[str, Any], addresses: Dict[str, str]) -> str:
-    """``nginx.conf``: one balancer in front of N identical edges. Empty when the edge is not
-    replicated.
+def render_front_config(config: Dict[str, Any], addresses: Dict[str, str],
+                        edge_name: Optional[str] = None) -> str:
+    """``nginx.conf``: one balancer in front of N identical edges, for the edge named (the
+    first web edge when omitted). Empty when that edge is not replicated.
     """
-    edge = edge_entity(config)
-    if not edge or not front_name(config):
+    edges = appmodel.web_edges(config)
+    edge = next((one for one in edges if one.get("name") == edge_name),
+                None) if edge_name else (edges[0] if edges else None)
+    if not edge or not front_name(config, edge):
         return ""
     names = replica_names(edge)
-    port = int(appmodel.public_settings(edge).get("port") or 8443)
+    port = listen_port(edge)
     lines = [
         "# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux",
         "# SPDX-License-Identifier: Apache-2.0",
@@ -1212,9 +1282,10 @@ def generated_files(config: Optional[Dict[str, Any]] = None) -> Tuple[str, ...]:
     """
     always = (f"synqt.{PROFILE}.yaml", COMPOSE_FILE, f"{DOCKER_DIR}/Dockerfile",
               f"{DOCKER_DIR}/entrypoint.sh", ".dockerignore")
-    if config is not None and front_name(config):
-        return always + (f"{DOCKER_DIR}/{FRONT_FILE}",)
-    return always
+    if config is None:
+        return always
+    return always + tuple(f"{DOCKER_DIR}/{front_file(config, edge)}"
+                          for edge, _ in fronts(config))
 
 
 def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
@@ -1236,17 +1307,22 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         raise DockerError(
             "this project declares no web edge, so there is nothing to publish a port for. "
             "Add an entity with `type: web_edge` first.")
-    # A container that shares a namespace cannot publish a port, so a web edge with its own
-    # engine is refused.
-    engine_edge = [entity for entity, _, _ in engines(config)
-                   if entity.get("name") == edge.get("name")]
-    if engine_edge:
+    # A container that shares a namespace cannot publish a port, so a browser-facing
+    # entity with its own engine is refused.
+    browser = {entity["name"] for entity in browser_entities(config)}
+    for entity, _, _ in engines(config):
+        if entity.get("name") in browser:
+            raise DockerError(
+                f"'{entity.get('name')}' is on an external provider, which this cannot "
+                "containerize: the engine has to share the entity's network namespace to "
+                "stay off the wire, and a shared namespace cannot publish the entity's public "
+                "port. Move the engine behind a relational entity of its own, which is where "
+                "it belongs regardless (see https://synqt.org/entities/).")
+    if port and len(appmodel.web_edges(config)) > 1:
         raise DockerError(
-            f"the web edge '{edge.get('name')}' is on an external provider, which this "
-            "cannot containerize: the engine has to share the entity's network namespace to "
-            "stay off the wire, and a shared namespace cannot publish the edge's public "
-            "port. Move the engine behind a relational entity of its own, which is where "
-            "it belongs regardless (see https://synqt.org/entities/).")
+            "--port moves the one web edge, and this project has "
+            f"{len(appmodel.web_edges(config))}. Set public.port on each edge instead.")
+    _refuse_port_collisions(config, port)
 
     _refuse_service_collisions(config)
     addresses = mesh_addresses(config, subnet)
@@ -1259,13 +1335,13 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
                                      client=client, port=port, checkout=checkout),
         f"{DOCKER_DIR}/Dockerfile": render_dockerfile(config, client=client,
                                                       from_checkout=bool(checkout)),
-        f"{DOCKER_DIR}/entrypoint.sh": render_entrypoint(edge.get("name") or "web"),
+        f"{DOCKER_DIR}/entrypoint.sh": render_entrypoint(),
         ".dockerignore": render_dockerignore(),
     }
-    # nginx.conf only when there is something to balance.
-    front = render_front_config(config, addresses)
-    if front:
-        files[f"{DOCKER_DIR}/{FRONT_FILE}"] = front
+    # An nginx configuration for each edge there is something to balance for.
+    for front_edge, _ in fronts(config):
+        files[f"{DOCKER_DIR}/{front_file(config, front_edge)}"] = render_front_config(
+            config, addresses, front_edge["name"])
 
     existing = [name for name in files if (root / name).exists()]
     if existing and not force:
@@ -1284,14 +1360,25 @@ def init(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
     return _summary(config, written, env_files, generated, addresses, client, port)
 
 
+def _refuse_port_collisions(config: Dict[str, Any], port: Optional[int]) -> None:
+    """Refuse two browser-facing entities published on one port of this machine."""
+    seen: Dict[int, str] = {}
+    for name, published in published_ports(config, port).items():
+        if published in seen:
+            raise DockerError(
+                f"'{seen[published]}' and '{name}' would both be published on port "
+                f"{published}; give one of them another public.port")
+        seen[published] = name
+
+
 def _refuse_service_collisions(config: Dict[str, Any]) -> None:
     """Refuse two containers under one compose service name. Entities, their replicas, their
     engines, the front and the certificate issuer share one namespace, and compose merges a
     repeated key rather than refusing it.
     """
     seen: Dict[str, str] = {MESH_SERVICE: "the certificate issuer"}
-    if front_name(config):
-        seen.setdefault(FRONT_SERVICE, "the balancer in front of the edge replicas")
+    for edge, front in fronts(config):
+        seen.setdefault(front, f"the balancer in front of the replicas of '{edge['name']}'")
     owners = [(name, f"entity '{entity['name']}'") for entity in service_entities(config)
               for name in replica_names(entity)]
     owners += [(engine_service_name(entity["name"], engine), f"the {engine} engine of "
@@ -1307,7 +1394,7 @@ def _refuse_service_collisions(config: Dict[str, Any]) -> None:
 def _summary(config: Dict[str, Any], written: List[str], env_files: List[str],
              generated: List[str], addresses: Dict[str, str], client: str,
              port: Optional[int]) -> str:
-    edge = edge_entity(config)
+    published = published_ports(config, port)
     lines = ["Wrote:"] + [f"  {name}" for name in sorted(written)]
     if env_files:
         lines += ["", "Secrets (never committed):"] + [f"  {name}"
@@ -1319,7 +1406,10 @@ def _summary(config: Dict[str, Any], written: List[str], env_files: List[str],
     lines += ["", "Containers:"]
     for entity in service_entities(config):
         name = entity["name"]
-        role = "  <- the only published port" if edge and name == edge.get("name") else ""
+        role = ""
+        if name in published:
+            role = (f"  <- published on 127.0.0.1:{published[name]}" if is_monitor(entity)
+                    else f"  <- published on port {published[name]}")
         lines.append(f"  {name:<18} {addresses[name]}{role}")
     for entity, engine, spec in engines(config):
         service = engine_service_name(entity["name"], engine)
@@ -1332,17 +1422,22 @@ def _summary(config: Dict[str, Any], written: List[str], env_files: List[str],
         lines.append("  synqt docker up")
         lines.append("  The first build provisions Qt and Emscripten inside the image and")
         lines.append("  takes a while; every build after it reuses that layer.")
-    lines.append(f"  then open {edge_origin(config, port)}")
+    for entity in browser_entities(config):
+        what = "the console of" if is_monitor(entity) else ""
+        lines.append(f"  then open {edge_origin(config, port, entity)}"
+                     f" ({what + ' ' if what else ''}{entity['name']})")
     lines.append("  Your browser warns once about the issuer: the certificate is real TLS")
     lines.append("  from the development authority in the volume, and not one it knows.")
-    if edge and appmodel.identity_enabled(config, edge):
+    signing_in = [entity for entity in appmodel.web_edges(config)
+                  if appmodel.identity_enabled(config, entity)]
+    if signing_in:
         lines += [
             "",
             "Signing in needs one thing done outside this project. Register this exact",
             "callback URL with the identity provider, because it is where the provider",
             "sends the browser back and it is compared character for character:",
-            f"  {callback_url(config, port)}",
         ]
+        lines += [f"  {callback_url(config, port, entity)}" for entity in signing_in]
     lines += [
         "",
         "This is a development system. The mesh links between entities are real mutual TLS,",

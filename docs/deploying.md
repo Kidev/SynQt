@@ -249,9 +249,10 @@ in, with one key:
       tls_terminated_upstream: true
 ```
 
-`synqt build` and [`synqt docker init`](docker.md) then write N services from one image,
-with a `docker/nginx.conf` in front, and only that front publishes a port. The generated
-file does the four things any balancer must do:
+[`synqt docker init`](docker.md) then writes N services from one image, with a
+`docker/nginx.conf` in front, and only that front publishes the edge's port (with several
+replicated edges, each gets its own `<edge>-front` and `docker/nginx-<edge>.conf`). The
+generated file does the four things any balancer must do:
 
 - pass the WebSocket upgrade through;
 - put the visitor's address in `X-Forwarded-For`;

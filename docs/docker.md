@@ -11,13 +11,14 @@ synqt docker init
 synqt docker up
 ```
 
-That is all. There is no Qt, Emscripten, certificate authority or engine to install. The
+That is all: the machine installs no Qt, Emscripten, certificate authority or engine. The
 first `up` builds an image that installs the pinned toolchain, compiles every entity,
 issues a development mesh certificate authority into a volume, and starts one container
 per entity.
 
 This is the fastest way to try someone else's project, or to give a reviewer something that
-runs. It is not a deployment: the certificate authority disappears with its volume. See
+runs. It is a development system, and its certificate authority disappears with its
+volume. See
 [deploying](deploying.md) for a real deployment.
 
 ## What gets generated
@@ -36,7 +37,7 @@ Regenerate them with `--force` instead of editing them.
 It also fills in your configuration's `env:` references. A credential that only exists
 between two containers, such as a database password, is generated. A secret from outside,
 above all an OAuth client secret, is asked for; an empty answer leaves a placeholder in the
-entity's `.env` to fill in later. Nothing you type reaches `synqt.yaml`, the image or the
+entity's `.env` to fill in later. What you type stays out of `synqt.yaml`, the image and the
 repository. Pass `--no-input` to ask nothing, for scripts.
 
 ## The commands
@@ -64,7 +65,8 @@ Options for `init`:
   someone; the second is much faster to iterate with, because a client QML change needs
   `synqt build --client wasm` instead of an image rebuild.
 - **`--port`** publishes the edge on another port than the one in `synqt.yaml`, when
-  something on the machine already uses it.
+  something on the machine already uses it. A project with several web edges sets
+  `public.port` on each instead, and `--port` is refused.
 - **`--subnet`** moves the private network, when `172.30.238.0/24` collides with something.
 
 ## How the containers are arranged
@@ -73,8 +75,16 @@ Every entity gets its own container, because an entity is a separate binary that
 a separate host in a deployment. The mesh links are real mutual TLS across a container
 network, not loopback with the checks turned off.
 
-Only the web edge publishes a port. Everything else is reachable only inside the container
-network: the [deny by default](security.md) topology, expressed in compose.
+Each web edge publishes its own port, and a [monitor](monitoring.md) publishes its console
+on `127.0.0.1` only. Everything else is reachable only inside the container network: the
+[deny by default](security.md) topology, expressed in compose. Two browser-facing entities
+on one port are refused at `init`.
+
+The monitor listens on every interface of its own container, since loopback there is not
+where Docker delivers the port, so `synqt.docker.yaml` writes the
+`monitoring: {public: acknowledged}` that allows it and gives the console the same
+`localhost` certificate as the edges. The console is then at `https://localhost:<port>` on
+the machine running the containers and nowhere else.
 
 ### Why the addresses are written down
 
@@ -100,12 +110,12 @@ plus one certificate per entity, into a shared volume. Every entity waits until 
 exited successfully, not merely started, so no entity starts with a certificate the others
 do not trust.
 
-It also issues the edge's browser-facing certificate for `localhost`, from the same
-authority. That is not a mesh identity, and a deployment would not use it. It exists
+It also issues the browser-facing certificate for `localhost`, from the same
+authority. It is a browser certificate for this setup only, never a mesh identity. It exists
 because a scaffolded `synqt.yaml` points `tls:` at a certificate you have not obtained yet,
 and an edge without a certificate would listen on a port whose handshake can never
-complete. So `https://localhost:8443` works, and your browser warns once about the unknown
-issuer, which is accurate.
+complete. Every edge and the monitor's console serve it. So `https://localhost:8443` works,
+and your browser warns once about the unknown issuer, which is accurate.
 
 Clicking through the warning lets you look at the app, but is not enough to develop
 against it: a browser refuses service workers to an origin whose certificate it distrusts,
@@ -131,7 +141,7 @@ entities:
       origin: https://localhost:8443
 ```
 
-This is not the bind address. Three exact matches are built from it: the OAuth
+It differs from the bind address. Three exact matches are built from it: the OAuth
 `redirect_uri`, which an identity provider compares character by character; what `self`
 expands to in `security.allowed_origins` when the upgrade checks the browser's `Origin`
 header; and the sync endpoint the [CSP](csp.md) names. An edge that used its bind address
@@ -139,7 +149,8 @@ as its identity would call itself `https://0.0.0.0:8443` and refuse the only ori
 browser can arrive with.
 
 It also gives the callback URL to register with the identity provider, the one sign-in step
-you cannot do from inside the project. `synqt docker init` prints it:
+you cannot do from inside the project. `synqt docker init` prints it, once per edge that
+serves sign-in:
 
 ```
 https://localhost:8443/auth/callback
@@ -164,7 +175,7 @@ engine at `127.0.0.1`, the link never touches a wire, and no check was relaxed. 
 leaves the engine unreachable from every other container, which is stricter than for the
 entities themselves.
 
-One topology this cannot express: a web edge that owns its own engine. A shared namespace
+One topology this cannot express: a web edge or a monitor that owns its own engine. A shared namespace
 cannot publish a port, so `synqt docker init` stops and says so. Put the engine behind a
 relational entity, where it belongs anyway.
 
@@ -207,8 +218,8 @@ a wheel has no sources to hand over, so its generated Dockerfile installs the pu
 distribution instead.
 
 **`runtime`** is what runs: the built artifacts, the Qt shared libraries and QML modules
-they load, and the CLI (for the certificate service). No compilers, no Qt sources, no
-toolchain. It runs as a non-root user.
+they load, and the CLI (for the certificate service). It carries no compiler, Qt source or
+toolchain, and runs as a non-root user.
 
 ## Rebuilding after a change
 
@@ -221,7 +232,7 @@ For fast client iteration, use `--client host`. Run `synqt build --client wasm` 
 machine, and the edge picks up the new bundle from the mounted directory with no image
 rebuild. This needs a local Emscripten kit, which the default mode avoids.
 
-## What this is not
+## How it differs from production
 
 The generated setup is a development system. Two parts differ from production:
 

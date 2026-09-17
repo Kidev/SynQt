@@ -144,7 +144,7 @@ class ProfileTest(unittest.TestCase):
     def test_the_entrypoint_issues_the_browser_certificate_where_it_is_read_from(self):
         # Both halves use the same constants, and the directory exists before writing (`set
         # -eu`).
-        script = docker.render_entrypoint("web")
+        script = docker.render_entrypoint()
         self.assertIn(f"mkdir -p {docker.BROWSER_CERT_DIR}", script)
         self.assertIn(f"-out {docker.EDGE_CERT}", script)
         self.assertIn(f"-keyout {docker.EDGE_KEY}", script)
@@ -745,3 +745,142 @@ class ServiceNameTest(unittest.TestCase):
         with self.assertRaises(docker.DockerError) as caught:
             self._init(config)
         self.assertIn("store-postgres", str(caught.exception))
+
+
+def _two_edges(**second):
+    """The shop with a second application edge serving its own client on its own port."""
+    config = _config()
+    edge = {"name": "admin", "type": "web_edge", "public": {"port": 9443}}
+    edge.update(second)
+    config["entities"] += [{"name": "backoffice", "type": "client", "edge": "admin"}, edge]
+    config["connect_points"].append({"owner": "admin", "consumers": ["backoffice"]})
+    return config
+
+
+def _profile(config, **kwargs):
+    addresses = docker.mesh_addresses(config)
+    return yaml.safe_load(docker.render_profile(config, addresses, **kwargs))
+
+
+def _profiled(profile, name):
+    return next(entity for entity in profile["entities"] if entity["name"] == name)
+
+
+class SecondEdgeTest(unittest.TestCase):
+    """Every web edge is served, each on its own published port."""
+
+    def _compose(self, config, **kwargs):
+        return yaml.safe_load(
+            docker.render_compose(config, docker.mesh_addresses(config), **kwargs))
+
+    def test_each_edge_publishes_its_own_port(self):
+        services = self._compose(_two_edges())["services"]
+        self.assertEqual(services["web"]["ports"], ["8443:8443"])
+        self.assertEqual(services["admin"]["ports"], ["9443:9443"])
+
+    def test_each_edge_is_told_where_a_browser_reaches_it(self):
+        profile = _profile(_two_edges())
+        self.assertEqual(_profiled(profile, "web")["public"]["origin"],
+                         "https://localhost:8443")
+        self.assertEqual(_profiled(profile, "admin")["public"]["origin"],
+                         "https://localhost:9443")
+        for name in ("web", "admin"):
+            self.assertEqual(_profiled(profile, name)["tls"]["cert_file"], docker.EDGE_CERT)
+
+    def test_one_port_override_cannot_name_two_edges(self):
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        (root / "synqt.yaml").write_text("entities: []\n")
+        with self.assertRaises(docker.DockerError) as caught:
+            docker.init(root, _two_edges(), port=7443, source=None)
+        self.assertIn("public.port", str(caught.exception))
+
+    def test_two_edges_on_one_port_are_refused(self):
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        (root / "synqt.yaml").write_text("entities: []\n")
+        with self.assertRaises(docker.DockerError) as caught:
+            docker.init(root, _two_edges(public={"port": 8443}), source=None)
+        self.assertIn("8443", str(caught.exception))
+
+    def test_every_edge_with_sign_in_is_told_its_callback(self):
+        config = _two_edges(identity=True)
+        config["identity"] = {"providers": [{"name": "github", "client_id": "x",
+                                              "client_secret": "env:GH_SECRET"}]}
+        text = docker.render_profile(config, docker.mesh_addresses(config))
+        self.assertIn("https://localhost:9443/auth/callback", text)
+        self.assertIn("GH_SECRET", docker.secret_names(config).get("admin", []))
+
+    def test_each_replicated_edge_gets_its_own_front(self):
+        config = _two_edges(replicas=2)
+        for entity in config["entities"]:
+            if entity["name"] == "web":
+                entity["replicas"] = 3
+        addresses = docker.mesh_addresses(config)
+        services = self._compose(config)["services"]
+        self.assertEqual(services["web-front"]["ports"], ["8443:8443"])
+        self.assertEqual(services["admin-front"]["ports"], ["9443:9443"])
+        self.assertNotIn("front", services)
+        web = docker.render_front_config(config, addresses, "web")
+        admin = docker.render_front_config(config, addresses, "admin")
+        self.assertEqual(web.count("server 172."), 3)
+        self.assertEqual(admin.count("server 172."), 2)
+        self.assertIn(f"{docker.DOCKER_DIR}/nginx-admin.conf", docker.generated_files(config))
+
+    def test_one_replicated_edge_keeps_its_front_and_its_file(self):
+        config = _replicated(count=2)
+        self.assertIn("front", self._compose(config)["services"])
+        self.assertIn(f"{docker.DOCKER_DIR}/{docker.FRONT_FILE}",
+                      docker.generated_files(config))
+
+
+def _with_monitor():
+    config = _config()
+    config["monitoring"] = {"entity": "ops"}
+    config["entities"] += [
+        {"name": "ops", "type": "monitor", "public": {"host": "127.0.0.1", "port": 9900},
+         "bundles": {"anonymous": "signin/", "operator": "ops-console"}},
+        {"name": "ops-console", "type": "client", "console": True, "edge": "ops"}]
+    return config
+
+
+class MonitorTest(unittest.TestCase):
+    """The console is reachable from the machine running the containers, and only from it."""
+
+    def test_the_console_is_published_on_loopback_only(self):
+        config = _with_monitor()
+        compose = yaml.safe_load(docker.render_compose(config, docker.mesh_addresses(config)))
+        self.assertEqual(compose["services"]["ops"]["ports"], ["127.0.0.1:9900:9900"])
+
+    def test_the_monitor_listens_where_the_published_port_arrives(self):
+        profile = _profile(_with_monitor())
+        ops = _profiled(profile, "ops")
+        # Inside its container: loopback there is not where docker delivers the port.
+        self.assertEqual(ops["public"]["host"], "0.0.0.0")
+        self.assertEqual(ops["public"]["origin"], "https://localhost:9900")
+        self.assertEqual(ops["tls"]["cert_file"], docker.EDGE_CERT)
+        self.assertEqual(profile["monitoring"]["public"], "acknowledged")
+
+    def test_the_layered_monitor_passes_the_release_check(self):
+        from synqt import check, config as configmod
+
+        config = _with_monitor()
+        merged = configmod.merge(config, _profile(config))
+        messages = check.validate(merged, release=True)[1]
+        self.assertEqual([m for m in messages if "monitor 'ops'" in m and "error" in m], [])
+
+    def test_host_mode_mounts_the_console_bundle_into_the_monitor(self):
+        config = _with_monitor()
+        compose = yaml.safe_load(docker.render_compose(config, docker.mesh_addresses(config),
+                                                       client="host"))
+        self.assertIn(f"./build/client-ops-console:{docker.APP_DIR}/build/client-ops-console:ro",
+                      compose["services"]["ops"]["volumes"])
+
+    def test_a_project_with_no_monitor_publishes_nothing_else(self):
+        compose = yaml.safe_load(docker.render_compose(_config(),
+                                                       docker.mesh_addresses(_config())))
+        published = [name for name, service in compose["services"].items()
+                     if service.get("ports")]
+        self.assertEqual(published, ["web"])

@@ -1594,6 +1594,20 @@
       "defended_by": "The monitor main sets the WebEdgeConfig origin from public.origin, as the edge does, and derives its own when none is written. The tests render the main both ways.",
       "file": "tools/synqt/tests/test_monitoring.py",
       "test": "test_a_monitor_behind_a_proxy_checks_origins_against_its_public_origin"
+    },
+    {
+      "id": "docker-serves-one-edge-of-several",
+      "what": "`synqt docker init` wired only the first web edge: a second edge got no published port, no origin and no browser certificate, so it was unreachable or refused every upgrade, and its sign-in secrets were never asked for. `--port` silently applied to whichever edge came first.",
+      "defended_by": "Each web edge publishes its own port with its own origin, certificate, callback and secrets, each replicated edge gets its own front, two edges on one port are refused, and `--port` is refused when it could name more than one edge. The tests render a two-edge project both plain and replicated.",
+      "file": "tools/synqt/tests/test_docker.py",
+      "test": "test_each_edge_publishes_its_own_port"
+    },
+    {
+      "id": "docker-hides-the-monitor-console",
+      "what": "Under `synqt docker` the monitor bound loopback inside its own container and published nothing, so its console was unreachable from anywhere, and publishing it by hand would have exposed it on every interface of the host.",
+      "defended_by": "The profile has the monitor listen inside its container with the localhost certificate and acknowledges that bind, and compose publishes it on 127.0.0.1 of the host only. The tests assert the loopback publication and that the layered configuration passes `synqt check --release`.",
+      "file": "tools/synqt/tests/test_docker.py",
+      "test": "test_the_console_is_published_on_loopback_only"
     }
   ]
 }
