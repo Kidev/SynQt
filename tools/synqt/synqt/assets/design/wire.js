@@ -1,24 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// How big the wire is. What a contract's members cost in bytes when they cross the link.
+// How big the wire is: what a contract's members cost in bytes when they cross the link.
 //
-// A connect point says what crosses it. This says how much, because the two questions are
-// asked together and only one of them had an answer on the page. A reader looking at a model
-// of eight roles and a `string[280]` beside it has no idea whether that is a packet or a
-// page, and the difference is what decides whether a property is pushed on every keystroke or
-// on a timer.
+// A connect point says what crosses it, and this says how much. A model of eight roles with a
+// `string[280]` beside it could be a packet or a page, and that decides whether a property is
+// pushed on every keystroke or on a timer.
 //
 // The numbers are QDataStream's, which is what QtRemoteObjects serialises with, and they are
-// bounds rather than measurements. A `string[60]` is 4 bytes of length and at most 60 UTF-16
-// code units, so 124, and a shorter one is shorter. That is the useful direction to be wrong
-// in. What a member costs is stated as "at most" wherever every part of it is bounded, and as
-// unbounded wherever one part is not. An unsized `string` has no ceiling at all, and a
-// number invented for it would be the one thing on this page that was made up.
+// bounds, not measurements. A `string[60]` is 4 bytes of length and at most 60 UTF-16 code
+// units, so 124, and a shorter one is shorter. A member is "at most" a number when every part
+// of it is bounded, and unbounded when one part is not. An unsized `string` has no ceiling,
+// so none is invented for it.
 //
-// This is the whole of what the editor knows about wire size. Nothing here is a rule: `synqt
-// check` has no opinion about how big a contract is, and neither does the drawing. It is a
-// reading, offered where the contract is written.
+// Nothing here is a rule: `synqt check` does not limit how big a contract is, and neither
+// does the drawing. It is a reading, shown where the contract is written.
 
 // What one value of each type costs, serialised.
 //
@@ -43,16 +39,22 @@ const STRING_HEAD = 4;
 const STRING_CHAR = 2;
 
 // What QtRemoteObjects wraps one packet in: a quint32 length, a quint16 packet type, the
-// remoted object's name as a QString, and a qint32 index naming which member of it this is.
-// The name is the one part that varies, so it is measured rather than assumed.
+// remoted object's name as a QString, and a qint32 (the property index of a change, the
+// serial id a reply answers). The name is the one part that varies, so it is measured rather
+// than assumed.
 const PACKET_FIXED = 4 + 2 + STRING_HEAD + 4;
+
+// An invoke packet, which carries a signal emitted and a slot called, has four more qint32s
+// around its arguments: the call type, the argument count, the serial id and the property
+// index. Each argument goes as a QVariant (QDataStreamCodec::serializeInvokePacket).
+const INVOKE_EXTRA = 4 * 4;
 
 // What one row of a replicated model costs beyond its roles. The row index and the count of
 // roles in it.
 const ROW_FIXED = 8;
 
-// A size, in the unit that lets somebody read it at a glance. SI rather than binary, because
-// this is a quantity of bytes on a network and not a block on a disk.
+// A size, in a unit readable at a glance. SI rather than binary, because this is a quantity
+// of bytes on a network, not a block on a disk.
 export function sizeText(bytes) {
     if (bytes < 1000) {
         return `${Math.round(bytes)} B`;
@@ -109,11 +111,10 @@ function add(into, one) {
 
 // What one member costs each time it crosses, and what "once" means for it.
 //
-// A property is one packet per change. A signal or a slot call is one packet per call, and
-// the parameters are what is in it. A slot that answers carries its return value back in a
-// packet of its own, so both are counted. A model is counted per row, because how many rows
-// there are is the application's business and not the contract's. The contract says what a
-// row holds, and that is the number this reports.
+// A property is one packet per change. A signal or a slot call is one packet per call,
+// carrying the parameters. A slot that answers sends its return value back in a packet of its
+// own, so both are counted. A model is counted per row: how many rows there are is the
+// application's business, and the contract only says what a row holds.
 export function memberBytes(member, link) {
     const named = String((link && link.owner) || "");
     const packet = PACKET_FIXED + (STRING_CHAR * named.length);
@@ -133,7 +134,9 @@ export function memberBytes(member, link) {
     // The call, and what is in it. The packet is where the sum starts because a call with no
     // parameters still costs one.
     const params = (member.params || []).reduce(
-        (into, param) => add(into, valueBytes(param.type)), {bytes: packet, bounded: true});
+        (into, param) => add(into, add(valueBytes(param.type), {bytes: VARIANT_HEAD,
+                                                                bounded: true})),
+        {bytes: packet + INVOKE_EXTRA, bounded: true});
     if (kind === "signal") {
         return {...params, per: "emit"};
     }
@@ -145,10 +148,9 @@ export function memberBytes(member, link) {
     return {...answered, per: "call"};
 }
 
-// The whole contract, as the one number worth putting at the top of it: what crosses when
-// every member crosses once, with a model counted as one row. It is neither a rate nor a
-// total. How often each member crosses is the application's business. What it is instead is
-// the size of the wire, which is what somebody sizing one wants.
+// The whole contract as one number: what crosses when every member crosses once, with a
+// model counted as one row. It is neither a rate nor a total, since how often each member
+// crosses is the application's business.
 export function contractBytes(link) {
     return (link && link.members || []).reduce(
         (into, member) => add(into, memberBytes(member, link)),

@@ -1608,6 +1608,13 @@
       "defended_by": "The profile has the monitor listen inside its container with the localhost certificate and acknowledges that bind, and compose publishes it on 127.0.0.1 of the host only. The tests assert the loopback publication and that the layered configuration passes `synqt check --release`.",
       "file": "tools/synqt/tests/test_docker.py",
       "test": "test_the_console_is_published_on_loopback_only"
+    },
+    {
+      "id": "the-editor-understates-a-calls-size",
+      "what": "The editor's 'at most N' beside a signal or slot left out what QtRemoteObjects puts in every invoke packet (the call type, the argument count, the serial id, the property index) and the QVariant header on each argument, so the bound it showed was smaller than what crossed the link.",
+      "defended_by": "wire.js counts the invoke packet as QDataStreamCodec::serializeInvokePacket writes it. The tests lay out each packet type from the codec's order and require the editor's figure to equal it for a slot with its answer, a signal, a bare signal and a property change.",
+      "file": "tools/synqt/tests/test_wire_size.py",
+      "test": "test_a_slot_call_and_its_answer_are_bounded_by_what_is_sent"
     }
   ]
 }
