@@ -1,28 +1,23 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The page's one source reader. Where the words of a file are, what a QML file declares, and
+// The page's one source reader: where the words of a file are, what a QML file declares, and
 // what it reaches for in another entity.
 //
-// A project is made of a handful of kinds of text and the pane shows all of them, so all of
-// them are coloured here. The QML an entity is, the configuration, a contract, the schema
-// beside a relational entity, and the page an entity serves a browser: markup with a
-// stylesheet and a script inside it, each read by the reader that is about it.
+// Every kind of text the pane shows is coloured here: an entity's QML, the configuration, a
+// contract, the schema beside a relational entity, and a page an entity serves (markup with a
+// stylesheet and a script inside, each read by its own reader).
 //
-// Only QML is read for meaning, because only QML has any. `synqt infer` does that same
-// reading in Python, over the same two questions, and this is it brought to the page,
-// because the copy on synqt.org has no CLI behind it and the editor has to behave the same
-// in both places.
+// Only QML is read for meaning. `synqt infer` does the same reading in Python; this is the
+// copy for the page, since synqt.org has no CLI behind it.
 //
-// It reads declarations rather than parsing QML. A declaration is a line;
-// everything below the line is the author's and is never interpreted, never rewritten and
-// never held against them. That is what makes it safe to run on every keystroke.
+// It reads declarations instead of parsing QML. A declaration is one line, and the body
+// below it is never interpreted or rewritten, which keeps it safe to run on every keystroke.
 //
-// Pure functions over text, no DOM, so the suite can hand them a file with node and compare
-// what came back against what `synqt infer` says about the same file.
+// Pure functions over text, no DOM, so the suite can run a file through node and compare the
+// result with what `synqt infer` says about the same file.
 
-// What a JavaScript word is. QML's script half is JavaScript, and a project can hold a plain
-// `.js` file beside a page it serves, so this set is the half the two share.
+// The JavaScript keywords, which QML's script half shares with a plain `.js` file.
 const JS_KEYWORDS = new Set([
     "as", "async", "await", "break", "case", "catch", "class", "const", "continue",
     "default", "delete", "do", "else", "enum", "export", "extends", "false", "finally",
@@ -31,42 +26,37 @@ const JS_KEYWORDS = new Set([
     "undefined", "var", "void", "while", "yield",
 ]);
 
-// What a QML word is, once the line it sits on is known. Only used to paint: nothing here
-// decides anything, so a word this gets wrong is a colour, never a member.
-//
-// The words QML adds are declaration words, and they are ordinary names in JavaScript:
-// `property`, `on` and `signal` are three things somebody will have called a variable. So
-// they are added here rather than shared, and a `.js` file is painted without them.
+// The QML keywords, used only to paint: a word this gets wrong is a colour, never a member.
+// The words QML adds (`property`, `on`, `signal`) are ordinary names in JavaScript, so a
+// `.js` file is painted without them.
 const KEYWORDS = new Set([
     ...JS_KEYWORDS,
     "component", "on", "pragma", "property", "readonly", "required", "signal",
 ]);
 
-// The declared types a contract and a QML property share, plus the ones QML adds. A word in
-// here is painted as a type wherever it appears, which is what a reader is looking for.
+// The types a contract and a QML property share, plus the ones QML adds, painted as types
+// wherever they appear.
 const TYPE_WORDS = new Set([
     "bool", "color", "date", "double", "font", "int", "list", "point", "real", "rect",
     "size", "string", "url", "var", "variant", "vector2d", "vector3d",
 ]);
 
-// Names that are capitalised and are not an entity accessor. Without this list every
-// `Math.max(...)` in somebody's QML would read as a connect point on an entity called Math.
+// Capitalised names that are not an entity accessor, so `Math.max(...)` is not read as a
+// connect point on an entity called Math.
 const NOT_AN_ENTITY = new Set([
     "Array", "Boolean", "Component", "Date", "JSON", "Json", "Map", "Math", "Number",
     "Object", "Promise", "Qt", "Screen", "Set", "String", "Symbol",
-    // What SynQt itself puts in QML scope. None of these can be an entity accessor, because
-    // `addcontract.ALWAYS_RESERVED` refuses an entity these names in the first place. `Server`
-    // is not here. It is the one the client reaches its edge through.
+    // What SynQt puts in QML scope, which `addcontract.ALWAYS_RESERVED` refuses as entity
+    // names. `Server` is not here: it is how the client reaches its edge.
     "Api", "App", "Cache", "Caller", "Client", "Db", "Docs", "EntityTest", "Graphics",
     "Http", "IdentityMapping", "Jobs", "PageSeed", "Router", "Session",
 ]);
 
-// The declaration forms. All three are one line, which is the whole reason this can run on
-// every keystroke. What follows a `function` line is a body, and nothing here reads it.
+// The declaration forms, each one line. What follows a `function` line is a body, and
+// nothing here reads it.
 const PROPERTY = /^[ \t]*(?:(?:readonly|required|default)[ \t]+)*property[ \t]+([A-Za-z_][\w.]*)[ \t]+([A-Za-z_]\w*)/;
-// The parentheses are optional because QML makes them optional and qmlformat takes them off:
-// `signal closed()` is written back as `signal closed`, and a reader that wanted them would
-// have lost the member the first time somebody formatted the file.
+// The parentheses are optional, as in QML: qmlformat writes `signal closed()` back as
+// `signal closed`.
 const SIGNAL = /^[ \t]*signal[ \t]+([A-Za-z_]\w*)[ \t]*(?:\(([^)]*)\))?/;
 const FUNCTION = /^[ \t]*function[ \t]+([A-Za-z_]\w*)[ \t]*\(([^)]*)\)[ \t]*(?::[ \t]*([A-Za-z_]\w*))?/;
 
@@ -77,37 +67,31 @@ const FUNCTION = /^[ \t]*function[ \t]+([A-Za-z_]\w*)[ \t]*\(([^)]*)\)[ \t]*(?::
 const REFERENCE = /\b([A-Z][A-Za-z0-9_]*)\.([A-Za-z_]\w*)[ \t]*(\()?/g;
 
 // An import names a module, not an entity, and `import QtQuick.Controls` matches the shape
-// above exactly. Taken out before the scan rather than filtered after it, because the list
-// of module names nobody could ever call an entity is not one anybody can finish writing.
+// above, so import and pragma lines are blanked before the scan.
 const IMPORT_LINE = /^[ \t]*(?:import|pragma)\b.*$/gm;
 
-// An attached signal handler, `Edge.onDenied: reason => ...`, which is how a consumer
-// listens for something the owner announces. The member it names is the signal with the
-// `on` taken off and the next letter lowered, so this is a reference to `denied` and never
-// to a member called `onDenied`. The capital is what keeps `Server.online` out of it.
+// An attached signal handler, `Edge.onDenied: reason => ...`, which refers to the signal
+// `denied`. The capital after `on` keeps `Server.online` out of it.
 const HANDLER = /^on([A-Z]\w*)$/;
 
-// What the framework puts on every consumer facade, which is nothing the owner declared.
-// `ready` is ConsumerBase's own (true once the replica has finished its handshake), so a
-// file reading it is not a file naming a member of the contract.
+// What the framework puts on every consumer facade, which no owner declares. `ready` is
+// ConsumerBase's own (true once the replica has finished its handshake).
 const FACADE_MEMBERS = new Set(["ready"]);
 
-// The one type a reference gives away nothing about. A member read out of a call site is
-// known by name and by whether it was called. What it carries is for somebody to say.
+// The type of a member known only from a call site, which gives away its name and whether
+// it was called, and nothing about what it carries.
 const UNKNOWN = "var";
 
 // Painting
 
-// `text` split into runs, each with the kind of word it is, in order and covering every byte.
-// The pane paints one span per run, so this is the whole of what the editor knows about how
-// QML looks.
+// `text` split into runs, each with the kind of word it is, in order and covering every
+// byte. The pane paints one span per run.
 export function runs(text) {
     return scriptRuns(text, KEYWORDS, true);
 }
 
-// The same scan over a plain `.js` file: no `property`, no type words, and a capital is a
-// constructor rather than a QML type. One scanner for both, because QML's script half is
-// this language and a second copy of it would be a second answer to what a string is.
+// The same scan over a plain `.js` file: no `property` and no type words. One scanner for
+// both, since QML's script half is this language.
 function jsRuns(text) {
     return scriptRuns(text, JS_KEYWORDS, false);
 }
@@ -155,9 +139,8 @@ function wordKind(word, previous, source, after, keywords, qml) {
     if (keywords.has(word)) {
         return "keyword";
     }
-    // Only in QML. `url`, `size` and `point` are type names there and ordinary variable
-    // names in JavaScript, and painting somebody's `url` as a type is the reader claiming
-    // something the file never said.
+    // Only in QML: `url`, `size` and `point` are type names there and ordinary variable
+    // names in JavaScript.
     if (qml && TYPE_WORDS.has(word)) {
         return "type";
     }
@@ -168,8 +151,7 @@ function wordKind(word, previous, source, after, keywords, qml) {
     return /^[A-Z]/.test(word) ? "type" : "";
 }
 
-// A contract, whose whole vocabulary is four member kinds and a type list. Small enough to
-// colour by line, which is also how the pane maps a line back to the member on the canvas.
+// A contract, whose vocabulary is four member kinds and a type list.
 const SYN_KEYWORDS = new Set(["contract", "record", "prop", "model", "signal", "slot"]);
 
 function synRuns(text) {
@@ -199,21 +181,16 @@ function synRuns(text) {
     return out;
 }
 
-// The `export: |` block, whose lines are a contract and not YAML. Everything a connect
-// point carries is written there in the grammar a `.syn` file uses, so it is coloured by
-// the same reader: `prop`, `model`, `signal` and `slot` are keywords and a type is a type,
-// which makes an export block scannable at the size it is set in. As one flat scalar, the
-// part of the configuration that matters most would read as a wall.
+// The `export: |` block, whose lines are a contract, not YAML, so they are coloured by the
+// contract reader.
 const BLOCK_KEY = /^(\s*)export\s*:\s*[|>][-+]?\s*$/;
 
-// The configuration. Keys, the scalars beside them, the comments, and the contract inside an
-// export block. Enough that the shape of the file is visible, and no more, because nothing
-// here has to understand YAML.
+// The configuration: keys, the scalars beside them, the comments, and the contract inside an
+// export block. Enough to show the shape of the file without understanding YAML.
 function yamlRuns(text) {
     const out = [];
     // The indent of the `export:` key while one is open, or null. A block scalar runs until a
-    // line comes back to that indent or further out, which is the whole rule needed
-    // here. What is inside is never YAML, so nothing in it has to be read as YAML.
+    // line comes back to that indent or further out.
     let block = null;
     for (const line of String(text || "").split("\n")) {
         if (block !== null) {
@@ -248,10 +225,8 @@ function yamlRuns(text) {
     return out;
 }
 
-// The schema beside a relational entity. Every project with a database holds one, and a
-// reader told the entity queries this table opens it next, so it is painted like the other
-// files. Small vocabulary, because the file is a list of forward-only statements and
-// nothing here has to understand SQL.
+// The schema beside a relational entity: a list of forward-only statements, painted with a
+// small vocabulary and no SQL parser.
 const SQL_KEYWORDS = new Set([
     "add", "all", "alter", "and", "as", "asc", "autoincrement", "begin", "between", "by",
     "cascade", "case", "check", "collate", "column", "commit", "conflict", "constraint",
@@ -263,9 +238,7 @@ const SQL_KEYWORDS = new Set([
     "union", "unique", "update", "using", "values", "view", "when", "where", "with",
 ]);
 
-// The column types SQLite and PostgreSQL spell, which is what a schema in a SynQt project
-// is written in. A type reads as a type here for the same reason it does in a contract: it is
-// the half of a column declaration that says what the value is.
+// The column types SQLite and PostgreSQL spell.
 const SQL_TYPES = new Set([
     "bigint", "blob", "boolean", "bytea", "char", "date", "datetime", "decimal", "double",
     "float", "int", "int2", "int4", "int8", "integer", "json", "jsonb", "numeric", "real",
@@ -307,19 +280,14 @@ function sqlRuns(text) {
     return out;
 }
 
-// A stylesheet. The page an entity serves is HTML with a `<style>` block in it, often most
-// of the file: the sign-in page a monitor hands an anonymous visitor is two thirds CSS.
+// A stylesheet, as in the `<style>` block of a page an entity serves (the monitor's sign-in
+// page is two thirds CSS): the comments, the literals, the at-rules, and the name half of a
+// declaration.
 //
-// Small vocabulary again, because nothing here has to understand CSS: the comments, the
-// literals, the at-rules, and the name half of a declaration. That last one is the whole of
-// what makes a rule readable, and it is also the only one that takes a judgement.
-//
-// The judgement: `color:` and `a:hover` are the same three tokens, a word and a colon, and
-// telling them apart needs to know whether the word starts a declaration. What decides it
-// here is the character before the word: a declaration follows `{`, `;`, `}` or the start of
-// a line, and `a:hover` in `.row a:hover` follows a space inside a selector. It gets `a` at
-// the very start of a line wrong, which is a selector painted as a property name, and that
-// is the limit of a reader with no parser behind it.
+// `color:` and `a:hover` are both a word and a colon. The character before the word decides:
+// a declaration follows `{`, `;`, `}` or the start of a line, and `a:hover` in
+// `.row a:hover` follows a space inside a selector. A selector at the very start of a line is
+// painted as a property name.
 const CSS_STARTS = new Set(["", "{", "}", ";"]);
 
 function cssRuns(text) {
@@ -365,13 +333,8 @@ function cssRuns(text) {
     return out;
 }
 
-// A page. What an entity serves a browser that is not the client. The sign-in a monitor hands
-// an anonymous visitor, and whatever a project serves beside it.
-//
-// The two blocks inside it are read by the readers that are about them rather than as markup
-// with text in it. That is not a nicety. The sign-in page is a hundred lines of CSS and forty
-// of JavaScript inside eight of HTML, so a reader that painted the tags and left the rest
-// grey would be leaving the file grey.
+// A page an entity serves a browser that is not the client, such as the monitor's sign-in
+// page. Its `<style>` and `<script>` blocks are read by the CSS and JavaScript readers.
 const HTML_SCAN = /(<!--[\s\S]*?-->)|(<![A-Za-z][^>]*>)|(<\/?)([A-Za-z][\w-]*)|([\s\S])/g;
 const HTML_INSIDE = /(>)|([A-Za-z_:][\w:.-]*)(\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)?|([\s\S])/y;
 // The two elements whose content is not markup, and the reader each one's content is in.
@@ -417,10 +380,8 @@ function htmlRuns(text) {
         push(open, "");
         push(tag, "keyword");
         at = htmlAttributes(source, at, push);
-        // `<style>` and `<script>` hold something that is not markup, so the reader for it
-        // takes everything up to the closing tag. An unclosed one takes the rest of the file,
-        // which is what it is. A file being typed into is unclosed for as long as it takes to
-        // type the closing tag, and the pane paints it on every keystroke.
+        // `<style>` and `<script>` hold something that is not markup, so their reader takes
+        // everything up to the closing tag, or the rest of the file while it is unclosed.
         const inside = open === "<" ? HTML_BLOCKS.get(tag.toLowerCase()) : null;
         if (inside) {
             const closes = source.toLowerCase().indexOf(`</${tag.toLowerCase()}`, at);
@@ -459,8 +420,8 @@ function htmlAttributes(source, from, push) {
     return source.length;
 }
 
-// The runs for whatever kind of file `name` is. An extension nobody colours comes back as one
-// plain run, which is the file shown exactly as it is rather than shown wrong.
+// The runs for whatever kind of file `name` is. Any other extension comes back as one plain
+// run.
 export function runsFor(name, text) {
     if (String(name).endsWith(".qml")) {
         return runs(text);
@@ -486,9 +447,8 @@ export function runsFor(name, text) {
     return [{text: String(text || ""), kind: ""}];
 }
 
-// The licence notice, which every SynQt file carries and nobody reads twice. Taken off for
-// the pane only. What is written to disk and what the download holds keeps it, because it is
-// the thing that makes the file's licence unambiguous wherever it ends up.
+// The licence notice, taken off for the pane only. What is written to disk and what the
+// download holds keep it.
 export function withoutNotice(text) {
     const lines = String(text || "").split("\n");
     let at = 0;
@@ -516,17 +476,17 @@ function paramsOf(text) {
                 return {type: annotated[2], name: annotated[1]};
             }
             const spaced = part.match(/^([A-Za-z_][\w.]*)[ \t]+([A-Za-z_]\w*)$/);
+            // An unannotated parameter says nothing about its type, which `untyped` records.
             return spaced ? {type: spaced[1], name: spaced[2]}
-                          : {type: UNKNOWN, name: part.replace(/[^\w]/g, "")};
+                          : {type: UNKNOWN, name: part.replace(/[^\w]/g, ""), untyped: true};
         })
         .filter((param) => param.name);
 }
 
-// Every member `text` declares, as the flat records the document holds, each with the line it
-// was read from so the canvas can be pointed at what somebody's cursor is sitting in.
+// Every member `text` declares, as the flat records the document holds, each with the line
+// it was read from, so the canvas can follow the caret.
 //
-// A model is not in here and cannot be. `model rows(int id, string title)` has no QML
-// declaration form, so it is the one member kind the panel alone can add.
+// A model has no QML declaration form, so only the panel can add one.
 export function declarations(text) {
     const found = [];
     String(text || "").split("\n").forEach((line, index) => {
@@ -551,10 +511,8 @@ export function declarations(text) {
     return found;
 }
 
-// Every `Owner.member` this file reaches for. An entity has one connect point, so the
-// accessor is the whole address and what follows it is a member. `call` is true where it was
-// called rather than read, which is the difference between a slot and a prop, and `handler`
-// is true where it was listened to, which says the member is a signal.
+// Every `Owner.member` this file reaches for. `call` is true where it was called (a slot,
+// not a prop), and `handler` where it was listened to (a signal).
 export function references(text) {
     const source = String(text || "");
     const lines = [];
@@ -572,8 +530,7 @@ export function references(text) {
     };
     const found = [];
     const seen = new Set();
-    // Blanked rather than removed, so every offset below still points at the same byte of
-    // the file and `lineAt` keeps answering with the line somebody can go and open.
+    // Blanked, not removed, so every offset still points at the same byte of the file.
     IMPORT_LINE.lastIndex = 0;
     const scanned = source.replace(IMPORT_LINE, (line) => " ".repeat(line.length));
     REFERENCE.lastIndex = 0;
@@ -599,12 +556,31 @@ export function references(text) {
 
 // A contract type without its bracketed size. `string[120]` is a string here.
 //
-// The size is a fact about the boundary and not about the value: the generated owner-side
-// code refuses anything longer, and QML has no such type to declare. Writing the brackets
-// into the file produced `property string[120] message`, which is not a property with a
-// limit on it, it is a syntax error, and the engine refuses the whole document over it.
+// The size is enforced at the boundary by the generated owner-side code, and QML has no sized
+// type: `property string[120] message` is a syntax error.
 export function baseType(type) {
     return String(type || "").split("[")[0].trim();
+}
+
+// A carried member corrected by what the owner's file now declares. The file says the kind,
+// the types and the parameters. The contract keeps the size it wrote on any type whose base
+// the file did not change, since QML has no sized type to say it with, and keeps its type
+// for a parameter the file leaves unannotated.
+export function absorbedMember(carried, declared) {
+    const keep = (written, base) => (base && baseType(written) === base ? written : base);
+    const before = carried.params || [];
+    return {
+        kind: declared.kind,
+        type: keep(carried.type, declared.type),
+        params: (declared.params || []).map((param, index) => {
+            const was = before[index];
+            if (!was) {
+                return {type: param.type, name: param.name};
+            }
+            return {type: param.untyped ? was.type : keep(was.type, param.type),
+                    name: param.name};
+        }),
+    };
 }
 
 export function declarationLine(member) {
@@ -617,10 +593,8 @@ export function declarationLine(member) {
         return params ? `    signal ${member.name}(${params})` : `    signal ${member.name}`;
     }
     const returns = member.type ? `: ${baseType(member.type)}` : "";
-    // A body nobody has written yet is a `return;`, which is what a function that answers
-    // nothing does. Written out rather than `{}`, because qmlformat expands `{}` to a brace
-    // on a line of its own and a project with check.qml_format on reported its own starting
-    // files over it. addcontract._declaration writes the same thing.
+    // An unwritten body is `return;`, not `{}`, which qmlformat would expand and
+    // check.qml_format would then report. addcontract._declaration writes the same.
     return `    function ${member.name}(${params})${returns} {\n        return;\n    }`;
 }
 
@@ -635,10 +609,9 @@ function masked(text) {
 
 // The lines one declaration occupies, as `[first, last]` inclusive.
 //
-// A property and a signal are the line they are written on. A function is that line and
-// whatever body follows it, however long, so this counts braces from the first one to the
-// one that closes it. Comments and strings are blanked first: a `}` inside either is not a
-// brace, and counting it would take half of somebody's function away with the other half.
+// A property and a signal are the line they are written on. A function is that line and its
+// body, so this counts braces from the first one to the one that closes it, with comments
+// and strings blanked first.
 export function declarationSpan(text, line) {
     const lines = masked(text).split("\n");
     if (line < 0 || line >= lines.length) {
@@ -667,9 +640,8 @@ export function declarationSpan(text, line) {
 
 // `text` with the declaration on `line` rewritten as `member` now says it.
 //
-// The signature only. Whatever the author wrote after the opening brace of a function is
-// theirs and comes back untouched, and so does the indentation the line was written at,
-// which is what keeps this safe to run on a file somebody is in the middle of editing.
+// The signature only. The body after a function's opening brace and the line's indentation
+// come back untouched, so this is safe to run on a file being edited.
 export function rewritten(text, line, member) {
     const lines = String(text || "").split("\n");
     if (line < 0 || line >= lines.length) {
@@ -689,11 +661,9 @@ export function rewritten(text, line, member) {
 
 // Where the root object's type name sits in `text`, as `[start, end]`, or null.
 //
-// The counterpart of the reader above, for the one edit a change on the canvas makes to a
-// file somebody wrote. A connect point drawn off an entity turns that entity's file into
-// the point's Source, and taking the point away turns it back. Only the name moves. The
-// id, the body, the comments and the layout are the author's and come back untouched.
-// `synqt/qmlrewrite.py` finds the same span in Python.
+// The one edit the canvas makes to a file someone wrote: drawing a connect point off an
+// entity turns its file into the point's Source, and removing the point turns it back. Only
+// the name changes. `synqt/qmlrewrite.py` finds the same span in Python.
 export function rootTypeSpan(text) {
     const source = String(text || "");
     // Comments and strings blanked first, so a brace inside either is not the root's.
@@ -721,10 +691,8 @@ export function reroot(text, type) {
     return String(text).slice(0, span[0]) + type + String(text).slice(span[1]);
 }
 
-// SynQt's word for a file there is one of. QML's own is `Singleton`; `synqt build` writes
-// this line back to `pragma Singleton` in the copy the engine loads (synqt/qmlrewrite.py),
-// the same pass that makes a self-named root loadable. Both spellings are read here,
-// because a file carrying QML's own means exactly the same thing.
+// SynQt's pragma for a file there is one of. `synqt build` writes it as `pragma Singleton` in
+// the copy the engine loads (synqt/qmlrewrite.py). Both spellings are read here.
 export const SHARED_PRAGMA = "Shared";
 
 const PRAGMA_LINE = /^[ \t]*pragma[ \t]+(?:Shared|Singleton)[ \t]*;?[ \t]*(?:\/\/.*)?$/m;
@@ -733,8 +701,8 @@ export function isShared(text) {
     return PRAGMA_LINE.test(String(text || ""));
 }
 
-// `text` with the pragma on it, put where a pragma goes. After the licence notice and
-// before the first import, which is the only place QML accepts one.
+// `text` with the pragma on it, after the licence notice and before the first import, the
+// only place QML accepts one.
 export function withShared(text) {
     const source = String(text || "");
     if (isShared(source)) {
@@ -772,10 +740,8 @@ export function withoutDeclaration(text, line) {
 }
 
 // The declarations a contract's members would be written as: properties, then signals, then
-// the functions, which is the order the QML coding conventions ask for and, now that a body
-// is three lines, the only one that reads. A model is skipped. It has no QML form, and
-// inventing one would be putting a line in somebody's file that QML would refuse to load.
-// addcontract.declarations_for writes the same thing, and a test compares the two.
+// functions, as the QML coding conventions order them. A model has no QML form and is
+// skipped. addcontract.declarations_for writes the same, and a test compares the two.
 export function declarationsFor(members) {
     const kept = (members || []).filter((member) => member.kind !== "model" && member.name);
     const groups = [];

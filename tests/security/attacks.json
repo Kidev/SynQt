@@ -1615,6 +1615,13 @@
       "defended_by": "wire.js counts the invoke packet as QDataStreamCodec::serializeInvokePacket writes it. The tests lay out each packet type from the codec's order and require the editor's figure to equal it for a slot with its answer, a signal, a bare signal and a property change.",
       "file": "tools/synqt/tests/test_wire_size.py",
       "test": "test_a_slot_call_and_its_answer_are_bounded_by_what_is_sent"
+    },
+    {
+      "id": "typing-into-a-source-drops-the-contracts-bounds",
+      "what": "The editor corrected every member a connect point carries from the owner's QML on each keystroke in that file, and QML has no sized type, so a contract's `string[280]` became `string` (or `var`, for an unannotated parameter) and the owner-side size bound the contract compiler generates from it was gone from the next export or apply.",
+      "defended_by": "absorbedMember keeps the contract's type wherever the file leaves its base unchanged, and keeps it whole for an unannotated parameter. The browser test types into an example's edge Source and requires the bound on the slot afterwards.",
+      "file": "tests/designer/verify.mjs",
+      "test": "aBoundSurvivesTypingIntoTheSource"
     }
   ]
 }

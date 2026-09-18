@@ -11,10 +11,9 @@
 // paints while you drag are rules.js, a subset of `synqt check` that the suite holds to the
 // same verdicts, and the verdict that decides is the one the server returns.
 //
-// The canvas and the files pane are two views of one document and neither is a copy: typing a
-// property into an owner's Source adds the member the panel would have added, and reaching
-// for something another entity owns draws the connect point that would have had to exist. A
-// design cannot be drawn one way and written another, because there is only one of it.
+// The canvas and the files pane are two views of one document: typing a property into an
+// owner's Source adds the member the panel would have added, and reaching for something
+// another entity owns draws the connect point it needs.
 //
 // Run with no server behind it (the copy on synqt.org) the page still edits, and Apply
 // becomes a download of the project it would have written.
@@ -32,33 +31,24 @@ import { forgetDesign, keepDesign, keepPane, keptDesign,
          readPanes } from "./keep.js";
 import { consoleQmlPath, contractOf, entityDir, entityFiles, entityQml, entityQmlPath,
          projectFiles } from "./project.js";
-import { declarationLine, declarations, references, rewritten,
+import { absorbedMember, declarationLine, declarations, references, rewritten,
          withoutDeclaration, withoutNotice } from "./source.js";
 import { YamlError, parseDesign } from "./yamlin.js";
 import { zipBytes } from "./zip.js";
 
-// The three columns a topology reads in, the same ones designdoc.py lays a project out in:
-// the browser on the left, the edge it reaches in the middle, and everything it must not
-// reach on the right. The monitor gets a fourth past them, because it watches all three and
-// is drawn in a box of its own (canvas.js ZONES).
-// Every one of these is a multiple of GRID_SNAP below, so an entity the page places itself
-// lands where a dragged one would settle. designdoc.py holds the same columns for a
-// project read off disk. The node checker asserts the two agree.
+// The columns a topology reads in, as designdoc.py lays a project out: the browser on the
+// left, the edge in the middle, everything the browser must not reach on the right, and the
+// monitor past them (canvas.js ZONES). Each is a multiple of GRID_SNAP, so a placed entity
+// lands where a dragged one would settle. The node checker asserts the two files agree.
 const COLUMNS = {client: 64, edge: 384, service: 704, monitor: 1024};
 const FIRST_Y = 64;
 const ROW_HEIGHT = 192;
 
 const ZOOM_RANGE = [0.35, 2.4];
 
-// The coarse grid the paper is ruled at (design.css `--grid-coarse`), and the step an
-// entity settles onto: a twentieth of it. Kept in step with the CSS by hand, because the
-// two are read by different things and neither can ask the other. The node checker asserts
-// they agree.
-//
-// A step rather than a free position, so a drawing somebody dragged together lines up
-// without nudging; fine enough that a small nudge does not throw an entity across its zone.
-// 16 is half the fine pitch the dots are drawn at, so an entity settles on a dot or exactly
-// between two, and it still divides the three columns and the row height below.
+// The coarse grid the paper is ruled at (design.css `--grid-coarse`; the node checker
+// asserts they agree), and the step an entity settles onto: a twentieth of it, half the fine
+// dot pitch, which also divides the columns and the row height.
 const GRID_COARSE = 320;
 const GRID_SNAP = GRID_COARSE / 20;
 
@@ -69,9 +59,8 @@ function snapped(value) {
 // Far enough that a click with a shaking hand is still a click and not a drag.
 const DRAG_SLOP = 3;
 
-// The palette rows. `help` is the tooltip on the row and the line the panel shows once one
-// is on the canvas, and it comes from canvas.js so the row, the node and the panel are one
-// answer rather than three.
+// The palette rows. `help` comes from canvas.js, so the row, the node and the panel say the
+// same.
 const PALETTE = [
     {label: "Client", role: "client", base: "client",
      make: () => ({type: "client", targets: ["wasm"]})},
@@ -87,11 +76,9 @@ const PALETTE = [
      make: () => ({type: "api"})},
     {label: "Jobs", role: "jobs", base: "jobs",
      make: () => ({type: "jobs"})},
-    // One per project, because `monitoring.entity` names one. The link every service opens
-    // to it is derived from that line rather than drawn, so this row adds a node the canvas
-    // shows unwired and the rules do not scold for it. One node, four things written: the
-    // console client, the gate and the bundle map that go with it come out of the
-    // scaffolder's own templates in monitor.js (project.js).
+    // One per project, since `monitoring.entity` names one. Its links are derived, and the
+    // console client, sign-in gate and bundle map come from the scaffolder's templates
+    // (monitor.js, project.js).
     {label: "Monitor", role: "monitor", base: "ops",
      make: () => ({type: "monitor"})},
     {label: "Service", role: "service", base: "service",
@@ -107,41 +94,28 @@ const state = {
     backend: true,
     token: "",
     // Whether the files pane is open, which file it is reading, and whether the project is
-    // open for editing. The pane opens with the page, because the files are what is being
-    // designed. Editing starts off, because reading a file is the common gesture and a
-    // keystroke over a file being read is not an edit anybody asked for.
+    // unlocked for editing. The pane opens with the page; editing starts off, and is one
+    // switch for the whole project (`editable` says which files take keystrokes).
     //
-    // Editing is one switch for the whole project. Following a declaration from one
-    // entity into another is three files in a minute, and a lock per file would interrupt
-    // that three times. So the button says Edit files, and until it is pressed again every
-    // file the pane will take a keystroke over takes one. Which files those are is
-    // `editable`, and it does not move.
-    //
-    // `reading` is a file's path inside the project (`web/edge/Edge.qml`), never the whole
-    // name it is listed under (`gavel/web/edge/Edge.qml`). The project's directory is the
-    // first segment of every listed name and says nothing about which file a file is; keyed
-    // by the whole name, renaming the project in synqt.yaml would rename every entry at
-    // once, lose the open file, and stop the rename after its first letter.
+    // `reading` is a path inside the project (`web/edge/Edge.qml`), never the listed name
+    // (`gavel/web/edge/Edge.qml`), so renaming the project keeps the open file.
     files: true,
     reading: "",
     editing: false,
-    // The configuration exactly as it is being typed, while it is being typed, and the last
-    // design that read cleanly out of it. The first keeps the pane from rewriting a
-    // half-finished line under the caret. The second is what the way back returns to.
+    // The configuration as it is being typed (so the pane never rewrites a half-finished line)
+    // and the last version that read cleanly, which Revert returns to.
     configText: "",
     lastGood: "",
-    // The example this drawing started life as, where it started as one. Kept with the design
-    // so a reload of the same link resumes the work rather than reseeding it.
+    // The example this design started from, kept so a reload of the same link resumes the
+    // work.
     seed: "",
-    // What the pointer is over, as the key hoverKey builds. Held so a pointermove that has
-    // not left the thing it was already on does no work at all.
+    // What the pointer is over (hoverKey), so a move that stays on it does no work.
     hover: "",
     // Where the pointer last was on the canvas, so a redraw can put the rim handles back
     // under it. Null while the pointer is somewhere else on the page.
     pointer: null,
-    // Which member each line of each file last put on a contract, keyed by file and line. It
-    // is what lets a name being typed one letter at a time be one member with a name that
-    // keeps changing rather than one member per letter.
+    // Which member each line of each file last put on a contract, keyed by file and line, so
+    // a name typed letter by letter stays one member.
     typed: new Map(),
 };
 
@@ -200,9 +174,8 @@ const page = {
     modalNo: document.getElementById("modal-no"),
 };
 
-// The pane's editor, made once and given a file at a time. Both callbacks are somebody
-// typing. What they typed goes into the design, and where the caret went points the canvas at
-// what that line is about.
+// The pane's editor. Typing goes into the design, and the caret points the canvas at what
+// its line is about.
 const editor = makeEditor({
     parent: page.sourceView,
     onInput: (text) => onSourceInput(text),
@@ -252,12 +225,8 @@ function fromHash(key) {
     return new URLSearchParams(hash).get(key) || "";
 }
 
-// Take a key back out of the address, leaving whatever else is in there. Clearing a design
-// that grew out of an example has to do this, or the example is still what the address asks
-// for. The canvas would be empty, the link in the bar would still name the example, and the
-// next reload would hand it straight back as though Clear had not been pressed. Written with
-// replaceState so the page is not navigated and there is no entry in the history to press
-// back into.
+// Take a key out of the address, leaving the rest, with replaceState so there is no history
+// entry. Clear uses it so a reload does not bring the example back.
 function forgetInHash(key) {
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     if (!hash.has(key)) {
@@ -268,19 +237,15 @@ function forgetInHash(key) {
     window.history.replaceState(null, "", rest ? `#${rest}` : window.location.pathname);
 }
 
-// The other half of the pair. An example opened from the bar is written into the address,
-// so the link in it is the link that hands somebody the thing on screen, and a reload comes
-// back to it. replaceState for the same reason forgetInHash uses it. Opening an example is
-// not a navigation, and it should not fill the back button with them.
+// Put a key in the address, so the link shares what is on screen and a reload comes back
+// to it. replaceState, as above.
 function keepInHash(key, value) {
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     hash.set(key, value);
     window.history.replaceState(null, "", `#${hash.toString()}`);
 }
 
-// Everything examples.json holds, read once and kept. The projects themselves and the line
-// of prose that names each one in the menu. One request, because the menu wants the whole
-// list and opening one of them wants the document beside it.
+// examples.json, read once: the projects and the line naming each in the menu.
 let examplesFile = null;
 
 async function examplesIndex() {
@@ -296,9 +261,8 @@ async function examplesIndex() {
     return examplesFile;
 }
 
-// A project named in the fragment, for a link that wants to hand somebody a system to look
-// at rather than an empty canvas. Only ever consulted with nothing behind the page: over a
-// real project the document is that project's, and a fragment must not quietly replace it.
+// A project named in the fragment, consulted only with no server behind the page, so a
+// fragment never replaces a real project.
 async function exampleNamed(name) {
     if (!name) {
         return null;
@@ -309,24 +273,13 @@ async function exampleNamed(name) {
 
 // Saying things
 
-// How long a message stays before the canvas is clean again. An error is left up longer,
-// because it is the one somebody may not have been looking at the bottom of the canvas when
-// it arrived.
+// How long a message stays. An error stays longer.
 const SAID_FOR = {"": 7000, error: 14000};
 
 let saying = 0;
 
-// What happened, over the canvas, and then gone.
-//
-// A line that sits there for the rest of the session says whatever was said last
-// an hour later. It is read for the first minute and furniture after that, and it
-// holds the one piece of screen where something worth reading could appear. A message about a
-// thing somebody did is worth exactly as long as the doing of it.
-//
-// A situation the drawing is in is not another line of prose either. It is marked on
-// the drawing, at the entity or the connect point it is about (canvas.js alertMark), and
-// hovering that mark says what it is and what to do. That is a hint attached to the thing it
-// is a hint about, which is where it can be acted on.
+// What just happened, over the canvas, for a few seconds. A standing problem is marked on the
+// entity or connect point it is about instead (canvas.js alertMark).
 function say(message, level) {
     page.hint.textContent = message;
     page.hint.classList.toggle("stage__hint--error", level === "error");
@@ -364,10 +317,8 @@ function quiet(text) {
     return row;
 }
 
-// The list under Review, coloured by what it is saying. Green is the one verdict that has to
-// be earned. A project with entities on the canvas and nothing against it. An empty canvas is
-// neither good news nor bad, so it stays the colour of ordinary text, and anything the rules
-// caught takes the colour of the worst of it.
+// The list under Review, coloured by its worst finding: green for entities and no findings,
+// plain for an empty canvas.
 function renderFindings() {
     page.findings.replaceChildren();
     const errors = state.found.some((item) => item.level === "error");
@@ -392,10 +343,8 @@ function renderFindings() {
 
 function applyView() {
     page.viewport.setAttribute("transform", transformOf(view));
-    // The grid is painted on the box the drawing sits in, which does not take the drawing's
-    // transform, so it has to be moved by hand or it stays still while the canvas slides over
-    // it. Three custom properties rather than a rebuilt background string: the browser reads
-    // them straight into the paint, and nothing here touches the SVG.
+    // The grid is painted on the box around the drawing, so it follows the view through
+    // three custom properties.
     page.stage.style.setProperty("--grid-x", `${view.x}px`);
     page.stage.style.setProperty("--grid-y", `${view.y}px`);
     page.stage.style.setProperty("--grid-k", String(view.k));
@@ -422,16 +371,10 @@ function redraw() {
     draw({zones: page.zones, links: page.links, nodes: page.nodes}, state.design,
          {problems: state.problems, selected: state.selected,
           filesOf: (entity) => entityFiles(state.design, entity)});
-    // Everything the drawing held is gone, the marks on it included, so the record of what was
-    // lit has to go with them. Left behind, the next pointermove over the same thing would
-    // find its key unchanged and light nothing.
+    // The redraw dropped every highlight, so the hover key goes too.
     state.hover = "";
-    // The handles a link is pulled from are the one exception, because they are not a mark
-    // on the drawing but the target. They appear on whichever entity the pointer is nearest
-    // and answer the pointer only while they do, so a redraw between the last move and the
-    // next press (selecting a node, typing into a file, the panel changing a setting) would
-    // take them away under a stationary pointer, and the press would land on the canvas and
-    // pan the view.
+    // Except the rim handles, which are a press target: put them back under a still pointer,
+    // or the next press would pan the view.
     if (state.pointer && !drag) {
         showSlotsNear(state.pointer);
     }
@@ -444,9 +387,7 @@ function redraw() {
 
 // The files pane
 
-// The view that shows all of `design` inside `svg`, boxes and all. What the fit has to hold is
-// everything the drawing says, and a box hanging off the edge of the window is the part that
-// says what can reach what.
+// The view that shows all of `design` inside `svg`, boxes included.
 function fitOf(svg, design) {
     const held = extent(design);
     const box = svg.getBoundingClientRect();
@@ -471,29 +412,22 @@ function transformOf(at) {
     return `translate(${at.x},${at.y}) scale(${at.k})`;
 }
 
-// The project directory is the first segment of every name and says nothing in a tree that is
-// already inside it.
+// A listed name without the project directory in front.
 function inProject(name) {
     return String(name).split("/").slice(1).join("/");
 }
 
-// Whether this file is one the pane lets somebody type into. QML is. It is the entity's own
-// code, and what it declares is what the contract holds. So is a schema, which is a table
-// nothing but the author decides. The configuration is too, because typing into it moves the
-// canvas. A contract is not, because it is written from the document and typing into it would
-// be typing into a rendering of something else.
+// Whether the pane lets this file be typed into: QML, a schema, and the configuration.
 function editable(file) {
     return file.name.endsWith(".qml") || file.name.endsWith(".sql") || isConfig(file);
 }
 
-// The project's own configuration. Typing into it moves the canvas, the same way typing into
-// an owner's Source moves the contract. There is one design, seen two ways.
+// The project's configuration. Typing into it moves the canvas.
 function isConfig(file) {
     return inProject(file.name) === "synqt.yaml";
 }
 
-// The file the pane has open. `state.reading` is the path inside the project it was asked
-// for. This is the file that path found, which is the one the lock and every edit are about.
+// The file the pane has open: the one `state.reading` names, or the first.
 function openFile() {
     const files = projectFiles(state.design);
     return files.find((file) => inProject(file.name) === state.reading) || files[0] || null;
@@ -501,11 +435,8 @@ function openFile() {
 
 // What a file belongs to on the canvas, so that opening one selects it there.
 //
-// The entity, always. A file sits in an entity's folder and is that entity's own code,
-// whether or not the entity also exports a connect point out of it; selecting the point
-// would put the panel on the contract and leave the file's own node unlit. The connect
-// point is one click away on its own icon. synqt.yaml belongs to the whole project and
-// selects nothing.
+// The entity whose folder holds it, even when the file is also a connect point's Source.
+// synqt.yaml selects nothing.
 function holderOf(file) {
     if (file.owner) {
         return {kind: "entity", name: file.owner};
@@ -516,15 +447,13 @@ function holderOf(file) {
     return null;
 }
 
-// The other direction. The file that *is* whatever is selected on the canvas. Selecting an
-// entity opens its own file, which is the entity itself and, where it exports one, the Source
-// of its connect point too. Selecting a connect point opens that same file.
+// The other direction: the file for what is selected. An entity opens its own file, which is
+// also its connect point's Source; a connect point opens the same file.
 function fileOf(what, files) {
     if (!what) {
         return "";
     }
-    // A monitor opens its console. It has no QML of its own, and the sign-in page it does
-    // have is what an anonymous visitor gets, not what an operator reads.
+    // A monitor opens its console, since it has no QML of its own.
     const monitor = what.kind === "entity" ? entityNamed(what.name) : null;
     if (monitor && linksAreDerived(monitor)) {
         const consolePath = consoleQmlPath(monitor);
@@ -532,8 +461,7 @@ function fileOf(what, files) {
             return consolePath;
         }
     }
-    // A contract and a line into it open the same file: the point's Source is where both of
-    // them are implemented, whichever of the two was clicked.
+    // A contract and a line into it open the point's Source.
     const found = (what.kind === "link" || what.kind === "contract")
         ? files.find((file) => file.link === what.name)
         : files.find((file) => file.owner === what.name && file.own)
@@ -544,10 +472,8 @@ function fileOf(what, files) {
 
 // The files as the directory tree they are, in the order projectFiles lists them.
 //
-// A tree and not a flat list of whole directories, because a project's folders nest: an
-// entity lives under its type, so `web/edge` and `web/edge2` are two entities in one `web/`
-// rather than two unrelated headings that happen to start with the same word.
-// The shape of a SynQt project is types holding entities, and this is that shape.
+// A tree, since an entity lives under its type folder (`web/edge` and `web/edge2` share
+// `web/`).
 function treeOf(files) {
     const root = {name: "", dirs: new Map(), files: []};
     for (const file of files) {
@@ -564,10 +490,8 @@ function treeOf(files) {
     return folded(root);
 }
 
-// A directory that holds nothing but one directory is drawn joined to it: `db/relational/books`
-// on one row rather than three rows to walk down, since not one of the three says anything the
-// next one does not. Only a fork gets its own row, which is exactly where a reader has a choice
-// to make. The same folding every file explorer does, for the same reason.
+// A directory holding only one directory is joined to it (`db/relational/books` on one row);
+// only a fork gets its own row.
 function folded(dir) {
     let name = dir.name;
     let at = dir;
@@ -588,8 +512,8 @@ function treeRow(file, current, depth) {
         + (current ? " is-current" : "");
     button.style.setProperty("--depth", String(depth || 0));
     button.textContent = file.leaf;
-    // Opening a file selects what it is out on the canvas, and does not drag the pane off the
-    // file that was asked for. `follow` is what stops the two views chasing each other.
+    // Opening a file selects its entity on the canvas without moving the pane (`follow` is
+    // false).
     button.addEventListener("click", () => {
         state.reading = inProject(file.name);
         select(holderOf(file), false);
@@ -599,22 +523,19 @@ function treeRow(file, current, depth) {
     return row;
 }
 
-// One level of the tree into `list`: this directory's files, then the directories under it,
-// each one level further in. `depth` is what the indent is drawn from, so a row's distance
-// from the left says how deep it is without a rule having to be drawn down the pane.
+// One level of the tree into `list`: this directory's files, then its directories. `depth`
+// sets the indent.
 function fillTree(list, dir, current, depth, under = "") {
     for (const file of dir.files) {
         list.append(treeRow(file, inProject(file.name) === current, depth));
     }
     for (const child of dir.dirs) {
         const row = document.createElement("li");
-        // The whole path this row stands for, folding included. It is what the row is, and it
-        // is the one stable thing to find a row by from outside.
+        // The row's whole path, folding included, to find it by.
         const path = under ? `${under}/${child.name}` : child.name;
         row.dataset.folder = path;
-        // The glyph, in the entity's own colour, on the directory that IS the entity: the one
-        // holding its files. A directory above that is the entity's type and holds several,
-        // and one inside it is a folder of the entity's own, so both take the plain folder mark.
+        // The entity's glyph on the directory that is the entity; any other directory takes
+        // the plain folder mark.
         const holder = entityOf((child.files[0] || {}).name || "");
         const entity = holder && entityDir(holder) === path ? holder : null;
         row.className = "tree__folder"
@@ -633,8 +554,7 @@ function fillTree(list, dir, current, depth, under = "") {
     }
 }
 
-// The mark on a directory that is not an entity. The type folder several entities share. Drawn
-// rather than written so it sits in the same column as the entity glyphs beside it.
+// The mark on a directory that is not an entity.
 function folderGlyph() {
     const svg = element("svg", {class: "glyph", viewBox: "0 0 16 16",
                                 "aria-hidden": "true", focusable: "false"});
@@ -644,9 +564,7 @@ function folderGlyph() {
     return svg;
 }
 
-// The files this design would be, as a tree of directories. Rendered from projectFiles, which
-// is what the download holds and what the server writes, so the tree is never a description
-// of the project written separately from the project.
+// The files this design would be, as a tree, from projectFiles (what the download holds).
 function renderProject() {
     const files = projectFiles(state.design);
     page.tree.replaceChildren();
@@ -976,9 +894,7 @@ function absorbMembers(link, declared) {
         if (!already || already.kind === "model") {
             continue;               // no QML declares a model, so no QML redefines one
         }
-        already.kind = one.kind;
-        already.type = one.type;
-        already.params = one.params;
+        Object.assign(already, absorbedMember(already, one));
     }
     return [];
 }

@@ -1613,6 +1613,38 @@ async function typingIntoTheProject() {
     }
 }
 
+// A size on a contract member is the owner-side bound on what a caller may send, and QML has
+// no sized type to declare it with. Typing into the owner's Source corrects each carried
+// member from the file, and the bound has to survive that.
+async function aBoundSurvivesTypingIntoTheSource() {
+    console.log("\nA contract's sizes, after typing into the owner's Source");
+    const server = await serveAssets();
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+        await page.goto(`${origin}/index.html#example=demo`);
+        await page.waitForFunction(
+            () => document.querySelectorAll("#nodes [data-entity]").length === 3);
+        await fileRow(page, "synqt.yaml").click();
+        await page.waitForFunction(`${SOURCE}.includes("string[280]")`);
+        check(true, "the example's contract carries a sized parameter");
+
+        await openAndWaitFor(page, "web/edge/Edge.qml", "function say(");
+        await typeIntoRootBlock(page, "    property int seen: 0\n");
+        await waitForHint(page, "'seen' is declared on 'edge'");
+        await fileRow(page, "synqt.yaml").click();
+        await page.waitForFunction(`${SOURCE}.includes("slot say(")`);
+        const config = await sourceText(page);
+        const say = config.split("\n").find((line) => line.includes("slot say(")) || "";
+        check(say.includes("string[280]"),
+              `the owner-side bound is still on the contract (${say.trim()})`);
+    } finally {
+        await browser.close();
+        server.close();
+    }
+}
+
 // Each part on its own, so one that stops is one failure and not the end of the run. The
 // five are five browsers over five pages and share nothing, so what the third one does says
 // nothing about the fifth, and an exception thrown out of the third must not report that as
@@ -1896,6 +1928,7 @@ await part(theMonitorStandsApart);
 await part(theSignInIsExplained);
 await part(theScopeIsWrittenAsTheRowWritesIt);
 await part(theBoxesAndFilesAnswerAlike);
+await part(aBoundSurvivesTypingIntoTheSource);
 
 console.log("");
 if (failures.length) {
