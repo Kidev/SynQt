@@ -1622,6 +1622,13 @@
       "defended_by": "absorbedMember keeps the contract's type wherever the file leaves its base unchanged, and keeps it whole for an unannotated parameter. The browser test types into an example's edge Source and requires the bound on the slot afterwards.",
       "file": "tests/designer/verify.mjs",
       "test": "aBoundSurvivesTypingIntoTheSource"
+    },
+    {
+      "id": "a-link-wipes-the-design-kept-in-the-browser",
+      "what": "On synqt.org the editor keeps the visitor's design in IndexedDB, and a link whose `example=` named no example (a typo, `__proto__`, `constructor`) adopted an empty canvas and stored it over that design, while a link to a different example replaced it without the question the Examples menu asks. A link anyone could send emptied a visitor's unexported work.",
+      "defended_by": "The example is looked up as an own key only, a name that is no example never replaces kept work, and a different example asks first; declining keeps the work and puts its example back in the address. The browser test keeps a drawing, opens three bad names and a real other example, and requires the drawing each time.",
+      "file": "tests/designer/verify.mjs",
+      "test": "aLinkNeverDropsKeptWork"
     }
   ]
 }

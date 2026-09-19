@@ -267,8 +267,9 @@ async function exampleNamed(name) {
     if (!name) {
         return null;
     }
-    const found = (await examplesIndex()).examples[name];
-    return found || null;
+    const examples = (await examplesIndex()).examples || {};
+    // Own keys only: a name from the address must not reach Object.prototype.
+    return Object.prototype.hasOwnProperty.call(examples, name) ? examples[name] : null;
 }
 
 // Saying things
@@ -3274,17 +3275,29 @@ async function goOffline(reason) {
     // controls that are all hidden or disabled beside it. Taking a design away is Export's
     // job, and it is the same button on a project and on the drawing board.
     page.apply.hidden = true;
-    // What was being drawn last time comes back first. An example named in the address is a
-    // *preset*: it is where a drawing starts. So a design already
-    // in this browser wins even then, as long as it grew out of the same example: somebody
-    // who opened one, moved things around and reloaded is looking for what they left, rather than
-    // for the pristine example the link in the address bar names. A link
-    // to a *different* example is a request to look at that one, and seeds afresh.
+    // What was being drawn last time comes back first. An example named in the address is
+    // where a drawing starts, so a design kept from that same example is resumed, and a link
+    // naming no example never replaces kept work. A link to a different example asks before
+    // replacing it, as the Examples menu does.
     const wanted = fromHash("example");
     const kept = await keptDesign();
-    if (kept && (kept.design.entities || []).length
-            && (!wanted || kept.seed === wanted)) {
+    const holding = Boolean(kept && (kept.design.entities || []).length);
+    const example = await exampleNamed(wanted);
+    const replace = Boolean(holding && example && kept.seed !== wanted && await askPage({
+        title: `Open the ${wanted} example?`,
+        text: "This link opens it over the design kept in this browser, which goes with it. "
+              + "Export that design as a project first to keep it.",
+        confirm: "Open it",
+        danger: true,
+    }));
+    if (holding && !replace) {
         state.seed = kept.seed;
+        // The address names what is on screen.
+        if (kept.seed) {
+            keepInHash("example", kept.seed);
+        } else {
+            forgetInHash("example");
+        }
         adopt(kept.design);
         fit();
         say(kept.seed
@@ -3296,17 +3309,21 @@ async function goOffline(reason) {
         page.restart.hidden = false;
         return;
     }
-    const example = await exampleNamed(wanted);
     state.seed = example ? wanted : "";
+    if (wanted && !example) {
+        forgetInHash("example");
+    }
     adopt(example || {version: 1, project: "", entities: [], links: []});
     if (example) {
         fit();
         say(`The ${wanted} example, and it is yours to edit: move anything, add anything, `
             + "and it is still here when you come back. Export it as a project to take it "
             + "with you, or Clear to start over.");
+        page.restart.hidden = false;
         return;
     }
-    say(reason);
+    say(wanted ? `There is no ${wanted} example in this copy of the editor.` : reason,
+        wanted ? "error" : "");
 }
 
 // The token arrives once, in the fragment of the URL `synqt design` printed. It is kept for

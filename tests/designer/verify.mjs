@@ -1645,6 +1645,51 @@ async function aBoundSurvivesTypingIntoTheSource() {
     }
 }
 
+// A link that names an example arrives over whatever this browser kept from the last visit.
+// A name that is not an example, or that only resolves through Object.prototype, leaves the
+// kept work alone, and a different example asks before replacing it.
+async function aLinkNeverDropsKeptWork() {
+    console.log("\nA link to an example, over work this browser kept");
+    const server = await serveAssets();
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const entities = () => page.locator("#nodes [data-entity]").count();
+    try {
+        await page.goto(`${origin}/index.html#example=demo`);
+        await page.waitForFunction(
+            () => document.querySelectorAll("#nodes [data-entity]").length === 3);
+        await dropEntity(page, "Jobs", { x: 430, y: 60 });
+        await page.waitForFunction(
+            () => document.querySelectorAll("#nodes [data-entity]").length === 4);
+
+        for (const name of ["nosuchexample", "__proto__", "constructor"]) {
+            await page.goto(`${origin}/index.html#example=${name}`);
+            await page.reload();
+            await waitForDrawingBoard(page);
+            await page.waitForFunction(
+                () => document.querySelectorAll("#nodes [data-entity]").length > 0,
+                null, { timeout: 15000 }).catch(() => {});
+            const drawn = await entities();
+            check(drawn === 4, `a link naming '${name}' keeps the four entities (${drawn})`);
+        }
+
+        await page.goto(`${origin}/index.html#example=gavel`);
+        await page.reload();
+        await page.waitForSelector("#modal[open]");
+        check((await page.locator("#modal-title").textContent()).includes("gavel"),
+              "a link to a different example asks before replacing the kept design");
+        await page.locator("#modal-no").click();
+        await page.waitForFunction(
+            () => document.querySelectorAll("#nodes [data-entity]").length === 4);
+        check(page.url().includes("example=demo"),
+              `and declining keeps it, with the address naming what is on screen (${page.url()})`);
+    } finally {
+        await browser.close();
+        server.close();
+    }
+}
+
 // Each part on its own, so one that stops is one failure and not the end of the run. The
 // five are five browsers over five pages and share nothing, so what the third one does says
 // nothing about the fifth, and an exception thrown out of the third must not report that as
@@ -1929,6 +1974,7 @@ await part(theSignInIsExplained);
 await part(theScopeIsWrittenAsTheRowWritesIt);
 await part(theBoxesAndFilesAnswerAlike);
 await part(aBoundSurvivesTypingIntoTheSource);
+await part(aLinkNeverDropsKeptWork);
 
 console.log("");
 if (failures.length) {
