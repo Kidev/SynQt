@@ -1629,6 +1629,20 @@
       "defended_by": "The example is looked up as an own key only, a name that is no example never replaces kept work, and a different example asks first; declining keeps the work and puts its example back in the address. The browser test keeps a drawing, opens three bad names and a real other example, and requires the drawing each time.",
       "file": "tests/designer/verify.mjs",
       "test": "aLinkNeverDropsKeptWork"
+    },
+    {
+      "id": "a-panel-declaration-never-reaches-the-disk",
+      "what": "Declaring, renaming or removing a member from the editor's panel rewrote the entity's QML in the page without marking it as typed, and `synqt design` writes back only text marked so, so Apply left the file on disk unchanged while the contract it applied named the new member.",
+      "defended_by": "The panel stores the rewritten file as typing into the pane does: marked as typed, on the entity and on the connect point it owns. The browser test declares a property from the panel over a real project, applies, and reads the file on disk.",
+      "file": "tests/designer/verify.mjs",
+      "test": "aPanelDeclarationReachesTheDisk"
+    },
+    {
+      "id": "removing-a-declaration-strips-other-owners-contracts",
+      "what": "Removing a declaration from an entity in the editor took every member of that name off every connect point in the project, and renaming one renamed them all, so `say` removed from the edge also vanished from the store's contract.",
+      "defended_by": "A removal or rename applies to the contract of the point the entity owns. The browser test removes `say` from the edge of an example where the store also exports `say`, and requires the store's to stay.",
+      "file": "tests/designer/verify.mjs",
+      "test": "aRemovalStaysWithItsOwner"
     }
   ]
 }

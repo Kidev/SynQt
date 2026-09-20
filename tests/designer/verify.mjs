@@ -1690,6 +1690,71 @@ async function aLinkNeverDropsKeptWork() {
     }
 }
 
+// A declaration added, renamed or removed from the panel is written into the entity's file,
+// the same as typing it into the pane, so Apply writes it to the project on disk.
+async function aPanelDeclarationReachesTheDisk() {
+    console.log("\nDeclaring from the panel, then applying");
+    const project = await copyProject();
+    const { proc, url } = await startEditor(project);
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+        await page.goto(url);
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "gavel");
+        await page.locator("#nodes [data-entity='books']").click();
+        const declares = page.locator(".members").filter(
+            { hasText: "What this entity declares" });
+        await declares.getByRole("button", { name: "property", exact: true }).click();
+        const row = declares.locator(".member.is-open").first();
+        await row.locator("input[type=text]").fill("shelfCount");
+        await openAndWaitFor(page, "db/relational/books/Books.qml", "shelfCount");
+
+        await page.locator("#review").click();
+        await page.waitForSelector("#sheet:not([hidden])");
+        await page.waitForSelector("#apply:not([disabled])");
+        await page.locator("#apply").click();
+        await waitForHint(page, "Applied");
+        const written = await fsp.readFile(
+            path.join(project, "db/relational/books/Books.qml"), "utf8");
+        check(written.includes("shelfCount"),
+              "the property declared from the panel is in the file on disk");
+    } finally {
+        await browser.close();
+        proc.kill();
+    }
+}
+
+// Two owners can declare members of one name. Removing one from its owner takes it off that
+// owner's contract and no other.
+async function aRemovalStaysWithItsOwner() {
+    console.log("\nRemoving a declaration two owners share by name");
+    const server = await serveAssets();
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+        await page.goto(`${origin}/index.html#example=demo`);
+        await page.waitForFunction(
+            () => document.querySelectorAll("#nodes [data-entity]").length === 3);
+        await page.locator("#nodes [data-entity='edge']").click();
+        await page.locator(".members").filter({ hasText: "What this entity declares" })
+            .locator("button[title='Remove say']").click();
+        await fileRow(page, "synqt.yaml").click();
+        await page.waitForFunction(`${SOURCE}.includes("owner: store")`);
+        const config = await sourceText(page);
+        const points = config.split(/^connect_points:/m)[1] || "";
+        const edge = points.split(/^  - owner: /m).find((one) => one.startsWith("edge")) || "";
+        const store = points.split(/^  - owner: /m).find((one) => one.startsWith("store")) || "";
+        check(!edge.includes("say("), "the removal took 'say' off edge's contract");
+        check(store.includes("slot say("),
+              `and left store's own 'say' where it was:\n${store}`);
+    } finally {
+        await browser.close();
+        server.close();
+    }
+}
+
 // Each part on its own, so one that stops is one failure and not the end of the run. The
 // five are five browsers over five pages and share nothing, so what the third one does says
 // nothing about the fifth, and an exception thrown out of the third must not report that as
@@ -1975,6 +2040,8 @@ await part(theScopeIsWrittenAsTheRowWritesIt);
 await part(theBoxesAndFilesAnswerAlike);
 await part(aBoundSurvivesTypingIntoTheSource);
 await part(aLinkNeverDropsKeptWork);
+await part(aPanelDeclarationReachesTheDisk);
+await part(aRemovalStaysWithItsOwner);
 
 console.log("");
 if (failures.length) {

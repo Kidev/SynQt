@@ -586,54 +586,44 @@ function renderProject() {
     fillTree(page.tree, treeOf(files), current, 0);
     const open = files.find((file) => inProject(file.name) === state.reading) || files[0];
     page.sourceName.textContent = inProject(open.name);
-    // While the configuration is being typed into, the pane shows what was typed and not the
-    // configuration rewritten from the design it became. They say the same thing, and
-    // rewriting one under the caret moves the caret.
+    // While the configuration is being typed into, the pane shows what was typed, not the
+    // configuration rewritten from it, so the caret stays put.
     const reading = isConfig(open) && state.configText
         ? {...open, text: state.configText} : open;
     if (isConfig(open)) {
-        // The way back is there before the first keystroke. A reader who cannot see it before
-        // they type is a reader who does not type.
+        // Revert is offered before the first keystroke.
         if (!state.lastGood) {
             rememberGood();
         }
     } else {
         state.configText = "";
     }
-    // The notice is on every file and nobody reads it twice. It comes off here and stays on
-    // everywhere the file is written. Read-only rather than hidden when the file is locked,
-    // because a file being read still has to be selectable and copyable. Named by where it
-    // sits in the project, which is what the editor keys a file by: the pane keeps a caret,
-    // an undo history and a scroll position per file, and the project's directory changing
-    // its name is not a different file. Keyed by the whole name, renaming the project in
-    // synqt.yaml would hand the editor a new file on every keystroke.
+    // The licence notice comes off in the pane only. A locked file is read-only, still
+    // selectable. The editor keys a file by its path inside the project, so renaming the
+    // project keeps its caret, history and scroll position.
     const named = inProject(open.name);
     editor.show(named, withoutNotice(reading.text), !editable(open) || !state.editing);
     renderLock(open);
 }
 
-// The control names what pressing it does: a button reading
-// "Read-only" over a tree of files leaves it to be guessed whether that is the state or the
-// offer. It is never disabled, because it is about the project rather than about whichever
-// file happens to be open.
+// The lock button names what pressing it does. It is never disabled: it is about the whole
+// project, not the open file.
 function renderLock(open) {
     page.sourceLock.setAttribute("aria-pressed", String(state.editing));
     page.sourceLock.textContent = state.editing ? "Lock files" : "Edit files";
-    // The tooltip is where the longer answer lives, rather than a line of prose on the bar
-    // itself, between the file's name and the button that opens it.
+    // The longer explanation is the tooltip.
     page.sourceLock.title = state.editing
         ? "Lock them again. Changes are already in the design; nothing is written to the "
           + "project until you apply a change set."
         : "Open every file for typing. A property, a signal or a function declared in an "
           + "entity's own QML is one a connect point can carry, and an entity or a connect "
           + "point typed into synqt.yaml moves the canvas.";
-    // Offered only while there is something to go back to and something to go back from.
+    // Offered only while synqt.yaml is open, unlocked, and has a version to return to.
     page.revert.hidden = !(state.lastGood && open && isConfig(open) && state.editing);
 }
 
-// The three seams, each named by the custom property it drags and how far that property is
-// allowed to travel. Written on the root, so one number decides both the column and where the
-// grip that sets it sits. They cannot come apart.
+// The three seams: the custom property each drags (set on the root, so the column and its
+// grip move together) and its range.
 const GRIPS = [
     {of: "gripRail", property: "--rail-width", floor: 150, ceiling: 460,
      measure: (at, box) => at.clientX - box.left},
@@ -649,8 +639,7 @@ function holdGrip(grip) {
         if (event.button !== 0) {
             return;
         }
-        // Capture on the grip itself, so a drag that outruns the pointer keeps arriving here
-        // instead of being handed to whatever it happened to fly over.
+        // Capture on the grip, so a fast drag keeps arriving here.
         element_.setPointerCapture(event.pointerId);
         element_.classList.add("is-dragging");
         page.work.classList.add("is-resizing");
@@ -663,8 +652,7 @@ function holdGrip(grip) {
         const wanted = Math.round(grip.measure(event, box));
         const size = Math.min(grip.ceiling, Math.max(grip.floor, wanted));
         document.documentElement.style.setProperty(grip.property, `${size}px`);
-        // Kept as a share of the window, so a layout arranged on one screen is the same
-        // layout on the next one rather than the same number of pixels on a different size.
+        // Kept as a share of the window (keep.js).
         keepPane(grip.property, size);
     });
     for (const ending of ["pointerup", "pointercancel"]) {
@@ -674,15 +662,13 @@ function holdGrip(grip) {
             }
             element_.classList.remove("is-dragging");
             page.work.classList.remove("is-resizing");
-            // The canvas is a different shape than it was, so what fitted it no longer does.
+            // The canvas changed shape, so fit it again.
             fit();
         });
     }
 }
 
-// A chevron rather than the words Hide and Show: the pane is beside it, so which way it will
-// go is the one thing nobody needs telling. The label stays, for anyone reading the page
-// through a screen reader, where the arrow is worth nothing.
+// A chevron instead of Hide and Show; the aria-label keeps the words for a screen reader.
 function chevron() {
     const svg = element("svg", {class: "glyph", viewBox: "-10 -10 20 20",
                                 "aria-hidden": "true", focusable: "false"});
@@ -692,15 +678,8 @@ function chevron() {
     return svg;
 }
 
-// The arrow on the two step buttons. The one every editor draws for undo, an arrow pointing
-// back with its tail curling round underneath, and the same glyph mirrored for the one that
-// goes forward. Drawn rather than written, because the words sit at the end of a bar of
-// buttons that each do something to the project on disk, and these two do not. The words are
-// still there for anybody reading the page through a screen reader, on the button's label.
-//
-// The transform is what centres it. The two paths are drawn where they read best and the
-// group carries them onto the middle of the box, and mirroring is that same shift about the
-// box's centre line.
+// The arrow on the undo and redo buttons: a curled arrow pointing back, mirrored for redo.
+// The words are on the buttons' labels. The transform centres the paths and mirrors them.
 function stepArrow(forward) {
     const svg = element("svg", {class: "glyph", viewBox: "0 0 24 24",
                                 "aria-hidden": "true", focusable: "false"});
@@ -716,19 +695,15 @@ function stepArrow(forward) {
     return svg;
 }
 
-// The mark on a button that does something to the whole project, or to what is on screen.
-// Each is the plainest drawing of the thing it does, in the button's own colour: a bin for
-// Clear, a tray with an arrow going into it for Export, a stack of cards for Examples. They
-// sit beside the word rather than instead of it, because a row of six unlabelled marks is a
-// puzzle, and the mark is what the eye finds once the word has been read once.
+// The marks beside the words on the bar's buttons: a bin for Clear, a tray for Export, a
+// stack of cards for Examples.
 const MARKS = {
     // A bin: the lid, the handle above it, and the body under it.
     clear: ["M 3,5 H 13", "M 6.5,5 V 3.5 H 9.5 V 5",
             "M 4.5,5 L 5.2,13.5 H 10.8 L 11.5,5", "M 6.8,7.5 V 11", "M 9.2,7.5 V 11"],
     // Into a tray: the arrow, its head, and the tray it lands in.
     download: ["M 8,2.5 V 9.5", "M 5,7 L 8,10 L 11,7", "M 3,12.5 H 13"],
-    // A stack of cards, the front one square on and the two behind it offset: more than one
-    // of a thing, which is what a list of examples is.
+    // A stack of cards, the front one square on and two offset behind it.
     stack: ["M 2.5,6 H 10 V 13.5 H 2.5 Z", "M 5,6 V 4 H 12.5 V 11.5 H 10",
             "M 7.5,4 V 2 H 15 V 9.5 H 12.5"],
 };
@@ -744,10 +719,7 @@ function markSvg(name) {
     return svg;
 }
 
-// The word on a button that carries a mark, and the mark that goes with it. Both are set
-// here rather than in the markup, because the one button that changes what it does also
-// changes both. Over a project it applies a change set, and on the drawing board it hands
-// you a zip.
+// The word and mark on a button, set here because Export changes both on the drawing board.
 function dress(button, name, word) {
     const said = document.createElement("span");
     said.className = "button__word";
@@ -758,18 +730,14 @@ function dress(button, name, word) {
 function showDock(open) {
     state.files = open === undefined ? !state.files : open;
     page.dock.classList.toggle("is-collapsed", !state.files);
-    // The grip that drags the pane's height sits `--dock-height` up from the bottom, and a
-    // collapsed pane is not that tall. Rather than leave a seam floating over the canvas
-    // where no edge is, take it away with the pane it belongs to.
+    // The height grip goes away with a collapsed pane.
     page.work.classList.toggle("is-docked", state.files);
-    // The arrow is one element that CSS turns over. Rebuilding it here makes
-    // collapsing work about half the time, because rebuilding it detaches the very element the
-    // click landed on, so the click that carries on up to the bar finds no button above
-    // it, takes itself for a click on the strip, and opens the pane again in the same turn.
+    // The chevron is one element CSS turns over. It is never rebuilt here: detaching the
+    // clicked element would let the click bubble to the bar and reopen the pane.
     page.dockToggle.setAttribute("aria-label", state.files ? "Collapse the files"
                                                            : "Expand the files");
     page.dockToggle.setAttribute("aria-expanded", String(state.files));
-    // The canvas lost or gained height, so the view that fitted it no longer does.
+    // The canvas changed height, so fit it again.
     fit();
     if (state.files) {
         renderProject();
@@ -778,10 +746,7 @@ function showDock(open) {
 
 // Reading a file back
 
-// The entity a project-relative path belongs to. Every file an entity is made of sits in the
-// entity's own folder, so this is the entity whose folder the path starts with. Matched
-// longest first, because one entity's folder is never a prefix of another's but a kind folder
-// is a prefix of every folder in it, and a match on the wrong length would find no entity.
+// The entity whose folder a project-relative path starts with, the longest match winning.
 function entityOf(name) {
     const path = inProject(name);
     let found = null;
@@ -795,9 +760,8 @@ function entityOf(name) {
     return found;
 }
 
-// The entity an accessor in somebody's QML names. `Server` is the client's alias for the edge
-// it reaches. Everything else is an owner's own name capitalised, which is what the runtime
-// registers it as.
+// The entity an accessor in QML names: `Server` is the client's edge, anything else an
+// owner's name capitalised.
 function ownerNamed(accessor, consumer) {
     const entities = state.design.entities || [];
     if (accessor === "Server") {
@@ -809,10 +773,8 @@ function ownerNamed(accessor, consumer) {
 
 // What one QML file says, folded into the document.
 //
-// Additive. A declaration that is there adds or corrects a member, and a member with no
-// declaration is left alone, because half-typed text is not an instruction to delete somebody's
-// contract, and a model has no declaration form to be missing in the first place. Removing is
-// what the x button in the panel is for.
+// Additive: a declaration adds or corrects a member, and a member with no declaration is
+// left alone, since half-typed text never deletes a contract member. The panel removes.
 function absorb(file, text) {
     const entity = entityOf(file.name);
     if (!entity) {
@@ -831,20 +793,12 @@ function absorb(file, text) {
     return said.join(" ");
 }
 
-// What typing a declaration into an entity's own file did, said out loud.
-//
-// It does not cross by itself, so without this the page would answer a line of code with
-// nothing and the next step would be nowhere on screen. The panel's list of what the entity
-// declares grows as it is typed; this says what that means and where the tick is.
-//
-// A rename is carried onto whatever already crosses, as the panel's own rename is: a
-// contract naming a member the owner no longer declares is an error the build reports,
-// never what anybody meant by editing the line.
+// What typing a declaration into an entity's own file did, said in the hint: a declared
+// member does not cross until it is ticked. A rename is carried onto whatever already
+// crosses, as the panel's rename is.
 function absorbDeclared(entity, declared) {
     const said = [];
-    // What a file already declared when somebody first typed into it is not news. Without
-    // this, the first keystroke in an entity's own file announced every property, signal and
-    // function already in it, in one sentence, as though they had all been written.
+    // What the file declared before the first keystroke is not announced.
     const known = `${entity.name}\ndeclares`;
     const opening = !state.typed.has(known);
     state.typed.set(known, {link: "", member: ""});
@@ -855,13 +809,12 @@ function absorbDeclared(entity, declared) {
         if (opening || (before && before.member === one.name)) {
             continue;               // the line changed, the name on it did not
         }
-        // A name still being typed is one member. Carried onto whatever already
-        // crosses, so the contract does not go on naming a member the file has renamed.
+        // A name still being typed is one member, renamed on whatever already carries it.
         const renamed = before
             && (before.member.startsWith(one.name) || one.name.startsWith(before.member));
         const moved = [];
         if (renamed) {
-            for (const link of state.design.links || []) {
+            for (const link of ownedBy(entity)) {
                 for (const carried of link.members || []) {
                     if (carried.name === before.member) {
                         carried.name = one.name;
@@ -880,14 +833,9 @@ function absorbDeclared(entity, declared) {
 
 // What the owner's own file says about the members already on its contract.
 //
-// It corrects, and it does not add. Declaring a property on an entity is writing that
-// entity's own code and says nothing about who may see it; a contract is the list of what
-// an owner has agreed to say to somebody else. Adding here would send every line typed into
-// an owner's file out onto the wire, half-typed names included (`v`, `va`, `val` on the way
-// to `value`).
-//
-// Two things put a member on a contract: somebody ticks it, or a consumer's own code
-// reaches for it (absorbReferences). Both are somebody saying so.
+// It corrects and never adds: a declaration says nothing about who may see the member. A
+// member reaches a contract when it is ticked or when a consumer's code reaches for it
+// (absorbReferences).
 function absorbMembers(link, declared) {
     link.members = link.members || [];
     for (const one of declared) {
@@ -923,9 +871,7 @@ function absorbReferences(consumer, found) {
             link.consumers = [...(link.consumers || []), consumer.name];
             said.push(`'${consumer.name}' is now a consumer of '${link.name}'.`);
         }
-        // The same line of the same file, a keystroke ago, named something else. A name is
-        // typed one letter at a time, so this line is a name being written and not five
-        // members being asked for. It is the one member, renamed as far as it has got.
+        // The same line named something else a keystroke ago: the same member, renamed.
         const renamed = renameTyped(consumer, link, one);
         if (renamed) {
             said.push(`'${renamed}' on '${link.name}' is now '${one.member}'.`);
@@ -936,27 +882,20 @@ function absorbReferences(consumer, found) {
                   + `carries.`
                 : `'${one.member}' now crosses '${link.name}'.`);
         }
-        // Recorded either way, and after either one: this line now holds this member, and it
-        // is what the next keystroke on it is a rename of.
+        // This line now holds this member, for the next keystroke's rename.
         state.typed.set(typedKey(consumer, one.line), {link: link.name, member: one.member});
     }
     return said;
 }
 
-// Where a member a consumer's code asked for came from, so the next keystroke on the same
-// line can be recognised as the same member rather than as another one.
+// The key a consumer's line is recorded under.
 function typedKey(consumer, line) {
     return `${consumer.name}\n${line}`;
 }
 
-// The member this line put on the contract a moment ago, renamed to what the line says now,
-// and the old name so it can be reported. Nothing, when this is not that.
-//
-// Only where the two names are one name part-typed. `val` becoming `value`, or `value`
-// backspaced to `valu`. Two unrelated names on one line are two members and the second one is
-// an addition, which is what the caller does when this answers with nothing. So is a name
-// that is already on the contract, because renaming onto it would be two members becoming
-// one and losing whatever the other said.
+// Rename the member this line put on the contract a moment ago to what the line says now,
+// returning the old name, or "" when this is not a rename. Only when one name is a prefix of
+// the other (`val` and `value`), and never onto a name the contract already carries.
 function renameTyped(consumer, link, one) {
     const before = state.typed.get(typedKey(consumer, one.line));
     if (!before || before.link !== link.name || before.member === one.member) {
@@ -979,10 +918,8 @@ function renameTyped(consumer, link, one) {
 
 // The member a consumer's call site puts on a contract.
 //
-// What the owner declares, where it declares it. The call site says a name is read, called
-// or listened to, and the owner's own file says what type it is and what it takes. Guessed
-// from the call site alone, every property would be `var` even where the owner says `int`
-// two files away.
+// The owner's declaration where it has one; the call site only says whether a name is read,
+// called or listened to.
 function crossingMember(owner, reached) {
     const guess = reachedMember(reached);
     const declared = declarations(String(owner.qml || entityQml(owner)))
@@ -994,9 +931,8 @@ function crossingMember(owner, reached) {
             params: declared.params, roles: []};
 }
 
-// The member a call site names, as the document holds one. A handler is the signal it
-// listens for, a call is a slot, and a plain read is a prop. The parameters are unknown
-// either way, because a call site says what it passes and not what the owner declared.
+// The member a call site names: a handler is a signal, a call a slot, a read a prop, with
+// parameters unknown.
 function reachedMember(reached) {
     if (reached.handler) {
         return {kind: "signal", name: reached.member, type: "", params: [], roles: []};
@@ -1029,10 +965,8 @@ function focusOf(file, line) {
         }
         return entity ? {kind: "entity", name: entity.name} : null;
     }
-    // The configuration. Whichever item this line is under, whether that block is in the
-    // entity list or the connect point list, and, inside a connect point's `export:` block,
-    // which member the caret is on. An entity opens with `- name:` and a connect point with
-    // `- owner:`, because a connect point is not named: its owner names it.
+    // The configuration: the entity (`- name:`) or connect point (`- owner:`) this line is
+    // under, and inside an `export:` block, the member the caret is on.
     const lines = withoutNotice(file.text).split("\n");
     let named = "";
     let inLinks = false;
@@ -1099,9 +1033,8 @@ function absorbTyped(typed) {
         absorbConfig(typed);
         return;
     }
-    // A file beside the entity's own, such as a QML file a client's window opens. Nothing on
-    // the canvas is read out of it, so it is stored and marked, and the server writes back
-    // only the ones marked.
+    // A companion file, such as a QML file a client's window opens: stored and marked, and the
+    // server writes back only marked ones.
     if (open.companion) {
         const entity = entityNamed(open.owner);
         const kept = entity && (entity.files || []).find((one) => one.path === open.companion);
@@ -1383,6 +1316,23 @@ function openPicker(link, at) {
     page.picker.style.top = `${Math.max(8, y)}px`;
 }
 
+// The entity's own file as the panel has just rewritten it, stored as typing into the pane
+// stores it: marked as typed (the server writes back only what is), and on the connect point
+// it owns too, since the entity's file is that point's Source.
+function storeQml(entity, text) {
+    entity.qml = text;
+    entity.qmlEdited = true;
+    for (const link of ownedBy(entity)) {
+        link.qml = text;
+        link.qmlEdited = true;
+    }
+}
+
+// The connect points `entity` owns, whose contracts carry what its file declares.
+function ownedBy(entity) {
+    return (state.design.links || []).filter((link) => link.owner === entity.name);
+}
+
 // Write one declaration into an entity's own QML, the same as typing it into that file in
 // the pane below. The entity is where a member lives, and a contract only ever ticks from
 // what is there.
@@ -1404,7 +1354,7 @@ function declareOn(entity, member) {
     const taken = new Set(declarations(text).map((one) => one.name));
     const named = {...member, name: unique(nameFor(member), taken)};
     const written = `${text.slice(0, closes)}${declarationLine(named)}\n${text.slice(closes)}`;
-    entity.qml = written;
+    storeQml(entity, written);
     // And open it in the panel, where the name and the type are typed. Pressing "property" is
     // a request to declare one: a row that arrives closed answers it with a line of code and
     // nowhere to fill it in.
@@ -1425,20 +1375,16 @@ function nameFor(member) {
     return {prop: "value", signal: "changed", slot: "act"}[member.kind] || "value";
 }
 
-// Rewrite the declaration `member` was read from, as `wanted` now says it.
-//
-// The signature only. Whatever the author wrote after the opening brace of a function comes
-// back untouched (source.rewritten), so editing a return type does not cost somebody their
-// body. `was` is the name the line carried before, and a rename is carried onto every
-// connect point already exporting it, because a contract naming a member the owner no
-// longer declares is an error the build reports and nobody asked for.
+// Rewrite the declaration `member` was read from, as `wanted` now says it: the signature only
+// (source.rewritten). `was` is the name the line carried before; a rename is carried onto the
+// owner's contract.
 function redeclareOn(entity, member, wanted, was) {
     if (!entity || !Number.isInteger(member.line)) {
         return;
     }
-    entity.qml = rewritten(String(entity.qml || ""), member.line, wanted);
+    storeQml(entity, rewritten(String(entity.qml || ""), member.line, wanted));
     if (wanted.name && was && wanted.name !== was) {
-        for (const link of state.design.links || []) {
+        for (const link of ownedBy(entity)) {
             for (const carried of link.members || []) {
                 if (carried.name === was) {
                     carried.name = wanted.name;
@@ -1448,20 +1394,17 @@ function redeclareOn(entity, member, wanted, was) {
     }
     touched();
     redraw();
-    // The panel is left standing. This runs on every keystroke of a rename, and
-    // rebuilding it replaces the box being typed into. The caret goes to the document body
-    // after the first character, and the rest of the name was typed at nothing.
+    // The panel is not rebuilt: this runs on every keystroke of a rename, and rebuilding it
+    // would replace the box being typed into.
 }
 
-// Take a declaration out of the entity's file, and off every contract that exported it.
-// Leaving it on one would name a member nothing implements, which is the error the build
-// reports and never the thing somebody meant by pressing this.
+// Take a declaration out of the entity's file, and off the contract of the point it owns.
 function undeclareOn(entity, member) {
     if (!entity || !Number.isInteger(member.line)) {
         return;
     }
-    entity.qml = withoutDeclaration(String(entity.qml || ""), member.line);
-    for (const link of state.design.links || []) {
+    storeQml(entity, withoutDeclaration(String(entity.qml || ""), member.line));
+    for (const link of ownedBy(entity)) {
         link.members = (link.members || []).filter((one) => one.name !== member.name);
     }
     touched();
