@@ -707,6 +707,23 @@ async function theFrontThatSplitsCallers() {
         check(await page.locator('[data-entity="web"] .node__seat.is-taken').count() === 2,
               "a line let go on a scope hands that scope to the entity it came from");
 
+        // Renaming the entity behind a scope from its own menu carries the new name into the
+        // front's routing, as renaming it in the panel does.
+        const renameFromMenu = async (from, to) => {
+            await page.locator(`[data-entity="${from}"] .node__disc`).click({ button: "right" });
+            await page.locator("#menu button", { hasText: "Rename" }).click();
+            await page.locator("input.rename").fill(to);
+            await page.keyboard.press("Enter");
+            await page.waitForSelector(`[data-entity="${to}"]`);
+        };
+        await renameFromMenu("service", "backoffice");
+        await fileRow(page, "synqt.yaml").click();
+        await page.waitForFunction(`${SOURCE}.includes("owner: backoffice")`);
+        const routed = (await sourceText(page)).split(/^\s*behind:/m)[1] || "";
+        check(/user: backoffice/.test(routed) && !/: service\b/.test(routed),
+              `a rename from the canvas menu carries into the front's routing:\n${routed}`);
+        await renameFromMenu("backoffice", "service");
+
         // And taking the link away takes the routing with it. The two are one declaration,
         // and a seat left filled with no line to it is a drawing of something that is not
         // there. The seat's name is still there, since the seat keeps it either way.

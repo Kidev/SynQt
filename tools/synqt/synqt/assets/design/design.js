@@ -22,7 +22,7 @@ import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
 import { NODE_RADIUS, ROLE_HELP, draw, element, entityAt, extent, glyphSvg, linkRefusal,
          linkTitleNode, linksAreDerived, memberCode, nearestFreeSlot, roleOf, seatAt,
          seatsOfFront, slotIndex, turnsToward } from "./canvas.js";
-import { inspect, openWhenDrawn } from "./inspector.js";
+import { inspect, openWhenDrawn, renameEntity } from "./inspector.js";
 import { clearHighlight as unlight, highlight as applyHighlight, hoverKey,
          litSelection } from "./light.js";
 import { placeTip, tipFor, whatIsUnder } from "./tip.js";
@@ -1052,29 +1052,19 @@ function absorbTyped(typed) {
         const entity = entityOf(open.name);
         if (entity) {
             entity.schema = typed;
-            // The same mark the QML carries, and for the same reason. The document holds a
-            // copy of every file so the pane can show the project as it is, and only text
-            // somebody typed here is text the server writes back.
+            // Marked as typed, as the QML is: the server writes back only typed text.
             entity.schemaEdited = true;
             touched();
         }
         return;
     }
     const text = typed;
-    // Stored with the notice back on. What is on disk and what the download holds carries it,
-    // and only the pane ever shows a file without one.
+    // Stored with the licence notice back on.
     const notice = open.text.slice(0, open.text.length - withoutNotice(open.text).length);
     const whole = notice + text;
-    // `qmlEdited` tells the server this text was typed here rather than read from the disk
-    // a moment ago. Without it, a file somebody changed in their own editor since this page
-    // loaded would be written back to what it said then, quietly reverting work nobody
-    // asked the design to touch.
-    //
-    // Both copies, when the file is both. An entity and the connect point it exports are
-    // one file, so the pane's text is the entity's own QML *and* the point's Source. The
-    // panels read the entity's copy (that is where declaring writes) and the server reads
-    // whichever of the two is marked as typed; writing only the link's copy would leave a
-    // member typed into the file invisible to the list that ticks it onto a contract.
+    // `qmlEdited` tells the server this text was typed here, not read from the disk at load,
+    // so a file changed in another editor since is not reverted. Both copies are written
+    // when the file is both the entity's QML and its point's Source (see storeQml).
     const touchedItems = [];
     if (open.link) {
         touchedItems.push((state.design.links || []).find((one) => one.name === open.link));
@@ -1090,9 +1080,8 @@ function absorbTyped(typed) {
     }
     const said = absorb({...open, text: whole}, text);
     touched();
-    // The whole page, tree included, because a reference that drew a connect point added
-    // two files to it. The caret survives. The pane only writes into the textarea when what it
-    // holds differs from the file, and what it holds is what was typed.
+    // The whole page, tree included, since a reference may have drawn a connect point. The
+    // caret survives: the pane holds exactly what was typed.
     redraw();
     renderInspector();
     if (said) {
@@ -1104,11 +1093,8 @@ function absorbTyped(typed) {
 
 // The design the configuration in the pane describes, applied to the canvas as it is typed.
 //
-// Half-typed text is the ordinary state of a file being edited, so a parse that fails is not
-// an error to report and undo. The canvas keeps the last design that did parse, the bar says
-// which line stopped it, and the next keystroke is free to fix it. What makes that safe to
-// experiment in is the way back. Every text that parsed is remembered, and one button returns
-// to the last one, so nothing typed here can leave a project the reader cannot get out of.
+// A parse that fails keeps the last design that parsed on the canvas and says which line
+// stopped it. Revert returns to the last text that parsed.
 function absorbConfig(text) {
     let read = null;
     try {
@@ -1122,14 +1108,12 @@ function absorbConfig(text) {
             : String(error), "error");
         return;
     }
-    // Kept before the change. What somebody wants back is the design they had
-    // before the edit that lost it, and it is only worth keeping when it is a design at all.
+    // Kept before the change, which Revert returns to.
     rememberGood();
     state.design = read;
     state.configText = text;
     page.revert.hidden = false;
-    // The name is one of the things that was read, and it is not on the canvas. It is in the
-    // bar and in the tab's title, so both are written from what the file now says.
+    // The project name is in the bar and the tab's title, not on the canvas.
     renderProjectName();
     touched();
     redraw();
@@ -1137,9 +1121,7 @@ function absorbConfig(text) {
     say("Read from synqt.yaml.");
 }
 
-// The last design that read cleanly, kept as text so going back to it is one assignment and
-// cannot half-apply. Only the topology is carried. The rest of the configuration is the
-// project's, and the server writes the topology back into the file it already has.
+// The last design that read cleanly, kept as text so restoring it cannot half-apply.
 function rememberGood() {
     state.lastGood = JSON.stringify(state.design);
 }
@@ -1177,10 +1159,8 @@ function hideTip() {
 
 // Highlighting what the pointer is over
 //
-// The rules and the class names are in light.js, shared with the home page's copy of this
-// drawing. What is left here is the editor's half of it, which root to write into, what is
-// selected, and the record of what was lit last so a pointer travelling across the thing it
-// is already describing does not rewrite it on every move.
+// The rules are in light.js, shared with the home page. This half holds the root, the
+// selection, and the last key lit, so moving over the same thing does no work.
 
 function highlight(what) {
     const key = hoverKey(what);
@@ -1209,9 +1189,7 @@ function menuItem(label, act, danger, note) {
     button.type = "button";
     button.className = `menu__item${danger ? " menu__item--danger" : ""}`;
     button.append(label);
-    // A second line, for a row whose name is not the whole of what it is. The examples are
-    // the only rows that carry one: a list of four project names says nothing about which
-    // of them to open, and the alternative was four names and a paragraph above them.
+    // A second line under the label, used by the examples menu.
     if (note) {
         const said = document.createElement("span");
         said.className = "menu__note";
@@ -1238,8 +1216,7 @@ function openMenu(at, what, items) {
         page.menu.append(menuItem(item.label, item.act, item.danger, item.note));
     }
     page.menu.hidden = false;
-    // Placed after it is shown, so its measured size is the size it will have. Nudged back
-    // inside the window rather than allowed to open off the edge of it.
+    // Placed after it is shown, so it can be measured, and kept inside the window.
     const box = page.menu.getBoundingClientRect();
     const x = Math.min(at.x, window.innerWidth - box.width - 8);
     const y = Math.min(at.y, window.innerHeight - box.height - 8);
@@ -1249,18 +1226,14 @@ function openMenu(at, what, items) {
 
 // What crosses a link, ticked out of what its owner declares.
 //
-// The pool is the owner entity's own QML, which is where somebody writes a property, a signal
-// or a function in the first place. Ticking one puts it in the contract. Nothing is ticked to
-// begin with, so a member reaches a consumer because it was chosen and never because it
-// happened to be there. That is the same guarantee the generated rep carries (no undeclared
-// field crosses a connect point), said as a gesture instead of as a paragraph.
+// The pool is the owner's QML. Nothing is ticked to begin with, so a member crosses only once
+// it is chosen, as the generated rep carries only declared fields.
 function openPicker(link, at) {
     const owner = entityNamed(link.owner);
     const offered = owner ? declarations(owner.qml || "") : [];
     page.picker.replaceChildren();
 
-    // Named the way everything else names a connect point. Its two ends, with the arrow
-    // between them drawn rather than typed.
+    // Named by its two ends, as everywhere.
     const head = document.createElement("header");
     head.className = "picker__head";
     head.append(document.createTextNode("What crosses "), linkTitleNode(link));
@@ -1268,9 +1241,7 @@ function openPicker(link, at) {
 
     const note = document.createElement("p");
     note.className = "picker__note";
-    // Nothing is asked for here that the owner has not already got. A point over an entity
-    // that declares nothing says so and stops. It is drawn as an unfinished contract until
-    // its owner has something to offer, which is its state rather than a question.
+    // Only what the owner declares is offered; an owner that declares nothing says so.
     note.textContent = offered.length
         ? `Ticked members are what '${link.owner}' says to `
           + `'${(link.consumers || []).join("', '") || "whoever consumes it"}'. `
@@ -1333,14 +1304,8 @@ function ownedBy(entity) {
     return (state.design.links || []).filter((link) => link.owner === entity.name);
 }
 
-// Write one declaration into an entity's own QML, the same as typing it into that file in
-// the pane below. The entity is where a member lives, and a contract only ever ticks from
-// what is there.
-//
-// The line is built from a kind rather than typed as a string, so nobody has to write QML
-// into a prompt with no file around it and guess at the spelling. Every kind this page can
-// read has a form, so the form is what it offers. The name is a placeholder the panel then
-// edits in the file.
+// Write one declaration of `member.kind` into an entity's own QML, as typing it into the
+// pane would, under a placeholder name the panel then edits.
 function declareOn(entity, member) {
     if (!entity) {
         return;
@@ -1355,12 +1320,9 @@ function declareOn(entity, member) {
     const named = {...member, name: unique(nameFor(member), taken)};
     const written = `${text.slice(0, closes)}${declarationLine(named)}\n${text.slice(closes)}`;
     storeQml(entity, written);
-    // And open it in the panel, where the name and the type are typed. Pressing "property" is
-    // a request to declare one: a row that arrives closed answers it with a line of code and
-    // nowhere to fill it in.
+    // Open its row in the panel, for the name and type.
     openWhenDrawn(entity.name, named.name);
-    // Open the file it was written into, on the line it went on. A declaration nobody can see
-    // is the panel and the pane disagreeing about what happened.
+    // And open the file it was written into.
     state.reading = entityQmlPath(entity);
     state.editing = true;
     touched();
@@ -1368,9 +1330,8 @@ function declareOn(entity, member) {
     renderInspector();
 }
 
-// The placeholder a new declaration is named, per kind. Never blank: a nameless declaration
-// is a line QML would refuse to load, and the file is written the moment the button is
-// pressed rather than after a name has been typed somewhere else.
+// The placeholder a new declaration is named, per kind. Never blank, since QML refuses a
+// nameless declaration.
 function nameFor(member) {
     return {prop: "value", signal: "changed", slot: "act"}[member.kind] || "value";
 }
@@ -1417,8 +1378,7 @@ function tickMember(link, member, wanted) {
     if (!wanted) {
         link.members = held.filter((one) => one.name !== member.name);
     } else if (!held.some((one) => one.name === member.name)) {
-        // Without the line it was found on. That is where it sits in the owner's own file,
-        // and it is about to sit somewhere else in the contract.
+        // Without the line it was found on in the owner's file.
         const {line, ...carried} = member;
         link.members = [...held, carried];
     }
@@ -1431,13 +1391,11 @@ function closePicker() {
     page.picker.replaceChildren();
 }
 
-// Renaming happens over the thing being renamed, in a field the size of its name, and not in
-// a dialog that covers the drawing it is about. A prompt puts the name somewhere else, hides
-// what else is called what, and has to be dismissed before anything can be looked at.
+// Renaming happens in a field over the name itself, not in a dialog.
 let renaming = null;
 
-// Cleared before the field is taken away, not after. Removing a focused element blurs it,
-// and the blur handler below is another way into here.
+// Cleared before the field is removed, since removing a focused element blurs it and the
+// blur handler comes back here.
 function closeRename() {
     const field = renaming;
     renaming = null;
@@ -1455,7 +1413,7 @@ function renameInPlace(kind, name, what, at) {
     field.setAttribute("aria-label", `Rename this ${what}`);
     field.style.left = `${at.x}px`;
     field.style.top = `${at.y}px`;
-    // Wide enough for what is in it and no wider, so it sits where the name sat.
+    // As wide as its text, so it sits where the name sat.
     field.style.width = `${Math.max(6, name.length + 2)}ch`;
     document.body.append(field);
     renaming = field;
@@ -1487,25 +1445,12 @@ function renameInPlace(kind, name, what, at) {
             settle(false);
         }
     });
-    // Clicking away keeps what was typed. The field is the name, so leaving it is the same
-    // gesture as leaving any other field on this page.
+    // Clicking away keeps what was typed, as every field on this page does.
     field.addEventListener("blur", () => settle(true));
 }
 
-// The project's name, edited where it is written. The span becomes an input over the same
-// words and goes back to being a span when it settles, so nothing on the bar moves and there
-// is no second place to look for the field.
-//
-// It is not `renameInPlace`: that one floats a box at a canvas coordinate, because the name
-// it edits is drawn into an SVG that has no input to put there. This name is already HTML in
-// a bar that lays itself out, so swapping the element keeps it where the layout had it.
-
-// Either side panel, folded to the tab its handle becomes or brought back out.
-//
-// One gesture at every width. On a wide window the panel is a column of the grid and folding
-// it gives the drawing that width. On a narrow one it opens over the canvas instead, which is
-// the same fold with nowhere to put the column. The canvas is a different shape afterwards
-// either way, so what fitted it no longer does.
+// Either side panel, folded to its tab or brought back out. On a narrow window an open panel
+// lies over the canvas. The canvas changes shape either way, so it is fitted again.
 function showRail(open) {
     page.work.classList.toggle("is-rail-shut", !open);
     page.railHandle.setAttribute("aria-expanded", String(open));
@@ -1522,6 +1467,8 @@ function showInspector(open = true) {
     fit();
 }
 
+// The project's name, edited in place: the span is swapped for an input and back, so nothing
+// on the bar moves. (`renameInPlace` floats a box over the SVG instead.)
 function renameProject() {
     const was = state.design.project || "";
     const field = document.createElement("input");
@@ -1586,26 +1533,16 @@ function renameTo(kind, name, wanted, what) {
         return;
     }
     if (kind === "entity") {
-        for (const link of state.design.links) {
-            if (link.owner === name) {
-                // The owner names its connect point, so renaming the entity renames it.
-                link.owner = trimmed;
-                link.id = trimmed;
-                link.name = trimmed;
-            }
-            link.consumers = (link.consumers || [])
-                .map((consumer) => (consumer === name ? trimmed : consumer));
-        }
+        renameEntity(state.design, target, trimmed);
+    } else {
+        target.name = trimmed;
     }
-    target.name = trimmed;
     touched();
     select({kind, name: trimmed});
 }
 
-// What a right click is on, which is a coarser question than what the pointer is over: a
-// member row belongs to its link and a scope seat to its entity, and neither has a menu of its
-// own. Without this, right-clicking a seat opened the menu of the point named after the entity
-// the seat is drawn on, which is a different thing that happens to share a name.
+// What a right click is on: a member row answers as its link and a scope seat as its entity,
+// since neither has a menu of its own.
 function underForMenu(target) {
     const under = whatIsUnder(target);
     if (!under) {
@@ -1635,15 +1572,13 @@ function onContextMenu(event) {
         ]);
         return;
     }
-    // A box has no menu of its own. It is a drawing of what is in it, so a right click on one
-    // is a right click on the canvas and gets the canvas menu below.
+    // A box has no menu of its own, so it gets the canvas menu below.
     const found = under && under.kind !== "zone"
         ? (state.design.links || []).find((one) => one.name === under.name)
         : null;
     if (found) {
         select({kind: "link", name: found.name});
-        // No Rename, because a connect point has no name of its own and its owner names it. Renaming the owner
-        // is what moves it, and that is on the node.
+        // No Rename: a connect point is named by its owner.
         openMenu(at, `${found.owner}'s connect point`, [
             {label: "What crosses it", act: () => openPicker(found, at)},
             ...((found.consumers || []).length
@@ -1680,29 +1615,24 @@ function renderInspector() {
         removeEntity: (entity) => removeEntity(entity),
         removeLink: (link) => removeLink(link),
         declare: (entity, member) => declareOn(entity, member),
-        // The two halves of editing one that is already there. Both rewrite the entity's own
-        // file, which is where a declaration lives. The panel never keeps a second copy.
+        // Both rewrite the entity's own file.
         redeclare: (entity, member, wanted, was) =>
             redeclareOn(entity, member, wanted, was),
         undeclare: (entity, member) => undeclareOn(entity, member),
-        // The same call the popup picker makes, so ticking a member in the panel and ticking
-        // it on the canvas are one gesture with one implementation.
+        // The same call the picker makes.
         tick: (link, member, on) => {
             tickMember(link, member, on);
             renderInspector();
         },
         // From a line to the point it is one consumer of.
         openContract: (link) => select({kind: "contract", name: link.name}),
-        // A name on the panel that is another entity, followed. The panel is where a reader
-        // ends up after clicking one thing, and the next thing they want is at the other end
-        // of a line.
+        // Follow a name on the panel to that entity.
         select: (what) => select(what),
     });
 }
 
-// Any edit at all invalidates the change set that was last reviewed: Apply names a plan by
-// its digest, and a document that has moved since is no longer the one that was shown. It is
-// also a step to be able to go back over, so this is where the two happen.
+// Any edit invalidates the reviewed change set (Apply names a plan by its digest) and is a
+// step for undo.
 function touched() {
     invalidate();
     remember();
@@ -1711,34 +1641,25 @@ function touched() {
 function invalidate() {
     state.plan = null;
     page.apply.disabled = state.backend;
-    // On the drawing board there is nowhere else for this to live. No SynQt behind the page
-    // means the design exists only in this tab, and closing the tab has been enough to lose
-    // an afternoon's work. With `synqt design` serving the page the project on the disk is
-    // the truth and this would only be a second, staler copy of it.
+    // On the drawing board the design lives only in this browser, so it is kept there; under
+    // `synqt design` the disk is the truth.
     if (!state.backend) {
         keepDesign(state.design, state.seed);
-        // The way out of a design this browser is holding, offered once there is one to be
-        // out of. On a blank canvas there is nothing to start over from.
+        // Clear is offered once there is something to clear.
         page.restart.hidden = !(state.design.entities || []).length;
     }
 }
 
 // Going back
 
-// Everything an edit can change is in the document, so a step back is the document as it was.
-// Kept as text rather than as a structure, for the two things that buys: a comparison that
-// says whether anything changed is one `===`, and what comes back out is a copy
-// nothing else on the page still holds a reference into.
-//
-// How many steps. A design is entities, connect points and the files they are made of, which
-// is a few kilobytes, so a hundred of them is an afternoon's work and about a megabyte.
+// A step back is the document as it was, kept as text: one `===` says whether anything
+// changed, and a restored copy shares no references. A design is a few kilobytes, so a
+// hundred steps is about a megabyte.
 const HISTORY_DEPTH = 100;
 
 const history = {past: [], future: [], mark: "", step: ""};
 
-// While a file is being typed into, which file. Every keystroke into one file is one step to
-// go back over rather than one step per letter. Undo that walked back a character at a time
-// through a paragraph somebody typed is undo nobody uses.
+// The file being typed into, so its keystrokes make one undo step.
 let typingInto = "";
 
 function snapshot() {
@@ -1746,9 +1667,8 @@ function snapshot() {
                            reading: state.reading, configText: state.configText});
 }
 
-// What the change now being made is part of, when it is part of something longer than one
-// event. A drag is one move however many pointer events it took, and typing into a file is
-// one edit of that file. Everything else is a step of its own, which is what "" means.
+// What the change now being made is part of: a drag, or typing into one file. "" is a step
+// of its own.
 function stepNow() {
     if (drag) {
         return `drag:${drag.mode}`;
@@ -1762,8 +1682,8 @@ function remember() {
         return;                      // nothing this page keeps moved
     }
     const step = stepNow();
-    // A step that continues the one before it replaces its end rather than adding to the
-    // stack, so going back from a drag lands where the drag started.
+    // A step that continues the one before replaces its end, so undoing a drag goes back to
+    // where it started.
     if (!(step && step === history.step)) {
         history.past.push(history.mark);
         if (history.past.length > HISTORY_DEPTH) {
@@ -1777,9 +1697,8 @@ function remember() {
     renderHistory();
 }
 
-// A document arriving from somewhere other than an edit (the project read off disk, an
-// example opened, a design restored from this browser) is where the history starts. There
-// is nothing before it to go back to, and offering to would go back to a blank canvas.
+// A document that arrives rather than is edited (read off disk, an example, a restored
+// design) starts the history.
 function forgetHistory() {
     history.past.length = 0;
     history.future.length = 0;
@@ -1813,8 +1732,7 @@ function restore(kept) {
     state.reading = held.reading;
     state.configText = held.configText || "";
     history.mark = kept;
-    // The step this lands on is finished, whatever it was. The next change starts its own,
-    // so a redo followed by a drag does not extend the drag that was undone.
+    // The step this lands on is finished; the next change starts its own.
     history.step = "";
     invalidate();
     renderProjectName();
@@ -1828,17 +1746,12 @@ function renderHistory() {
     page.redo.disabled = !history.future.length;
 }
 
-// `follow` opens the file of whatever was selected. On by default, because selecting something
-// on the canvas and having the pane still show an unrelated file is the two views disagreeing
-// about what is in hand. Off when the selection came *from* the pane (a file opened, a caret
-// moved), where following would drag the pane off the file that was asked for.
+// `follow` opens the file of whatever was selected. Off when the selection came from the
+// pane (a file opened, a caret moved).
 function select(what, follow = true) {
     state.selected = what;
     if (follow) {
-        // The pane follows the selection to whatever file that thing is. Nothing is re-locked
-        // here. The unlock belongs to a file, so the file this moves to is locked because it
-        // is a different file, and the one that was unlocked is still unlocked when it is
-        // opened again.
+        // The pane follows the selection to its file.
         const wanted = fileOf(what, projectFiles(state.design));
         if (wanted && wanted !== state.reading) {
             state.reading = wanted;
@@ -1848,18 +1761,8 @@ function select(what, follow = true) {
     renderInspector();
 }
 
-// One line, selected the way pressing it selects it.
-//
-// A second click renames a node; a connect point has no name of its own to rename. The
-// consumer travels with the selection, because one line is one consumer of a contract they
-// all share, and the panel says less about a line than about the point.
-//
-// Unless it is the only line. Then the line and the point are the same selection to anybody
-// who drew them, and stopping at "this consumer" would put a one-button panel between
-// somebody and the thing they clicked the line to edit.
-//
-// Shared with the break, so pressing the cross on a broken line and pressing the line it is
-// drawn on are one gesture with one result.
+// Select one line, as pressing it does: one consumer of the point, or the point itself when
+// it is the only line. Pressing a line's break does the same.
 function selectLine(name, consumer) {
     const point = (state.design.links || []).find((one) => one.name === name);
     const alone = point && (point.consumers || []).length < 2;
@@ -1875,19 +1778,14 @@ function fit() {
 
 // The document
 
-// The project's name, wherever it changed. One writer, because there are three ways in
-// (a design adopted, a rename from the bar, and `project: name:` typed into synqt.yaml)
-// and with separate writers the third of them reaches only the canvas and the files pane, while the
-// name in the bar and the browser tab go on saying what the project was called before.
-//
-// No name, no label. `synqt design` always has a project to name. The copy on the site starts
-// on a blank canvas, and a stand-in name there is something to correct rather than something
-// to read.
+// The project's name in the bar and the tab title, the one writer for its three sources
+// (an adopted design, a rename in the bar, `project: name:` typed into synqt.yaml). No name,
+// no label.
 function renderProjectName() {
     const named = state.design.project || "";
     page.project.textContent = named;
     page.project.hidden = !named;
-    // Brand first, the way every page of the site titles itself.
+    // Brand first, as every page of the site titles itself.
     document.title = named ? `SynQt - ${named}` : "SynQt - Design editor";
 }
 
@@ -1895,30 +1793,21 @@ function adopt(design) {
     state.design = {
         version: design.version || 1,
         project: design.project || "",
-        // The scopes this project names, which is the four a scaffold starts with for a
-        // project that never said otherwise. Carried, because a project may name its own and
-        // a document that dropped them wrote them out of the file on the way back.
+        // The project's own scopes, carried so they are written back.
         scopes: design.scopes || [],
-        // And which of them a caller with no session holds, where the project named one
-        // that is not the first. Carried for the same reason the list is. A key the editor
-        // writes and cannot read is a key it overwrites.
+        // And the scope a caller with no session holds, where the project named one.
         scopeDefault: design.scopeDefault || "",
         sourceHash: design.sourceHash || "",
         entities: design.entities || [],
-        // Without a `contract:` on any of them: it is the framework's own field, for the
-        // points whose contracts ship in the runtime libraries, and a project that writes
-        // it is refused.
-        //
-        // The owner is the identity, and `id`/`name` are derived from it here, once, so
-        // everything downstream can go on keying by name without asking where it came from.
+        // Without `contract:`, the framework's own field, which `synqt check` refuses in a
+        // project. `id` and `name` come from the owner, here, once.
         links: (design.links || []).map(({contract, ...link}) =>
             ({...link, id: link.owner, name: link.owner})),
     };
     state.selected = null;
     renderProjectName();
     touched();
-    // Where the history starts. A document that arrived rather than was edited has nothing
-    // before it, and offering to go back from it would go back to a blank canvas.
+    // Where the history starts.
     forgetHistory();
     redraw();
     renderInspector();
@@ -1956,18 +1845,13 @@ function place(role) {
     };
 }
 
-// `at` is where the pointer let go. Without it the entity lands in its column, which is the
-// arrangement the whole page reads in. With it, it lands where somebody put it, which is the
-// point of having dragged it there.
+// `at` is where the pointer let go; without it the entity lands in its column.
 function addEntity(item, at) {
     const taken = new Set((state.design.entities || []).map((entity) => entity.name));
     const spot = at || place(item.role);
     const entity = {
         id: "",
         name: unique(item.base, taken),
-        kind: "service",
-        capability: "",
-        blueprint: "",
         provider: "",
         targets: [],
         identity: false,
@@ -1994,27 +1878,17 @@ function capitalised(name) {
     return name ? name[0].toUpperCase() + name.slice(1) : name;
 }
 
-// A connect point is its owner. An entity has one, so drawing a second line out of an entity
-// adds a consumer to the point it already exports rather than making another one. That is
-// also why there is nothing here to name.
-// `toward` is where the link was headed when it was drawn, which is the slot it takes on its
-// owner's rim. A link pulled to the left leaves from the left. It is the drop point rather
-// than the consumer's centre, because a link dropped on empty canvas has no consumer yet.
+// A connect point is its owner's one point, so a second line out of an entity adds a consumer
+// to it. `headed` is the drop point, which picks the slot on the owner's rim.
 function addLink(from, to, headed, at) {
-    // A browser owns nothing. An owner hosts the Source and listens for consumers to
-    // acquire it, and there is no WebSocket server under WebAssembly, so a line drawn from
-    // the browser says which two entities talk and nothing about which way the hosting
-    // goes. Turn it around and say so. The gesture works from either end, and only one of
-    // the two links it could mean can be built.
+    // A browser cannot host a Source, so a line drawn from a client is turned around.
     const drawnFromAClient = entityType(from) === "client" && entityType(to) !== "client";
     const owner = drawnFromAClient ? to : from;
     const consumer = drawnFromAClient ? from : to;
-    // The drop point picks which side of the owner's rim the line leaves from. Turned
-    // around, the drop point is on the wrong entity, so the consumer picks it instead.
+    // Turned around, the drop point is near the wrong entity, so the consumer picks the slot.
     const toward = drawnFromAClient ? null : headed;
     const name = owner.name;
-    // A second line out of the same owner is a second consumer of the one point it exports,
-    // not a second point. Drawing it says who else may reach what is already there.
+    // A second line out of the same owner adds a consumer to its point.
     const already = (state.design.links || []).find((link) => link.owner === owner.name);
     if (already) {
         if (!already.consumers.includes(consumer.name)) {
@@ -2038,9 +1912,7 @@ function addLink(from, to, headed, at) {
     const link = {
         id: name,
         name,
-        // No `contract:`. A point and the shape of what crosses it are one thing, and the
-        // owner names both. The type is the owner capitalised
-        // (appmodel.contract_of), and `synqt check` refuses a project that writes the field.
+        // No `contract:`: the type is the owner capitalised (appmodel.contract_of).
         owner: owner.name,
         consumers: [consumer.name],
         transport: "",
@@ -2057,9 +1929,7 @@ function addLink(from, to, headed, at) {
             : `. `)
         + `What crosses is written on the connect point, and ${entityDir(owner)}/`
         + `${contractOf(link)}.qml answers it. Say what crosses.`);
-    // Straight into the one question a new link asks. It opens on the link rather than
-    // waiting to be found in the panel, because a connect point that carries nothing is a
-    // connect point nobody finished.
+    // Open the picker straight away: a new link carries nothing yet.
     if (at) {
         openPicker(link, at);
     }
@@ -2067,11 +1937,8 @@ function addLink(from, to, headed, at) {
 
 // Put onto a new link whatever the consumer's own code already reaches for, and nothing else.
 //
-// A contract starts empty, because it is the list of what an owner has agreed to say and
-// drawing a line is not that agreement. But code that is already written is: an entity whose
-// QML calls `Store.insert(...)` is one that needs `insert` to cross, and making somebody tick
-// a box for a call they have already written is asking them to say it twice. Everything else
-// the owner declares is offered in the picker this opens, unticked.
+// A contract starts empty, but a call the consumer's QML already makes (`Store.insert(...)`)
+// is put on it. Everything else the owner declares is offered in the picker, unticked.
 function crossWhatIsUsed(link, consumer) {
     const owner = entityNamed(link.owner);
     if (!owner) {
@@ -2089,9 +1956,8 @@ function crossWhatIsUsed(link, consumer) {
 }
 
 // Hand one scope's callers to `target`, or to nobody when the line was dropped on empty
-// canvas. The front consumes what that entity owns, so the connect point that carries the
-// calls is drawn at the same time if it is not there yet: `behind:` is the whole declaration,
-// and asking somebody to draw the same relationship twice is asking them to get it wrong once.
+// canvas. The front consumes what that entity owns, so the connect point is drawn too if it
+// is missing.
 function sendScopeBehind(front, scope, target) {
     const point = (state.design.links || []).find((link) => link.owner === front.name
                                                             && link.behind);
@@ -2103,9 +1969,7 @@ function sendScopeBehind(front, scope, target) {
         delete tiers[scope];
         point.behind = tiers;
         touched();
-        // The seat this scope sat on is free again and has its own name back, which is a
-        // thing to draw. Nothing here redrew, so wiring a scope to an entity the front
-        // already consumed changed the document and left the picture saying otherwise.
+        // The seat is free again, so redraw.
         redraw();
         renderInspector();
         say(`'${scope}' is not handed to anybody now. Callers holding it fall to the `
@@ -2131,8 +1995,8 @@ function sendScopeBehind(front, scope, target) {
         + `Caller in hand and never asks about scope: nobody else reaches it.`);
 }
 
-// A line let go on one of a front's seats. That scope, handed to the entity the line came
-// from, with nothing to confirm. Returns whether the drop was one.
+// A line let go on one of a front's seats hands that scope to the entity it came from.
+// Returns whether the drop was on a seat.
 function droppedOnSeat(from, target, local) {
     const front = frontsOf(state.design).get(target.name);
     if (!front || entityType(from) === "client") {
@@ -2146,19 +2010,9 @@ function droppedOnSeat(from, target, local) {
     return true;
 }
 
-// A line dropped on the body of a front, which is a question rather than an answer: which
-// scope's callers does this entity serve?
-//
-// Only the body. A line let go on one of the seats along the back has already said which
-// scope it meant (droppedOnSeat above), and the seats are named and a dozen pixels apart, so
-// that is the gesture to reach for. This is what answers the rest of the wedge, where the
-// drop names the entity and nothing else.
-//
-// Returns whether it took the drop. Everything that is not a line arriving at a front from
-// something that can sit behind one is somebody else's to handle.
-// `consuming` says the line asking is one that already consumes the front's point, which is
-// every line with a break on it. Offering to make one again would be offering to draw what is
-// already drawn.
+// A line dropped on the body of a front (not on a seat) asks which scope this entity serves.
+// Returns whether it took the drop. `consuming` says the line already consumes the front's
+// point (a line with a break), so "Just consume" is not offered.
 function offerSeat(from, target, at, {consuming} = {}) {
     const front = frontsOf(state.design).get(target.name);
     if (!front || entityType(from) === "client") {
@@ -2168,15 +2022,12 @@ function offerSeat(from, target, at, {consuming} = {}) {
     const taken = seats.find((seat) => seat.tier === from.name);
     openMenu(at, `'${from.name}' behind '${target.name}'`, [
         ...seats.map((seat) => ({
-            // A seat that is already this entity's says so, and a seat that is somebody
-            // else's says whose. Picking it is how one is moved, and moving one silently is
-            // how a scope ends up served by an entity nobody meant to point it at.
+            // A seat already taken says by whom, since picking it moves the scope.
             label: seat.tier === from.name ? `${seat.scope} (already)`
                  : (seat.tier ? `${seat.scope} (now '${seat.tier}')` : seat.scope),
             act: () => sendScopeBehind(target, seat.scope, from),
         })),
-        // The drop still has its plain meaning available. A front owns a connect point like
-        // any other entity, and consuming one is not the same thing as sitting behind it.
+        // Or just consume the front's own point, which is not sitting behind it.
         ...(consuming
             ? []
             : [{label: `Just consume '${target.name}'`,
@@ -2189,13 +2040,10 @@ function offerSeat(from, target, at, {consuming} = {}) {
     return true;
 }
 
-// What a link dropped on empty canvas opens: the palette again, at the point it was let go,
-// so the entity that was being reached for is made and connected in one gesture rather than
-// dragged from the rail and joined up afterwards.
+// What a link dropped on empty canvas opens: the palette at that point, to make and connect
+// the consumer in one gesture.
 function offerEntity(owner, spot, at) {
-    // Every row but the monitor. The menu is "what should consume this", and a monitor
-    // consumes nothing anybody draws. Offering it and then refusing the link it asked for
-    // would be the editor arguing with itself.
+    // Every row but the monitor, which consumes nothing drawn.
     const offered = PALETTE.filter((item) => !linksAreDerived(item.make()));
     openMenu(at, `Consumer for '${owner.name}'`, offered.map((item) => ({
         label: item.label,
@@ -2205,13 +2053,8 @@ function offerEntity(owner, spot, at) {
     })));
 }
 
-// Deleting an entity takes every line that only existed because it was there: the points it
-// owned, and the points whose one consumer it was.
-//
-// A point drops the name from its consumer list, and if that list is now empty it goes too:
-// a stub drawn from its owner to nothing is what a point deliberately disconnected looks
-// like (disconnectLink), not what deleting the thing at the other end means. A point that
-// still has another consumer is left alone: it only lost one reader.
+// Deleting an entity takes the points it owned and the points whose only consumer it was. A
+// point with another consumer only loses this one.
 function removeEntity(entity) {
     const name = entity.name;
     state.design.entities = state.design.entities.filter((one) => one !== entity);
@@ -2238,14 +2081,9 @@ function removeEntity(entity) {
 
 // Every scope a front hands to somewhere it can no longer reach, taken off it.
 //
-// `behind:` names an entity, and the front reaches that entity by consuming the connect
-// point it owns. The two are one declaration, which is why drawing the routing draws the
-// link, and taking the link away has to take the routing with it. Otherwise the seat keeps
-// its filled dot and hides its own name, and the drawing shows a scope wired to something
-// with no line to it.
-//
-// Run after any edit that can break the pair, never while the configuration is being typed:
-// a half-written `behind:` block is still being typed and must survive.
+// The front reaches an entity behind it by consuming the point it owns, so removing that
+// link removes the routing. Never run while synqt.yaml is being typed, where a half-written
+// `behind:` must survive.
 function pruneBehind() {
     const links = state.design.links || [];
     const known = new Set((state.design.entities || []).map((entity) => entity.name));
@@ -2263,10 +2101,7 @@ function pruneBehind() {
     }
 }
 
-// Take the line away and leave the connect point. What the owner has agreed to say outlives
-// whoever was listening to it, so the contract stays on the slot it was drawn on, as the stub
-// a connect point with no consumers has always been drawn as. Freeing that slot takes
-// deleting the connect point itself, below.
+// Take the lines away and leave the connect point, drawn as a stub on its slot.
 function disconnectLink(link) {
     link.consumers = [];
     pruneBehind();
@@ -2281,18 +2116,17 @@ function removeLink(link) {
     pruneBehind();
     touched();
     select(null);
-    say(`Removed '${link.name}', and its slot on '${link.owner}' is free again. The contract `
-        + "file it named is left where it is.");
+    say(`Removed '${link.name}', and its slot on '${link.owner}' is free again. `
+        + `'${link.owner}''s own file is left as it is.`);
 }
 
 // The canvas, under the pointer
 
 let drag = null;
 
-// A double click on a node opens its rename, and whether one happened is worked out here
-// rather than left to the browser's `dblclick`. The first of the two clicks selects the node,
-// selecting redraws the canvas, and the element the second click lands on is not the one the
-// first hit. With one of the pair detached, the browser reports no double click at all.
+// A double click on a node opens its rename. Detected here, not by `dblclick`: the first
+// click redraws the canvas, so the second lands on a new element and the browser reports no
+// double click.
 const DOUBLE_CLICK_MS = 400;
 const DOUBLE_CLICK_SLOP = 6;
 
@@ -2305,8 +2139,7 @@ function isSecondClick(what, at) {
         && lastClick.name === what.name
         && (now - lastClick.when) < DOUBLE_CLICK_MS
         && Math.hypot(at.x - lastClick.x, at.y - lastClick.y) < DOUBLE_CLICK_SLOP;
-    // Cleared on the second, so three clicks are one double click and one single, never two
-    // renames in a row.
+    // Cleared on the second, so three clicks are one double click and one single.
     lastClick = again ? null
                       : {kind: what.kind, name: what.name, when: now, x: at.x, y: at.y};
     return Boolean(again);
@@ -2330,9 +2163,7 @@ function onDown(event) {
     hideTip();
     closePicker();
     closeRename();
-    // Whatever the pointer was over a moment ago stops being lit. Nothing re-lights during a
-    // drag, so an owner and a consumer left glowing from the last hover would sit there in
-    // their role colours through the whole of a drag that is about something else.
+    // Unlight the last hover; nothing lights during a drag.
     clearHighlight();
     const at = pointAt(event);
     const seat = event.target.closest("[data-seat]");
@@ -2344,9 +2175,7 @@ function onDown(event) {
     const zone = event.target.closest("[data-zone]");
     page.canvas.setPointerCapture(event.pointerId);
 
-    // A seat on a front's flat side. Dragging off one says which entity serves that scope,
-    // which is a different question from who consumes what. The line being pulled is the
-    // routing, and the connect point it needs is drawn for you if it is not there yet.
+    // A seat on a front: dragging off it routes that scope to an entity.
     if (seat) {
         const from = entityNamed(seat.dataset.seat);
         drag = {
@@ -2355,19 +2184,14 @@ function onDown(event) {
             scope: seat.dataset.scope,
             at,
             moved: false,
-            // The dot on the back edge, not wherever in the row the press landed: the
-            // handle is the whole row so the name is part of the target, and a line has to
-            // leave the seat it belongs to.
+            // From the seat's dot, wherever in the row the press landed.
             start: {x: (from.x || 0) + Number(seat.dataset.x),
                     y: (from.y || 0) + Number(seat.dataset.y)},
         };
         return;
     }
-    // The break on a line into a front. Pressing it is the connect point, and dragging off it
-    // is the routing it is missing. The fix for what the cross says is one drag to a scope, so
-    // the cross is the handle. The line it pulls leaves the owner's own connect point, because
-    // the gesture is this link being wired the way it would have been wired in the first
-    // place, and that is where a link is drawn from.
+    // The break on a line into a front: dragging off it wires the missing routing, with the
+    // line drawn from the owner's connect point.
     if (broke) {
         const link = (state.design.links || []).find(
             (one) => one.name === broke.dataset.break);
@@ -2389,13 +2213,9 @@ function onDown(event) {
     }
     if (rim) {
         const from = entityNamed(rim.dataset.rim);
-        // Every front's seats become visible drop targets for as long as this drag lasts. A
-        // line let go on one hands that scope to the entity it came from; without the
-        // targets shown, only the gesture that starts at the seat is discoverable.
+        // Every front's seats show as drop targets during the drag.
         page.canvas.classList.add("is-linking");
-        // Drawn from the handle that was grabbed rather than from the middle of the disc, so
-        // a link pulled off the left of an entity leaves to the left. That is why there is a
-        // handle on each side.
+        // Drawn from the handle grabbed, not the middle of the disc.
         drag = {
             mode: "link",
             from,
@@ -2416,8 +2236,7 @@ function onDown(event) {
         };
         return;
     }
-    // The contract icon, before the lines under it. It is the point itself, so pressing it
-    // opens the point and lights every line out of it.
+    // The contract icon, before the lines under it: pressing it opens the point.
     if (contract) {
         drag = {mode: "contract-click", name: contract.dataset.contract, moved: false};
         return;
@@ -2427,9 +2246,8 @@ function onDown(event) {
                 consumer: link.dataset.consumer || "", moved: false};
         return;
     }
-    // A box, pressed on its name or inside one of the two small boxes. It takes everything
-    // drawn in it. Last of the four, so a node or a link inside the box still answers for
-    // itself. Only the space around them belongs to the box.
+    // A box, pressed on its name or inside a held box, takes everything in it. Last, so
+    // what is inside answers first.
     if (zone) {
         const inside = String(zone.dataset.inside || "").split(" ")
             .map(entityNamed).filter(Boolean);
@@ -2442,12 +2260,8 @@ function onDown(event) {
     page.canvas.classList.add("is-panning");
 }
 
-// Which entity the pointer is near enough to be reaching for, if any. Its node shows its
-// free slots; every other node shows none.
-//
-// A class toggled on nodes already drawn, never a redraw. The drawing is rebuilt from the
-// document on every change, and rebuilding it on every pointer move would cost more than it
-// is worth and replace the element between a click and its partner, losing double-click.
+// Show the free slots of the entity the pointer is reaching for, by toggling a class: a
+// redraw on every move would cost too much and lose double clicks.
 function showSlotsNear(at) {
     const reach = NODE_RADIUS * 2.4;
     let nearest = null;
@@ -2464,10 +2278,8 @@ function showSlotsNear(at) {
     }
 }
 
-// The seat a line would be let go on, lit while the line is over it. The pointer is captured
-// by the canvas for the whole drag, so `:hover` never reaches a seat and the stylesheet alone
-// cannot say this. Without it the one gesture that hands a scope to an entity gives no sign
-// it is about to work.
+// Light the seat a line is over. The canvas holds the pointer capture during a drag, so
+// `:hover` never reaches a seat.
 function lightSeatUnder(local) {
     const fronts = frontsOf(state.design);
     let wanted = null;
@@ -2528,9 +2340,7 @@ function onMove(event) {
         return;
     }
     if ((drag.mode === "link" || drag.mode === "behind" || drag.mode === "wire") && drag.from) {
-        // The break is a thing to press as well as a thing to pull, so its line waits until
-        // the press has travelled. A click that drew a line for the few milliseconds it
-        // lasted read as the cross being a connect point somebody had started wiring.
+        // A break can be pressed as well as pulled, so its line waits until the press moves.
         if (drag.mode === "wire" && !drag.moved) {
             return;
         }
@@ -2547,14 +2357,8 @@ function onMove(event) {
         return;
     }
     if (drag.mode === "zone") {
-        // Everything in the box moves by the same amount, from where each one started rather
-        // than by a step per event. Adding up steps drifts, and the box is redrawn around its
-        // contents every frame, so a drift here is a box that slowly leaves the pointer.
-        //
-        // Only the amount is snapped. Every entity in the box is already on
-        // the grid, so moving them all by a multiple of the step keeps them on it and keeps
-        // the arrangement inside the box exactly as it was. Snapping each one separately
-        // would tidy the block into a single column the first time it was picked up.
+        // Everything moves by one snapped amount from where it started, so nothing drifts and
+        // the arrangement inside the box is kept.
         const dx = snapped(at.local.x - drag.at.local.x);
         const dy = snapped(at.local.y - drag.at.local.y);
         drag.moved = drag.moved || Boolean(dx || dy);
@@ -2591,10 +2395,8 @@ function onUp(event) {
         sendScopeBehind(finished.from, finished.scope, target);
         return;
     }
-    // A line pulled off a break. It is already known which two entities are at the ends: the
-    // only thing missing is which scope's callers the owner serves, so a drop on a seat says
-    // it outright, a drop anywhere else on the front asks which, and a press that went nowhere
-    // opens the connect point.
+    // A line pulled off a break: a drop on a seat routes that scope, elsewhere on the front it
+    // asks which, and a press that did not move selects the line.
     if (finished.mode === "wire" && finished.from && finished.front) {
         const at = pointAt(event);
         if (!finished.moved) {
@@ -2608,9 +2410,7 @@ function onUp(event) {
             sendScopeBehind(finished.front, seat.scope, finished.from);
             return;
         }
-        // Anywhere else on the front is the same question without a scope named, so it is
-        // asked. Not the consuming option. This line is already one, which is why it has a
-        // break on it.
+        // Elsewhere on the front: ask which scope.
         if (entityAt(state.design, at.local) === finished.front
                 && offerSeat(finished.from, finished.front,
                              {x: event.clientX, y: event.clientY}, {consuming: true})) {
@@ -2625,17 +2425,13 @@ function onUp(event) {
         const at = pointAt(event);
         const target = entityAt(state.design, at.local);
         if (target && target !== finished.from) {
-            // Before anything is built. A monitor's links come from a line of configuration
-            // rather than from this gesture, so there is nothing here to make.
+            // A monitor's links are configuration, never drawn.
             const refused = linkRefusal(finished.from, target);
             if (refused) {
                 say(refused);
                 return;
             }
-            // A line let go on one of a front's scope seats is that scope handed to this
-            // entity, said the way anybody would say it. Point at the word. Anywhere else on
-            // the front is the entity without a scope named, which is a question, so that
-            // one opens the menu.
+            // On a front's seat: route that scope. Elsewhere on a front: ask.
             if (droppedOnSeat(finished.from, target, at.local)) {
                 return;
             }
@@ -2652,9 +2448,7 @@ function onUp(event) {
                 + "make one there.");
             return;
         }
-        // A line dropped on empty canvas is somebody reaching for an entity that is not there
-        // yet, which is a thing to offer rather than a mistake to report. Whichever they pick
-        // is created where they let go and consumes the point in the same gesture.
+        // On empty canvas: offer to make the consumer there.
         offerEntity(finished.from, {x: snapped(at.local.x), y: snapped(at.local.y)},
                     {x: event.clientX, y: event.clientY});
         return;
@@ -2669,7 +2463,7 @@ function onUp(event) {
         select(what);
         return;
     }
-    // The icon is the point. Opening it opens what crosses it, for every consumer at once.
+    // The icon is the point.
     if (finished.mode === "contract-click") {
         select({kind: "contract", name: finished.name});
         return;
@@ -2678,8 +2472,7 @@ function onUp(event) {
         selectLine(finished.name, finished.consumer);
         return;
     }
-    // A press on a box that went nowhere is a press on empty canvas. The box only draws
-    // what is in it and has no panel of its own to select.
+    // A press on a box that did not move is a press on empty canvas.
     if ((finished.mode === "pan" || finished.mode === "zone") && !finished.moved) {
         select(null);
     }
@@ -2716,9 +2509,7 @@ function showSheet(title, git, found, body) {
 
 // Reading the project back
 
-// The inferred document describes the same entities, so it lays them out afresh. Where
-// each one sits is a drawing this page is holding and the sources say nothing about, so
-// it survives. Reading the contracts back should not rearrange the canvas.
+// Keep each entity where it was drawn when an inferred document replaces the design.
 function keepPlaces(design) {
     const placed = new Map((state.design.entities || [])
         .map((entity) => [entity.name, entity]));
@@ -2828,17 +2619,13 @@ function download() {
 
 // What the two buttons in the bar open
 
-// A menu hung under the button that opened it, left edges aligned, rather than at the
-// pointer the way a right click's is. A button that opens a list is the one place on this
-// page where the list belongs to a thing on screen and not to where the pointer happened to
-// be when it was pressed.
+// Where a bar button's menu opens: under the button, from its left edge.
 function menuUnder(button) {
     const box = button.getBoundingClientRect();
     return {x: box.left, y: box.bottom + 6};
 }
 
-// Both ways of taking a design away, in one list. Neither touches the project on disk, which
-// is why they are together and why neither one is Apply.
+// The two ways of taking a design away; neither touches the project on disk.
 function openExportMenu() {
     openMenu(menuUnder(page.exportAs), "Take it away", [
         {label: "Export as image", act: () => exportAsPicture()},
@@ -2846,9 +2633,7 @@ function openExportMenu() {
     ]);
 }
 
-// The drawing as a picture, and the one thing worth asking about it. What is behind it. A
-// page colour is what somebody dropping it into a document wants. Transparency is what
-// somebody dropping it onto a slide of their own wants, and neither guess is safe.
+// The drawing as a picture, asking whether its background is the page colour or transparent.
 async function exportAsPicture() {
     const clear = modalCheck("Transparent background", false);
     const go = await askPage({
@@ -2867,12 +2652,8 @@ async function exportAsPicture() {
     }
 }
 
-// The projects the guide is written about, offered as somewhere to start. Each one is an
-// ordinary design the moment it is open: move anything, add anything, export it.
-//
-// Only on the drawing board. Over a real project the document is that project's, and a menu
-// that replaced it with an example would be the editor throwing away the thing it was opened
-// to edit.
+// The projects the guide is written about, offered as somewhere to start. Only on the drawing
+// board: over a real project the document is that project's.
 async function openExamplesMenu() {
     const file = await examplesIndex();
     const about = file.about || {};
@@ -2888,9 +2669,7 @@ async function openExamplesMenu() {
     })));
 }
 
-// One example, opened over whatever is on the canvas. What is there now is what the question
-// is about: an empty canvas has nothing to lose, and anything else is somebody's drawing,
-// which this is about to replace.
+// One example, opened over the canvas, asking first unless the canvas is empty.
 async function openExample(name) {
     const file = await examplesIndex();
     const example = (file.examples || {})[name];
@@ -2911,8 +2690,7 @@ async function openExample(name) {
         }
     }
     state.seed = name;
-    // The address names what is on screen, so the link in the bar is the link that hands
-    // somebody this, and a reload comes back to it rather than to the last thing drawn.
+    // The address names what is on screen.
     keepInHash("example", name);
     adopt(example);
     fit();
@@ -2924,13 +2702,8 @@ async function openExample(name) {
 
 // Asking, in this page's own face
 
-// One question, over the drawing it is about, answered yes or no. A real `dialog`, so Escape
-// answers no, the focus is held inside it, and the page behind it is inert while it is up.
-//
-// The browser's own confirm box is kept for one thing only. Leaving the site. There the
-// browser is the one asking, and nothing on the page can hold a navigation open long enough
-// to ask anything. Everywhere else this is what asks, because a box that arrives from outside
-// the window in somebody else's face is a box that reads as an error rather than a choice.
+// One yes-or-no question in the page's `dialog`, so Escape answers no, focus stays inside and
+// the page behind is inert. Only leaving the site uses the browser's own box.
 function askPage({title, text, confirm, danger, extra}) {
     page.modalTitle.textContent = title;
     page.modalText.textContent = text;
@@ -2957,8 +2730,7 @@ function askPage({title, text, confirm, danger, extra}) {
     });
 }
 
-// A switch for a question that has one, built the way the panel builds them so the box in the
-// dialog is the box everywhere else on the page.
+// A checkbox for the dialog, built as the panel builds them.
 function modalCheck(label, checked) {
     const wrap = document.createElement("label");
     wrap.className = "check";
@@ -2974,33 +2746,23 @@ function modalCheck(label, checked) {
 
 // The drawing as a picture
 
-// How much empty space is left round the drawing in the exported picture, and how many device
-// pixels one canvas unit becomes. Two, because the picture is going into a document or a
-// message at whatever size that thing gives it, and a drawing that has been scaled down reads
-// better than one that has been scaled up.
+// The margin round the exported picture, and device pixels per canvas unit (two, since a
+// picture scaled down reads better than one scaled up).
 const EXPORT_MARGIN = 40;
 const EXPORT_SCALE = 2;
 
 // The canvas, as a PNG, exactly as it is drawn.
 //
-// Not a screenshot of the window. The whole design at its own size, whatever is scrolled into
-// view, with a margin round it. It is built out of the same SVG the page is drawing, with this
-// page's stylesheet carried inside it, so a picture of a design and the design cannot say
-// different things.
-//
-// The stylesheet is fetched and inlined rather than left as a link, because the picture is
-// rendered in an `img`, which is its own document with no access to this one: everything it
-// needs to draw has to be inside the file. `:root` in an SVG document is the `svg` element
-// itself, so the palette at the top of design.css lands on the drawing with nothing to change.
+// The whole design at its own size with a margin, cloned from the page's SVG with the
+// stylesheet inlined: the picture renders in an `img`, its own document, and `:root` there
+// is the `svg` element, so design.css applies unchanged.
 async function exportPicture(transparent) {
     if (!extent(state.design)) {
         say("Nothing to export yet. Drag an entity out of the rail to begin.", "error");
         return;
     }
-    // What is drawn, asked of the drawing rather than worked out from the document:
-    // the boxes are where the entities are, and a name written under a node or a contract
-    // written beside a line reaches past them. Measured before the view's own transform, so
-    // it is in the coordinates the picture is cut from.
+    // The drawing's own bounding box, before the view transform, so labels past the boxes
+    // are included.
     const held = page.viewport.getBBox();
     const left = held.x - EXPORT_MARGIN;
     const top = held.y - EXPORT_MARGIN;
@@ -3011,12 +2773,9 @@ async function exportPicture(transparent) {
     picture.setAttribute("viewBox", `${left} ${top} ${width} ${height}`);
     picture.setAttribute("width", String(width));
     picture.setAttribute("height", String(height));
-    // The view this window happens to be at belongs to the window, and the picture is the
-    // whole drawing. The box above already says where to look.
+    // The window's view does not apply to the picture.
     picture.querySelector("#viewport").removeAttribute("transform");
-    // Everything that is only there to be dragged or pointed at. The half-drawn link, the
-    // invisible fat targets over the lines, the handles that appear under the pointer. None
-    // of it is part of the drawing, and some of it draws nothing at all.
+    // Remove the hit targets, handles and the half-drawn link.
     for (const spare of picture.querySelectorAll(
             "#ghost, .link__hit, .node__slot-grab, .node__slot, .link__break-grab, "
             + ".node__seat-grab")) {
@@ -3043,8 +2802,7 @@ async function exportPicture(transparent) {
     say(`Exported the drawing as ${anchor.download}.`);
 }
 
-// This page's stylesheet, as text, read once and kept. It is the same file every time and it
-// is what the picture is painted with.
+// This page's stylesheet as text, read once.
 let styles = "";
 
 async function pageStyles() {
@@ -3055,9 +2813,8 @@ async function pageStyles() {
     return styles;
 }
 
-// The SVG drawn into a canvas and handed back as a PNG. The image is a `data:` URL of the
-// drawing itself, which is same-origin data and taints nothing, so the canvas can be read
-// back. The policy this page runs under admits `data:` for images and nothing else.
+// The SVG drawn into a canvas and returned as a PNG. A `data:` image taints nothing, and the
+// page's policy allows `data:` for images only.
 function pngOf(source, width, height) {
     return new Promise((resolve, reject) => {
         const drawing = new Image();
@@ -3084,22 +2841,13 @@ function pngOf(source, width, height) {
 
 // Starting up
 
-// Dragging is the only way an entity reaches the canvas, so that where it lands is always
-// somewhere somebody chose. A click that dropped one into a column would put it wherever the
-// column had room, which is a different arrangement from the one being drawn.
-// Renaming from the canvas. The name is what everything else in the project refers to this by,
-// so a double click on it is the shortest way to the one gesture that changes all of them at
-// once. The same rename the panel and the right-click menu run.
-
-// The two steps, on the keys every editor uses for them. Never while a file is being typed
-// into. There the pane has an undo of its own, over the text, and it is the one somebody
-// pressing this over a file means.
+// Undo and redo on the usual keys, except while typing, where the field has its own undo.
 function onStepKey(event) {
     if (!(event.ctrlKey || event.metaKey) || event.altKey || isTyping()) {
         return;
     }
     const key = event.key.toLowerCase();
-    // Ctrl-Y as well as Ctrl-Shift-Z, because half the editors in the world use each.
+    // Ctrl-Y as well as Ctrl-Shift-Z.
     const forward = (key === "z" && event.shiftKey) || key === "y";
     if (key !== "z" && key !== "y") {
         return;
@@ -3112,13 +2860,8 @@ function onStepKey(event) {
     }
 }
 
-// Whether the keystroke belongs to something being typed into rather than to the canvas.
-//
-// `document.activeElement` stops at a shadow host, and the file pane is an editor inside
-// one: with the caret in a file, the page-level answer is the plain <div> the editor is
-// built into, which is not a field, so Backspace over a file would delete the entity whose
-// file it is. Each root is asked in turn for its own, which is how a nested focus answers
-// with the element holding the caret.
+// Whether the keystroke belongs to a field. `document.activeElement` stops at a shadow host,
+// and the file pane's editor is inside one, so each shadow root is asked in turn.
 function isTyping() {
     let at = document.activeElement;
     while (at && at.shadowRoot && at.shadowRoot.activeElement) {
@@ -3128,8 +2871,7 @@ function isTyping() {
                           || ["INPUT", "TEXTAREA", "SELECT"].includes(at.tagName)));
 }
 
-// Delete removes what is selected, which is what every other canvas does. Never while a field
-// or the files pane has the keystroke. There, Delete is a character.
+// Delete removes what is selected, except while typing.
 function onDeleteKey(event) {
     if (event.key !== "Delete" && event.key !== "Backspace") {
         return;
@@ -3209,14 +2951,10 @@ function onDrop(event) {
 
 async function goOffline(reason) {
     state.backend = false;
-    // Nothing to read back. Inference reads the QML in a project on a disk, and there is
-    // no project on the other end of this page.
+    // No project on disk, so nothing to infer from.
     page.infer.hidden = true;
     page.review.hidden = true;
-    // And nothing to apply a change set to. A button that stays in the bar wearing the
-    // word "Download" puts the one way of keeping a design at the far end of a row of
-    // controls that are all hidden or disabled beside it. Taking a design away is Export's
-    // job, and it is the same button on a project and on the drawing board.
+    // And nothing to apply to; Export takes a design away.
     page.apply.hidden = true;
     // What was being drawn last time comes back first. An example named in the address is
     // where a drawing starts, so a design kept from that same example is resumed, and a link
@@ -3269,10 +3007,9 @@ async function goOffline(reason) {
         wanted ? "error" : "");
 }
 
-// The token arrives once, in the fragment of the URL `synqt design` printed. It is kept for
-// this tab, so a reload still reaches the server, and taken out of the address, so a shared
-// screen, a bookmark or a copied link does not carry it. Without storage it stays in the
-// address, which is where a reload would need it.
+// The token arrives once, in the fragment of the URL `synqt design` printed. It is kept in
+// this tab's session storage and taken out of the address, so a bookmark or a copied link
+// does not carry it. Without storage it stays in the address.
 const TOKEN_KEY = "synqt-design-token";
 
 function sessionToken() {
@@ -3294,8 +3031,7 @@ async function load() {
     try {
         const answer = await request("GET", "api/project");
         state.backend = true;
-        // Over a real project there is nothing to start from. The project on disk is what
-        // this page is editing, and an example opened over it would throw that away.
+        // No examples over a real project.
         page.examples.hidden = true;
         adopt(answer.document);
         fit();
@@ -3318,8 +3054,7 @@ async function load() {
 }
 
 function wire() {
-    // Only ever on the drawing board, where it is the way out of a design this browser is
-    // holding. It clears the stored copy first, so a reload does not bring it straight back.
+    // Clear, on the drawing board only, drops the stored copy too.
     page.restart.addEventListener("click", async () => {
         const sure = await askPage({
             title: "Clear this design?",
@@ -3333,20 +3068,15 @@ function wire() {
         }
         await forgetDesign();
         state.seed = "";
-        // And out of the example the address named, so this is a blank canvas on a reload
-        // too rather than the example again.
+        // And the example in the address, so a reload stays blank.
         forgetInHash("example");
         adopt({version: 1, project: "", entities: [], links: []});
         page.restart.hidden = true;
         fit();
         say("Cleared. Drag an entity out of the rail to begin.");
     });
-    // Leaving is asked about once, and the browser is the one that asks. Every way out of
-    // this page fires this (the mark in the corner, a reload, the back button, the tab
-    // being closed), so a question of the page's own on top of it would make the mark in the corner
-    // ask twice, the page's box and then the browser's. What this decides is whether to ask at
-    // all. The words are the browser's, and an empty canvas has nothing to lose, so a page
-    // somebody opened, looked at and closed goes without an argument.
+    // The browser asks before leaving, once, unless the canvas is empty. Every way out fires
+    // this, so the page asks nothing of its own.
     window.addEventListener("beforeunload", (event) => {
         if ((state.design.entities || []).length) {
             event.preventDefault();
@@ -3358,8 +3088,7 @@ function wire() {
     page.canvas.addEventListener("pointerup", onUp);
     page.canvas.addEventListener("pointercancel", onUp);
     page.canvas.addEventListener("pointerleave", () => {
-        // The pointer has gone, so nothing is near anything any more and a redraw must not
-        // put the handles back.
+        // The pointer has gone, so a redraw must not put the handles back.
         state.pointer = null;
         hideTip();
         clearSlotsNear();
@@ -3388,13 +3117,11 @@ function wire() {
     page.review.addEventListener("click", () => review());
     page.apply.addEventListener("click", () => applyPlan());
     page.dockToggle.addEventListener("click", (event) => {
-        // The button answers for itself. Without this the click carries on to the strip
-        // below, which opens the pane the button has closed.
+        // Stop the click reaching the bar, which would reopen the pane.
         event.stopPropagation();
         showDock();
     });
-    // A collapsed pane is a strip along the bottom, and the whole strip opens it: a target
-    // that thin should not also be a target that small.
+    // A collapsed pane is a strip along the bottom, and the whole strip opens it.
     page.dockBar.addEventListener("click", (event) => {
         if (!state.files && !event.target.closest("button")) {
             showDock(true);
@@ -3410,18 +3137,14 @@ function wire() {
     page.sheetClose.addEventListener("click", () => {
         page.sheet.hidden = true;
     });
-    // Press, hold and sweep is how a node is dragged and how a link is pulled out of one.
-    // It is also how a browser is asked to select text, and it will start at the canvas and
-    // run the selection out into the rest of the page. Refused here, while a drag is in
-    // hand, rather than on the pointerdown: refusing a pointerdown suppresses the mouse
-    // events the browser makes from it, including the double click that renames an entity.
+    // No text selection during a drag. Refused here, not on pointerdown, which would also
+    // suppress the double click that renames an entity.
     document.addEventListener("selectstart", (event) => {
         if (drag) {
             event.preventDefault();
         }
     });
-    // The menu closes on anything that is not a choice from it: another click, a key, a
-    // scroll, a resize. Captured, so it goes before whatever the click was for.
+    // The menu closes on any other click, key or resize; captured, so it goes first.
     window.addEventListener("pointerdown", (event) => {
         if (!page.menu.hidden && !event.target.closest(".menu")) {
             closeMenu();
@@ -3459,14 +3182,11 @@ page.redo.replaceChildren(stepArrow(true));
 dress(page.exportAs, "download", "Export");
 dress(page.examples, "stack", "Examples");
 dress(page.restart, "clear", "Clear");
-// The same arrow on both panel handles, turned by CSS to point at the edge each one folds
-// to, and turned back once it is folded.
+// The same chevron on both panel handles, turned by CSS.
 page.inspectorHandle.replaceChildren(chevron());
 page.railHandle.replaceChildren(chevron());
-// Where there is no room for three columns, both panels start folded and the drawing gets
-// the window. A phone showing a rail, a strip of canvas and a panel is showing no design at
-// all. Crossing the width either way is the same decision made again, because a layout laid
-// out for one window is not the layout for the other.
+// Without room for three columns both panels start folded, and crossing the width either
+// way decides again.
 const roomy = window.matchMedia("(min-width: 62.01rem)");
 showRail(roomy.matches);
 showInspector(roomy.matches);

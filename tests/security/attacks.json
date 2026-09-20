@@ -1643,6 +1643,13 @@
       "defended_by": "A removal or rename applies to the contract of the point the entity owns. The browser test removes `say` from the edge of an example where the store also exports `say`, and requires the store's to stay.",
       "file": "tests/designer/verify.mjs",
       "test": "aRemovalStaysWithItsOwner"
+    },
+    {
+      "id": "a-canvas-rename-leaves-the-front-routing-on-the-old-name",
+      "what": "Renaming an entity from its menu on the canvas updated its connect point and the consumer lists but not a front's `behind:` routing, which the panel's rename did, so the front kept handing a scope's callers to an entity that no longer existed and synqt.yaml named it.",
+      "defended_by": "Both renames go through one function that carries the name into the routing. The browser test wires a front, renames the entity behind a scope from the canvas menu, and reads the routing in synqt.yaml.",
+      "file": "tests/designer/verify.mjs",
+      "test": "theFrontThatSplitsCallers"
     }
   ]
 }
