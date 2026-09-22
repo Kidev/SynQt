@@ -151,14 +151,15 @@ jobs:
           path: synqt/toolchain
           key: synqt-toolchain-${{ hashFiles('synqt.yaml') }}
 
-      # The commands `synqt doctor` prints when nothing is installed: the host kit with
-      # the four add-on modules SynQt links, the WebAssembly kit, QtRemoteObjects built
-      # from source for it (no prebuilt one exists), and the Emscripten the pin names.
+      # aqtinstall at the commit SynQt pins (no release lays out 6.12.0's kits), then the
+      # commands `synqt doctor` prints when nothing is installed: the host kit with the
+      # four add-on modules SynQt links, the WebAssembly kit, QtRemoteObjects built from
+      # source for it (no prebuilt one exists), and the Emscripten the pin names.
       - name: Provision the pinned toolchain
         if: steps.toolchain.outputs.cache-hit != 'true'
         run: |
           sudo apt-get install -y ninja-build
-          pip install aqtinstall
+          pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall@16db45a70b5905ad596941b223469bc86a56901e"
           aqt install-qt linux desktop 6.12.0 linux_gcc_64 \
             -m qthttpserver qtnetworkauth qtremoteobjects qtwebsockets -O synqt/toolchain/qt
           aqt install-qt all_os wasm 6.12.0 wasm_singlethread -m qtwebsockets -O synqt/toolchain/qt

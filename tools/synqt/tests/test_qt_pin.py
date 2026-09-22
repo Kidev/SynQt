@@ -91,14 +91,22 @@ def test_every_script_and_workflow_names_the_pinned_toolchain():
 
 _CI_AQT = re.compile(r"AQT_VERSION:\s*\"?([0-9a-f]{40}|\d+\.\d+\.\d+)")
 _PIP_AQT = re.compile(r"aqtinstall(?:==(\d+\.\d+\.\d+)|[^\n]*?aqtinstall@([0-9a-f]{40}))")
+_PIP_AQT_BARE = re.compile(r"pip3? install[^\n]*?\baqtinstall\b(?![=@ ]*[=@])")
+
+
+def unpinned_aqt(text):
+    """The `pip install` lines in `text` that name aqtinstall without a version."""
+    return [line.strip() for line in text.splitlines() if _PIP_AQT_BARE.search(line)]
 
 
 def test_every_workflow_installs_the_pinned_aqtinstall():
-    # aqt is pinned to a commit (see toolchain.AQT_VERSION); a branch or a moving tag is
-    # refused.
+    # aqt is pinned to a commit (see toolchain.AQT_VERSION); a branch, a moving tag or no
+    # version at all is refused. The docs are read too: a tutorial's workflow is copied.
     wrong = []
-    for path in _tracked(".github/**/*.yml", ".github/**/*.yaml"):
+    for path in _tracked(".github/**/*.yml", ".github/**/*.yaml", "docs/*.md"):
         text = path.read_text()
+        for line in unpinned_aqt(text):
+            wrong.append(f"{path.relative_to(ROOT)}: no version in `{line}`")
         for moving in ("aqtinstall@master", "aqtinstall@main", "aqtinstall.git@master",
                        "aqtinstall.git@main"):
             assert moving not in text, (
@@ -113,6 +121,13 @@ def test_every_workflow_installs_the_pinned_aqtinstall():
                 wrong.append(f"{path.relative_to(ROOT)}: aqtinstall {found}")
     assert not wrong, (f"these are not the pinned aqtinstall {toolchain.AQT_VERSION}: "
                        + ", ".join(wrong))
+
+
+def test_an_unversioned_aqtinstall_is_caught():
+    # The check above relies on this: a bare install would otherwise match nothing.
+    assert unpinned_aqt("          pip install aqtinstall\n") == ["pip install aqtinstall"]
+    assert unpinned_aqt(f'pip install "{toolchain.AQT_REQUIREMENT}"') == []
+    assert unpinned_aqt("pip install aqtinstall==3.3.0") == []
 
 
 def test_every_example_and_asset_carries_the_pinned_qt():
