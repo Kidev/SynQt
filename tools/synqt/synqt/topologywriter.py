@@ -188,6 +188,11 @@ def entity_topology(config: Dict[str, Any], entity: Dict[str, Any], project_dir:
         topology["provider"] = entity["provider"]
     elif entity.get("settings"):
         topology["settings"] = entity["settings"]
+    # The embedded engine always opens a named file, which the runtime refuses to go without.
+    database = appmodel.embedded_database_file(entity)
+    if database is not None:
+        block = "provider" if "provider" in topology else "settings"
+        topology[block] = dict(topology.get(block) or {}, file=database)
     schema = _schema_steps(root, entity)
     if schema:
         topology["schema"] = schema

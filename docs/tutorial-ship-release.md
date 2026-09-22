@@ -31,22 +31,27 @@ Adopt two habits from the first release:
 
 ## Step 2: Deploy it
 
-With the symlink layout, a deploy takes four commands and a rollback two.
+With the symlink layout, a deploy is a copy, the host's own files and a symlink, and a
+rollback is the symlink alone. Both end with a restart.
 
 ```cli
-# on each host
+# on each host: the release, and the certificates that stay with the host
 rsync -a gavel-v1.0.0/ /srv/gavel-v1.0.0/
-# the material that stays with the host, copied into the new tree in the same places
 cp -a /srv/gavel/synqt/mesh /srv/gavel-v1.0.0/synqt/
+# on the edge host: its env file
 cp -a /srv/gavel/web/edge/.env /srv/gavel-v1.0.0/web/edge/
+# on the books host: its env file
+cp -a /srv/gavel/db/relational/books/.env /srv/gavel-v1.0.0/db/relational/books/
+# on each host
 ln -sfn /srv/gavel-v1.0.0 /srv/gavel
-sudo systemctl restart gavel-books      # owners first, per process-manifest.json
-sudo systemctl restart gavel-edge
+sudo systemctl restart gavel-books      # on the books host first, per process-manifest.json
+sudo systemctl restart gavel-edge       # then on the edge host
 ```
 
-The certificates and env files belong to the host, not to the release. They are not build
-output and not in the artifact, as [Two authorities](tutorial-ship-certificates.md) set
-up.
+The certificates and env files belong to the host, not to the release: they stay outside
+the build output and the artifact, as [Two authorities](tutorial-ship-certificates.md) set
+up. The database stays outside every release too: the production profile keeps it in
+`/srv/gavel-data/books/`, so a deploy and a rollback both find it where it was.
 
 Restart in `start_order`. A consumer retries, so the reverse order survives, but the right
 order gives a restart nobody has to watch.
@@ -85,8 +90,8 @@ Plan for two consequences:
 
 ## Step 4: The desktop client, if you ship one
 
-The auction's client entity can also build as a native app. The deployment does not
-change: the app reaches the same edge over the same `wss://` link, holds no secret and no
+The auction's client entity can also build as a native app. The deployment stays the
+same: the app reaches the same edge over the same `wss://` link, holds no secret and no
 mesh certificate, and uses the same user sessions. What changes is that you now hand an
 executable to a stranger's machine.
 
@@ -104,8 +109,8 @@ synqt build --client desktop --release --deploy --sign "Developer ID Application
 synqt build --client desktop --release --deploy --unsigned
 ```
 
-Neither flag has a default, because the cost of not signing differs per platform, and only
-on one of them does the app refuse to run:
+You must pick one, because the cost of not signing differs per platform, and only one
+platform refuses to run the app:
 
 | Platform | Unsigned binary | Signing is |
 |----------|-----------------|------------|
@@ -113,11 +118,11 @@ on one of them does the app refuse to run:
 | Windows | runs, but SmartScreen warns every downloader about an unrecognised publisher | **strongly advised** |
 | Linux | runs normally, since there is no binary code signing | **not applicable**, sign the package |
 
-SynQt does not do two things, and says so:
+SynQt leaves two things to you, and says so:
 
-- **It does not notarize.** That needs your Apple credentials and a network round trip.
+- **Notarization.** That needs your Apple credentials and a network round trip.
   `DEPLOY.txt` gives you the `notarytool` command to run yourself.
-- **It does not cross compile a desktop app.** A native build uses the host's Qt kit, so
+- **Cross compiling a desktop app.** A native build uses the host's Qt kit, so
   you build the Windows app on Windows and the macOS app on macOS. A CI matrix with three
   runners, each running the same four commands, is the usual answer.
 
@@ -179,8 +184,8 @@ synqt mesh rotate books
 Then copy the new `books.crt` and `books.key` to the database host and restart that
 entity. The edge sees only a reconnect.
 
-Schedule an authority rotation. Every entity trusts exactly one CA certificate, so there is
-no overlap period: a new authority means new leaves everywhere and a coordinated restart.
+Schedule an authority rotation. Every entity trusts exactly one CA certificate, so the
+rotation has no overlap period: a new authority means new leaves everywhere and a coordinated restart.
 Put it in the calendar before the CA expires, which is twice the leaf lifetime away.
 
 ## What you learned
@@ -191,7 +196,7 @@ Put it in the calendar before the CA expires, which is twice the leaf lifetime a
   deploy against the production rules, before anything compiles.
 - A SynQt deployment is a project directory. Every path an entity reads is relative to it,
   so you can look at a host and see the whole system.
-- The CA private key is not a deployment input. It never reaches a host that runs an
+- The CA private key stays out of every deployment. It never reaches a host that runs an
   entity, or CI, because whoever holds it can impersonate any entity.
 - `build/process-manifest.json` is the start plan: owners before consumers, exactly one
   public bind, and the files each entity expects.

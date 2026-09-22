@@ -32,6 +32,7 @@
 
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QJSEngine>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -290,7 +291,7 @@ private:
         } else if (driver == QLatin1String("QMYSQL")) {
             // Not an oversight to fix by installing a package: Qt's prebuilt QMYSQL is
             // linked against Oracle's libmysqlclient with its versioned symbols, and SynQt
-            // may not convey that (GPLv2-only against LGPLv3 Qt. Docs/licensing.md). The
+            // may not convey that (GPLv2-only against LGPLv3 Qt; docs/licensing.md). The
             // plugin has to be rebuilt against MariaDB Connector/C.
             reason += QStringLiteral("; Qt's prebuilt one links Oracle's libmysqlclient, "
                                      "which SynQt cannot ship. Rebuild it with "
@@ -379,6 +380,30 @@ private slots:
         QCOMPARE(rows.rows.size(), 1);
         QCOMPARE(rows.rows.first().toMap().value(QStringLiteral("text")).toString(),
                  QStringLiteral("milk"));
+    }
+
+    // The scaffold names a file under a data/ directory nothing else creates. Unless the
+    // provider makes it, a new relational entity stops at "unable to open database file"
+    // on its first start.
+    void sqliteCreatesTheDirectoryOfItsFile()
+    {
+        const QString file{dbFile(QStringLiteral("not-yet/data/app.db"))};
+        QVERIFY(!QFileInfo::exists(QFileInfo{file}.absolutePath()));
+        SqliteProvider provider{sqliteConfig(file)};
+        QString error;
+        QVERIFY2(provider.connect(&error), qPrintable(error));
+        QVERIFY2(provider.migrate(kItemsSchema, &error), qPrintable(error));
+        QVERIFY(QFileInfo::exists(file));
+    }
+
+    // QSQLITE opens an empty name as a temporary database, so an entity would take writes
+    // and lose them on its next restart. No name is refused instead.
+    void sqliteRefusesADatabaseWithNoFile()
+    {
+        SqliteProvider provider{sqliteConfig(QString{})};
+        QString error;
+        QVERIFY(!provider.connect(&error));
+        QVERIFY2(error.contains(QLatin1String("no database file")), qPrintable(error));
     }
 
     void parameterizedValuesAreInjectionInert()
@@ -478,8 +503,12 @@ private slots:
         QVERIFY(!after.ok);
         QCOMPARE(after.error, QStringLiteral("provider not connected"));
 
+        // A directory the provider cannot create, because a file already holds its name.
+        QFile blocker{dbFile(QStringLiteral("a-file-not-a-directory"))};
+        QVERIFY(blocker.open(QIODevice::WriteOnly));
+        blocker.close();
         SqliteProvider nowhere{sqliteConfig(
-            dbFile(QStringLiteral("no/such/directory/at/all/file.db")))};
+            dbFile(QStringLiteral("a-file-not-a-directory/file.db")))};
         error.clear();
         QVERIFY(!nowhere.connect(&error));
         QVERIFY2(!error.isEmpty(), "a database that cannot be opened must say why");
@@ -867,9 +896,9 @@ private slots:
     void liveSwapSqliteAndMysqlAreObservablyIdentical()
     {
         // The same masking claim as the postgres swap above, for the third relational
-        // engine. mysql was the one family member with no live proof: everything past its
-        // connect call was reached by nothing, so "the same Source works" was an assertion
-        // about mysql rather than a measurement of it.
+        // engine. Without it everything past mysql's connect call would be reached by
+        // nothing, and "the same Source works" would be an assertion about mysql rather
+        // than a measurement of it.
         SqliteProvider sqlite{sqliteConfig(dbFile(QStringLiteral("swap-mysql.db")))};
         // Use `=`, not brace-init: QVariantList{aList} wraps the list as a single element.
         const QVariantList sqliteRows = runItemsSource(
@@ -1282,10 +1311,11 @@ private slots:
         cache->set(key, QStringLiteral("brief"), 30);
         QCOMPARE(cache->get(key).toString(), QStringLiteral("brief"));
 
-        // And the case that made the two providers disagree. A non-positive TTL means "no
+        // And the case where the two providers could disagree. A non-positive TTL means "no
         // expiry" in this family, as it does on set(); `EXPIRE key 0` means "expired
-        // already" to Redis, which deletes the key. So the same line of application QML
-        // kept the value forever against the memory provider and dropped it against Redis.
+        // already" to Redis, which deletes the key. Passed through, the same line of
+        // application QML would keep the value forever against the memory provider and drop
+        // it against Redis.
         cache->expire(key, 0);
         QCOMPARE(cache->get(key).toString(), QStringLiteral("brief"));
         cache->expire(key, -1);
@@ -1771,8 +1801,8 @@ private slots:
 
     // The allowlist is a place rather than a string.
     //
-    // `normalized.startsWith(endpoint.url)` lets three kinds of URL out of a declared
-    // prefix: the userinfo shape (`https://api.example.com@evil.test/`, whose host is
+    // A plain `normalized.startsWith(endpoint.url)` would let three kinds of URL out of a
+    // declared prefix: the userinfo shape (`https://api.example.com@evil.test/`, whose host is
     // evil.test and whose *string* begins with the prefix), a suffix on the host
     // (`api.example.com.evil.test`), and a suffix on the last path segment (`/v1evil` under
     // `/v1`). The endpoint's declared headers are attached to whatever gets through, so the

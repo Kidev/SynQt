@@ -194,6 +194,28 @@ def generated_dir(project_dir: os.PathLike[str] | str) -> Path:
     return Path(project_dir) / GENERATED_DIR
 
 
+def embedded_database_file(entity: Dict[str, Any]) -> Optional[str]:
+    """The SQLite file a relational entity on the embedded engine opens, or None for any
+    other entity.
+
+    ``settings.file`` (or ``provider.file`` under ``provider: {name: sqlite}``) when written,
+    and otherwise ``<entity dir>/data/app.db``, the path ``synqt add entity`` scaffolds.
+    """
+    if entity_type(entity) != "relational":
+        return None
+    provider = entity.get("provider")
+    if isinstance(provider, dict):
+        if str(provider.get("name") or "").strip() != "sqlite":
+            return None
+        written = provider.get("file")
+    else:
+        settings = entity.get("settings")
+        written = settings.get("file") if isinstance(settings, dict) else None
+    if isinstance(written, str) and written.strip():
+        return written.strip()
+    return f"{entity_dir(entity)}/data/app.db"
+
+
 def entity_dirs(config: Dict[str, Any]) -> Dict[str, str]:
     """Every entity's folder, by entity name."""
     return {str(entity.get("name") or ""): entity_dir(entity)

@@ -95,6 +95,33 @@ class EntityTopologyTest(unittest.TestCase):
         self.assertEqual(topology["provider"]["name"], "postgres")
         self.assertEqual(topology["provider"]["password"], "env:DB_PASSWORD")
 
+    def test_an_embedded_database_without_a_file_gets_the_scaffolded_one(self):
+        # With no file the runtime opened a temporary database and lost it on restart.
+        entity = {"name": "books", "type": "relational"}
+        config = dict(self.config, entities=self.config["entities"] + [entity])
+        topology = topologywriter.entity_topology(config, entity, self.root, self.endpoints)
+        self.assertEqual(topology["settings"], {"file": "db/relational/books/data/app.db"})
+        self.assertNotIn("provider", topology)
+
+    def test_a_named_sqlite_provider_without_a_file_gets_it_too(self):
+        entity = {"name": "store", "type": "relational", "provider": {"name": "sqlite"}}
+        config = dict(self.config, entities=self.config["entities"] + [entity])
+        topology = topologywriter.entity_topology(config, entity, self.root, self.endpoints)
+        self.assertEqual(topology["provider"],
+                         {"name": "sqlite", "file": "db/relational/store/data/app.db"})
+
+    def test_a_written_file_and_an_external_engine_are_kept(self):
+        written = {"name": "books", "type": "relational",
+                   "settings": {"file": "/var/lib/books/app.db", "journal_mode": "wal"}}
+        config = dict(self.config, entities=self.config["entities"] + [written])
+        topology = topologywriter.entity_topology(config, written, self.root, self.endpoints)
+        self.assertEqual(topology["settings"],
+                         {"file": "/var/lib/books/app.db", "journal_mode": "wal"})
+        postgres = topologywriter.entity_topology(
+            self.config, self.config["entities"][2], self.root, self.endpoints)
+        self.assertNotIn("file", postgres["provider"])
+        self.assertNotIn("settings", postgres)
+
     def test_schema_sql_is_split_into_forward_only_steps(self):
         (self.root / "db/relational/database").mkdir(parents=True)
         (self.root / "db/relational/database" / "schema.sql").write_text(

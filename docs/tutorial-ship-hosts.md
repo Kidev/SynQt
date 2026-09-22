@@ -51,19 +51,28 @@ The books host:
   db/relational/books/
     .env
     schema.sql
-    data/             # the SQLite file lives here
+/srv/gavel-data/books/
+  app.db              # the database, outside the project directory
+```
+
+Create the data directory once, owned by the user the entity runs as, since that user
+cannot create anything under `/srv`:
+
+```cli
+sudo install -d -o gavel -g gavel /srv/gavel-data/books
 ```
 
 Three points about these trees:
 
 - **Entity source directories travel, but only for run time files.** On a host,
-  `db/relational/books/` holds `.env`, `schema.sql` and `data/`. The QML the entity runs
+  `db/relational/books/` holds `.env` and `schema.sql`. The QML the entity runs
   is the copy `synqt build` wrote under `generated/`, which travels beside it.
 - **`synqt.yaml` travels,** because the entities use the paths it spells. So does the
   profile, because each entity resolves the same layers the build did.
-- **The data is not in `build/`.** A relational entity opens the file its `settings` name,
-  in its own directory. So `synqt clean` cannot delete your database, and your backup job
-  points at `db/relational/books/data/`, not at the build output.
+- **The data lives outside the project directory.** A relational entity opens `settings.file`,
+  by default `data/app.db` in its own directory. The production profile moves it to
+  `/srv/gavel-data/books/`, so neither `synqt clean` nor a new release can take it, and your
+  backup job points there.
 
 ## Step 2: Qt has to be there
 
@@ -144,7 +153,7 @@ synqt serve --profile production
 `synqt serve` starts each entity from the project root in manifest order, then returns.
 Open the site, place a bid, close a lot, and check that the Hall of Fame remembers it.
 
-`synqt serve` does not supervise: it does not restart an entity that dies, hence the next
+`synqt serve` leaves supervision to you: an entity that dies stays down, hence the next
 step. It also passes `--dev` to nothing, which keeps the development sign-in and the
 plaintext localhost link out of a deployment. Use it to bring up a staging machine by hand
 and to check the tree works. Use a process manager for anything that must stay up.
@@ -176,7 +185,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/gavel/db/relational/books/data
+ReadWritePaths=/srv/gavel-data/books
 
 [Install]
 WantedBy=multi-user.target
@@ -212,9 +221,9 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 WantedBy=multi-user.target
 ```
 
-`After=` on the database unit follows `start_order`, and like the manifest it is only
-advice: the edge would retry anyway. But a boot where the link comes up at once gives
-logs you can read.
+`After=gavel-books.service` on the edge unit follows `start_order`. It orders the two only
+when both run on one host, and like the manifest it is advice: the edge would retry
+anyway. But a boot where the link comes up at once gives logs you can read.
 
 ```cli
 sudo systemctl enable --now gavel-books
@@ -229,8 +238,8 @@ The topology says the database is private. Make the network agree.
   port nor SSH to the world.
 - **The database host exposes its mesh port only to the edge host,** through a security
   group, a firewall rule or a private subnet, whatever your hosting offers.
-- **Mesh links use mutual TLS everywhere,** so a database reachable by accident is not
-  immediately fatal. That is the second line of defense, not the first. See
+- **Mesh links use mutual TLS everywhere,** so a database reachable by accident still
+  refuses strangers. That is the second line of defense, after the network. See
   [network segmentation and the database](security.md#network-segmentation-and-the-database).
 
 ## Try it, then think
@@ -263,8 +272,8 @@ unit sets.
 
 ## Advice worth taking now
 
-- **Back up `db/relational/books/data/`, not `build/`.** A commit reproduces the build;
-  nothing reproduces the data.
+- **Back up `/srv/gavel-data/`, not `build/`.** A commit reproduces the build; nothing
+  reproduces the data.
 - **Use the same project root path on every host.** `/srv/gavel` on both means one unit
   template and one runbook.
 - **Log to the journal.** The entities write to standard error, and systemd captures it.

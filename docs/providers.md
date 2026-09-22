@@ -48,7 +48,7 @@ flowchart LR
 
 The entity sits between the two, so the engine stays hidden. A consumer cannot reach the
 engine, see its credentials, or bypass the `Caller` checks the entity runs before any
-provider call. Swapping SQLite for MongoDB changes the provider and its config, and
+provider call. Swapping SQLite for PostgreSQL changes the provider and its config, and
 nothing else.
 
 ## Entity types define a provider family and interface
@@ -98,7 +98,7 @@ headers):
   `find(collection, filter, options) -> docs`, `update(collection, filter, change)`,
   `remove(collection, filter)`.
 - **Cache:** `connect()`, `health()`, `get(key)`, `set(key, value, ttl)`, `del(key)`,
-  `incr(key)`, `expire(key, ttl)`. A TTL of zero or less means no expiry, for `expire` as
+  `incr(key, by)`, `expire(key, ttl)`. A TTL of zero or less means no expiry, for `expire` as
   well as `set`. This is spelled out because engines disagree: Redis treats
   `EXPIRE key 0` as "already expired" and deletes the key, so a Redis provider must send
   `PERSIST` instead. Otherwise the same line of QML would keep a value forever behind one
@@ -189,7 +189,7 @@ worse than none.
 
 Document and cache providers wrap an external client library, because Qt has no official
 MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client, and the Redis
-provider wraps a Redis client (or speaks RESP over Qt Network). These libraries come
+provider wraps hiredis. These libraries come
 through the pinned vcpkg baseline and are reviewed. SynQt wraps a maintained client behind
 the entity instead of reimplementing the engine, so the rest of the system never speaks
 Mongo.
@@ -208,7 +208,9 @@ default.
 ## Selecting a provider: graduated configuration
 
 **Default.** A relational entity with no provider line uses the embedded SQLite provider.
-This is the common case and needs nothing more.
+This is the common case and needs nothing more. With no `settings.file`, the entity opens
+`<entity dir>/data/app.db`, the path `synqt add entity` writes, and creates the directory
+on its first start.
 
 ```yaml
 entities:
@@ -359,10 +361,9 @@ synqt add provider <name> --family <fam>  # Scaffold a custom provider skeleton 
                                            # implements a family interface.
 ```
 
-When you select a provider that needs a native client library or a Qt SQL driver plugin,
-the build resolves it. For a relational provider, it builds or finds the matching Qt SQL
-driver plugin (SQLite needs nothing; it is bundled). For a document or cache provider, it
-adds the pinned vcpkg client library. `synqt doctor` reports any provider whose engine
+A relational provider loads its Qt SQL driver plugin from the kit at run time: SQLite needs
+nothing, and `mysql` needs the plugin build described above. For a document or cache
+provider, the build adds the pinned vcpkg client library. `synqt doctor` reports any provider whose engine
 client or driver plugin is missing, before you run.
 
 ## Security of third party backends
@@ -392,7 +393,7 @@ it too. [Security](security.md) has the full treatment. For providers:
 
 In the entity model, the contract is the stable boundary, and the backend can change
 without touching consumers. Providers deliver on that. The same `store` entity can run on
-embedded SQLite during early development and on a managed PostgreSQL or MongoDB cluster in
+embedded SQLite during early development and on a managed PostgreSQL or MySQL server in
 production, chosen by one config value. The mesh authentication, the `Caller`
 authorization, the contract's data minimization and the topology that denies by default
 all stay the same. The embedded provider needs no configuration; a third party engine

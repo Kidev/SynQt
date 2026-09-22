@@ -18,7 +18,8 @@ the first red pipeline is a real failure.
 
 Your `gavel` project has one topology. Production changes a few of its values: the port
 the edge listens on, the address browsers reach it at, and where each entity is reached on
-the private network. Do not copy the file; put the differences in a profile beside it.
+the private network. Put the differences in a profile beside it instead of copying the
+file.
 
 Create `synqt.production.yaml` in the project root:
 
@@ -36,18 +37,23 @@ entities:
   - name: books
     mesh:
       host: 10.0.0.20
+    settings:
+      file: /srv/gavel-data/books/app.db
 ```
 
 An entity in a profile is matched by its `name`, and only the keys written under it change.
 The edge keeps the `tls:` block `synqt.yaml` gives it, and every other entity is untouched.
+The books entity's database moves out of the project directory, so a new release never
+starts on an empty one ([Where the binaries go](tutorial-ship-hosts.md) explains the
+layout).
 
 Two properties of this file matter more than its values.
 
-**It adds and changes, and never removes.** There is no syntax for dropping a consumer or
-an entity: removing one is a security change and belongs in the file that declares the
-list. A profile you can read in ten seconds cannot quietly widen anything.
+**It adds and changes, and never removes.** A profile has no syntax for dropping a
+consumer or an entity: removing one is a security change and belongs in the file that
+declares the list. A profile you can read in ten seconds cannot quietly widen anything.
 
-**It holds no secrets.** The database password is not here and never will be. Secrets come
+**It holds no secrets.** The database password stays out of it. Secrets come
 only from a per entity env file, covered in
 [Two authorities](tutorial-ship-certificates.md). The validator refuses a secret in a
 profile.
@@ -80,7 +86,7 @@ over plaintext; give it tls.cert_file and tls.key_file, or set
 public.tls_terminated_upstream: true if a reverse proxy in front of it terminates TLS
 ```
 
-There is no third option and no default: guessing here would mean guessing whether your
+The check offers no default: guessing here would mean guessing whether your
 users' traffic is encrypted. Put the block back.
 
 One rule does not fire here: a missing mesh certificate. Certificates come from a private
@@ -112,8 +118,11 @@ ls build
 ```
 
 ```text
-client/  books/  edge/  process-manifest.json
+books/  client/  edge/  host-release/  process-manifest.json  wasm-singlethread-release/
 ```
+
+The two `-release` directories are the CMake build trees. What deploys is one directory
+per entity and the manifest.
 
 ## Step 4: Write the workflow
 
@@ -214,8 +223,8 @@ Five points matter:
   directory whose parts find each other by relative path, so an artifact with only
   `build/` cannot start. [Where the binaries go](tutorial-ship-hosts.md) describes that
   layout; the upload list above is the short version.
-- **Nothing in this workflow can issue a certificate.** There is no CA key in the
-  repository or in the secrets. A pipeline that could create a mesh identity could
+- **This workflow cannot issue a certificate.** The repository and its secrets hold no
+  CA key. A pipeline that could create a mesh identity could
   impersonate any entity in your system, and CI is the part of your infrastructure with
   the most people and the most third party code. Issuing stays manual, and happens
   elsewhere.

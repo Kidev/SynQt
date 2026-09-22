@@ -213,7 +213,9 @@ def write_gitignore(root: Path) -> None:
         # machine-specific.
         "synqt/mesh/dev/\nsynqt/mesh/docker-ca.crt\n.env\n"
         # The people this developer signs in as under `synqt dev --identity-picker`.
-        f"{devidentities.FILE_NAME}\n", encoding="utf-8")
+        f"{devidentities.FILE_NAME}\n"
+        # Where a relational entity on the embedded engine keeps its database.
+        "db/relational/*/data/\n", encoding="utf-8")
 
 
 def scaffold(parent_dir: os.PathLike[str] | str, name: str, *,

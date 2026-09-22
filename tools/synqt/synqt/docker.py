@@ -219,9 +219,8 @@ def engine_service_name(entity_name: str, engine: str) -> str:
 def embedded_data_dirs(config: Dict[str, Any]) -> Dict[str, str]:
     """The data directory of each embedded-engine entity, by entity name.
 
-    An entity on `sqlite` owns a file under its directory (`settings.file`,
-    `<entity>/data/app.db` as scaffolded). The directory must exist before the provider
-    opens the file, and must be a volume so a rebuild keeps the data.
+    An entity on `sqlite` owns a file under its directory (`settings.file`, by default
+    `<entity dir>/data/app.db`). The directory must be a volume so a rebuild keeps the data.
     """
     external = {entity["name"] for entity, _, _ in engines(config)}
     dirs: Dict[str, str] = {}
@@ -229,12 +228,10 @@ def embedded_data_dirs(config: Dict[str, Any]) -> Dict[str, str]:
         name = entity.get("name")
         if name in external:
             continue
-        settings = entity.get("settings")
-        settings = settings if isinstance(settings, dict) else {}
-        path = settings.get("file")
-        if not isinstance(path, str) or not path.strip():
+        path = appmodel.embedded_database_file(entity)
+        if path is None:
             continue
-        parent = PurePosixPath(path.strip()).parent
+        parent = PurePosixPath(path).parent
         # A file in the project root gets no volume; it would hide the build.
         if str(parent) not in (".", "", "/"):
             dirs[name] = str(parent)

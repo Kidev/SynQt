@@ -5,6 +5,8 @@
 
 #include "sqlsupport.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStringList>
@@ -57,6 +59,22 @@ QString SqliteProvider::name() const
 
 bool SqliteProvider::connect(QString *error)
 {
+    // QSQLITE opens an empty name as a temporary database that is deleted on close, so an
+    // entity would start, take writes and lose them all on its next restart.
+    if (m_config.file.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("the sqlite provider has no database file");
+        }
+        return false;
+    }
+    // The file's directory is the entity's to create, as the file is.
+    if (m_config.file != QLatin1String(":memory:")
+        && !QDir{}.mkpath(QFileInfo{m_config.file}.absolutePath())) {
+        if (error) {
+            *error = QStringLiteral("cannot create the directory of %1").arg(m_config.file);
+        }
+        return false;
+    }
     m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
     m_db.setDatabaseName(m_config.file);
     // A busy database retries up to the timeout rather than failing immediately.

@@ -222,6 +222,15 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("store-data", compose["volumes"])
         self.assertIn("store-data:/app/store/data", compose["services"]["store"]["volumes"])
 
+    def test_an_embedded_database_with_no_file_still_gets_its_volume(self):
+        # The runtime opens the scaffolded path when none is written, so that is the volume.
+        config = _config()
+        store = next(entity for entity in config["entities"] if entity["name"] == "store")
+        store.pop("settings", None)
+        store.pop("provider", None)
+        self.assertEqual(docker.embedded_data_dirs(config),
+                         {"store": "db/relational/store/data"})
+
     def test_an_entity_on_an_engine_gets_no_second_data_volume(self):
         # Its data belongs to the engine, which has one of its own.
         config = _with_engine()
