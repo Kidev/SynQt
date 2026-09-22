@@ -87,11 +87,14 @@ class GeneratedCMakeTest(unittest.TestCase):
         text = cmakegen.render_tests_cmakelists(CONFIG)
         self.assertIn('synqt_add_contract(app_tests ROLE source '
                       'SYN "${SYNQT_APP_ROOT}/generated/web/web/Web.syn")', text)
-        # The ledger is consumed by a service, so its slots carry the forwarded session here
-        # too.
-        self.assertIn('synqt_add_contract(app_tests ROLE source FORWARDS_SESSION '
-                      'SYN "${SYNQT_APP_ROOT}/generated/db/relational/database/Database.syn")', text)
         self.assertNotIn("ROLE replica", text)
+
+    def test_a_contract_a_service_consumes_also_gets_its_consumer_half(self):
+        # The edge's Source reads `Database`, so the runner needs the facade too. Its slots
+        # carry the forwarded session, as on the edge.
+        text = cmakegen.render_tests_cmakelists(CONFIG)
+        self.assertIn('synqt_add_contract(app_tests ROLE both FORWARDS_SESSION '
+                      'SYN "${SYNQT_APP_ROOT}/generated/db/relational/database/Database.syn")', text)
 
     def test_the_target_lives_in_its_own_directory(self):
         # In its own directory: repc writes into the directory's binary dir.
@@ -114,6 +117,28 @@ class GeneratedRunnerTest(unittest.TestCase):
         self.assertIn("void synqtRegisterDatabaseSources();", text)
         self.assertIn("SynQt::registerTestTypes();", text)
         self.assertIn("QUICK_TEST_MAIN_WITH_SETUP", text)
+
+    def test_it_declares_what_each_owner_consumes(self):
+        # The web edge consumes the database. The client consumes the web edge, but a
+        # client is never under test, so nothing is declared for it.
+        text = maingen.render_tests_main(CONFIG)
+        self.assertIn('SynQt::declareConsumedPoint(QStringLiteral("Web"), '
+                      'QStringLiteral("Database"),\n'
+                      '                                    QStringLiteral("Database"), '
+                      'QStringLiteral("database"));', text)
+        self.assertEqual(text.count("declareConsumedPoint"), 1)
+
+    def test_a_consumed_contract_is_one_type_with_both_sides(self):
+        # Database.qml is rooted at `Database`, and Web.qml writes `Database.onReadyChanged:`.
+        # One process holds both, so the last registration of the name must carry both.
+        text = maingen.render_tests_main(CONFIG)
+        self.assertIn("class DatabaseTestType : public DatabaseSourceHelper", text)
+        self.assertIn("QML_ATTACHED(DatabaseConsumer)", text)
+        order = [text.index("synqtRegisterDatabaseSources();\n"),
+                 text.index("synqtRegisterDatabaseConsumers();"),
+                 text.index('qmlRegisterType<DatabaseTestType>("SynQt", 1, 0, "Database");')]
+        self.assertEqual(order, sorted(order))
+        self.assertNotIn("WebTestType", text)
 
     def test_it_carries_no_test_logic(self):
         # The runner only registers types.

@@ -7,9 +7,8 @@ The framework puts a small set of objects into your QML. This page is the refere
 each: every member, its type, where it is available, and what it does. The
 [programming model](programming-model.md) introduces them.
 
-There is no global `Server`, `Session` or `Client` singleton to import and no base class to
-subclass. Each accessor exists only where it makes sense: the client accessors only in the
-client entity's QML, `Caller` only inside a connect point slot on the owner, and the
+Each accessor exists only where it makes sense, with no global singleton to import and no
+base class to subclass: the client accessors only in the client entity's QML, `Caller` only inside a connect point slot on the owner, and the
 generated Source members only in an owned connect point's implementation.
 
 ## Which accessor exists where
@@ -20,6 +19,7 @@ generated Source members only in an owned connect point's implementation.
 | `Session` | client entity QML | read-only session state, plus `login()` / `logout()` |
 | `Router` | client entity QML | scope-gated navigation over the route table, and the browser's address bar |
 | `App` | client entity QML | the running client itself: whether a newer build is ready, and applying it |
+| `Graphics` | client entity QML | whether this browser draws without acceleration, and whether the page asked for what it could not draw |
 | `Privacy` | client entity QML | what the project declared about a visitor's data, and what this visitor answered |
 | `Caller` | any owner slot (any entity) | who invoked this slot: a browser user, or a calling entity |
 | `Client` | web edge owner slots | alias for `Caller` when the caller is a browser user |
@@ -66,7 +66,9 @@ Notes:
   owner; a slot with no return type is fire and forget. The contract decides this, not
   `Server`.
 - **A slot called while `Server.ready` is false does not reach the owner.** A returning
-  slot's promise rejects, and a slot with no return type is dropped.
+  slot's promise rejects, and a slot with no return type is dropped. Either way the
+  runtime warns: `SynQt: the 'Edge' connect point is not available, so placeBid() was not
+  sent`.
 
 ---
 
@@ -205,7 +207,7 @@ them, so one binding on any of the three sees a consistent set.
 | `Forbidden` | a route matched, but it declares a `scope` the session lacks. `path` is now `router.fallback` and the fallback's view is showing. The refused path is remembered for [after login](#returning-to-the-page-that-was-refused). |
 | `NotFound` | nothing in the route table matched. `path` is now `router.fallback`, the fallback's view is showing, and the query the unmatched path carried is dropped. |
 | `Unsupported` | the route declares [`graphics: accelerated`](project-layout-and-config.md#graphics-which-routes-need-an-accelerated-scene-graph) and this browser gave Qt no accelerated scene graph, so the page cannot be drawn. Unlike a scope refusal this is not a redirect. `path` is still the path that was asked for, and `pageComponent` is the notice, so a `Loader` bound to it shows the notice where the page would have been. |
-| `Error` | there is no page to show. A compiled-in view failed to load, because it does not compile or because its URL names nothing, or a [remote page](remote-pages.md) arrived but could not be shown, because no loader is present to resolve it, or the delivered page was refused by the [palette](remote-pages.md#the-palette-what-a-delivered-page-may-import) or would not compile. An edge refusal is not this. A scope refusal reports `Forbidden` and a route the edge does not know reports `NotFound`. A route that declares neither a `view` nor a `remote` in `synqt.yaml` never becomes a page at all. `synqt check` reports it, and `synqt build` refuses to generate it. `Error` also wins over `Forbidden` and `NotFound` when it is the fallback's own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
+| `Error` | the router has no page to show. A compiled-in view failed to load, because it does not compile or because its URL names nothing, or a [remote page](remote-pages.md) arrived but could not be shown, because no loader is present to resolve it, or the delivered page was refused by the [palette](remote-pages.md#the-palette-what-a-delivered-page-may-import) or would not compile. An edge refusal reports something else: a scope refusal reports `Forbidden` and a route the edge does not know reports `NotFound`. A route that declares neither a `view` nor a `remote` in `synqt.yaml` never becomes a page at all. `synqt check` reports it, and `synqt build` refuses to generate it. `Error` also wins over `Forbidden` and `NotFound` when it is the fallback's own view that failed, because a broken fallback is the more urgent fact and is what an app has to surface first. |
 
 `Router` is a context property, not a registered QML type, so these value names are not in
 scope in QML: `pageStatus` reads as an integer, counting from zero in the table's order.
@@ -263,7 +265,7 @@ The router re-resolves the current route on every scope change, in both directio
   may no longer see, and corrects the address bar, so a refresh does not lead back into the
   redirect.
 
-Neither counts as a navigation, so neither adds a history entry.
+Both happen outside navigation, so neither adds a history entry.
 
 ### Returning to the page that was refused
 
@@ -273,7 +275,7 @@ follows a link to `/admin`, signs in, and then holds `admin` lands on `/admin`, 
 home page without explanation.
 
 Reading the remembered path clears it, whether or not it was usable, so a stale intent
-cannot steer a later visit. Navigating elsewhere does not clear it: a visitor refused at
+cannot steer a later visit. The path survives navigating elsewhere: a visitor refused at
 `/admin` who then browses to `/products` and signs in there still goes to `/admin`, the page
 they asked for.
 
@@ -281,7 +283,7 @@ Whoever showed the visitor the link controls the stored path, so it is validated
 use. See [deep links and the login resume](security.md#deep-links-and-the-login-resume) for
 the rules and their reasons.
 
-A route guard redirects; it keeps nothing secret. The client is one compiled bundle, so
+A route guard only redirects. The client is one compiled bundle, so
 every view's QML ships to every visitor. Guards steer navigation, and a privileged view's
 data still arrives only through scope-gated connect points, which the edge refuses to a
 session below their scope. See
@@ -333,7 +335,7 @@ Qt's raster adaptation, and `Graphics` tells the app.
 | `Graphics.isSoftwareRendered` | bool | the client is drawing on the raster adaptation, because this browser offered no accelerated one. |
 | `Graphics.hasUnsupportedContent` | bool | something on the current page asked for the accelerated pipeline and could not be drawn. |
 
-You need not handle either. A route marked
+Handling either is optional. A route marked
 [`graphics: accelerated`](project-layout-and-config.md#graphics-which-routes-need-an-accelerated-scene-graph)
 is replaced by a notice automatically, and content elsewhere that needs acceleration shows
 the same notice over the page, leaving whatever did render in place. Bind to these only to
@@ -482,7 +484,7 @@ The scope travels with the session; its meaning does not. `scopes.order` is conf
 for the edge, the entity that authenticates people and the only one that raises a scope, so
 only the edge knows the hierarchy. On a service, `Caller.hasScope("user")` and a `<user>`
 member gate are exact matches on the session's one scope name, so `Caller.hasScope("user")`
-is false for a moderator. Nothing is silently allowed: an unknown name is refused.
+is false for a moderator. An unknown name is refused, never silently allowed.
 
 This is by design. Authorizing the person is the edge's job, because the edge knows who
 they are. A service authorizes the calling entity by its certificate, and reads the session
@@ -556,9 +558,9 @@ exposes:
 
 Both names follow the model name: `model winners(...)` gives `winnersRows` and
 `setWinners(rows)`, and `model players(...)` gives `playersRows` and `setPlayers(rows)`.
-Today the owner replaces rows wholesale; finer updates would be an optimization behind the
-same declaration. Declare a role `var` only where it really holds anything, because the
-type is what lets the boundary refuse a wrong value.
+The owner replaces the rows wholesale on every publish. Declare a role `var` only where
+it really holds anything, because the type is what lets the boundary refuse a wrong
+value.
 
 These two are the only way into a model. A model flows from the owner to its consumers and
 no further, and the boundary refuses a consumer's write, even though the underlying Qt type
@@ -611,8 +613,8 @@ a gateway that declares nothing cannot. Without a `network:` block, neither name
 scope.
 
 Errors are reported, never thrown across the QML boundary. A failed call returns an empty
-result, and for `Db` also sets `Db.lastError` and emits `Db.errorOccurred`. No helper ever
-logs the credentials it was configured with; they stay inside the provider.
+result, and for `Db` also sets `Db.lastError` and emits `Db.errorOccurred`. The
+credentials a helper was configured with stay inside the provider and never reach a log.
 
 ### `Db`: relational persistence
 
@@ -624,8 +626,8 @@ logs the credentials it was configured with; they stay inside the provider.
 | `Db.errorOccurred(message)` | signal | emitted when a statement fails. |
 
 `params` is an array bound to the `?` placeholders in `sql`, the only way to put a value
-into a statement. No overload takes a finished SQL string, so a value can never become
-SQL:
+into a statement. Every overload keeps the values apart from the SQL text, so a value can
+never become SQL:
 
 ```qml
 // Correct: the value is a parameter.
@@ -822,10 +824,10 @@ hunt, and `Log.info("saved rows", { rows: count })` does not.
 The runtime stamps the entity's name, below anything QML can reach, so no entity can record
 under another's name. The same code withholds values: an attribute whose name names a
 credential (`password`, `passphrase`, `secret`, `token`, `authorization`, `cookie`,
-`credential`, `bearer`, and `api key` or `private key` in any spelling, matched anywhere
-in the name, in any case) is recorded as `[redacted]`, so
+`credential`, `bearer`, and `apikey` or `privatekey` written whole or with `_` or `-`,
+matched anywhere in the name, in any case) is recorded as `[redacted]`, so
 `Log.warn("refused", { authorization: header })` does not put a bearer token in the
-console. It reads names, never values, so it is a backstop, not a license: a credential
+console. It reads names, never values, so it only backs up careful call sites: a credential
 under a name that does not say so is recorded like anything else, and the message, which
 is prose, is never changed. See [security](security.md#logging-and-observability).
 
@@ -873,8 +875,8 @@ The framework manages each accessor's lifecycle:
   the current route on every scope change, so a scope-gated page is refused at startup and
   reached once the session holds the scope. See
   [deep links, refreshes, and scope changes](#deep-links-refreshes-and-scope-changes).
-- **`Caller` exists only during a slot call from a consumer.** Do not keep it for later;
-  read what you need inside the slot.
+- **`Caller` exists only during a slot call from a consumer.** Read what you need inside
+  the slot instead of keeping it for later.
 - **Every link runs a QtRO heartbeat,** so a dropped connection is noticed quickly and
   `Session.state` shows it. See
   [connection lifecycle and offline behavior](programming-model.md#connection-lifecycle-and-offline-behavior).

@@ -21,6 +21,7 @@ namespace SynQt {
 
 class Cache;
 class Caller;
+class ConsumerBase;
 class Db;
 class Docs;
 class ICacheProvider;
@@ -130,6 +131,7 @@ private:
     QString m_contract;
     QString m_errorString;
     QObject *m_subject{nullptr};
+    QList<ConsumerBase *> m_neighbours;
     QQmlContext *m_context{nullptr};
     QQmlEngine *m_engine{nullptr};
 
@@ -159,6 +161,13 @@ private:
 /// Register `EntityTest` under the import `SynQt.Test`. The generated test main calls it;
 /// nothing else does, which is what keeps the harness out of a running entity.
 void registerTestTypes();
+
+/// Declare that the entity owning `ownerContract` consumes `contract` at `point`, read in
+/// QML as `accessor`. The generated test main declares the whole topology through this.
+/// load() installs each declared point as the runtime does before the link opens: the
+/// accessor exists and is never ready, so a call through it reaches nothing.
+void declareConsumedPoint(const QString &ownerContract, const QString &accessor,
+                          const QString &contract, const QString &point);
 
 } // namespace SynQt
 

@@ -15,27 +15,34 @@ QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/entity-test/run-entitytest.sh
 
 [`web/Ledger.qml`](web/Ledger.qml) is an ordinary owner implementation. It is written
 exactly as an application would write one and knows nothing about a harness. That is what
-makes the suite mean anything, so nothing in it may be adjusted to make a test pass. It authorizes a user by scope, refuses a bid that does not beat the standing one,
-answers each refusal to the one caller, and gates its permanent record on the calling
-entity.
+makes the suite mean anything, so nothing in it may be adjusted to make a test pass. It
+authorizes a user by scope, refuses a bid that does not beat the standing one, answers
+each refusal to the one caller, and gates its permanent record on the calling entity.
 
 [`qml/tst_ledger.qml`](qml/tst_ledger.qml) is the test, and it is the same file an
-application author writes: `TestCase`, `SignalSpy`, and one `EntityTest`. There is no C++
-in it and no database, server or certificate behind it.
+application author writes: `TestCase`, `SignalSpy`, and one `EntityTest`. It holds no
+C++, and no database, server or certificate stands behind it.
 
-[`tst_entitytest.cpp`](tst_entitytest.cpp) is the runner, and it is two registrations
-and nothing else. `synqt test` generates the same file for an application
+[`tst_entitytest.cpp`](tst_entitytest.cpp) is the runner, and it is registrations and
+nothing else. `synqt test` generates the same file for an application
 (`cmakegen.render_tests_cmakelists` and `maingen.render_tests_main`). If this one grows
 logic, the generated one is wrong.
+
+The Ledger consumes [`database/Database.qml`](database/Database.qml), so the runner
+registers `Database` once with both sides: the root type of the database's own file and
+the attached type behind `Database.onRecorded:` in the Ledger. The harness installs the
+database beside the Ledger as the runtime does before the link opens, never ready. A slot
+that calls into it fails its test, which the `entity-test-dropped-call` ctest pins by
+running [`qml-dropped/`](qml-dropped/) and passing only on that failure.
 
 ## Why the Caller is the real one
 
 The harness mints `Caller` through `Caller::forUser` and `Caller::forEntity`, the same
-factories the web edge and the mesh transports call. There is no test-only constructor and
-no way to set a scope that the runtime does not also have, so a slot cannot pass here and
-fail in production because the test stubbed the check. The scope order is the one a
-scaffolded project gets, hierarchical, so `hasScope("user")` is satisfied by a moderator
-here exactly as it is on a running edge.
+factories the web edge and the mesh transports call. The harness has no test-only
+constructor and no way to set a scope that the runtime does not also have, so a slot
+cannot pass here and fail in production because the test stubbed the check. The scope
+order is the one a scaffolded project gets, hierarchical, so `hasScope("user")` is
+satisfied by a moderator here exactly as it is on a running edge.
 
 The harness substitutes only the engine behind a blueprint helper: `Db` runs on SQLite in
 memory, and `Cache` and `Docs` run on the memory providers.

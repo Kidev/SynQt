@@ -199,11 +199,14 @@ def render_tests_cmakelists(config: Dict[str, Any]) -> str:
              "endif()",
              "",
              f"qt_add_executable({TESTS_TARGET} tests_main.cpp)"]
-    # Every contract's Source half: any point may be under test.
+    # Every contract's Source half: any point may be under test. A contract another entity
+    # consumes also gets its consumer half, which is what that entity's Source reads.
     forwarding = appmodel.session_forwarding_contracts(config)
+    consumed = {row[2] for row in appmodel.consumed_by_owners(config)}
     for contract, relative in contracts.items():
         carries = " FORWARDS_SESSION" if contract in forwarding else ""
-        lines.append(f"synqt_add_contract({TESTS_TARGET} ROLE source{carries} "
+        role = "both" if contract in consumed else "source"
+        lines.append(f"synqt_add_contract({TESTS_TARGET} ROLE {role}{carries} "
                      f'SYN "${{SYNQT_APP_ROOT}}/{relative}")')
     lines += [
         "",

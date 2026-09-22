@@ -543,6 +543,23 @@ def all_contracts(config: Dict[str, Any]) -> List[str]:
     return contracts_of(list(config.get("connect_points", []) or []))
 
 
+def consumed_by_owners(config: Dict[str, Any]) -> List[Tuple[str, str, str, str]]:
+    """What each owner consumes over the mesh, as ``(owner contract, accessor, contract,
+    point)``. `synqt test` installs these beside the Source under test, never ready.
+    """
+    found: List[Tuple[str, str, str, str]] = []
+    for entity in entities(config):
+        name = str(entity.get("name") or "")
+        if is_client(entity):
+            continue
+        consumed = app_points(mesh_consumed(config, name))
+        for owner_contract in contracts_of(app_points(owned_by(config, name))):
+            for point in consumed:
+                found.append((owner_contract, accessor_name(str(point.get("owner") or "")),
+                              contract_of(point), point_name(point)))
+    return found
+
+
 def test_qml_files(project_dir: Optional[Path]) -> List[str]:
     """The application QML test files, `tests/tst_*.qml`, by name. Qt Quick Test discovers them
     by directory; this list only decides whether a test target is built.

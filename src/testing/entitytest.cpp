@@ -6,6 +6,8 @@
 #include "cache.h"
 #include "cachefactory.h"
 #include "caller.h"
+#include "consumerbase.h"
+#include "consumerfactory.h"
 #include "db.h"
 #include "docs.h"
 #include "documentfactory.h"
@@ -24,9 +26,13 @@
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlinfo.h>
 
+#include <QtTest/qtestcase.h>
+
 #include <QtCore/qfile.h>
 #include <QtCore/qfileinfo.h>
+#include <QtCore/qhash.h>
 #include <QtCore/qmetaobject.h>
+#include <QtCore/qregularexpression.h>
 
 namespace SynQt {
 
@@ -57,6 +63,21 @@ QStringList schemaSteps(const QString &text)
         }
     }
     return steps;
+}
+
+/// A connect point an owner consumes, as the generated test main declares it.
+struct ConsumedPoint
+{
+    QString accessor;
+    QString contract;
+    QString point;
+};
+
+/// What each owner consumes, by the owner's contract.
+QHash<QString, QList<ConsumedPoint>> &consumedPoints()
+{
+    static QHash<QString, QList<ConsumedPoint>> points;
+    return points;
 }
 
 } // namespace
@@ -321,6 +342,8 @@ bool EntityTest::load()
     m_caller = nullptr;
     delete m_subject;
     m_subject = nullptr;
+    qDeleteAll(m_neighbours);
+    m_neighbours.clear();
     delete m_context;
     m_context = nullptr;
 
@@ -360,7 +383,28 @@ bool EntityTest::load()
     m_context->setContextProperty(QStringLiteral("Caller"), nullptr);
     m_context->setContextProperty(QStringLiteral("Client"), nullptr);
 
-    QQmlComponent component{m_engine, qmlContext(this)->resolvedUrl(m_source), this};
+    // Each entity this one consumes, as the runtime installs it before the link opens: the
+    // accessor and its `<Owner>.on<Signal>` handlers resolve, `ready` stays false, and a
+    // call through it is dropped with a warning. That warning fails the running test, so a
+    // slot that reaches a neighbour cannot pass over a call that never happened.
+    const QUrl resolved{qmlContext(this)->resolvedUrl(m_source)};
+    const QString owner{m_contract.isEmpty() ? QFileInfo{resolved.path()}.completeBaseName()
+                                             : m_contract};
+    for (const ConsumedPoint &consumed : consumedPoints().value(owner)) {
+        ConsumerBase *facade{makeConsumer(consumed.contract)};
+        if (facade == nullptr) {
+            continue;
+        }
+        facade->setPoint(consumed.point);
+        facade->setJsEngine(m_engine);
+        facade->setParent(this);
+        m_neighbours.append(facade);
+        m_context->setContextProperty(consumed.accessor, facade);
+    }
+    QTest::failOnWarning(QRegularExpression{
+        QStringLiteral("^SynQt: the '[^']+' connect point is not available, so ")});
+
+    QQmlComponent component{m_engine, resolved, this};
     if (component.isError()) {
         m_errorString = component.errorString().trimmed();
         emit subjectChanged();
@@ -398,6 +442,12 @@ QVariant EntityTest::cacheValue(const QString &key)
 void registerTestTypes()
 {
     qmlRegisterType<EntityTest>("SynQt.Test", 1, 0, "EntityTest");
+}
+
+void declareConsumedPoint(const QString &ownerContract, const QString &accessor,
+                          const QString &contract, const QString &point)
+{
+    consumedPoints()[ownerContract].append(ConsumedPoint{accessor, contract, point});
 }
 
 } // namespace SynQt

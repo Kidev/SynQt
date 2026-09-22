@@ -74,19 +74,11 @@ TestCase {
         rejections.clear();
     }
 
-    // The gate is the framework's, and this is what proves it is really there: the call
-    // is made exactly as a browser console would make it, and nothing moves.
-    function test_a_signed_out_visitor_cannot_bid() {
-        harness.callerIsUser("anonymous");
-        harness.subject.placeBid(500);
-        compare(harness.subject.highBid, 100);
-        compare(rejections.count, 0);
-    }
-
     function test_a_lower_bid_is_refused() {
         harness.callerIsUser("user", { sub: "alice" });
         harness.subject.placeBid(50);
         compare(harness.subject.highBid, 100);
+        compare(rejections.count, 1);
     }
 
     function test_a_higher_bid_stands() {
@@ -100,6 +92,10 @@ TestCase {
 `TestCase`, `SignalSpy`, `compare` and `verify` come from
 [Qt Quick Test](https://doc.qt.io/qt-6/qtquicktest-index.html) and behave as they do
 anywhere. The only SynQt type is `EntityTest`.
+
+There is no test of a signed-out visitor. The `<user>` gate runs in the generated slot in
+front of `placeBid`, and a test calls the function directly (see
+[what a test cannot catch](#what-a-test-cannot-catch)).
 
 ## `EntityTest`
 
@@ -131,7 +127,8 @@ type helpers `Db`, `Cache`, `Docs` and `Jobs`, the same classes an entity gets, 
 
 **Substituted:** only the engine behind a helper. `Db` runs on in-memory SQLite, `Cache` and
 `Docs` on the memory providers. Nothing else is faked, and `Caller` has no test-only entry
-point: the harness reaches it the same way a transport does.
+point: the harness reaches it the same way a transport does. So a slot cannot pass here and
+fail in production because the test stubbed the authorization.
 
 ### Asserting on what an entity said
 
@@ -155,8 +152,9 @@ an earlier one logged. It also holds the framework's own events, so the example 
 instead of counting: a signed-in caller means a session, and the framework records session
 creation.
 
-So a slot cannot pass here and fail in production because the test stubbed the
-authorization. It can still fail for five reasons the harness does not model:
+### What a test cannot catch
+
+A slot can still fail in production for five reasons the harness does not model:
 
 - **The transport.** The harness calls slots directly, so nothing here proves that a
   contract replicates, a model reaches a browser, or a link comes up. SynQt's own suite
@@ -170,15 +168,17 @@ authorization. It can still fail for five reasons the harness does not model:
   point at all; `synqt check` covers it.
 - **The engine.** A statement that works on SQLite may fail on PostgreSQL. Testing the
   slot's logic does not test your SQL against the engine you deploy.
-- **Neighboring entities.** The harness loads one Source alone, so accessors for consumed
-  entities are absent: a slot that calls `Books.recordWinner(...)` fails with
-  `Books is not defined`.
+- **Neighboring entities.** The harness loads one Source alone. Each entity it consumes is
+  there as it is before its link opens: `Books.ready` is false and a `Books.on<Signal>`
+  handler never runs. A call through it reaches nothing, and the test that made it fails
+  with `SynQt: the 'Books' connect point is not available, so recordWinner() was not sent`.
 
-The accessor is absent, not stubbed, on purpose: a stub would have to invent the other
-entity's answers, and a test that passes against invented answers is worse than none. So
-the missing name reports itself. Instead, test the other entity's slot in its own file,
-where its rules are real, and leave the call between them to `synqt check` (which decides
-whether it is allowed) and to a running system.
+The neighbour is never connected and never stubbed: a stub would have to invent the other
+entity's answers, and a test that passes against invented answers is worse than none. So a
+call into it fails the test. Test the other entity's slot in its own file, where its rules
+are real, and leave the call between them to `synqt check` (which decides whether it is
+allowed) and to a running system. A test that expects a call to be dropped says so with
+`ignoreWarning()` on that message.
 
 Split a slot that both decides and delegates, and both halves become testable:
 
@@ -188,7 +188,7 @@ function closeLot(nextItem) {
         Caller.emitBidRejected("Only the auctioneer can close a lot.");
         return;
     }
-    Books.recordWinner(...);           // not testable here
+    Books.recordWinner(...);                  // fails a test that reaches it
 }
 ```
 
@@ -207,7 +207,7 @@ synqt test
 ```
 
 ```text
-Test project /home/you/gavel/build/host
+Test project /home/you/gavel/build/host-debug
     Start 1: app-tests
 1/1 Test #1: app-tests ........................   Passed    0.06 sec
 
@@ -218,7 +218,7 @@ During development, run one file or one function by calling the binary, which ta
 usual Qt Test arguments:
 
 ```cli
-./build/host/app_tests -platform offscreen Auction::test_a_lower_bid_is_refused
+./build/host-debug/app-tests/app_tests -platform offscreen Auction::test_a_lower_bid_is_refused
 ```
 
 With no `tests/tst_*.qml`, there is nothing to run, and `synqt test` says so instead of
@@ -226,8 +226,8 @@ reporting a pass over zero tests.
 
 ## Testing an entity that is not the edge
 
-It works the same way. A database Source authorizes an entity instead of a person, so the
-test names the calling entity:
+It works the same way. Given a database Source whose `recordWinner` returns false unless
+`Caller.entity` is `edge`, the test names the calling entity:
 
 ```qml
 function test_only_the_edge_may_record() {

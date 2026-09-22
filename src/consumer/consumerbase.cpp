@@ -6,6 +6,7 @@
 #include "connectpointresolver.h"
 #include "promise.h"
 
+#include <QDebug>
 #include <QJSEngine>
 #include <QMetaMethod>
 #include <QMetaObject>
@@ -125,6 +126,13 @@ bool ConsumerBase::returnsPendingCall(const char *slot) const
         }
     }
     return false;
+}
+
+void ConsumerBase::warnNotSent(const char *slot) const
+{
+    qWarning().noquote() << QStringLiteral("SynQt: the '%1' connect point is not available, so "
+                                           "%2() was not sent")
+                                .arg(contractName(), QLatin1StringView{slot});
 }
 
 void ConsumerBase::addConnection(const QMetaObject::Connection &connection)

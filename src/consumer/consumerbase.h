@@ -72,6 +72,10 @@ protected:
 
     void addConnection(const QMetaObject::Connection &connection);
 
+    /// Report a call that was dropped because no Replica is ready to carry it. The test
+    /// harness fails the running test on this warning.
+    void warnNotSent(const char *slot) const;
+
     /// Whether the bound Replica declares the named slot as returning
     /// QRemoteObjectPendingCall, as a dynamic Replica does, rather than
     /// QRemoteObjectPendingReply<T>. Asked only once isReady().

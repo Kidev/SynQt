@@ -1,0 +1,11 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// The entity the Ledger consumes. In the suite it is both a Source a test drives on its
+// own and the neighbour the Ledger reads, as one contract is in an application's runner.
+contract Database {
+    prop int count
+    slot recordWinner(string item, string winner, int amount)
+    slot var recent()
+    signal recorded(string item)
+}

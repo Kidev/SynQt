@@ -1476,18 +1476,56 @@ int main(int argc, char *argv[])
 def render_tests_main(config: Dict[str, Any]) -> str:
     """The Qt Quick Test runner for the application `tests/tst_*.qml`.
 
-    It registers each contract `<Contract>Source` type for `import SynQt` and the harness
-    for `import SynQt.Test`, in `applicationAvailable()`. It carries no test logic.
+    It registers each contract `<Contract>Source` type for `import SynQt`, the harness for
+    `import SynQt.Test`, and what each owner consumes, in `applicationAvailable()`. It
+    carries no test logic.
     """
     contracts = appmodel.all_contracts(config)
+    consumption = appmodel.consumed_by_owners(config)
     # One register function per .syn file (`synqtRegister<Stem>Sources()`), not per
     # contract.
     stems = sorted({contract for contract in contracts})
+    consumed = sorted({row[2] for row in consumption if row[2] in stems})
     declarations = "\n".join(f"void synqtRegister{stem}Sources();" for stem in stems)
     registrations = "\n".join(f"        synqtRegister{stem}Sources();" for stem in stems)
     if not stems:
         declarations = "// No connect points in this topology, so no Source types to register."
         registrations = ""
+
+    # One process holds every contract, so `Books` has to be both the root type of
+    # Books.qml and the attached type behind `Books.onReadyChanged:` in a file that
+    # consumes it. Registered last, so it replaces both single-sided types of that name.
+    includes = "".join(f'#include "{stem.lower()}_consumer.h"\n'
+                       f'#include "{stem.lower()}_sourcehelper.h"\n' for stem in consumed)
+    if includes:
+        includes = "\n" + includes
+    combined = "".join(f"""
+// `{stem}` is the root type of {stem}.qml and the attached type behind `{stem}.on<Signal>:`
+// in a file that consumes it.
+class {stem}TestType : public {stem}SourceHelper
+{{
+    Q_OBJECT
+    QML_ATTACHED({stem}Consumer)
+
+public:
+    using {stem}SourceHelper::{stem}SourceHelper;
+
+    static {stem}Consumer *qmlAttachedProperties(QObject *object)
+    {{
+        return {stem}Consumer::qmlAttachedProperties(object);
+    }}
+}};
+""" for stem in consumed)
+    registrations += "".join(f"\n        synqtRegister{stem}Consumers();\n"
+                             f'        qmlRegisterType<{stem}TestType>("SynQt", 1, 0, '
+                             f'"{stem}");' for stem in consumed)
+    for owner, accessor, contract, point in consumption:
+        if contract not in stems:
+            continue
+        values = [f'QStringLiteral("{cxx_string_literal(value)}")'
+                  for value in (owner, accessor, contract, point)]
+        registrations += (f"\n        SynQt::declareConsumedPoint({values[0]}, {values[1]},"
+                          f"\n                                    {values[2]}, {values[3]});")
 
     return f"""{_HEADER_CPP}
 
@@ -1495,11 +1533,13 @@ def render_tests_main(config: Dict[str, Any]) -> str:
 
 #include <entitytest.h>
 #include <moduleimports.h>
-
+{includes}
 #include <QtQuickTest/quicktest.h>
 
-{declarations}
+#include <QtQml/qqml.h>
 
+{declarations}
+{combined}
 class SynQtTestSetup : public QObject
 {{
     Q_OBJECT

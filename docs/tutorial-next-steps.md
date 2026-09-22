@@ -38,12 +38,12 @@ function saveCurrent(item, amount, bidder) {
     Db.exec("INSERT INTO current(id, item, amount, bidder) VALUES(1, ?, ?, ?)"
             + " ON CONFLICT(id) DO UPDATE SET item = excluded.item,"
             + " amount = excluded.amount, bidder = excluded.bidder",
-            [item, amount, bidder])
+            [item, amount, bidder]);
 }
 
 function loadCurrent() {
-    const rows = Db.query("SELECT item, amount, bidder FROM current WHERE id = 1")
-    return rows.length > 0 ? rows[0] : null
+    const rows = Db.query("SELECT item, amount, bidder FROM current WHERE id = 1");
+    return rows.length > 0 ? rows[0] : null;
 }
 ```
 
@@ -101,7 +101,8 @@ its connection:
 ```
 
 Put the password in `db/relational/books/.env` as `DB_PASSWORD=...`, and run
-`synqt doctor`, which fetches the PostgreSQL driver. That is the whole change. (For a
+`synqt doctor`, which checks that your Qt kit has the PostgreSQL driver plugin. That is
+the whole change. (For a
 quick local trial against a PostgreSQL without TLS, drop `sslmode` and `ca_cert`. SynQt
 allows that only in dev on localhost, and refuses it in a release build.)
 
@@ -136,10 +137,12 @@ rejection only to a user, because `emit<Signal>` targets a browser session. In
 
 ```qml
 function closeLot(nextItem) {
-    const fromTicker = Caller.isEntity && Caller.entity === "ticker"
+    const fromTicker = Caller.isEntity && Caller.entity === "ticker";
     if (!fromTicker && !Caller.hasScope("admin")) {
-        if (Caller.isUser) Caller.emitBidRejected("Not allowed to close this lot.")
-        return
+        if (Caller.isUser) {
+            Caller.emitBidRejected("Not allowed to close this lot.");
+        }
+        return;
     }
     // ... close the lot as before
 }
@@ -149,20 +152,20 @@ This is the trade between the two forms. `<scope>` is shorter, runs before your 
 cannot be forgotten, but it only knows about people. As soon as another entity must reach
 the same member, the decision moves back into the slot.
 
-Then put the schedule in the ticker's logic file (the jobs type scaffolds one). It calls
-the edge it now consumes, under the edge's capitalized name; an entity has one connect
-point, so `Edge` is the whole address:
+Then put the schedule in the ticker's QML file, which `synqt add entity` scaffolded with
+an example job. It calls the edge it now consumes, under the edge's capitalized name; an
+entity has one connect point, so `Edge` is the whole address:
 
 ```qml
 import SynQt
 
-Item {
-    Timer {
-        interval: 60000      // one minute per lot
-        repeat: true
-        running: true
-        onTriggered: Edge.closeLot("Next mystery lot")
-    }
+QtObject {
+    id: root
+
+    // One minute per lot. `Jobs` runs it off the request path.
+    Component.onCompleted: Jobs.every(60000, function () {
+        Edge.closeLot("Next mystery lot");
+    })
 }
 ```
 
@@ -216,7 +219,7 @@ Then `web/edge/Edge.qml` binds the shared members to `Lot` and keeps the private
     property int maxBid: 0
 
     function setMax(amount) {
-        auction.maxBid = amount
+        auction.maxBid = amount;
     }
 ```
 
@@ -231,11 +234,11 @@ stored maximum automatically.
 
 ## Pin the rules you checked by hand
 
-Three times in this tutorial you used the browser console to prove a rule: the lower bid
-the edge refused, the `placeBid` that failed while signed out, and the `closeLot` only the
-auctioneer may call. Those rules matter most, and a console check never runs again.
+Three times in this tutorial you proved a rule by hand: the lower bid the edge refused, the
+`placeBid` that failed while signed out, and the `closeLot` only the auctioneer may call.
+A check by hand never runs again.
 
-Write them in `tests/tst_Auction.qml` instead:
+The first rule is in your QML, so a test can pin it. Write `tests/tst_Auction.qml`:
 
 ```qml
 import QtQuick
@@ -263,32 +266,21 @@ TestCase {
         rejections.clear();
     }
 
-    function test_a_signed_out_visitor_cannot_bid() {
-        harness.callerIsUser("anonymous");
-        harness.subject.placeBid(500);
-        // The `<user>` gate on the member refuses the call before the function runs,
-        // so the bid does not land and there is no rejection to hear either.
-        compare(harness.subject.highBid, 0);
-        compare(rejections.count, 0);
+    function test_a_bid_names_the_bidder() {
+        harness.callerIsUser("user", { sub: "alice", name: "Alice" });
+        harness.subject.placeBid(40);
+        compare(harness.subject.highBid, 40);
+        compare(harness.subject.highBidder, "Alice");
     }
 
     function test_a_lower_bid_is_refused() {
         harness.callerIsUser("user", { sub: "alice", name: "Alice" });
         harness.subject.placeBid(40);
+        harness.callerIsUser("user", { sub: "bob", name: "Bob" });
         harness.subject.placeBid(30);
         compare(harness.subject.highBid, 40);
         compare(harness.subject.highBidder, "Alice");
-    }
-
-    function test_only_the_auctioneer_closes_a_lot() {
-        harness.callerIsUser("user", { sub: "alice", name: "Alice" });
-        harness.subject.closeLot("A jar of honey");
-        compare(harness.subject.itemName,
-                "A homemade lasagna, baked fresh this morning");
-
-        harness.callerIsUser("admin", { sub: "carol", name: "Carol" });
-        harness.subject.closeLot("A jar of honey");
-        compare(harness.subject.itemName, "A jar of honey");
+        compare(rejections.count, 1);
     }
 }
 ```
@@ -299,14 +291,17 @@ synqt test
 
 It needs no browser, no certificates, no database and no C++. The slots read the real
 `Caller`, created the way the web edge creates it, so a test cannot pass by stubbing the
-check it tests. Test the database's own rule (only the edge may call `recordWinner`) the
-same way in a second file, with `harness.callerIsEntity("rogue")` instead of
-`callerIsUser`.
+check it tests.
 
-The last test has a catch. `closeLot` records the winner in the database before it
-resets, and the harness loads one Source alone, so there is no `Books` to record into.
-The test passes because the lot has no bid yet, so `closeLot` skips the write. Close a lot
-that has a bid and the test stops with `Books is not defined`.
+The other two rules are the `<user>` and `<admin>` gates in the `export:` block. A test
+calls your QML function directly, not the generated slot in front of it, so a gate never
+runs there; SynQt's own suite tests the gates. The books entity's rule (only the edge may
+call `recordWinner`) is its consumer list, which `synqt check` enforces.
+
+A test of `closeLot` has a catch. `closeLot` records the winner through `Books`, and in a
+test the books entity is never connected (`Books.ready` stays false). Close a lot that has
+a bid and the test fails with
+`SynQt: the 'Books' connect point is not available, so recordWinner() was not sent`.
 
 [Testing your app](testing.md) covers the rest of `EntityTest`, this limit and how to work
 around it, and how to point `schema` at your `schema.sql` so a slot backed by `Db` has

@@ -30,10 +30,14 @@ endif()
 
 qt_add_executable(tst_entitytest tst_entitytest.cpp)
 
-# ROLE source: the harness drives an owner's Source, so only that half is generated. A
-# test that could also acquire a Replica would be testing the transport, not the slot.
+# ROLE source: the harness drives an owner's Source, so only that half is generated. The
+# Ledger consumes the database, so the database also gets its consumer half (ROLE both),
+# as `synqt test` gives any contract a service consumes.
 synqt_add_contract(tst_entitytest ROLE source SYN
     "${CMAKE_CURRENT_SOURCE_DIR}/shared/Ledger.syn"
+)
+synqt_add_contract(tst_entitytest ROLE both SYN
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Database.syn"
 )
 
 # Qt Quick Test finds the tst_*.qml files by directory at run time.
@@ -53,3 +57,11 @@ target_link_libraries(tst_entitytest PRIVATE
 )
 
 add_test(NAME entity-test COMMAND tst_entitytest -platform offscreen)
+
+# A slot that reaches the never-connected database fails the test that called it. The
+# file in qml-dropped/ does exactly that, so this passes only on that failure.
+add_test(NAME entity-test-dropped-call
+         COMMAND tst_entitytest -platform offscreen
+                 -input "${CMAKE_CURRENT_SOURCE_DIR}/qml-dropped")
+set_tests_properties(entity-test-dropped-call PROPERTIES PASS_REGULAR_EXPRESSION
+    "Received a warning that resulted in a failure:[\r\n]+SynQt: the 'Database' connect point is not available, so recordWinner\\(\\) was not sent")

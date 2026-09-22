@@ -91,20 +91,23 @@ TestCase {
         compare(harness.subject.recordWinner("vase", "bob", 300), false);
     }
 
-    // The harness loads one Source in isolation, so a slot that hands work to a consumed
-    // entity has nothing to hand it to. That limit is documented (docs/testing.md), and
-    // what makes it safe to have is that it is loud. The accessor is absent, not stubbed,
-    // so the test fails instead of passing over a call that never happened.
+    // The harness installs each entity the Source consumes as the runtime does before the
+    // link opens: the accessor and its handlers resolve, and it is never ready. Without
+    // that, a Source that reads a neighbour does not load at all.
+    function test_a_consumed_entity_is_there_and_never_ready() {
+        compare(harness.subject.databaseReachable, false);
+        compare(harness.subject.lastRecorded, "");
+    }
+
+    // A slot that hands work to that neighbour reaches nothing. That limit is documented
+    // (docs/testing.md), and what makes it safe to have is that it is loud: the call warns,
+    // and the warning fails the test that made it (the entity-test-dropped-call ctest). Here
+    // the warning is expected, which is also how a test accepts a call it knows is dropped.
     function test_reaching_another_entity_fails_rather_than_passing_quietly() {
         harness.callerIsUser("user", { sub: "alice" });
-        let reported = "";
-        try {
-            harness.subject.forwardToDatabase("vase");
-        } catch (error) {
-            reported = "" + error;
-        }
-        verify(reported.indexOf("Database") !== -1, "expected the missing accessor to be "
-               + "named, got: " + reported);
+        ignoreWarning(new RegExp("^SynQt: the 'Database' connect point is not available, "
+                                 + "so recordWinner\\(\\) was not sent$"));
+        harness.subject.forwardToDatabase("vase");
         compare(harness.dbQuery("SELECT * FROM winners").length, 0);
     }
 

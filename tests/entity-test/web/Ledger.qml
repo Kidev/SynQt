@@ -9,7 +9,16 @@ import SynQt
 Ledger {
     id: ledger
 
+    // Whether the link to the database is up. Read through the accessor, as an edge reads
+    // a neighbour.
+    readonly property bool databaseReachable: Database.ready
+    property string lastRecorded: ""
+
     highBid: 100
+
+    Database.onRecorded: item => {
+        ledger.lastRecorded = item;
+    }
 
     // A user places a bid. Two authorizations. Signed in at all, and the bid has to beat
     // the standing one. Both refusals answer the one caller, not everybody.
@@ -29,9 +38,8 @@ Ledger {
     }
 
     // A slot that hands the work to another entity, which is what an edge Source normally
-    // does. The harness loads one Source on its own and provides no accessor for a
-    // consumed entity, so this is the shape it cannot drive. The suite pins that it says
-    // so out loud rather than passing quietly.
+    // does. In the harness the database is never connected, so this call reaches nothing.
+    // The suite pins that it says so out loud rather than passing quietly.
     function forwardToDatabase(item) {
         Database.recordWinner(item, "bob", 1);
     }
