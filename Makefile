@@ -133,7 +133,7 @@ doctor:
 
 .PHONY: test
 test:
-	cd $(CLI) && $(PYTHON) -m pytest -q
+	PYTHONPATH=$(CLI):$(CURDIR)/tools/synqtc $(PYTHON) -m pytest -q $(CLI)/tests tools/synqtc/tests
 
 .PHONY: test-designer
 test-designer:
@@ -148,8 +148,8 @@ test-site:
 .PHONY: test-cpp
 test-cpp:
 	@test -n "$(QT_HOST)" || { \
-	    echo "QT_HOST is unset. Point it at a Qt 6.11 host kit, e.g."; \
-	    echo "  make test-cpp QT_HOST=/opt/Qt/6.11.1/gcc_64"; exit 2; }
+	    echo "QT_HOST is unset. Point it at a Qt 6.12 host kit, e.g."; \
+	    echo "  make test-cpp QT_HOST=/opt/Qt/6.12.0/gcc_64"; exit 2; }
 	QT_HOST=$(QT_HOST) tests/run-all.sh
 
 .PHONY: lint

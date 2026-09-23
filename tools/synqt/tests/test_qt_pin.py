@@ -76,7 +76,7 @@ _CI_EM = re.compile(r"(?<![A-Z_])EM_VERSION:\s*\"?(\d+\.\d+\.\d+)")
 def test_every_script_and_workflow_names_the_pinned_toolchain():
     # Prose is not scanned: a measurement records the Qt it ran on.
     wrong = []
-    for path in _tracked("*.sh", ".github/**/*.yml", ".github/**/*.yaml"):
+    for path in _tracked("*.sh", "Makefile", ".github/**/*.yml", ".github/**/*.yaml"):
         text = path.read_text()
         for found in _QT_PATH.findall(text) + _CI_QT.findall(text):
             if found != toolchain.QT_VERSION:
