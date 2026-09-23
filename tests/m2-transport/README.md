@@ -136,8 +136,9 @@ tests/m2-transport/run-m2.sh
 
 It builds the `SynQtClient` library and every test, then runs them under ctest: `m2`,
 the acceptance path; `wstransport`, the unit cases; `threadedsocket`, the split cases;
-`iothreads`, the pool that hands the threads out; and `proxypolicy`, which proxy a client
-is allowed to dial through.
+`iothreads`, the pool that hands the threads out; `proxypolicy`, which proxy a client
+is allowed to dial through; and `spikecontroller`, the transport spike's client
+controller built natively, which checks that a reconnect releases the replica it replaces.
 
 ## Notes
 

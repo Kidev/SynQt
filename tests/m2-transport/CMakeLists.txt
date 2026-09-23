@@ -40,8 +40,8 @@ target_link_libraries(tst_m2 PRIVATE
 
 add_test(NAME m2 COMMAND tst_m2)
 
-# The transport-only unit cases from the test plan (framing, partial reads, large
-# messages, close handling). No contract and no QtRO node: the adapter is the subject,
+# The transport-only unit cases (framing, partial reads, large messages, close
+# handling). No contract and no QtRO node: the adapter is the subject,
 # and tst_m2 above already answers whether QtRO rides on it.
 qt_add_executable(tst_wstransport tst_wstransport.cpp)
 
@@ -90,3 +90,28 @@ target_link_libraries(tst_proxypolicy PRIVATE
 )
 
 add_test(NAME proxypolicy COMMAND tst_proxypolicy)
+
+# The transport spike's client controller, natively: what a reconnect releases.
+set(SYNQT_M0_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../m0-transport")
+qt_add_executable(tst_spikecontroller
+    tst_spikecontroller.cpp
+    "${SYNQT_M0_DIR}/client/m0controller.cpp"
+    "${SYNQT_M0_DIR}/client/m0controller.h"
+    "${SYNQT_M0_DIR}/shared/websocketiodevice.cpp"
+    "${SYNQT_M0_DIR}/shared/websocketiodevice.h"
+)
+
+qt_add_repc_replicas(tst_spikecontroller "${SYNQT_M0_DIR}/shared/spike.rep")
+
+target_include_directories(tst_spikecontroller PRIVATE
+    "${SYNQT_M0_DIR}/client" "${SYNQT_M0_DIR}/shared" "${CMAKE_CURRENT_BINARY_DIR}")
+
+target_link_libraries(tst_spikecontroller PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::WebSockets
+    Qt6::RemoteObjects
+    Qt6::Test
+)
+
+add_test(NAME spikecontroller COMMAND tst_spikecontroller)

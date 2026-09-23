@@ -138,7 +138,10 @@ void M0Controller::connectToEdge()
     m_node->addClientSideConnection(m_device);
     m_node->setHeartbeatInterval(1000);
 
+    // acquire() hands back a replica with no parent. Parenting it to the node lets the
+    // teardown of a reconnect take it along.
     m_replica = m_node->acquire<SpikeSourceReplica>();
+    m_replica->setParent(m_node);
     connect(m_replica, &SpikeSourceReplica::initialized,
             this, &M0Controller::onReplicaInitialized);
     connect(m_replica, &SpikeSourceReplica::counterChanged, this, [this](int value) {

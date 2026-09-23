@@ -71,9 +71,9 @@ private:
     QAbstractItemModel *m_rowsModel{nullptr};
     QTimer *m_reconnectTimer{nullptr};
     QTimer *m_echoRetryTimer{nullptr};
-    // firefox-on-WASM reply-path fallback (CONFIRMED in CI), the latest echo reply, held so a
-    // 250ms timer can resolve it from its own isFinished()/returnValue() state when QtRO's queued
-    // watcher finished() signal is starved by the WASM posted-event pump. See the constructor.
+    // The latest echo reply, held so a 250 ms timer can resolve it from its own
+    // isFinished()/returnValue() state when the WASM posted-event pump starves QtRO's queued
+    // watcher finished() signal (seen on Firefox). See the constructor.
     QTimer *m_replyPollTimer{nullptr};
     QRemoteObjectPendingReply<QString> m_pendingReply;
     QString m_state{QStringLiteral("idle")};
