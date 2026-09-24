@@ -11,7 +11,8 @@
 // It measures wall-clock latency including the local event-loop turn, which is the
 // number a real client sees. It does not subtract loopback cost, so absolute figures are a
 // floor (a real network adds to them) and the value is the committed baseline and the
-// per-message overhead versus a raw QWebSocket carrying the same bytes.
+// ratios between the directions. The comparison against a raw QWebSocket carrying the same
+// bytes is the qt-raw column in benchmarks/vs-frameworks.
 
 #include "rep_bench_source.h"
 #include "rep_bench_replica.h"
@@ -48,6 +49,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 using SynQt::WebSocketTransport;
 
@@ -258,27 +260,43 @@ Distribution measureSignalPropagation(BenchBackend *source, BenchReplica *replic
     return distribution;
 }
 
-// Model replication. Repopulate the source's persistent model to `rowCount` rows and time
+// Model replication. Republish the source's persistent model as `rowCount` rows and time
 // until the replica's model mirrors the new row count. Measures structure propagation (the
 // bulk transfer the owner's set<Model> triggers), one sample per call. The model replica is
 // acquired once by the replica itself (its `rows` property) and reused across sizes.
 constexpr int ModelReplicationRuns{5};
 
+// Shaped like the generated `set<Model>(rows)`: build the items, reset the model, then
+// append them. Removing and inserting rows with a setData() per cell is a path no owner
+// takes (see bench_fanout.cpp for why it is also unsafe).
+void publishRows(QStandardItemModel *model, int rowCount)
+{
+    QList<QStandardItem *> items;
+    items.reserve(rowCount);
+    for (int row{0}; row < rowCount; ++row) {
+        auto *item{new QStandardItem{}};
+        item->setData(row, Qt::UserRole);
+        items.append(item);
+    }
+    model->clear();
+    model->setItemRoleNames({{Qt::UserRole, QByteArrayLiteral("value")}});
+    for (QStandardItem *item : std::as_const(items)) {
+        model->appendRow(item);
+    }
+}
+
 double measureModelReplication(QStandardItemModel *model, QAbstractItemModelReplica *replicaModel,
                                int rowCount)
 {
-    // Clear the model to empty and let the previous size's replication fully settle on the
+    // Publish an empty model and let the previous size's replication fully settle on the
     // replica, so the timed transition below starts from a quiescent state (the replica's
     // prefetch is asynchronous, so an unsettled start would fold the prior transfer in).
-    model->removeRows(0, model->rowCount());
+    publishRows(model, 0);
     spinUntil([&]() { return replicaModel->rowCount() == 0; }, 5000);
 
     QElapsedTimer clock;
     clock.start();
-    model->insertRows(0, rowCount);
-    for (int row{0}; row < rowCount; ++row) {
-        model->setData(model->index(row, 0), row, Qt::UserRole);
-    }
+    publishRows(model, rowCount);
     const bool ready{spinUntil(
         [&]() { return replicaModel->rowCount() == rowCount; }, 30000)};
     return ready ? clock.nsecsElapsed() / 1.0e6 : -1.0;
@@ -404,7 +422,8 @@ int main(int argc, char *argv[])
     node.addClientSideConnection(&transport);
     node.setHeartbeatInterval(1000);
 
-    QScopedPointer<BenchReplica> replica{node.acquire<BenchReplica>(QStringLiteral("BenchReplica"))};
+    QScopedPointer<BenchReplica> replica{node.acquire<BenchReplica>(
+        QStringLiteral("BenchReplica"))};
     if (!replica->waitForSource(10000)) {
         qCritical("bench: replica never became ready");
         return 1;

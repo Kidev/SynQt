@@ -99,8 +99,8 @@ transfer.
 
 `results/transport-kidevPC_.json` (Qt 6.12.0, Arch Linux x86_64) is the reference point on
 the machine it names. Slot RTT p50 is about 15 us (64 B) and 18 us (4 KB), one-way push and
-signal p50 about 10 us, pipelined throughput about 3.0x10^5 calls/s, and model replication
-about 0.10 / 0.47 / 29 ms for 1 / 100 / 10 000 rows. Re-run on the same runner and compare
+signal p50 about 10 us, pipelined throughput about 2.8x10^5 calls/s, and model replication
+about 0.03 / 0.27 / 36 ms for 1 / 100 / 10 000 rows. Re-run on the same runner and compare
 `results/transport-<host>.json` field by field. A regressed p95/p99 or a throughput drop is
 the signal to investigate.
 
@@ -108,12 +108,14 @@ the signal to investigate.
 ## edge: the HTTP request path, TechEmpower-style
 
 `edge/` measures the other half of the web edge, the plain HTTP request stack (the QtRO
-live path is `transport/` above). It is `QHttpServer` (the class the edge uses) in front of
-the QSQLITE engine configured exactly as the sqlite provider configures it: WAL, busy
-timeout, parameterised queries, and a single connection driven from the event loop, which
-is how SynQt serialises persistence. The routes are the six canonical
-[TechEmpower](https://www.techempower.com/benchmarks/) test types, so the numbers are
-directly comparable to the framework rows TechEmpower publishes:
+live path is `transport/` above). It is `QHttpServer` (the class the edge uses) in front
+of an in-memory QSQLITE database with the sqlite provider's busy timeout, parameterised
+queries, and a single connection driven from the event loop, which is how SynQt
+serialises persistence. An in-memory database has no WAL and no file to sync, so the
+database routes leave storage out of the measurement. The routes are the six canonical
+[TechEmpower](https://www.techempower.com/benchmarks/) test types. `plaintext` and `json`
+are directly comparable to the framework rows TechEmpower publishes; the database rows
+are not, because TechEmpower runs those against a database server over the network:
 
 | Route | TechEmpower test |
 |-------|------------------|

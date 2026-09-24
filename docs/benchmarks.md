@@ -28,11 +28,11 @@ process, so these are lower bounds that a real network adds to.
 
 | What | p50 | p99 |
 | --- | --- | --- |
-| Returning slot, round trip, 64 B | 15 us | 23 us |
-| Returning slot, round trip, 4 KiB | 18 us | 23 us |
-| Property push, owner to consumer | 10 us | 13 us |
+| Returning slot, round trip, 64 B | 15 us | 26 us |
+| Returning slot, round trip, 4 KiB | 18 us | 26 us |
+| Property push, owner to consumer | 10 us | 14 us |
 | Signal, owner to consumer | 10 us | 12 us |
-| Pipelined slot calls | 296 000 calls/s | |
+| Pipelined slot calls | 282 000 calls/s | |
 
 Three results stand out:
 
@@ -43,17 +43,19 @@ Three results stand out:
 - **Throughput is over four times `1 / RTT`,** because calls pipeline: a client that makes
   ten slot calls in one frame does not wait for the first to return.
 
-Replicating a whole model costs what moving its rows costs: 0.10 ms for one row, 0.47 ms
-for a hundred, 29 ms for ten thousand. Before publishing ten thousand rows at once, read
+Replicating a whole model costs what moving its rows costs: 0.03 ms for one row, 0.27 ms
+for a hundred, 36 ms for ten thousand. Before publishing ten thousand rows at once, read
 the fan-out section below.
 
 ## The edge's HTTP side
 
-A web edge also serves ordinary requests: the bundle, the login routes, and any plain HTTP
-an application adds. That path is `QHttpServer` in front of SQLite, configured as the
-persistence provider configures it. The six
-[TechEmpower](https://www.techempower.com/benchmarks/) test types measure it, so the numbers
-compare directly with other web frameworks. At 256 concurrent keep-alive connections:
+A web edge also serves ordinary requests: the bundle, the login routes, and any plain
+HTTP an application adds. That path is `QHttpServer` in front of an in-memory SQLite
+database (so storage is left out) with the persistence provider's busy timeout. The six
+[TechEmpower](https://www.techempower.com/benchmarks/) test types measure it. `plaintext`
+and `json` compare directly with other web frameworks; the database rows do not, because
+TechEmpower runs them against a database server over the network. At 256 concurrent
+keep-alive connections:
 
 | Test type | Requests/s | p50 | p99 |
 | --- | --- | --- | --- |
