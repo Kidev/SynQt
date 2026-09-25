@@ -688,6 +688,22 @@ def test_a_buildtime_baseline_taken_through_the_compiler_cache_is_caught():
     assert_fails(document, "buildtime.clean_means_no_compiler_cache")
 
 
+@pytest.mark.parametrize("storage", ["tmpfs", "ramfs", None])
+def test_a_persistence_run_on_memory_or_on_nothing_recorded_is_caught(storage):
+    """A commit timed on tmpfs pays no sync, so it measures memory and not the entity's disk."""
+    document = load_kind("persistence")
+    document.pop("storage", None)
+    if storage:
+        document["storage"] = storage
+    assert_fails(document, "persistence.measured_on_a_disk")
+
+
+def test_a_persistence_run_on_a_disk_passes_the_storage_check():
+    document = load_kind("persistence")
+    document["storage"] = "ext4"
+    assert "persistence.measured_on_a_disk" not in failures_of(document)
+
+
 def test_a_contended_run_whose_rival_wrote_nothing_is_caught():
     """The measured writes finishing before the rival wrote a row measured no contention."""
     document = load_kind("persistence")

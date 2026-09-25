@@ -6,17 +6,20 @@
 // and driven from one thread (the entity's serialized single-writer loop). The
 // MemoryCacheProvider is the bounded-LRU in-process cache. This harness measures:
 //
-//   sqlite_write_autocommit. One INSERT per implicit transaction (a WAL commit/fsync each);
+//   sqlite_write_autocommit: one INSERT per implicit transaction (a WAL commit and its sync);
 //   sqlite_write_batched: N INSERTs inside one begin/commit (the bulk path);
-//   sqlite_read_point. An indexed point SELECT (the read hot path);
-//   sqlite_write_contended. The single writer's per-INSERT latency WHILE a second connection
-//                              hammers the same WAL file, proving the busy-timeout path stays
-//                              bounded and never deadlocks (the tail-latency requirement);
-//   cache_get_hit/miss/set. The memory cache hot path (ns/op);
-//   cache_eviction. That the bounded LRU holds its bound under overfill.
+//   sqlite_read_point: an indexed point SELECT (the read hot path);
+//   sqlite_write_contended: the single writer's per-INSERT latency WHILE a second connection
+//                           hammers the same WAL file, proving the busy-timeout path stays
+//                           bounded and never deadlocks (the tail-latency requirement);
+//   cache_get_hit/miss/set: the memory cache hot path (ns/op);
+//   cache_eviction: that the bounded LRU holds its bound under overfill.
 //
 // Everything runs through the real SynQt::SqliteProvider / MemoryCacheProvider, so the numbers
-// are the providers' own, and results are written as a committed baseline.
+// are the providers' own, and results are written as a committed baseline. The database file
+// goes beside the harness binary unless --dir names a directory, because an entity's file is
+// on a disk: a temporary directory is often tmpfs, where a commit's sync costs nothing. The
+// baseline records the filesystem and the synchronous level it was measured on.
 
 #include "measures.h"
 #include "memorycacheprovider.h"
@@ -35,6 +38,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <QStorageInfo>
 #include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTextStream>
@@ -84,7 +88,7 @@ int main(int argc, char *argv[])
     QCommandLineParser parser;
     parser.addHelpOption();
     const QCommandLineOption autocommitOption{QStringLiteral("autocommit-rows"),
-        QStringLiteral("INSERTs for the autocommit (per-commit fsync) measurement."),
+        QStringLiteral("INSERTs for the autocommit (one commit per row) measurement."),
         QStringLiteral("n"), QStringLiteral("1000")};
     const QCommandLineOption batchedOption{QStringLiteral("batched-rows"),
         QStringLiteral("INSERTs for the single-transaction bulk measurement."),
@@ -100,8 +104,10 @@ int main(int argc, char *argv[])
         QStringLiteral("500000")};
     const QCommandLineOption outOption{QStringLiteral("out"),
         QStringLiteral("JSON baseline output path."), QStringLiteral("file")};
+    const QCommandLineOption dirOption{QStringLiteral("dir"),
+        QStringLiteral("Directory the database file is created in."), QStringLiteral("dir")};
     parser.addOptions({autocommitOption, batchedOption, readsOption, contendedOption,
-                       cacheOption, outOption});
+                       cacheOption, outOption, dirOption});
     parser.process(app);
 
     const int autocommitRows{parser.value(autocommitOption).toInt()};
@@ -110,12 +116,15 @@ int main(int argc, char *argv[])
     const int contendedRows{parser.value(contendedOption).toInt()};
     const int cacheOps{parser.value(cacheOption).toInt()};
 
-    QTemporaryDir tempDir;
+    const QString parent{parser.isSet(dirOption) ? parser.value(dirOption)
+                                                 : QCoreApplication::applicationDirPath()};
+    QTemporaryDir tempDir{QDir{parent}.filePath(QStringLiteral("bench-persistence-XXXXXX"))};
     if (!tempDir.isValid()) {
-        qCritical("bench-persistence: cannot create a temp dir");
+        qCritical("bench-persistence: cannot create a directory under %s", qPrintable(parent));
         return 1;
     }
     const QString dbFile{tempDir.filePath(QStringLiteral("bench.db"))};
+    const QString storage{QString::fromLatin1(QStorageInfo{tempDir.path()}.fileSystemType())};
 
     QTextStream out{stdout};
     out << "SynQt persistence + cache baseline (SqliteProvider WAL + MemoryCacheProvider)"
@@ -142,6 +151,14 @@ int main(int argc, char *argv[])
         qCritical("bench-persistence: schema failed: %s", qPrintable(ddl.error));
         return 1;
     }
+    // 0 OFF, 1 NORMAL, 2 FULL, 3 EXTRA: how often a commit waits for the disk.
+    const DbResult synchronousLevel{db.query(QStringLiteral("PRAGMA synchronous"), {})};
+    const int synchronous{synchronousLevel.ok && !synchronousLevel.rows.isEmpty()
+                              ? synchronousLevel.rows.first().toMap()
+                                    .value(QStringLiteral("synchronous"), -1).toInt()
+                              : -1};
+    out << "database on " << storage << ", synchronous=" << synchronous << Qt::endl
+        << Qt::endl;
 
     // Autocommit writes. One implicit transaction (a WAL commit) per row.
     {
@@ -486,6 +503,8 @@ int main(int argc, char *argv[])
     root.insert(QStringLiteral("host"), QSysInfo::prettyProductName());
     root.insert(QStringLiteral("arch"), QSysInfo::currentCpuArchitecture());
     root.insert(QStringLiteral("recorded"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    root.insert(QStringLiteral("storage"), storage);
+    root.insert(QStringLiteral("synchronous"), synchronous);
     QJsonArray distJson;
     for (const Distribution &distribution : distributions) {
         distJson.append(distribution.toJson());

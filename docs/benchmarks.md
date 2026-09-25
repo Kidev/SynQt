@@ -201,14 +201,18 @@ doing, so every figure is the median of five fresh tables. Creating a session st
 about 1.2 microseconds, whatever the number of live sessions.
 
 **Persistence.** Through the default SQLite provider, with WAL and the entity's busy
-timeout: about 116 000 rows a second in autocommit, 470 000 in one transaction, and a 4 us
-indexed point read. A second connection writing to the same file does not move the measured
-writer's median. The property worth testing there is safety, not speed, so the harness sets
-it up: a third connection holds the write lock for a second, during which the writer with
-`QSQLITE_BUSY_TIMEOUT` waits and succeeds, while the one without it is refused at once. The
-same workload runs through the pooled PostgreSQL provider, in plaintext and over verified
-TLS, as a parity check: one transaction around many writes beats a commit per write there
-too, and verified TLS costs about a quarter on a point read.
+timeout, on an SSD: about 177 rows a second in autocommit, 385 000 in one transaction,
+and a 5 us indexed point read. SQLite runs at its default `synchronous=FULL`, so every
+commit waits for the disk (about 5.7 ms here). Each `Db.exec` from an entity's QML is its
+own commit, so the autocommit figure is what an entity writing row by row gets; the
+transaction figure is the provider's own bulk path. A second connection writing to the
+same file does not move the measured writer's median. The property worth testing there is
+safety, not speed, so the harness sets it up: a third connection holds the write lock for
+a second, during which the writer with `QSQLITE_BUSY_TIMEOUT` waits and succeeds, while
+the one without it is refused at once. The same workload runs through the pooled
+PostgreSQL provider, in plaintext and over verified TLS, as a parity check: one
+transaction around many writes beats a commit per write there too, and verified TLS costs
+about a quarter on a point read.
 
 **Monitoring.** With nothing listening, a call site costs 0.23 ns: one relaxed atomic load
 and a comparison. That is why every build includes monitoring instead of compiling it in on

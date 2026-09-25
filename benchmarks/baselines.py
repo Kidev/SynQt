@@ -610,7 +610,23 @@ def _check_fanout(document: Mapping[str, Any], checks: List[Check]) -> None:
         )
 
 
+#: Filesystems whose fsync costs nothing, so a commit timed on one measures memory.
+_RAM_FILESYSTEMS = {"tmpfs", "ramfs"}
+
+
 def _check_persistence(document: Mapping[str, Any], checks: List[Check]) -> None:
+    # An entity's database is a file on a disk, and every autocommit there waits for a sync.
+    storage = document.get("storage")
+    checks.append(
+        Check(
+            "persistence.measured_on_a_disk",
+            bool(storage) and storage not in _RAM_FILESYSTEMS,
+            f"the database file was on {storage}"
+            if storage else "this baseline does not record the filesystem it wrote to; "
+                            "re-run benchmarks/persistence/run-bench.sh",
+        )
+    )
+
     scalars = document.get("scalars", [])
     autocommit = _by_name(scalars, "sqlite_write_autocommit_rate")
     batched = _by_name(scalars, "sqlite_write_batched_rate")

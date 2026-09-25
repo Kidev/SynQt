@@ -463,31 +463,37 @@ its bound under overfill.
 
 ### Baseline captured on this checkout
 
-`results/persistence-kidevPC_.json` (Qt 6.12.0, Arch Linux x86_64):
+`results/persistence-kidevPC_.json` (Qt 6.12.0, Arch Linux x86_64, the database file on
+btrfs on an SSD):
 
 | Metric | Value |
 |--------|-------|
-| `sqlite_write_autocommit` | p50 8 us, p99 14 us (about 116 k rows/s) |
-| `sqlite_write_batched` (one txn) | about 470 k rows/s |
-| `sqlite_read_point` (indexed) | p50 4 us, p99 5 us |
-| `sqlite_write_contended` (2nd writer active) | p50 8 us, p99 14 us, 0 of 2000 writes refused, 906 rival writes in the window |
+| `sqlite_write_autocommit` | p50 5.7 ms, p99 6.2 ms (about 177 rows/s) |
+| `sqlite_write_batched` (one txn) | about 385 k rows/s |
+| `sqlite_read_point` (indexed) | p50 5 us, p99 6 us |
+| `sqlite_write_contended` (2nd writer active) | p50 5.7 ms, p99 6.2 ms, 4 of 2000 writes refused, 3 948 rival writes in the window |
 | write lock held 1000 ms | no busy timeout is refused, and a 5000 ms busy timeout waits and lands |
-| `cache_get_hit` / `cache_get_miss` / `cache_set` | 86 / 74 / 90 ns/op |
-| `cache_set_under_eviction` | about 0.18 us/op |
+| `cache_get_hit` / `cache_get_miss` / `cache_set` | 92 / 71 / 104 ns/op |
+| `cache_set_under_eviction` | about 0.20 us/op |
 
-WAL with the default `synchronous=NORMAL` does not fsync per commit, so autocommit writes
-are cheap (single-digit microseconds) and a single bulk transaction reaches about 470 k
-rows/s. With a second connection hammering the same file, the single writer's median is
-unchanged (7.8 us against 8.4), which is the contention reading that matters.
+Qt bundles SQLite at its default `synchronous=FULL`, and the provider keeps it, so a
+commit in WAL mode waits for the WAL to reach the disk. Every autocommit write pays that
+sync, about 5.7 ms here, and one transaction around many writes pays it once, which is
+the 2 000-fold difference between the first two rows. The harness records the filesystem
+and the synchronous level in the baseline, and the gate refuses a run on tmpfs or ramfs,
+where a sync costs nothing and the autocommit row would measure memory. With a second
+connection hammering the same file, the single writer's median is unchanged (5.71 ms
+against 5.74), which is the contention reading that matters.
 
 That reading only means something if the second connection was writing while it was
 taken, and for a while it was not guaranteed to be. The measured writes start the moment
 the rival's thread does, the rival has a database to open first, and 2000 writes take
-about 16 ms, so part of the "contended" run could have had nobody to contend with. How
-much the rival wrote was a reading of how long the loop happened to last: 123 448 rows in
-one run where a single write stalled for a second, 4 351 in the next where none did. The
-harness now starts the measured writes once the rival has written, counts only what the
-rival wrote while they ran, and the gate refuses a run in which that is zero.
+about 16 ms on tmpfs, so part of the "contended" run could have had nobody to contend
+with. How much the rival wrote was a reading of how long the loop happened to last: 123
+448 rows in one run where a single write stalled for a second, 4 351 in the next where
+none did. The harness now starts the measured writes once the rival has written, counts
+only what the rival wrote while they ran, and the gate refuses a run in which that is
+zero.
 
 The safety claim is the row under it, and it is an arranged experiment and not a race. A
 third connection takes the WAL write lock and holds it for a second, and during that second
@@ -505,8 +511,8 @@ is not a queue, so a rival writing in a tight loop can hold a second writer off
 indefinitely, and that is SQLite's documented shape and not a regression. Both the refusal
 count and the worst single write are still recorded. They are reported and not enforced.
 
-The memory cache is about 90 ns/op on the hot path and holds its bound exactly under 2x
-overfill (oldest evicted, newest kept). `cache_set_under_eviction` costs about 0.18 us,
+The memory cache is about 100 ns/op on the hot path and holds its bound exactly under 2x
+overfill (oldest evicted, newest kept). `cache_set_under_eviction` costs about 0.20 us,
 about twice a plain set and no more. The recency order is a `std::list` in which every
 entry holds its own iterator, so touching one and evicting the oldest are both O(1) and the
 extra is one erase plus one hash removal, so the cost does not grow with the bound.
