@@ -6,7 +6,7 @@
 // of the comparison in benchmarks/vs-frameworks/README.md and the Node columns are measured
 // against it rather than the other way round.
 //
-// It runs the real path and not a model of it. A QWebSocketServer feeding a
+// It runs the real path and not a model of it: a QWebSocketServer feeding a
 // QRemoteObjectHost, N consumer nodes over the framework's own WebSocketTransport, and the
 // generated Source and Replica of an ordinary contract. That is the same stack a browser
 // client reaches, minus the browser.
@@ -215,7 +215,7 @@ public:
     /// Keyed by peer address and port, not by "the one accepted most recently": the
     /// handshake finishes asynchronously, so with subscribers arriving together the socket
     /// accepted last is nobody's in particular by the time newConnection fires. Moving one
-    /// half of a connection and leaving the other does not report an error, it prints a few
+    /// half of a connection and leaving the other does not report an error: it prints a few
     /// socket-notifier warnings and then dumps core. The web edge keys its own the same way.
     QTcpSocket *take(const QWebSocket *webSocket)
     {
@@ -426,8 +426,11 @@ int main(int argc, char *argv[])
         }
         if (!raw) {
             for (Subscriber &subscriber : subscribers) {
+                // Parented, so deleting the node takes it: acquire() hands back a
+                // replica with no parent.
                 subscriber.replica = subscriber.node->acquire<LiveFeedReplica>(
                     QStringLiteral("LiveFeed"));
+                subscriber.replica->setParent(subscriber.node);
             }
         }
 

@@ -3,25 +3,26 @@
 
 // The edge fan-out baseline: how the arena's server-authoritative publish() scales as one
 // owner change reaches N consumers, and whether interest management keeps the per-session payload
-// and CPU flat. docs/tutorial-multiplayer-world.md notes the naive shape is O(N^2); N sessions
-// each published a slice of the whole N-entity world, and that an `instance: per_session` split
-// with interest management cuts each slice to the k nearest entities. This harness measures that
-// directly against the real QtRO-over-QtWebSockets path (one QRemoteObjectHost, N consumer nodes
-// over loopback WebSockets, the framework's WebSocketTransport), sweeping N over three modes:
+// and CPU flat. docs/tutorial-multiplayer-world.md notes the naive shape is O(N^2) (N sessions
+// each publish a slice of the whole N-entity world), and that a per-caller Source
+// (`shared: false`) with interest management cuts each slice to the k nearest entities. This
+// harness measures that directly against the real QtRO-over-QtWebSockets path (one
+// QRemoteObjectHost, N consumer nodes over loopback WebSockets, the framework's
+// WebSocketTransport), sweeping N over three modes:
 //
-//   * shared. One world Source. Every session replicates the same model, so one
-//                            revision bump fans out to N consumers. Per-session payload = N (the
-//                            whole world). There is no way to give each player a filtered view.
-//   * per_session_naive. One Source per session, each publishing the FULL N-entity world.
-//                            Total work per tick is N sessions * N rows = O(N^2).
-//   * per_session_interest. One Source per session, each publishing only its k nearest entities.
-//                            Total work per tick is N * k = O(N*k), flat per session.
+//   * shared: one world Source. Every session replicates the same model, so one revision
+//     bump fans out to N consumers. Per-session payload = N (the whole world). There is no
+//     way to give each player a filtered view.
+//   * per_session_naive: one Source per session, each publishing the FULL N-entity world.
+//     Total work per tick is N sessions * N rows = O(N^2).
+//   * per_session_interest: one Source per session, each publishing only its k nearest
+//     entities. Total work per tick is N * k = O(N*k), flat per session.
 //
 // For each (N, mode) it reports two distributions (p50/p95/p99):
-//   * publish_cpu. Owner-side time to build every session's visible slice and bump its revision
-//                    (the "edge CPU" the plan asks to characterize), and
-//   * propagation. Wall-clock from the start of a publish tick until EVERY one of the N
-//                    consumers has observed the new revision over the wire.
+//   * publish_cpu: owner-side time to build every session's visible slice and bump its
+//     revision (the edge's CPU per tick), and
+//   * propagation: wall-clock from the start of a publish tick until EVERY one of the N
+//     consumers has observed the new revision over the wire.
 // plus the per-session and per-tick row counts, so the O(N^2) -> O(N*k) flattening is explicit.
 // Written as a committed JSON baseline a later run diffs against.
 
@@ -79,7 +80,7 @@ namespace {
 /// the handshake finishes asynchronously. With a hundred consumers arriving at once, the
 /// socket accepted last is nobody's in particular by the time newConnection fires. Getting
 /// that wrong moves one half of a connection and leaves the other, which does not report
-/// an error, it prints "QSocketNotifier: socket notifiers cannot be enabled or disabled
+/// an error: it prints "QSocketNotifier: socket notifiers cannot be enabled or disabled
 /// from another thread" a few times and then dumps core. The edge keys its own the same
 /// way, for the same reason.
 class RawKeepingListener : public QTcpServer
@@ -290,6 +291,7 @@ bool shareWith(QList<Consumer> &consumers, int n)
         if (i < n && consumer.shared == nullptr) {
             consumer.shared =
                 consumer.node->acquire<SessionViewReplica>(QStringLiteral("SharedView"));
+            consumer.shared->setParent(consumer.node);
         } else if (i >= n && consumer.shared != nullptr) {
             delete consumer.shared;
             consumer.shared = nullptr;
@@ -503,8 +505,11 @@ int main(int argc, char *argv[])
         consumer.node = new QRemoteObjectNode{&app};
         consumer.node->addClientSideConnection(consumer.transport);
         consumer.node->setHeartbeatInterval(2000);
+        // acquire() hands back a replica with no parent: parented here, the node's
+        // deletion takes it.
         consumer.perSession = consumer.node->acquire<SessionViewReplica>(
             QStringLiteral("SessionView_%1").arg(i));
+        consumer.perSession->setParent(consumer.node);
         consumers.append(consumer);
     }
 

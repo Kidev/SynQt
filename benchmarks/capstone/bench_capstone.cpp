@@ -1,28 +1,26 @@
 // SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 // SPDX-License-Identifier: Apache-2.0
 
-// The capstone load test. The multiplayer arena end to end as the version-1 scaling scenario.
-// A single process plays every role the real deployment splits across machines, so one host can
-// characterize the ceiling. A fixed-rate, server-authoritative arena simulation (every blob is
-// integrated toward its aim point at a capped speed, never teleported, exactly as
-// docs/tutorial-multiplayer-world.md requires), one per-session Source per player publishing an
-// interest-managed slice each tick, and N headless player nodes connected over the real
-// QtRO-over-QtWebSockets path (the framework's WebSocketTransport on loopback) that receive their
-// snapshots just as a browser would.
+// The capstone load test: the multiplayer arena end to end as the scaling scenario of a
+// single-edge deployment. A single process plays every role the real deployment splits
+// across machines, so one host can characterize the ceiling. A fixed-rate,
+// server-authoritative arena simulation (every blob is integrated toward its aim point at a
+// capped speed, never teleported, exactly as docs/tutorial-multiplayer-world.md requires),
+// one per-session Source per player publishing an interest-managed slice each tick, and N
+// headless player nodes connected over the real QtRO-over-QtWebSockets path (the
+// framework's WebSocketTransport on loopback) that receive their snapshots just as a
+// browser would.
 //
-// Swept over N, it reports the numbers the benchmarking plan asks for:
-//   * tick_jitter. How well the fixed-Hz server loop holds its cadence under the publish load
-//                      (the "server tick stability" signal. It grows once a tick's work no longer
-//                      fits the tick budget);
-//   * publish_cpu. Owner-side time to build every player's visible slice and bump its tick
-//                      (the edge CPU per server tick);
-//   * snapshot_rate. Snapshots per second delivered to a connected player over the
-//                      wire, averaged across players (should track the target rate until the loop
-//                      saturates);
-//   * rss_mb. Resident memory at the end of the window (memory per connection as N grows);
-//   * rows_per_session. The interest-managed payload one player receives, which stays flat at k
-//                      once N passes k. The N where it stops being flat is the point the
-//                      plan asks for.
+// Swept over N, it reports:
+//   * tick_jitter: how well the fixed-Hz server loop holds its cadence under the publish load
+//     (it grows once a tick's work no longer fits the tick budget);
+//   * publish_cpu: owner-side time to build every player's visible slice and bump its tick
+//     (the edge CPU per server tick);
+//   * snapshot_rate: snapshots per second delivered to a connected player over the wire,
+//     averaged across players (it tracks the target rate until the loop saturates);
+//   * rss_mb: resident memory at the end of the window (memory per connection as N grows);
+//   * rows_per_session: the interest-managed payload one player receives, which stays flat
+//     at k once N passes k. The N where the loop stops keeping up is the ceiling.
 //
 // It is a measurement run, not a pass/fail gate, and writes a committed JSON baseline a later run
 // diffs against. Client frame rate is the one number this native harness cannot produce (there is
@@ -107,7 +105,7 @@ private:
 };
 
 // One measured distribution, in milliseconds. Percentiles are linearly interpolated over the
-// sorted samples, the standard p50/p95/p99 summary the plan asks every result to report.
+// sorted samples, the p50/p95/p99 summary every harness in this tree reports.
 struct Distribution
 {
     QString name;
@@ -308,7 +306,7 @@ QStandardItemModel *makeViewModel(QObject *parent)
 }
 
 // Fill a player's view model with the blobs in `visible`, reading their live position from
-// the arena. The row count here is the per-session payload the plan tracks against N.
+// the arena. The row count here is the per-session payload the sweep tracks against N.
 //
 // Shaped like the generated `set<Model>(rows)` an owner calls: build the items, reset the
 // model, then append them. removeRows() then insertRows() and a setData() per cell is
@@ -587,8 +585,11 @@ int main(int argc, char *argv[])
         player.node = new QRemoteObjectNode{&app};
         player.node->addClientSideConnection(player.transport);
         player.node->setHeartbeatInterval(2000);
+        // acquire() hands back a replica with no parent: parented here, the node's
+        // deletion takes it.
         player.view = player.node->acquire<PlayerViewReplica>(
             QStringLiteral("PlayerView_%1").arg(i));
+        player.view->setParent(player.node);
         // One increment per snapshot this player is handed. Capturing the
         // shared counter, not the Player, so the copy the sweep measures sees it.
         QObject::connect(player.view, &PlayerViewReplica::tickChanged, player.view,
@@ -622,7 +623,8 @@ int main(int argc, char *argv[])
 
     // One monotonic tick counter across the whole sweep. The per-player PlayerView.tick is a
     // push property, so it must never step backwards between warm-up and measurement or between
-    // sizes. The delivered-snapshot count is read as its advance over each measured window.
+    // sizes. The delivered-snapshot count is the replica's own change signal, counted over each
+    // measured window (see Player), not this counter's advance.
     quint64 tickCounter{0};
 
     QJsonArray sweepJson;
@@ -705,14 +707,14 @@ int main(int argc, char *argv[])
     // dispatcher is gone, and every one warns. First sever each socket's signals so no inbound
     // host frame is routed into QtRO wiring whose replica is about to go, which otherwise logs
     // "connectionToSource is null" during the drain. Then delete the node (it takes the replica
-    // children and the heartbeat timer), the unparented transport, and the socket. Nothing
+    // parented to it and the heartbeat timer), the unparented transport, and the socket. Nothing
     // timer-bearing is left for application teardown to destroy.
     for (Player &player : players) {
         player.socket->disconnect();
         player.transport->disconnect();
     }
     for (Player &player : players) {
-        delete player.node;         // takes its replica children and the heartbeat timer
+        delete player.node;         // takes the replica parented to it and the heartbeat timer
         delete player.transport;    // the adapter is unparented; QtRO never owned it
         delete player.socket;       // the QWebSocket and its underlying QTcpSocket timers
         player.node = nullptr;

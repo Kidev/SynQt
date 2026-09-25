@@ -11,7 +11,7 @@
 // returning slot is the same thing. Without a column on that shape there is nothing to
 // compare a Server Function against except a workload Next.js was never built for.
 //
-// It runs the real path. A QWebSocketServer feeding a QRemoteObjectHost, N consumer nodes
+// It runs the real path: a QWebSocketServer feeding a QRemoteObjectHost, N consumer nodes
 // over the framework's own WebSocketTransport, and the generated Source and Replica of an
 // ordinary contract. The reply arrives as a QRemoteObjectPendingReply, which is what a
 // consumer facade's `.then()` is built on.
@@ -274,8 +274,7 @@ int main(int argc, char *argv[])
 {
     // The same first line every generated entity main has, and for the same reason: Qt
     // chooses its event dispatcher here, and the column has to measure the one a SynQt
-    // service runs on. It applies to the bare-socket column too, because that
-    // column is this process with QtRemoteObjects taken out and nothing else changed.
+    // service runs on.
     SynQt::preferPollingEventDispatcher();
 
     QCoreApplication app{argc, argv};
@@ -363,8 +362,11 @@ int main(int argc, char *argv[])
             callers.append(caller);
         }
         for (Caller &caller : callers) {
+            // Parented, so deleting the node takes it: acquire() hands back a replica
+            // with no parent.
             caller.replica = caller.node->acquire<CallFeedReplica>(
                 QStringLiteral("CallFeed"));
+            caller.replica->setParent(caller.node);
         }
         const bool ready{spinUntil([&callers]() {
             return std::all_of(callers.cbegin(), callers.cend(), [](const Caller &one) {
