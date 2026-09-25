@@ -69,7 +69,7 @@ SynClientConfig clientConfig(quint16 port)
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
     config.connectPoints = {{QStringLiteral("counter"), QStringLiteral("Counter")}};
     // Trust the throwaway test CA by pinning it. The client still verifies (VerifyPeer +
-    // hostname), it also trusts certificates this CA issued.
+    // hostname); it also trusts certificates this CA issued.
     config.pinnedCaCertPath = QStringLiteral(M6_CERT_DIR "/ca.crt");
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
                          QStringLiteral("moderator"), QStringLiteral("admin")};
@@ -186,7 +186,13 @@ private slots:
 
     void forcedDisconnectReconnects()
     {
-        const quint16 port{18766};
+        // The edge comes back on the same port, so the port is chosen before either exists.
+        quint16 port{0};
+        {
+            QTcpServer probe;
+            QVERIFY(probe.listen(QHostAddress::LocalHost, 0));
+            port = probe.serverPort();
+        }
         QQmlEngine engine;
         auto edge{std::make_unique<WebEdge>(edgeConfig(port), &engine)};
         QVERIFY2(edge->start(), qPrintable(edge->errorString()));
@@ -195,7 +201,7 @@ private slots:
         client.start();
         QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("connected"), 8000);
 
-        // Force a disconnect. Drop the edge.
+        // Force a disconnect: drop the edge.
         edge.reset();
         QTRY_COMPARE_WITH_TIMEOUT(client.session()->state(), QStringLiteral("reconnecting"), 8000);
 
@@ -411,7 +417,7 @@ private slots:
         QVERIFY(client.session()->hasScope(QStringLiteral("admin")));
     }
 
-    // The same, driven the way an app drives it. A slot on the owner calling
+    // The same, driven the way an app drives it: a slot on the owner calling
     // Caller.setScope. That is the only elevation path an application has (the session
     // manager is not reachable from QML), so proving the channel against a direct
     // setScope call proves only half of it.
