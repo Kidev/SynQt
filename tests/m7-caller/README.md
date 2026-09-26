@@ -70,10 +70,11 @@ and no transport:
   `Q_ARG(<cppType>, ...)` silently fails to match. The generator also emits an
   `emit<Signal>` method per contract signal, which `Caller.emitSignal` drives. The client
   runtime suite exercises only no-arg slots, so this surfaced here.
-- Every connect point mints a Source per caller (`instance: caller`, the default), each
-  bound to that caller's session or verified entity name. A user's tabs reach one Source,
-  which `instanceDecidesWhatASecondTabContinues` proves against `instance: link` on the
-  same Source file.
+- An entity that is not shared (`shared: false`) mints a Source per caller, each bound to
+  that caller's session or verified entity name, and a user's tabs reach one Source. A
+  shared entity holds one Source and reaches every caller through a mirror carrying their
+  own `Caller`. `sharedDecidesWhatASecondTabContinues` proves both on the same Source
+  file.
 
 ## Run
 

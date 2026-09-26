@@ -302,11 +302,11 @@ private slots:
         m_dbEngine.reset();
     }
 
-    // `instance:` is a promise about how many Sources a connect point mints. Both answers
+    // `shared:` is a promise about how many Sources a connect point mints. Both answers
     // are checked here on one Source file hosted twice, because the setting is the whole
     // difference between them: minting a Source per connection for both would start a
     // user's second tab blank.
-    void instanceDecidesWhatASecondTabContinues()
+    void sharedDecidesWhatASecondTabContinues()
     {
         const QByteArray aliceToken{
             m_edge->sessionManager()->createSession(QStringLiteral("user"),
@@ -381,7 +381,7 @@ private slots:
         QTRY_COMPARE(scratchOne->property("text").toString(), QStringLiteral("bob:eggs"));
     }
 
-    // Clauses 1, 2, 3, 5: the user authorization matrix and ownerSub non-leakage.
+    // The user authorization matrix, and ownerSub never reaching the browser.
     void userAuthorizationMatrix()
     {
         const QByteArray aliceToken{
@@ -420,7 +420,7 @@ private slots:
         QTRY_VERIFY(bobTodo->isReplicaValid());
         QTRY_VERIFY(modTodo->isReplicaValid());
 
-        // Clause 1: an anonymous session is scope-gated out of `todo` entirely. It never
+        // An anonymous session is scope-gated out of `todo` entirely. It never
         // acquires the Replica, so it can neither view nor add.
         QTest::qWait(1500);
         QVERIFY2(!anonTodo->isReplicaValid(),
@@ -433,7 +433,8 @@ private slots:
         QSignalSpy edgeItemAdded{databaseView(), SIGNAL(itemAdded(int, QString, QString, QString))};
 
         // Alice (user) adds the first item (deterministic id 1, owner alice).
-        QVERIFY(QMetaObject::invokeMethod(aliceTodo, "add", Q_ARG(QString, QStringLiteral("milk"))));
+        QVERIFY(QMetaObject::invokeMethod(aliceTodo, "add",
+                                          Q_ARG(QString, QStringLiteral("milk"))));
         QTRY_COMPARE(aliceTodo->property("count").toInt(), 1);
         QTRY_COMPARE(bobTodo->property("count").toInt(), 1);  // all users see all items
 
@@ -441,7 +442,7 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(bobTodo, "add", Q_ARG(QString, QStringLiteral("eggs"))));
         QTRY_COMPARE(bobTodo->property("count").toInt(), 2);
 
-        // Clause 2: bob may not remove alice's item. The edge refuses and explains to bob
+        // Bob may not remove alice's item. The edge refuses and explains to bob
         // alone (emit-to-one-caller), and the item survives.
         QSignalSpy bobRejected{bobTodo, SIGNAL(rejected(QString))};
         QVERIFY(QMetaObject::invokeMethod(bobTodo, "remove", Q_ARG(int, 1)));
@@ -449,16 +450,16 @@ private slots:
         QTest::qWait(300);
         QCOMPARE(bobTodo->property("count").toInt(), 2);  // alice's item still there
 
-        // Alice removes her own item. allowed.
+        // Alice removes her own item, which is allowed.
         QVERIFY(QMetaObject::invokeMethod(aliceTodo, "remove", Q_ARG(int, 1)));
         QTRY_COMPARE(aliceTodo->property("count").toInt(), 1);
 
-        // Clause 3: the moderator removes bob's item (not their own), allowed.
+        // The moderator removes bob's item (not their own), which is allowed.
         QVERIFY(QMetaObject::invokeMethod(modTodo, "remove", Q_ARG(int, 2)));
         QTRY_COMPARE(modTodo->property("count").toInt(), 0);
         QTRY_COMPARE(aliceTodo->property("count").toInt(), 0);
 
-        // Clause 5: ownerSub reaches the trusted edge over the mesh (so the edge can
+        // ownerSub reaches the trusted edge over the mesh (so the edge can
         // authorize removals) but is structurally absent from everything the browser can
         // read. It is not a declared role of the Todo model and not a property of the
         // todo replica.
@@ -468,7 +469,7 @@ private slots:
                  "ownerSub must never be a property of a browser-side replica");
     }
 
-    // Clause 4: the database refuses any calling entity other than the edge, even one on
+    // The database refuses any calling entity other than the edge, even one on
     // the connect point's consumer allowlist (the in-slot Caller.entity check).
     void databaseRefusesNonEdgeEntity()
     {
@@ -622,8 +623,8 @@ private slots:
 
     // A withdrawn point's model is withdrawn with it. QtRO registers a model under its own
     // name on the connection's node, and disableRemoting() frees it without taking the name
-    // back, so a request the demoted browser still sends to the model reached freed memory
-    // on the edge. The browser's own model replica sends one on a cache miss, and a hostile
+    // back, so a request the demoted browser still sends to the model would reach freed
+    // memory on the edge. The browser's own model replica sends one on a cache miss, and a hostile
     // client sends one on purpose.
     void aModelRequestAfterADemotionReachesNothing()
     {
@@ -709,7 +710,7 @@ private slots:
 
     // The entity behind a front is a Replica over a mesh link, and a link that reconnects
     // is a fresh Replica: the runtime retires the old one a turn after the new one
-    // arrives. A relay left pointed at the old one followed a deleted object and answered
+    // arrives. A relay left pointed at the old one would follow a deleted object and answer
     // nobody, for every browser already connected, until each of them reconnected on its
     // own. The edge is told of the replacement exactly as it is told of the first one.
     void aReplacedEntityBehindAFrontIsFollowedByLiveConnections()
@@ -748,7 +749,7 @@ private slots:
         m_backoffice->setPending(7);
     }
 
-    // Clause 7: an entity not on the consumer allowlist is refused at the mesh handshake
+    // An entity not on the consumer allowlist is refused at the mesh handshake
     // (deny by default), even with a CA-signed certificate.
     void unlistedEntityRefusedAtHandshake()
     {
@@ -774,7 +775,7 @@ private slots:
         }
     }
 
-    // Clause 6: a hand-crafted client presenting a forged session is refused at the
+    // A hand-crafted client presenting a forged session is refused at the
     // WebSocket upgrade. It never connects and never acquires anything.
     void forgedSessionRefusedAtUpgrade()
     {
