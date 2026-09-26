@@ -871,6 +871,7 @@ One run produces every way to install `synqt`, all from one tag:
 | `synqt-linux-{x86_64,arm64}.tar.gz` | `build-linux`, inside the `manylinux_2_28` container so the glibc floor is 2.28 and stays there | the GitHub release, which is what `get.synqt.org` downloads |
 | `synqt-macos-{x86_64,arm64}.tar.gz`, `synqt-windows-{x86_64,arm64}.zip` | `build-native`, on the runner for that row | the same release |
 | `synqt-<version>.tar.gz` and `synqt-<version>-py3-none-any.whl` | `build-pypi` | [PyPI](https://pypi.org/p/synqt), and attached to the release as well |
+| `SHA256SUMS` | `release`, over every file above | the same release; both installers refuse an asset whose digest it does not list |
 
 The frozen binaries and the wheel are the same CLI, with one difference. A one-file frozen
 binary unpacks its data into a temporary directory it deletes on exit, so it cannot provide

@@ -16,7 +16,8 @@
 # (also served at the get.synqt.org root).
 #
 # Reading a script before piping it to a shell is strongly recommended. This one
-# only downloads, extracts, and copies a single binary into a bin directory.
+# only downloads, checks the download against the release's SHA256SUMS, extracts,
+# and copies a single binary into a bin directory.
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -62,8 +63,24 @@ New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 try {
     $zip = Join-Path $tmp $asset
 
+    $sums = Join-Path $tmp 'SHA256SUMS'
+
     Write-Host "Downloading $asset ..."
     Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+    Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile $sums -UseBasicParsing
+
+    Write-Host "Verifying ..."
+    $expected = $null
+    foreach ($line in Get-Content -Path $sums) {
+        $fields = $line -split '\s+', 2
+        if ($fields.Count -eq 2 -and $fields[1].TrimStart('*') -eq $asset) {
+            $expected = $fields[0]
+        }
+    }
+    $actual = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
+    if ([string]::IsNullOrEmpty($expected) -or $actual -ne $expected) {
+        throw "$asset does not match the release's SHA256SUMS; nothing was installed."
+    }
 
     Write-Host "Extracting ..."
     Expand-Archive -Path $zip -DestinationPath $tmp -Force

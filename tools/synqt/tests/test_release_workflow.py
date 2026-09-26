@@ -155,3 +155,26 @@ def test_no_single_quote_inside_a_single_quoted_script():
             if "'" in body[:closing.start()]:
                 offenders.append(where)
     assert offenders == []
+
+
+def test_the_release_publishes_a_checksum_for_every_asset(tmp_path):
+    """The installers refuse an asset SHA256SUMS does not list, so the release writes one
+    over everything it publishes, before the step that publishes it."""
+    workflow = yaml.safe_load(RELEASE.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["release"]["steps"]
+    publish = next(i for i, step in enumerate(steps)
+                   if str(step.get("uses", "")).startswith("softprops/action-gh-release"))
+    assert steps[publish]["with"]["files"] == "dist/*"
+    writers = [i for i, step in enumerate(steps) if "SHA256SUMS" in str(step.get("run", ""))]
+    assert writers and writers[-1] < publish, "no step writes dist/SHA256SUMS before publishing"
+    if BASH is None or shutil.which("sha256sum") is None:
+        pytest.skip("needs bash and sha256sum to run the step")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "synqt-linux-x86_64.tar.gz").write_bytes(b"linux")
+    (dist / "synqt-windows-x86_64.zip").write_bytes(b"windows")
+    subprocess.run([BASH, "-eo", "pipefail", "-c", steps[writers[-1]]["run"]], cwd=tmp_path,
+                   check=True)
+    listed = (dist / "SHA256SUMS").read_text(encoding="utf-8").split("\n")
+    names = sorted(line.split()[1] for line in listed if line)
+    assert names == ["synqt-linux-x86_64.tar.gz", "synqt-windows-x86_64.zip"]

@@ -461,6 +461,13 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Write the checksums the installers verify
+        run: |
+          set -eu
+          cd dist
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z \
+            | xargs -0 sha256sum -- > SHA256SUMS
+
       - name: List the assets to publish
         run: ls -la dist
 

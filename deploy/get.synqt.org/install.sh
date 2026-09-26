@@ -16,7 +16,8 @@
 # always resolves to the newest stable release, so this script self updates.
 #
 # Reading a script before piping it to a shell is strongly recommended. This one
-# only downloads, extracts, and copies a single binary into a bin directory.
+# only downloads, checks the download against the release's SHA256SUMS, extracts,
+# and copies a single binary into a bin directory.
 
 set -eu
 
@@ -53,13 +54,33 @@ bindir="${SYNQT_BIN:-$HOME/.local/bin}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-echo "Downloading ${asset} ..."
 if command -v curl >/dev/null 2>&1; then
-  curl -fSL "$url" -o "${tmp}/${asset}"
+  fetch() { curl -fSL "$1" -o "$2"; }
 elif command -v wget >/dev/null 2>&1; then
-  wget -O "${tmp}/${asset}" "$url"
+  fetch() { wget -O "$2" "$1"; }
 else
   echo "Need curl or wget to download." >&2
+  exit 1
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  digest() { sha256sum "$1" | cut -d ' ' -f 1; }
+elif command -v shasum >/dev/null 2>&1; then
+  digest() { shasum -a 256 "$1" | cut -d ' ' -f 1; }
+else
+  echo "Need sha256sum or shasum to verify the download." >&2
+  exit 1
+fi
+
+echo "Downloading ${asset} ..."
+fetch "$url" "${tmp}/${asset}"
+fetch "${BASE}/SHA256SUMS" "${tmp}/SHA256SUMS"
+
+echo "Verifying ..."
+expected="$(awk -v name="$asset" '$2 == name || $2 == "*" name { print $1 }' "${tmp}/SHA256SUMS")"
+actual="$(digest "${tmp}/${asset}")"
+if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+  echo "${asset} does not match the release's SHA256SUMS; nothing was installed." >&2
   exit 1
 fi
 
