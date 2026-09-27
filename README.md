@@ -52,7 +52,7 @@ your-app/
   cache/hot/            # an in memory cache entity
 ```
 
-Entities never write network code. They share connect points. A connect point is a
+Entities share connect points instead of writing network code. A connect point is a
 live object that exactly one entity owns and the others mirror. It declares, once and
 on itself, the typed shape of what may cross it.
 
@@ -72,8 +72,8 @@ edge's connect points through `Server`. One entity reaches another's by that
 entity's name (`Store.find(id)`). Inside a connect point's own function, `Caller`
 says who is asking, so the owner can authorize every request.
 
-Not every visitor's browser gives Qt a WebGL context. A policy can disable it, or a
-driver can be blocked. SynQt checks before the app starts and draws in software when
+Some browsers give Qt no WebGL context: a policy can disable it, or a driver can be
+blocked. SynQt checks before the app starts and draws in software when
 there is none, which covers ordinary 2D Qt Quick completely. The few things that do
 need a GPU show a notice in place of the content rather than a blank rectangle. See
 [graphics](https://synqt.org/project-layout-and-config/#graphics-which-routes-need-an-accelerated-scene-graph).
@@ -123,14 +123,14 @@ Node 24.20.0, every column from one session. Deliveries per second:
 
 | cores | SynQt, `replicas: N` | Node `cluster`, built-ins only | SynQt, `threads: N` |
 |---|---|---|---|
-| 1 | 136k | 124k | 136k |
-| 2 | 300k | 246k | 240k |
-| 4 | 600k | 490k | 244k |
-| 8 | 1.19M | 916k | 238k |
+| 1 | 136k | 124k | 135k |
+| 2 | 298k | 247k | 241k |
+| 4 | 599k | 489k | 242k |
+| 8 | 1.18M | 914k | 237k |
 
 `replicas: N` and Node's `cluster` add capacity by running more processes, and each
 process holds its own copy of the value. SynQt leads the built-ins column by 10% on one
-process and by 30% on eight. That column is `node:http` with a hand written WebSocket
+process and by 29% on eight. That column is `node:http` with a hand written WebSocket
 implementation, which is faster than what most deployments run. Socket.IO (the usual
 choice) and Next.js (which ships no WebSocket server, so its live path streams server-sent
 events) are compared on the fan-out workload in [`benchmarks/`](benchmarks/).
@@ -147,16 +147,15 @@ with `--work echo` (an empty function body), p50 by concurrent callers:
 
 | | 1 caller | 128 callers | calls/s at 32 callers |
 |---|---|---|---|
-| SynQt, returning slot | 0.016 ms | 1.6 ms | 80k |
+| SynQt, returning slot | 0.016 ms | 1.6 ms | 81k |
 | Node 24, bare JSON POST | 0.050 ms | 6.2 ms | 21k |
-| Next.js on Node 24, Server Function | 0.364 ms | 39.9 ms | 3.1k |
+| Next.js on Node 24, Server Function | 0.351 ms | 39.8 ms | 3.1k |
 
-Two things make up that gap. React's machinery around a Server Function costs six and a
-half to seven times what the same Node process costs answering a plain POST. The rest is
-that a SynQt caller already holds its connection, while both Node columns make an HTTP
-request per call: a difference in connection handling between the two designs. The
-Next.js column makes the request React's own client runtime makes, and never imports the
-function and skips the framework.
+Two things make up that gap. React's machinery around a Server Function costs six to seven
+times what the same Node process costs answering a plain POST. The rest is that a SynQt
+caller already holds its connection, while both Node columns make an HTTP request per
+call: a difference in connection handling between the two designs. The Next.js column
+sends the request React's own client runtime sends, so the framework stays in the path.
 
 Every harness, the committed baselines, what each number does and does not support, and
 the caveats are in [`benchmarks/`](benchmarks/). The deployment docs plot the fan-out data

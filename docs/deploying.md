@@ -6,8 +6,8 @@
 `synqt dev` runs everything on one machine, with a throwaway CA and plaintext HTTP on
 localhost. A deployment differs in four ways: real certificates, real secrets, real TLS to
 the browser, and something that keeps the processes running. This page covers the whole
-path, in order, for a system with a web edge and a database entity. None of it is
-specific to a hosting provider.
+path, in order, for a system with a web edge and a database entity. All of it applies to
+any hosting provider.
 
 This is the reference to keep open during a deploy. For a walkthrough with the reasoning,
 [Shipping it](tutorial-ship.md) takes the tutorial's auction onto two hosts, and adds the
@@ -54,9 +54,9 @@ topology instead of two copies. See
 
 ## 2. Issue the mesh certificates
 
-Sharing a host does not make service entities trust each other. They authenticate with
-mutual TLS against a private CA on every link, loopback included, so the CA must exist
-before anything starts.
+Service entities trust each other only through certificates, even on one host. They
+authenticate with mutual TLS against a private CA on every link, loopback included, so the
+CA must exist before anything starts.
 
 ```cli
 synqt mesh init          # once per project, on a machine you control
@@ -124,8 +124,8 @@ myapp/
   build/
     <entity>/             # the binary and its topology.json, one per entity running here
     client/               # only on the host whose edge serves the bundle
-  generated/<entity>/     # the QML that entity loads at startup
-  <entity>/               # the same entity's runtime files: .env, schema.sql, data/
+  generated/<type>/<entity>/  # the QML that entity loads at startup
+  <type>/<entity>/        # the same entity's runtime files: .env, schema.sql, data/
 ```
 
 Entity source directories travel too, but only for files an entity reads at run time. On
@@ -134,14 +134,14 @@ the QML it runs is the copy under `generated/`. Every path in `topology.json` is
 to the project root, so the tree works wherever it lands, as long as each entity starts
 there. `synqt.yaml` travels because the entities use the paths it spells.
 
-Service binaries do not bundle Qt. `synqt build` runs no deployment step for them, so a
+Service binaries leave Qt out: `synqt build` runs no deployment step for them, so a
 service host needs the pinned Qt kit, either in a container image or installed at the
 path the build used. (The desktop client is the exception; see step 9.) A container image
 built from the same base as your build machine is the least surprising option.
 
 ## 5. Place the secrets
 
-No secret goes in `synqt.yaml`. A secret value is declared as a reference,
+A secret value appears in `synqt.yaml` only as a reference,
 `password: env:DB_PASSWORD`, resolved at start from the entity's own env file, then the
 project's. Two rules enforce this where it matters most: a provider password or connection
 URI, and an identity provider's `client_secret`, must be `env:` references; and any `env:`
@@ -203,7 +203,7 @@ synqt serve --profile production
 ```
 
 `synqt serve` starts each entity from the project root in that order, then returns. It
-does not supervise, so it does not restart an entity that dies. Use it to bring up a
+leaves supervision to you, so an entity that dies stays down. Use it to bring up a
 staging machine by hand. For anything that must stay up, use systemd, an orchestrator or
 another process manager, fed from `process-manifest.json`. `synqt serve` passes `--dev` to
 nothing, which keeps the [development sign-in](authentication.md#the-development-sign-in)
@@ -217,16 +217,16 @@ enforces the first:
 - **The configuration says where TLS terminates.** Either the edge has `tls.cert_file` and
   `tls.key_file` and terminates TLS itself, or it declares
   `public.tls_terminated_upstream: true` because a reverse proxy in front of it does.
-  There is no third option; a release build with neither is refused.
+  A release build with neither is refused.
 - **Everything else binds to a private interface.** Mesh links use mutual TLS everywhere,
-  so a database exposed by accident is not immediately fatal, but the network should not
-  be the only thing keeping it private. See
+  so a database exposed by accident still refuses strangers, but mutual TLS should not be
+  the only thing keeping it private. See
   [network segmentation and the database](security.md#network-segmentation-and-the-database).
 
 The edge sends the browser hardening headers itself, computed from the topology: the
 Content-Security-Policy, with the sync endpoint's `wss://` origin in `connect-src`, and,
 for a multi threaded client, the COOP and COEP pair that cross origin isolation needs.
-There is nothing to configure, but since the headers come from the edge, a proxy that
+The headers need no configuration, but since they come from the edge, a proxy that
 rewrites response headers can break the client. See [Content-Security-Policy](csp.md).
 
 To serve the bundle from a CDN instead of the edge, first read
@@ -283,7 +283,7 @@ visitors as one.
 
 ### What does not scale by raising the number
 
-None of these warns you:
+These pass `synqt check` without a warning:
 
 - **State in an edge singleton is per replica.** The rule above covers connect points, but
   an edge singleton can still hold state that a remote page route or an `Api` handler
@@ -309,8 +309,8 @@ key:
 ```
 
 Each browser connection goes to one of the four threads when accepted and stays there.
-Nothing else moves: each connection's QtRO host, the Sources it acquires, the QML engine
-and the entity singleton all stay on the main thread, as with `threads: 1`.
+Everything else stays on the main thread, as with `threads: 1`: each connection's QtRO
+host, the Sources it acquires, the QML engine and the entity singleton.
 
 Choose between the two keys by how they differ:
 
@@ -333,8 +333,8 @@ sockets are N processes, each using several cores.
 #### What the two keys buy
 
 ![Deliveries per second against core count: SynQt replicas and Node cluster both rise
-close to linearly to about 1.19M and 913k at eight processes, while SynQt threads rises to
-243k at two cores and then flattens, and is the only one of the three that keeps a
+close to linearly to about 1.18M and 914k at eight processes, while SynQt threads rises to
+241k at two cores and then flattens, and is the only one of the three that keeps a
 single shared value.](assets/scaling-cores.svg){ width="100%" }
 
 One publisher, 100 subscribers, saturating, 256 byte payload; 32 core Linux host, Qt 6.12.0,
@@ -343,10 +343,10 @@ and [`benchmarks/vs-frameworks/sweep.py`](https://github.com/Kidev/SynQt/blob/ma
 
 | cores | `replicas: N` | Node `cluster` | `threads: N` |
 |---|---|---|---|
-| 1 | 134 317 | 122 533 | 136 500 |
-| 2 | 296 100 | 244 025 | 243 267 |
-| 4 | 598 846 | 490 638 | 243 500 |
-| 8 | 1 185 739 | 912 800 | 237 483 |
+| 1 | 136 433 | 124 117 | 135 200 |
+| 2 | 298 258 | 247 242 | 240 783 |
+| 4 | 598 533 | 488 696 | 242 400 |
+| 8 | 1 176 750 | 914 302 | 237 150 |
 
 Compare the two dashed lines with the solid one, not with each other. Processes scale
 almost linearly, about equally well for SynQt and Node, but they scale N separate systems.
@@ -357,8 +357,8 @@ numbers do not include.
 The solid line keeps one shared value, and it flattens: 1.78x from one core to two, level
 at four, slightly lower at eight. `threads:` gives about two cores of delivery for a value
 every subscriber must agree on, which `replicas:` cannot serve at all, and no more. The
-sockets are not the limit: the Source still runs once, on its own thread, and serializing
-a change is work more sockets cannot share.
+limit is the Source, which still runs once on the main thread: serializing a change is
+work more sockets cannot share.
 
 **What threads do not speed up.** The Source still runs once, on the main thread, so an
 owner that is slow to compute what it publishes stays exactly as slow with four threads.
@@ -366,14 +366,14 @@ Threads take the per connection delivery cost off the main thread, which is wher
 the time goes when fanning out to many browsers. If a profile shows your edge busy in QML
 rather than in its sockets, this key will not help.
 
-**Give it the cores.** Nothing checks that the machine has them, and nothing can. A
+**Give it the cores.** SynQt cannot check that the machine has them. A
 container with a one CPU quota runs four socket threads without complaint and gains only
 context switches. Set the number from the CPU the process may use, not the host's core
 count.
 
 **Message size.** Writes to one connection in the same pass of the event loop travel
 together as one WebSocket message, so `security.max_message_bytes` also caps how large a
-batch can grow. There is nothing to configure. A single message already over that limit
+batch can grow, with nothing extra to configure. A single message already over that limit
 still goes alone, as it does without threads.
 
 ### One thing your entities do to their own event loop

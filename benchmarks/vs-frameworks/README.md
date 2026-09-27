@@ -354,56 +354,53 @@ Propagation p50 in milliseconds, and every column delivered every frame at every
 
 | N | synqt | qt-raw | go-bare | rust-bare | node24 | node26 | phoenix | signalr | socketio24 | socketio26 | nextjs24 | nextjs26 | actioncable | reverb | fastapi | channels |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 10 | 0.123 | 0.122 | 0.072 | 0.074 | 0.232 | 0.196 | 0.132 | 0.080 | 0.362 | 0.367 | 0.300 | 0.392 | 0.998 | 0.742 | 0.391 | 0.396 |
-| 50 | 0.556 | 0.474 | 0.160 | 0.200 | 0.586 | 0.543 | 0.178 | 0.149 | 1.015 | 1.228 | 0.874 | 0.887 | 1.804 | 1.173 | 1.556 | 1.184 |
-| 100 | 0.850 | 0.900 | 0.282 | 0.309 | 0.851 | 0.820 | 0.276 | 0.248 | 1.733 | 1.880 | 1.691 | 1.332 | 3.107 | 1.602 | 2.870 | 2.151 |
-| 250 | 2.640 | 1.864 | 0.640 | 0.747 | 2.175 | 1.930 | 0.506 | 0.435 | 4.602 | 5.051 | 3.721 | 3.063 | 6.874 | 3.051 | 6.820 | 6.957 |
+| 10 | 0.115 | 0.098 | 0.072 | 0.062 | 0.164 | 0.161 | 0.146 | 0.102 | 0.362 | 0.334 | 0.277 | 0.290 | 0.907 | 0.712 | 0.378 | 0.378 |
+| 50 | 0.467 | 0.422 | 0.183 | 0.195 | 0.509 | 0.534 | 0.227 | 0.205 | 1.069 | 1.075 | 0.765 | 0.738 | 1.784 | 1.083 | 1.138 | 1.173 |
+| 100 | 0.873 | 0.721 | 0.302 | 0.308 | 0.861 | 0.814 | 0.285 | 0.276 | 1.778 | 1.631 | 1.278 | 1.238 | 2.978 | 1.557 | 2.158 | 2.184 |
+| 250 | 1.992 | 1.639 | 0.646 | 0.742 | 2.022 | 1.898 | 0.519 | 0.437 | 4.072 | 3.907 | 2.911 | 2.755 | 6.410 | 2.700 | 5.253 | 5.165 |
 
-SynQt is fifth of sixteen at N=10, behind both compiled floors, SignalR and its own
-`qt-raw` control, which it matches to a microsecond. At N=250 it is eighth. SignalR at
-0.435 ms, Phoenix at 0.506, Go at 0.640, Rust at 0.747, `qt-raw` at 1.864 and both bare Node
-columns at 1.930 and 2.175 come in ahead of its 2.640. Everything else in the table is
-behind it. The ordering inverts across the sweep, which is the shape the Node comparison
+SynQt is fifth of sixteen at N=10, behind both compiled floors, its own `qt-raw` control
+and SignalR. At N=250 it is seventh. SignalR at 0.437 ms, Phoenix at 0.519, Go at 0.646,
+Rust at 0.742, `qt-raw` at 1.639 and bare Node 26 at 1.898 come in ahead of its 1.992, and
+bare Node 24 at 2.022 is level with it. Everything else in the table is behind it. The ordering inverts across the sweep, which is the shape the Node comparison
 already showed.
 
 Read the N=250 cell of the SynQt column with its spread. Measured eight times in a row on
-this machine, it read between 2.17 and 2.57 ms, and its CPU between 10.4 and 12.4 ms per
-thousand deliveries, with no difference between the two builds. The 2.640 above is one
-run just above that range. So the gap to bare Node at N=250 is real and is somewhere
-between level and a fifth. The ordering does not depend on which run is printed.
+this machine, it read between 1.88 and 2.00 ms, and its CPU between 8.7 and 9.3 ms per
+thousand deliveries. The 1.992 above is the top of that range. So at N=250 SynQt is level
+with bare Node, a few percent either side of it depending on the major and the run.
 
 SynQt wins the fixed cost and loses the marginal one. Adding a subscriber costs it more
 than it costs a BEAM node or a SignalR hub, so on this machine Phoenix passes it between
-10 and 50 subscribers and bare Node between 50 and 100. The memory rows say the same
-thing the other way round. SynQt's marginal cost is 63.2 KiB a connection at N=250,
-behind Reverb at 41.1, its own `qt-raw` at 45.1 and Go at 51.7, and well under Phoenix's
-123.8 and SignalR's 344.6, while its propagation is the higher of those. It is cheap to
+10 and 50 subscribers, and bare Node draws level between 50 and 100. The memory rows say
+the same thing the other way round. SynQt's marginal cost is 63.0 KiB a connection at
+N=250, behind Go at 33.8, Reverb at 41.1 and its own `qt-raw` at 46.0, and well under
+Phoenix's 159.1 and SignalR's 237.5, while its propagation is the higher of those. It is cheap to
 hold a connection and comparatively expensive to fan out to one.
 
-A single-edge SynQt deployment fanning one value to 250 live subscribers pays about 5x
-Phoenix's propagation, and between level with bare Node and a fifth above it. Two things
+A single-edge SynQt deployment fanning one value to 250 live subscribers pays about 4x
+Phoenix's propagation, and about what bare Node pays. Two things
 change that picture, and neither is in this table. `replicas:` splits the subscribers
 across processes ([the sweep below](#the-sweep-what-each-stack-does-with-four-cores)
-measures it, and SynQt scales 8.92x over eight processes where bare Node scales 7.43x), and
+measures it, and SynQt scales 9.00x over eight processes where bare Node scales 7.44x), and
 `threads:` reaches the other cores inside one process
 ([below](#threads-the-core-that-is-not-a-process)). So SynQt's answer to a large fan-out is
 partly more cores.
 
 The floors do their job in that row too, though not the job that was expected of them. Go
-at 0.640 ms and Rust at 0.747 are beaten by SignalR and Phoenix at N=250. Two frameworks
+at 0.646 ms and Rust at 0.742 are beaten by SignalR and Phoenix at N=250. Two frameworks
 outrun both frameworkless compiled columns, and the reason is visible one row up in the
 CPU figures. SignalR and Phoenix are the two columns whose runtime spreads the fan-out
 across cores without being asked, while `go-bare` and `rust-bare` do it the way every
 other column here does, from one publisher loop. The floors bound what a single loop
 costs, and they say nothing about what the machine can do.
 
-The two Node columns are not the same column, and in this run which one is ahead depends
-on the stack. Bare Node 26 is ahead of the LTS at every size, by 4% to 16%, and so is its
-CPU figure at N=250 (8.5 against 9.8 ms per thousand deliveries). Next.js on 26 is behind
-at N=10 and N=50 and ahead by about a fifth at N=100 and N=250. Socket.IO is the other
-way: the LTS is ahead at every size, by 1% to 21%. So a Node number quoted without its
-major is incomplete, and a claim that one major is faster than the other needs more runs
-than this table is.
+The two Node columns are not the same column. In this run Node 26 is ahead of the LTS or
+level with it in most cells, by up to 9%, and its CPU figure for bare Node at N=250 is
+lower (8.1 against 9.9 ms per thousand deliveries). The LTS still wins a few cells: bare
+Node at N=50 and Next.js at N=10. The margins are a few percent and the order changes from
+cell to cell, so a Node number quoted without its major is incomplete, and a claim that one
+major is faster than the other needs more runs than this table is.
 
 ## The sweep: what each stack does with four cores
 
@@ -439,7 +436,7 @@ The Node wait is `setImmediate` and not a zero-millisecond timer. `setTimeout(0)
 goes through the timer phase and does not fire faster than about a millisecond. That
 capped the Node column at about 800 frames a second and made it look like Node scaled
 1.14x over four processes. It was a fact about the wait. With `setImmediate` the same
-column runs 3.7x faster and scales 3.86x, and that is the number below.
+column runs 3.7x faster and scales 3.90x, and that is the number below.
 
 ### Reading the result
 
@@ -449,13 +446,13 @@ is process count, and running it twice would sweep two axes at once.
 
 | processes | SynQt | Node (bare) | worst p99, SynQt | worst p99, Node |
 |---|---|---|---|---|
-| 1 | 131,820 msg/s | 124,700 msg/s | 1.557 ms | 1.706 ms |
-| 2 | 265,330 msg/s | 244,820 msg/s | 0.788 ms | 0.875 ms |
-| 4 | 592,890 msg/s | 486,640 msg/s | 0.388 ms | 0.458 ms |
-| 8 | 1,175,390 msg/s (8.92x) | 926,520 msg/s (7.43x) | 0.202 ms | 0.297 ms |
+| 1 | 129,607 msg/s | 123,528 msg/s | 1.575 ms | 1.712 ms |
+| 2 | 271,840 msg/s | 244,950 msg/s | 0.780 ms | 0.866 ms |
+| 4 | 591,070 msg/s | 481,410 msg/s | 0.387 ms | 0.456 ms |
+| 8 | 1,166,258 msg/s (9.00x) | 919,190 msg/s (7.44x) | 0.199 ms | 0.294 ms |
 
-SynQt is ahead at every process count, by 6% on one and 27% on eight, and holds the lower
-tail latency throughout. It also scales better, 8.92x against 7.43x, which is the same
+SynQt is ahead at every process count, by 5% on one and 27% on eight, and holds the lower
+tail latency throughout. It also scales better, 9.00x against 7.44x, which is the same
 fact read the other way. What it gains from a second process is nearer to a whole
 process's worth.
 
@@ -471,35 +468,35 @@ changes the answer it is called out under the table.
 
 | | SynQt | vs node24-bare | vs socketio24 | vs nextjs24 (SSE) |
 |---|---|---|---|---|
-| Latency, N=10 | 0.123 ms | 1.88x better | 2.94x better | 2.43x better |
-| Latency, N=250 | 2.640 ms | 1.21x worse | 1.74x better | 1.41x better |
-| CPU / 1k msgs, N=10 | 14.2 ms | 2.66x better | 3.67x better | 3.97x better |
-| CPU / 1k msgs, N=250 | 13.0 ms | 1.33x worse | 1.61x better | 1.55x better |
-| Marginal KiB / conn, 100 -> 250 | 63.2 | 1.08x better | 2.51x better | 5.35x better |
-| Users / GiB, from that slope | 16,591 | 1.08x better | 2.51x better | 5.35x better |
+| Latency, N=10 | 0.115 ms | 1.43x better | 3.15x better | 2.41x better |
+| Latency, N=250 | 1.992 ms | 1.02x better | 2.04x better | 1.46x better |
+| CPU / 1k msgs, N=10 | 13.5 ms | 2.17x better | 3.86x better | 4.00x better |
+| CPU / 1k msgs, N=250 | 9.3 ms | 1.06x better | 1.85x better | 1.50x better |
+| Marginal KiB / conn, 100 -> 250 | 63.0 | 1.03x better | 2.15x better | 4.52x better |
+| Users / GiB, from that slope | 16,641 | 1.03x better | 2.15x better | 4.52x better |
 
-The two N=250 rows are the SynQt cell with the widest spread (between 2.17 and 2.57 ms and
-between 10.4 and 12.4 ms of CPU over eight runs, see [the headline
-table](#the-headline-table)), and this run printed the top of it. Against bare Node that
-row is anywhere from level to the figure shown. Against the other two columns the lead holds
-at either end of the range.
+The two N=250 rows come from the top of the SynQt cell's spread (between 1.88 and 2.00 ms
+and between 8.7 and 9.3 ms of CPU over eight runs, see [the headline
+table](#the-headline-table)). Against bare Node those rows are level within that spread.
+Against the other two columns the lead holds at either end of the range.
 
 Four things this says, and none of them is "SynQt is faster":
 
 - Against Socket.IO, which is the stack a Node team would deploy, SynQt is ahead on every
   row. That is the comparison a reader choosing between frameworks is making, and it is
-  the reason more than one Node column is printed. It holds against both majors (1.91x on
-  latency at N=250 against 26, 1.74x against the LTS).
-- Against bare Node, SynQt trades, and which way it trades depends on how many subscribers
-  share the value. SynQt is far cheaper at small counts and behind at large ones. Two cost
-  curves cross there. [The next section](#what-the-gap-against-node-is-made-of) separates
-  them. Read the marginal memory row carefully before quoting it. SynQt is 1.08x ahead of
-  the LTS there and 2.21x ahead of 26, which is a gap between the two Node majors and says
-  nothing about SynQt.
+  the reason more than one Node column is printed. It holds against both majors (1.96x on
+  latency at N=250 against 26, 2.04x against the LTS).
+- Against bare Node, the lead depends on how many subscribers share the value. SynQt is
+  far cheaper at small counts and level at large ones: ahead of the LTS by a few percent at
+  N=250, and behind Node 26 there (0.95x on latency, 0.87x on CPU). Two cost curves cross
+  there. [The next section](#what-the-gap-against-node-is-made-of) separates them. Read the
+  marginal memory row carefully before quoting it. SynQt is 1.03x ahead of the LTS there
+  and 1.96x ahead of 26, which is a gap between the two Node majors and says nothing about
+  SynQt.
 - Against Next.js, SynQt is ahead on CPU and on latency at every size in this sweep. The
-  CPU rows are the wide ones, about 4x at ten subscribers and 1.55x at two hundred and
-  fifty. The latency lead narrows across the sweep, from 2.43x at N=10 to 1.41x at N=250
-  against the LTS and 1.16x against Node 26, which is the same crossing the bare Node
+  CPU rows are the wide ones, 4x at ten subscribers and 1.5x at two hundred and fifty. The
+  latency lead narrows across the sweep, from 2.41x at N=10 to 1.46x at N=250 against the
+  LTS and 1.38x against Node 26, which is the same crossing the bare Node
   column shows, without quite completing it. The CPU gap is a fact about the path, and it
   says nothing about Next.js the framework. The base64 is done once per publish, so it is
   not where the marginal cost lives. What each subscriber costs is an enqueue into a
@@ -539,12 +536,12 @@ Every column is one run, and all three come from the same session (`.run-for-me.
 
 | cores | SynQt `threads:` | one value? | SynQt `replicas:` | Node `cluster` |
 |---|---|---|---|---|
-| 1 | 136,350 msg/s | yes | 136,467 | 124,283 |
-| 2 | 239,550 msg/s | yes | 300,083 | 245,717 |
-| 4 | 243,733 msg/s | yes | 600,371 | 489,758 |
-| 8 | 238,383 msg/s | yes | 1,189,637 | 915,550 |
+| 1 | 135,200 msg/s | yes | 136,433 | 124,117 |
+| 2 | 240,783 msg/s | yes | 298,258 | 247,242 |
+| 4 | 242,400 msg/s | yes | 598,533 | 488,696 |
+| 8 | 237,150 msg/s | yes | 1,176,750 | 914,302 |
 
-Read down the first column. Threading is worth 1.76x from one core to two and stops there.
+Read down the first column. Threading is worth 1.78x from one core to two and stops there.
 Four is level with two and eight gives a little back. Its distinction is that every row
 still delivers one value to all 100 subscribers, which is the case `replicas:` and
 `cluster` cannot serve at all.
@@ -553,7 +550,7 @@ Two cautions before quoting any of this. These runs used 100 subscribers and 6 s
 windows, and [the sweep table above](#reading-the-result) used 200 and 10, so the two
 tables are different workloads and reading one against the other is a mistake. And the two
 one-core cells are the same code doing the same work through two different drivers, so their
-agreement (136,350 against 136,467) is a check on the harness rather than a result.
+agreement (135,200 against 136,433) is a check on the harness rather than a result.
 
 A split connection gathers each pass and crosses to each socket thread once, carrying every
 connection's bytes for that thread in one call. `tests/m2-transport/tst_threadedsocket.cpp`
@@ -875,11 +872,11 @@ every column from one run:
 
 | | 1 | 8 | 32 | 128 | calls/s at 32 | CPU ms / 1k calls at 32 |
 |---|---|---|---|---|---|---|
-| SynQt, returning slot | 0.016 | 0.096 | 0.394 | 1.628 | 80,357 | 10.3 |
-| Node 24, bare JSON POST | 0.050 | 0.405 | 1.499 | 6.174 | 21,093 | 44.5 |
-| Node 26, bare JSON POST | 0.043 | 0.358 | 1.303 | 5.357 | 24,118 | 38.7 |
-| Next.js on Node 24, Server Function | 0.364 | 2.611 | 9.879 | 39.926 | 3,059 | 367.5 |
-| Next.js on Node 26, Server Function | 0.338 | 2.477 | 9.359 | 39.514 | 3,261 | 352.2 |
+| SynQt, returning slot | 0.016 | 0.096 | 0.394 | 1.629 | 81,087 | 10.2 |
+| Node 24, bare JSON POST | 0.050 | 0.415 | 1.530 | 6.160 | 20,665 | 45.2 |
+| Node 26, bare JSON POST | 0.043 | 0.349 | 1.288 | 5.259 | 24,476 | 38.1 |
+| Next.js on Node 24, Server Function | 0.351 | 2.542 | 9.786 | 39.813 | 3,102 | 362.3 |
+| Next.js on Node 26, Server Function | 0.341 | 2.449 | 9.384 | 39.341 | 3,251 | 352.7 |
 
 Moving the Node columns onto the current LTS surfaced a defect in the harness and not in
 any stack. Both call columns issued their request with the global `fetch`, which is
@@ -892,16 +889,16 @@ from 6.5x to 1.38x without anything in Next.js changing. Both columns now issue 
 request through `node:http` with a keep-alive agent (`httpCaller` in
 [`measure.mjs`](node/measure.mjs)), which is the client shape SynQt's column already has.
 
-Next.js Server Functions cost six and a half to seven times what the same Node process
-costs answering a plain JSON POST (7.3x at one caller, 6.6x at thirty-two, 6.5x at a hundred
-and twenty-eight, on Node 24), and eight times the CPU per call. Both columns are the same
+Next.js Server Functions cost six to seven times what the same Node process costs
+answering a plain JSON POST (7.0x at one caller, 6.4x at thirty-two, 6.5x at a hundred and
+twenty-eight, on Node 24), and eight times the CPU per call. Both columns are the same
 runtime on the same transport doing the same nothing, so that factor is React's machinery
 around the call: resolving the action id, decoding the arguments out of the flight format,
 and encoding the result back into it. This is the comparison with no asymmetry in it, and
 it is the one to quote.
 
 SynQt is ahead of the bare Node column on top of that, by three to four times on latency
-(3.1x at one caller, 3.8x at thirty-two), 3.8x on throughput and 4.3x on CPU per call, and it
+(3.1x at one caller, 3.9x at thirty-two), 3.9x on throughput and 4.4x on CPU per call, and it
 is a difference in design and not in efficiency. A SynQt caller holds one connection for as
 long as the page is open, and a call is a framed message on it. Both Node columns hold an
 HTTP request per call, even on a pooled connection. The framework does less work per call

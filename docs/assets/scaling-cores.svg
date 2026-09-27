@@ -3,9 +3,9 @@
   <title id="scalingTitle">Deliveries per second against core count</title>
   <desc id="scalingDesc">One publisher, 100 subscribers, saturating, 256 byte payload, on a
   32 core Linux host with Qt 6.12.0 and Node 24.20.0. SynQt replicas rises from 136 thousand
-  deliveries per second on one process to 1.19 million on eight, Node cluster rises from 124
-  thousand to 916 thousand over the same range, and SynQt threads rises from 136 thousand on
-  one core to 240 thousand on two, is level at four and eases to 238 thousand at eight. It is
+  deliveries per second on one process to 1.18 million on eight, Node cluster rises from 124
+  thousand to 914 thousand over the same range, and SynQt threads rises from 135 thousand on
+  one core to 241 thousand on two, is level at four and eases to 237 thousand at eight. It is
   the only one of the three that keeps a single shared value.</desc>
 
   <text x="0" y="16" fill="#ffffff" font-family="system-ui, sans-serif" font-size="15"
@@ -56,36 +56,36 @@
     <text x="355" y="374" font-size="12">cores the edge is allowed to use</text>
   </g>
 
-  <polyline points="141.25,305.1 212.5,275.1 355,220.3 640,112.5" fill="none"
+  <polyline points="141.25,305.0 212.5,275.5 355,220.5 640,114.8" fill="none"
             stroke="#3987e5" stroke-width="2" stroke-dasharray="7 4"
             stroke-linecap="round" stroke-linejoin="round"/>
-  <polyline points="141.25,307.3 212.5,285.1 355,240.5 640,162.6" fill="none"
+  <polyline points="141.25,307.3 212.5,284.8 355,240.6 640,162.8" fill="none"
             stroke="#d95926" stroke-width="2" stroke-dasharray="7 4"
             stroke-linecap="round" stroke-linejoin="round"/>
-  <polyline points="141.25,305.1 212.5,286.2 355,285.4 640,286.4" fill="none"
+  <polyline points="141.25,305.3 212.5,286.0 355,285.7 640,286.6" fill="none"
             stroke="#199e70" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round"/>
 
   <g stroke="#232a5c" stroke-width="2">
-    <circle cx="141.25" cy="305.1" r="4.5" fill="#3987e5"/>
-    <circle cx="212.5" cy="275.1" r="4.5" fill="#3987e5"/>
-    <circle cx="355" cy="220.3" r="4.5" fill="#3987e5"/>
-    <circle cx="640" cy="112.5" r="4.5" fill="#3987e5"/>
+    <circle cx="141.25" cy="305.0" r="4.5" fill="#3987e5"/>
+    <circle cx="212.5" cy="275.5" r="4.5" fill="#3987e5"/>
+    <circle cx="355" cy="220.5" r="4.5" fill="#3987e5"/>
+    <circle cx="640" cy="114.8" r="4.5" fill="#3987e5"/>
 
     <circle cx="141.25" cy="307.3" r="4.5" fill="#d95926"/>
-    <circle cx="212.5" cy="285.1" r="4.5" fill="#d95926"/>
-    <circle cx="355" cy="240.5" r="4.5" fill="#d95926"/>
-    <circle cx="640" cy="162.6" r="4.5" fill="#d95926"/>
+    <circle cx="212.5" cy="284.8" r="4.5" fill="#d95926"/>
+    <circle cx="355" cy="240.6" r="4.5" fill="#d95926"/>
+    <circle cx="640" cy="162.8" r="4.5" fill="#d95926"/>
 
-    <circle cx="141.25" cy="305.1" r="4.5" fill="#199e70"/>
-    <circle cx="212.5" cy="286.2" r="4.5" fill="#199e70"/>
-    <circle cx="355" cy="285.4" r="4.5" fill="#199e70"/>
-    <circle cx="640" cy="286.4" r="4.5" fill="#199e70"/>
+    <circle cx="141.25" cy="305.3" r="4.5" fill="#199e70"/>
+    <circle cx="212.5" cy="286.0" r="4.5" fill="#199e70"/>
+    <circle cx="355" cy="285.7" r="4.5" fill="#199e70"/>
+    <circle cx="640" cy="286.6" r="4.5" fill="#199e70"/>
   </g>
 
   <g font-family="system-ui, sans-serif" font-size="12">
-    <text x="652" y="116.5" fill="#ffffff">1.19M</text>
-    <text x="652" y="166.6" fill="#ffffff">916k</text>
-    <text x="652" y="290.4" fill="#ffffff">238k</text>
+    <text x="652" y="118.8" fill="#ffffff">1.18M</text>
+    <text x="652" y="166.8" fill="#ffffff">914k</text>
+    <text x="652" y="290.6" fill="#ffffff">237k</text>
   </g>
 </svg>

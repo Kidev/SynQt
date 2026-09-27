@@ -104,7 +104,6 @@ about 0.03 / 0.27 / 36 ms for 1 / 100 / 10 000 rows. Re-run on the same runner a
 `results/transport-<host>.json` field by field. A regressed p95/p99 or a throughput drop is
 the signal to investigate.
 
-
 ## edge: the HTTP request path, TechEmpower-style
 
 `edge/` measures the other half of the web edge, the plain HTTP request stack (the QtRO
@@ -146,8 +145,7 @@ the generator does not change that. The result is written to
 > Run this one on an unrestricted host. The endpoints are verified (each returns the
 > TechEmpower-shaped payload, and `/fortunes` escapes the seeded `<script>` row), but a
 > sandbox that terminates sustained parallel HTTP load will kill the loader mid-run, so
-> `run-bench.sh` needs a host that permits it. The same applies to the Safari and
-> interactive WASM runs.
+> `run-bench.sh` needs a host that permits it.
 
 ## mesh: the service-to-service links
 
@@ -204,7 +202,7 @@ and thrown away:
 ./benchmarks/sessions/run-bench.sh --iterations 1000000 --sizes 1000,10000,100000
 ```
 
-The rounds are there because one table measured once is not a number. At 100k sessions a
+The rounds are there because one table measured once varies too much to quote. At 100k sessions a
 lookup misses the CPU caches, so it costs what main memory costs at that moment, and on
 one machine in one day a single table read anywhere from 70 to 185 ns for the same build.
 The first table a process builds is also slower than the ones after it, because it pays
@@ -228,8 +226,7 @@ O(1), and it is also the figure that moves most with what else the machine is do
 Hierarchical scope checks cost about 10 ns more than set-based ones (the rank `indexOf` in
 the vocabulary). `createSession()` is flat at about 1.2 us regardless of table size (a token
 mint plus a hash insert). Minting a 256-bit credential instead of a shorter one added about
-a fifth to that, which is the price of the entropy and was measured rather than assumed.
-One operation is O(N) by design:
+a fifth to that, which is the price of the entropy. Two operations touch more than one entry:
 
 - `createSession()` keeps an insertion-ordered `{createdMs, id}` expiry queue and drains
   only the expired front. A fixed TTL means sessions expire in creation order, so minting
@@ -315,13 +312,13 @@ per-thread span generator looks like (a process-wide generator read 8x at eight 
 
 `record_threads_*` climbs, at about 46 ns at one thread, 300 at two, 510 at four, and 1190
 at eight. That is the `EventRing`'s single `QMutex` (and the entity-name lookup under the
-tracer's own mutex) serializing every recording thread. On one thread it is the 46 ns the
-row above reports. The climb is the contention a busy multi-threaded edge with a category
-switched on pays, per record. It is characterized here and not fixed. Closing it means a
-sharded or lock-free ring, which is a change to `EventRing`'s stated single-mutex choice,
-and this sweep is the baseline that change would have to move from a climbing line to a
-flat one. None of this touches the disabled path (the budget row), since it never reaches
-the ring.
+tracer's own mutex) serializing every recording thread. On one thread it reads 46 ns
+against the 60 of `record_enabled`, whose event also names its entity. The climb is the
+contention a busy multi-threaded edge with a category switched on pays, per record. It is
+characterized here and not fixed. Closing it means a sharded or lock-free ring, which is a
+change to `EventRing`'s stated single-mutex choice, and this sweep is the baseline that
+change would have to move from a climbing line to a flat one. The disabled path (the
+budget row) stays untouched, since it never reaches the ring.
 
 ## fanout: the edge publish() growth
 
@@ -440,8 +437,8 @@ keeps its vertical header cache as a flat list, grown by `onRowsInserted` and cu
 and overwrites it (Qt 6.11.1, `qremoteobjectabstractitemmodelreplica.cpp:293`). Cycle rows
 fast enough across enough consumers and the two disagree. The next removal then erases
 past the end of that list and the process dies in the `CacheEntry` destructor. On two
-cores that happened in seven runs out of eight. The framework's own shape does not reach
-it, and sixteen runs under the same constraint confirm that.
+cores that happened in seven runs out of eight. The framework's own shape stays clear of
+it, as sixteen runs under the same constraint confirm.
 
 ## persistence: the default providers
 
@@ -598,9 +595,9 @@ application:
 | `wasm_multithread` | 25 529 534 | 8 752 415 | 6 178 707 |
 
 Brotli is the figure that crosses the wire, so about 5.9 MB single-threaded and 6.2 MB
-threaded. Threads cost 286 KB, about 4.8%. Nearly all of it is the `.wasm` (5.84 of the 5.89
-MB). Cold start, navigation to
-first rendered frame, is 1 231 ms single-threaded and 1 259 ms threaded.
+threaded. Threads cost 286 KB, about 4.8%. Nearly all of it is the `.wasm` (5.84 of the
+5.89 MB). Cold start, navigation to first rendered frame, is 1 231 ms single-threaded and
+1 259 ms threaded.
 
 `results/client-bundle-arena-kidevPC_.json` is the same measurement on a real application.
 The [arena](../examples/arena) client, single-threaded, weighs 29 475 900 raw and 7 595 614
@@ -622,8 +619,8 @@ Both kits hold a 60 Hz median to about 800 moving, interpolated blobs and then f
 together: 41 fps at 1 000, 33 at 1 250, 21 at 1 950. Counting single frames shows where
 the fall starts. The p95 leaves the floor at 675 blobs, a bucket earlier than the median
 does, and past 1 500 the slow frames run half again above the median, which is the
-stutter an average of sixty frames could not show. The threaded kit is not faster. The
-two agree inside the noise at every size. This scene's per-frame cost is QML bindings and
+stutter an average of sixty frames could not show. The threaded kit matches the
+single-threaded one inside the noise at every size. This scene's per-frame cost is QML bindings and
 scene-graph work on the render thread, and threading the WebAssembly heap does not divide
 that. The reason to build the threaded kit is what it unblocks elsewhere, and this table
 shows it buys no frame rate here. It costs 286 KB and requires cross-origin isolation.
@@ -655,26 +652,26 @@ was live for the whole window at every size (`players_not_counted` is 0 througho
 
 | players | rows/session | rows/tick | publish CPU p50 | tick jitter p50 | snapshots delivered | RSS |
 |--------:|-------------:|----------:|----------------:|----------------:|--------------------:|----:|
-| 10 | 10 | 100 | 0.16 ms | 0.01 ms | 30.0 Hz | 86 MB |
-| 25 | 16 | 400 | 0.53 ms | 0.01 ms | 30.0 Hz | 87 MB |
-| 50 | 16 | 800 | 1.09 ms | 0.01 ms | 30.0 Hz | 87 MB |
-| 100 | 16 | 1 600 | 2.20 ms | 0.01 ms | 30.0 Hz | 87 MB |
-| 200 | 16 | 3 200 | 4.64 ms | 0.01 ms | 30.0 Hz | 89 MB |
+| 10 | 10 | 100 | 0.13 ms | 0.01 ms | 30.0 Hz | 78 MB |
+| 25 | 16 | 400 | 0.46 ms | 0.01 ms | 30.0 Hz | 78 MB |
+| 50 | 16 | 800 | 0.94 ms | 0.01 ms | 30.0 Hz | 78 MB |
+| 100 | 16 | 1 600 | 1.95 ms | 0.01 ms | 30.0 Hz | 79 MB |
+| 200 | 16 | 3 200 | 4.28 ms | 0.01 ms | 30.0 Hz | 80 MB |
 
 The harness's listener disables Nagle on every socket it accepts, as the edge does.
 
 Interest management does what the fanout harness says it does. From 25 players on, each
 one receives 16 rows a tick no matter how many others are playing, so the per-session
 payload is flat and only the number of sessions grows. That makes the total linear, and
-the publish CPU column is linear with it: 0.16 -> 0.53 -> 1.09 -> 2.20 -> 4.64 ms.
+the publish CPU column is linear with it: 0.13 -> 0.46 -> 0.94 -> 1.95 -> 4.28 ms.
 
 The ceiling is between 300 and 400 players on one edge process, past the end of the
-committed sweep. At 300 the loop still holds
-its cadence (30.0 Hz delivered) on 7.28 ms of each 33 ms tick, with 0.02 ms of median
-jitter and 127 MB resident. At 400 it is over: 9.08 ms of publish CPU, 557 ms of median
-tick jitter, 10.0 Hz delivered, and 385 MB resident as the unsent work backs up. Nothing
-fails and nothing disconnects. The simulation runs slower than it promised, which is how a
-fixed-rate authoritative server fails.
+committed sweep. At 300 the loop still holds its cadence (30.0 Hz delivered) on 6.96 ms of
+each 33 ms tick, with 0.02 ms of median jitter and 152 MB resident. At 400 it is over:
+9.01 ms of publish CPU, 1.36 s of median tick jitter, 8.2 Hz delivered, and 384 MB
+resident as the unsent work backs up. Every player stays connected and nothing fails; the
+simulation runs slower than it promised, which is how a fixed-rate authoritative server
+degrades.
 
 That is the ceiling of a single-edge deployment for this workload, and it is a
 per-process number and not a per-machine one. The two scaling keys answer it.
@@ -820,21 +817,21 @@ content, so a `touch()` would rebuild nothing.
 A clean WebAssembly client build costs 65.6 s, an edited `Main.qml` 55.4 s, and a no-op
 0.14 s. Precompression skips an asset whose `.br` and `.gz` are newer than it. Of the 55.4
 s, about 17 s compiles the translation unit qmlcachegen produces and about 36 s is the
-Emscripten link that follows. No edit avoids that link, so a WebAssembly client is held to
-`touched < 90%` of a clean build (it lands at 84%) while a service is held to 50%. The
-no-op band that catches real unincrementality stays strict for both.
+Emscripten link that follows. Every edit pays for that link, so a WebAssembly client is
+held to `touched < 90%` of a clean build (it lands at 84%) while a service is held to 50%.
+The no-op band that catches real unincrementality stays strict for both.
 
 Contract generation is a rounding error at this size, under 2% of the smallest clean
-build. Lowering an `export:` block to a `.syn` and running the compiler over it is not
-where build time goes.
+build.
 
 ## Coverage
 
 Every measured path has a harness: transport, the edge HTTP path, the edge fan-out
 `publish()` growth, the mesh transports, the sessions hot path, the monitoring pipeline's
 call-site cost, the persistence and cache providers (SQLite, and PostgreSQL through the
-pool), the client (bundle weight and frame time), the capstone load test, and the
-build-time report above. The runtime numbers are committed, and every baseline carries the
+pool), the client (bundle weight and frame time), the capstone load test, the weight of
+edge-delivered pages, the comparison with other frameworks, and the build-time report
+above. The runtime numbers are committed, and every baseline carries the
 date it was measured.
 [Browser proofs](../docs/browser-proofs.md) covers where the runs that need a display
 happen.

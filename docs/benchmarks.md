@@ -104,8 +104,8 @@ each slice keeps the payload per session flat, and only the number of sessions g
 hundred players that is 4.8x less publish CPU and 6.25x less payload; against a 30 Hz tick,
 publishing takes 7% of each tick instead of a third.
 
-No setting turns this on: an application writes its own
-[interest management](tutorial-multiplayer-run.md), and these numbers show it pays off.
+Interest management is application code (the arena
+[writes its own](tutorial-multiplayer-run.md)), and these numbers show it pays off.
 
 ### End to end, under load
 
@@ -113,16 +113,16 @@ The whole arena, with every player a real node on the real transport:
 
 | Players | Rows each, per tick | Publish CPU | Tick jitter | Snapshots delivered | Memory |
 | --- | --- | --- | --- | --- | --- |
-| 10 | 10 | 0.16 ms | 0.01 ms | 30.0 Hz | 86 MB |
-| 50 | 16 | 1.09 ms | 0.01 ms | 30.0 Hz | 87 MB |
-| 100 | 16 | 2.20 ms | 0.01 ms | 30.0 Hz | 87 MB |
-| 200 | 16 | 4.64 ms | 0.01 ms | 30.0 Hz | 89 MB |
+| 10 | 10 | 0.13 ms | 0.01 ms | 30.0 Hz | 78 MB |
+| 50 | 16 | 0.94 ms | 0.01 ms | 30.0 Hz | 78 MB |
+| 100 | 16 | 1.95 ms | 0.01 ms | 30.0 Hz | 79 MB |
+| 200 | 16 | 4.28 ms | 0.01 ms | 30.0 Hz | 80 MB |
 
 **For this workload, one edge process tops out between 300 and 400 players,** measured
-past the end of the committed sweep. At 300 the loop still holds 30 Hz, using 7.3 ms of
-each 33 ms tick. At 400 it does not: 9.1 ms of publish CPU, half a second of median tick
-jitter, and 10 Hz delivered. Nothing fails and nobody disconnects; the simulation just
-runs slower than its rate, which is how a fixed rate authoritative server degrades.
+past the end of the committed sweep. At 300 the loop still holds 30 Hz, using 7.0 ms of
+each 33 ms tick. At 400 it does not: 9.0 ms of publish CPU, more than a second of median
+tick jitter, and 8 Hz delivered. Every player stays connected and nothing fails; the
+simulation runs slower than its rate, which is how a fixed rate authoritative server degrades.
 
 That limit is per process. Two keys raise it:
 [`threads:`](deploying.md#running-one-edge-on-more-than-one-core) moves the delivery part of
@@ -139,21 +139,21 @@ Propagation p50, in milliseconds:
 
 | Subscribers | SynQt | bare Qt | Go | Rust | Phoenix | SignalR | bare Node | Socket.IO | Next.js (SSE) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 | 0.123 | 0.122 | 0.072 | 0.074 | 0.132 | 0.080 | 0.232 | 0.362 | 0.300 |
-| 50 | 0.556 | 0.474 | 0.160 | 0.200 | 0.178 | 0.149 | 0.586 | 1.015 | 0.874 |
-| 100 | 0.850 | 0.900 | 0.282 | 0.309 | 0.276 | 0.248 | 0.851 | 1.733 | 1.691 |
-| 250 | 2.640 | 1.864 | 0.640 | 0.747 | 0.506 | 0.435 | 2.175 | 4.602 | 3.721 |
+| 10 | 0.115 | 0.098 | 0.072 | 0.062 | 0.146 | 0.102 | 0.164 | 0.362 | 0.277 |
+| 50 | 0.467 | 0.422 | 0.183 | 0.195 | 0.227 | 0.205 | 0.509 | 1.069 | 0.765 |
+| 100 | 0.873 | 0.721 | 0.302 | 0.308 | 0.285 | 0.276 | 0.861 | 1.778 | 1.278 |
+| 250 | 1.992 | 1.639 | 0.646 | 0.742 | 0.519 | 0.437 | 2.022 | 4.072 | 2.911 |
 
 SynQt has a low fixed cost and a higher cost per subscriber. At ten subscribers it ranks
-fifth of the sixteen columns in the full table. At two hundred and fifty it ranks eighth,
-behind SignalR, Phoenix, both compiled baselines, its own bare Qt control and both bare
-Node columns. Each added subscriber costs it more than it costs a BEAM node or a SignalR
-hub, so Phoenix passes it between 10 and 50 subscribers and bare Node between 50 and 100.
-That last row is also SynQt's noisiest cell: eight consecutive runs gave between 2.17 and
-2.57 ms, and the table's 2.640 is one run just above that range.
+fifth of the sixteen columns in the full table. At two hundred and fifty it ranks seventh,
+behind SignalR, Phoenix, both compiled baselines, its own bare Qt control and bare Node 26,
+and level with bare Node 24. Each added subscriber costs it more than it costs a BEAM node
+or a SignalR hub, so Phoenix passes it between 10 and 50 subscribers, and bare Node draws
+level between 50 and 100. Eight consecutive runs of that last cell gave between 1.88 and
+2.00 ms.
 
-Memory agrees. One more connection costs SynQt 63 KiB, against 52 for Go, 124 for Phoenix
-and 345 for SignalR: holding a connection is cheap, fanning out to it is relatively
+Memory agrees. One more connection costs SynQt 63 KiB, against 34 for Go, 159 for Phoenix
+and 238 for SignalR: holding a connection is cheap, fanning out to it is relatively
 expensive.
 
 Against what teams actually deploy, rather than bare baselines, SynQt does better: it beats
@@ -171,16 +171,16 @@ Both scaling keys were swept on the same workload, one publisher and 100 subscri
 saturating.
 
 ![Deliveries per second against core count: SynQt replicas and Node cluster both rise
-close to linearly to about 1.19M and 916k at eight processes, while SynQt threads rises to
-240k at two cores and then flattens, and is the only one of the three that keeps a
+close to linearly to about 1.18M and 914k at eight processes, while SynQt threads rises to
+241k at two cores and then flattens, and is the only one of the three that keeps a
 single shared value.](assets/scaling-cores.svg){ width="100%" }
 
 | Cores | `replicas: N` | Node `cluster` | `threads: N` |
 | --- | --- | --- | --- |
-| 1 | 136 467 | 124 283 | 136 350 |
-| 2 | 300 083 | 245 717 | 239 550 |
-| 4 | 600 371 | 489 758 | 243 733 |
-| 8 | 1 189 637 | 915 550 | 238 383 |
+| 1 | 136 433 | 124 117 | 135 200 |
+| 2 | 298 258 | 247 242 | 240 783 |
+| 4 | 598 533 | 488 696 | 242 400 |
+| 8 | 1 176 750 | 914 302 | 237 150 |
 
 Processes scale almost linearly, about equally well for SynQt and Node, but they scale N
 separate systems. At eight processes there are eight publishers holding eight values, and
@@ -189,7 +189,7 @@ processes that these numbers do not include.
 
 The solid line keeps one shared value, and it flattens at about two cores of delivery.
 `threads:` spreads the cost of delivering what an owner publishes, not the cost of
-computing it, because the Source still runs once, on its own thread.
+computing it, because the Source still runs once, on the main thread.
 
 ## The rest
 
