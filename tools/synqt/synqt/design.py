@@ -10,6 +10,10 @@ editor's requests apart:
 * every ``/api`` request carries a per-run token, compared in constant time. It travels in
   the URL fragment, which browsers never send, so the page can read it and a request for the
   page cannot carry it. The shell is served without it and holds nothing about the project;
+* the browser this command opens is handed neither: a command line is readable by every
+  local user, so it gets the path of a file only this user can read, which sends it to the
+  editor with a launch code. The page trades the code for the token once, and the file is
+  deleted;
 * an ``Origin`` or ``Referer`` naming another page is refused;
 * a ``Host`` that is not the bound loopback address is refused, which stops DNS rebinding.
 
@@ -32,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import unquote, urlparse
 
+from . import appmodel
 from . import check as checkmod
 from . import config as configmod
 from . import designdoc, designplan, infer, typebackend
@@ -202,11 +207,14 @@ class _DesignServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, address: Tuple[str, int], project_dir: Path, token: str,
-                 profile: Optional[str]) -> None:
+                 profile: Optional[str], launch_code: Optional[str]) -> None:
         super().__init__(address, _Handler)
         self.project_dir = project_dir
         self.token = token
         self.profile = profile
+        # Traded once for the token, then gone; the file that carried it goes with it.
+        self.launch_code = launch_code
+        self.launch_file: Optional[Path] = None
         # One project on one disk: requests are served one at a time.
         self.lock = threading.Lock()
 
@@ -239,6 +247,10 @@ class _Handler(BaseHTTPRequestHandler):
                 if method != "GET":
                     raise _Refused(HTTPStatus.NOT_FOUND, f"no such route: {method} {path}")
                 self._send_asset(path)
+                return
+            if (method, path) == ("POST", "/api/launch"):
+                with self.server.lock:
+                    self._send_json(HTTPStatus.OK, self._launch(self._body(method)))
                 return
             # Authorized before the body is read.
             self._check_token()
@@ -302,6 +314,19 @@ class _Handler(BaseHTTPRequestHandler):
                    target.read_bytes())
 
     # the guard
+
+    def _launch(self, body: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Trade the launch code for the token, once."""
+        code = body.get("code") if isinstance(body, dict) else None
+        expected = self.server.launch_code
+        if (not isinstance(code, str) or expected is None
+                or not hmac.compare_digest(code, expected)):
+            raise _Refused(HTTPStatus.FORBIDDEN,
+                           "this launch code opens nothing: it has been used, or it is not "
+                           "this editor's. Open the URL 'synqt design' printed instead")
+        self.server.launch_code = None
+        _remove(self.server.launch_file)
+        return {"token": self.server.token}
 
     def _check_token(self) -> None:
         token = self.headers.get(TOKEN_HEADER) or ""
@@ -373,10 +398,38 @@ def _already_answering(port: int) -> bool:
         return probe.connect_ex(("127.0.0.1", port)) == 0
 
 
+def _remove(path: Optional[Path]) -> None:
+    if path is not None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _write_launch_file(httpd: _DesignServer) -> Path:
+    """A page only this user can read, which sends the browser to the editor with the launch
+    code. It lives in the project's generated/ directory, which a browser confined to the
+    user's files can still open.
+    """
+    directory = httpd.project_dir / appmodel.GENERATED_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"design-{secrets.token_hex(8)}.html"
+    target = f"http://127.0.0.1:{httpd.server_port}/#launch={httpd.launch_code}"
+    page = ("<!doctype html><meta charset=\"utf-8\"><title>synqt design</title>"
+            f"<meta http-equiv=\"refresh\" content=\"0;url={target}\">"
+            f"<p><a href=\"{target}\">Open the editor</a></p>\n")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(page)
+    return path
+
+
 def make_server(project_dir: os.PathLike[str] | str, *, port: int, token: str,
-                profile: Optional[str] = None) -> ThreadingHTTPServer:
+                profile: Optional[str] = None,
+                launch_code: Optional[str] = None) -> ThreadingHTTPServer:
     """A server for one project, bound to loopback and not yet serving. `port` 0 lets the OS
-    pick; the bound port is ``server_port``.
+    pick; the bound port is ``server_port``. `launch_code`, when given, is traded once for
+    the token at ``/api/launch``.
     """
     root = Path(project_dir).resolve()
     if not (root / "synqt.yaml").is_file():
@@ -387,7 +440,7 @@ def make_server(project_dir: os.PathLike[str] | str, *, port: int, token: str,
         raise DesignError(f"cannot serve the editor on port {port}: something is already "
                           "listening there. Pass --port to pick another one.")
     try:
-        return _DesignServer(("127.0.0.1", port), root, token, profile)
+        return _DesignServer(("127.0.0.1", port), root, token, profile, launch_code)
     except OSError as error:
         raise DesignError(f"cannot serve the editor on port {port}: {error}") from error
 
@@ -403,7 +456,8 @@ def serve(project_dir: os.PathLike[str] | str, *, port: int = 8181,
     run and printed only here.
     """
     httpd = make_server(project_dir, port=port, token=secrets.token_urlsafe(24),
-                        profile=profile)
+                        profile=profile,
+                        launch_code=secrets.token_urlsafe(24) if open_browser else None)
     address = url_for(httpd.server_port, httpd.token)
     print(f"synqt design: editing {Path(project_dir).resolve()}")
     print(f"  {address}")
@@ -412,7 +466,8 @@ def serve(project_dir: os.PathLike[str] | str, *, port: int = 8181,
     print("  Nothing is written until you have read a change set and applied it. Press "
           "Ctrl-C to stop.")
     if open_browser:
-        webbrowser.open(address)
+        httpd.launch_file = _write_launch_file(httpd)
+        webbrowser.open(httpd.launch_file.as_uri())
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -420,4 +475,5 @@ def serve(project_dir: os.PathLike[str] | str, *, port: int = 8181,
     finally:
         httpd.shutdown()
         httpd.server_close()
+        _remove(httpd.launch_file)
     return "synqt design: stopped."

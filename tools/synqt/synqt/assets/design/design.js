@@ -3007,13 +3007,26 @@ async function goOffline(reason) {
         wanted ? "error" : "");
 }
 
-// The token arrives once, in the fragment of the URL `synqt design` printed. It is kept in
-// this tab's session storage and taken out of the address, so a bookmark or a copied link
+// The token arrives once, in the fragment of the URL `synqt design` printed, or as a launch
+// code from the page `synqt design` opened, which this page trades for it once. It is kept
+// in this tab's session storage and taken out of the address, so a bookmark or a copied link
 // does not carry it. Without storage it stays in the address.
 const TOKEN_KEY = "synqt-design-token";
 
-function sessionToken() {
-    const given = fromHash("token");
+async function launchToken(code) {
+    const answer = await fetch("api/launch", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({code}),
+    });
+    const body = await answer.json().catch(() => ({}));
+    return answer.ok && typeof body.token === "string" ? body.token : "";
+}
+
+async function sessionToken() {
+    const code = fromHash("launch");
+    forgetInHash("launch");
+    const given = fromHash("token") || (code ? await launchToken(code) : "");
     try {
         if (given) {
             window.sessionStorage.setItem(TOKEN_KEY, given);
@@ -3027,7 +3040,7 @@ function sessionToken() {
 }
 
 async function load() {
-    state.token = sessionToken();
+    state.token = await sessionToken();
     try {
         const answer = await request("GET", "api/project");
         state.backend = true;

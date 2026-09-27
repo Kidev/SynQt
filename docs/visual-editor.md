@@ -13,8 +13,8 @@ You can open it two ways, and both show the same page:
   that project, and Apply writes `synqt.yaml` and the QML files a new entity or connect
   point needs.
 - **[On this site](/designer/).** The same editor with nothing behind it. Draw a system,
-  press Export and take it as a project to get a zip. Nothing is installed, and nothing is
-  read from your machine.
+  press Export and take it as a project to get a zip. It installs nothing and reads
+  nothing from your machine.
 
 Open the site copy first if you have not installed anything yet. Unzip its export over a
 project made with `synqt new`, or keep it as a sketch.
@@ -72,8 +72,8 @@ is marked, because that line names one entity, and nothing would ever report to 
 
 For the same reason, you cannot draw a line to or from a monitor. It has no handles on its
 rim, a line dropped on it is refused on the spot, and the editor leaves it out of the
-consumer menu and the panel's lists. A project that arrives with such a line is not
-silently changed: a point naming a monitor as a consumer is marked, and `synqt check`
+consumer menu and the panel's lists. A project that arrives with such a line keeps it as
+written: a point naming a monitor as a consumer is marked, and `synqt check`
 refuses it, because entities report to a monitor and it reaches none of them.
 
 The boxes behind the nodes show the three sides of a system, derived from what each entity
@@ -191,7 +191,7 @@ Editing it rewrites that line and leaves a function's body alone. Models are dec
 too, but written onto the point instead of into the file, because QML has no declaration
 form for a model.
 
-The panel shows what an entity is, but does not let you change it. A database is a database
+The panel shows what an entity is, read only. A database is a database
 because you dragged it from that row, and everything drawn against it depends on that.
 Turning it into a client from a drop-down would keep the name, the position and the connect
 points while changing what they mean. Delete it and drag the one you want.
@@ -228,10 +228,9 @@ now names an undeclared scope, so
 [the change sheet](#nothing-is-written-until-you-have-read-it) lists them all, and Apply
 stays refused until you fix each one.
 
-The editor does not guess that a typed-over row is a rename rather than one scope removed
-and another added: a wrong guess would change a gate, or someone's mapping hook, by
-coincidence. A refusal that names the exact gate is actionable; a silently rewritten file
-is not. You also cannot remove a scope that is still named somewhere; the remove button
+The editor reads a typed-over row as one scope removed and another added, never as a
+guessed rename: a wrong guess would change a gate, or someone's mapping hook, by
+coincidence, while a refusal that names the exact gate tells you what to fix. You also cannot remove a scope that is still named somewhere; the remove button
 says where before you press it.
 
 ## The same project as text
@@ -252,12 +251,12 @@ Selecting an entity or connect point on the canvas opens its file, and opening a
 selects its entity, so both views always show the same subject.
 
 You can type into every file, and what you type is the design. A property declared in an
-entity's QML is declared by that entity; an entity written into `synqt.yaml` appears on the
-canvas. The project opens read-only. **Edit files**, at the end of the bar above the tree,
-unlocks everything for typing until you press it again, since following a declaration
-across entities touches several files in a minute. There is no save: what you type enters
-the design at once, and still reaches the project only through the change set you review
-and apply.
+entity's QML is declared by that entity; an entity written into `synqt.yaml` appears on
+the canvas. The project opens read-only. **Edit files**, at the end of the bar above the
+tree, unlocks everything for typing until you press it again, since following a
+declaration across entities touches several files in a minute. Typing needs no save: what
+you type enters the design at once, and still reaches the project only through the change
+set you review and apply.
 
 Declaring a property, a signal or a function in an entity's file does the same as adding it
 in the panel:
@@ -274,7 +273,7 @@ Edge {
 }
 ```
 
-Declaring a member does not export it. A contract lists what an owner has agreed to share,
+Declaring a member leaves it unexported. A contract lists what an owner has agreed to share,
 so only the members ticked on a connect point cross it, and a new point carries nothing.
 Tick the new member on the point, and it crosses.
 
@@ -361,10 +360,17 @@ the command prints, which a browser never sends to a server, so it never appears
 and is useless once you press Ctrl-C. The server refuses pages from anywhere else, by host
 name and by origin, and answers no request without the token.
 
+The browser the command opens never sees the token on its command line, which any other
+user of the machine can read. It is handed the path of a page in `generated/` that only you
+can read. That page sends it to the editor with a one-time code, which the editor trades
+for the token, and the page is deleted. A browser confined to a sandbox that cannot open
+files in your project (some Flatpak builds) shows an error instead; open the URL the
+command printed.
+
 The site copy talks to no server. It keeps your design in this browser's storage, so the
 same link opens it again on this machine and nowhere else; export it as a project to take
-it elsewhere. The browser asks once when you leave a page with something drawn on it. The logo in the
-corner leads back to the rest of the site.
+it elsewhere. The browser asks once when you leave a page with something drawn on it. The
+logo in the corner leads back to the rest of the site.
 
 See [build system and CLI](build-system-and-cli.md#the-synqt-command-line-tool) for the
 command, [project layout and config](project-layout-and-config.md) for the file it writes,

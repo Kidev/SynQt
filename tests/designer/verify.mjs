@@ -68,13 +68,18 @@ async function copyProject() {
     return project;
 }
 
-function startEditor(project) {
+// `browser`, when given, is a command Python's webbrowser runs instead of a browser (its
+// BROWSER variable), and the editor is started without --no-open so it has one to hand to.
+function startEditor(project, browser) {
     return new Promise((resolve, reject) => {
         // -u. The URL is printed and then the server blocks in serve_forever, so a buffered
         // stdout would hand this script the address only once the run was over.
-        const proc = spawn(python, ["-u", "-m", "synqt", "design",
-                                    "--project-dir", project, "--port", "0", "--no-open"],
-                           { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] });
+        const args = ["-u", "-m", "synqt", "design", "--project-dir", project, "--port", "0"];
+        if (!browser) {
+            args.push("--no-open");
+        }
+        const env = browser ? { ...process.env, BROWSER: browser } : process.env;
+        const proc = spawn(python, args, { cwd: repoRoot, env, stdio: ["ignore", "pipe", "pipe"] });
         let settled = false;
         const onData = (chunk) => {
             const text = chunk.toString();
@@ -427,6 +432,58 @@ const CONTENT_TYPES = {
     ".svg": "image/svg+xml",
     ".ico": "image/vnd.microsoft.icon",
 };
+
+// What `synqt design` hands the browser it opens. A command line is readable by every local
+// user, so it carries the path of a file this user alone can read. That file sends the
+// browser on with a launch code, the page trades the code for the token, and the file is
+// gone. A second trade of the same code is refused.
+async function theBrowserIsHandedAFile() {
+    if (process.platform === "win32") {
+        console.log("  skip  the launch file hand-off (POSIX shell needed for the stand-in)");
+        return;
+    }
+    const project = await copyProject();
+    const record = path.join(path.dirname(project), "opened.txt");
+    const stand = path.join(path.dirname(project), "browser.sh");
+    await fsp.writeFile(stand, `#!/bin/sh\nprintf '%s' "$1" > '${record}'\n`, { mode: 0o755 });
+    const { proc } = await startEditor(project, `${stand} %s`);
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage();
+    try {
+        for (let waited = 0; !fs.existsSync(record) && waited < 100; waited += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        const opened = await fsp.readFile(record, "utf8");
+        check(opened.startsWith("file:") && !opened.includes("#"),
+              "the browser is handed a file's path, with nothing secret on its command line");
+        const launch = fileURLToPath(opened);
+        check(((await fsp.stat(launch)).mode & 0o777) === 0o600,
+              "and only this user can read that file");
+        const text = await fsp.readFile(launch, "utf8");
+        const code = (text.match(/#launch=([^"]+)/) || [])[1];
+        await page.goto(opened);
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "gavel");
+        check(await page.locator("[data-entity]").count() === 3,
+              "the file opens the editor over the project");
+        check(!page.url().includes("launch="), "the launch code is out of the address");
+        check(!fs.existsSync(launch), "and the file that carried it is gone");
+        const again = await page.evaluate(async (used) => (await fetch("api/launch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: used }),
+        })).status, code);
+        check(again === 403, "a second trade of the same code is refused");
+        await page.reload();
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "gavel");
+        check(await page.locator("[data-entity]").count() === 3,
+              "a reload still reaches the server on the token the code was traded for");
+    } finally {
+        await browser.close();
+        proc.kill();
+    }
+}
 
 // The static host the documentation site is, near enough. It serves the files the hook
 // copies and knows nothing about /api/, so the editor's first request is answered with a
@@ -2046,6 +2103,7 @@ async function part(run) {
 }
 
 await part(editorOverAProject);
+await part(theBrowserIsHandedAFile);
 await part(theCopyOnTheSite);
 await part(theProjectALinkHandsYou);
 await part(theFrontThatSplitsCallers);

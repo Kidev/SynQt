@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import socket
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -416,7 +418,83 @@ def test_serve_prints_where_it_is_and_stops_when_it_is_asked_to(tmp_path, capsys
     assert design.serve(project, port=0) == "synqt design: stopped."
     printed = capsys.readouterr().out
     assert "http://127.0.0.1:" in printed and "#token=" in printed
-    assert opened and "#token=" in opened[0]
+    assert opened and "#token=" not in opened[0]
+
+
+# The hand-off to the browser. A command line is readable by every local user through
+# /proc, so the browser is handed the path of a file only this user can read, and that file
+# holds a code the page trades once for the token.
+
+@pytest.fixture
+def launching(tmp_path):
+    project = tmp_path / "gavel"
+    shutil.copytree(EXAMPLES / "gavel", project,
+                    ignore=shutil.ignore_patterns("build", ".synqt"))
+    httpd = design.make_server(project, port=0, token=TOKEN, launch_code="launch-code")
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{httpd.server_port}"
+    _answering(base)
+    yield base
+    httpd.shutdown()
+    httpd.server_close()
+    thread.join(timeout=5)
+
+
+def test_a_launch_code_is_traded_once_for_the_token(launching):
+    base = launching
+    assert _refused(f"{base}/api/launch", data={"code": "a-guess"}, token=None) == 403
+    answer = _json(_post(f"{base}/api/launch", {"code": "launch-code"}, token=None))
+    assert answer == {"token": TOKEN}
+    assert _refused(f"{base}/api/launch", data={"code": "launch-code"}, token=None) == 403
+
+
+def test_a_launch_code_from_another_page_is_refused(launching):
+    base = launching
+    assert _refused(f"{base}/api/launch", data={"code": "launch-code"}, token=None,
+                    origin="https://evil.example") == 403
+    assert _json(_post(f"{base}/api/launch", {"code": "launch-code"}, token=None)) == {
+        "token": TOKEN}
+
+
+def test_a_server_with_no_launch_code_trades_nothing(server):
+    base, _ = server
+    for code in ("", None, "launch-code"):
+        assert _refused(f"{base}/api/launch", data={"code": code}, token=None) == 403
+
+
+def test_the_browser_is_handed_a_file_only_this_user_can_read(tmp_path, monkeypatch):
+    project = tmp_path / "gavel"
+    shutil.copytree(EXAMPLES / "gavel", project,
+                    ignore=shutil.ignore_patterns("build", ".synqt"))
+    made = {}
+    real = design.make_server
+
+    def remember(*arguments, **named):
+        made["httpd"] = real(*arguments, **named)
+        return made["httpd"]
+
+    monkeypatch.setattr(design, "make_server", remember)
+    seen = {}
+
+    def opening(address):
+        seen["address"] = address
+        launch = Path(urllib.request.url2pathname(urllib.parse.urlparse(address).path))
+        seen["file"] = launch
+        seen["text"] = launch.read_text(encoding="utf-8")
+        seen["mode"] = launch.stat().st_mode & 0o777
+        threading.Thread(target=made["httpd"].shutdown, daemon=True).start()
+
+    monkeypatch.setattr(design.webbrowser, "open", opening)
+    design.serve(project, port=0)
+
+    token = made["httpd"].token
+    assert seen["address"].startswith("file:")
+    assert token not in seen["address"] and "#" not in seen["address"]
+    assert "#launch=" in seen["text"] and token not in seen["text"]
+    if os.name == "posix":
+        assert seen["mode"] == 0o600
+    assert not seen["file"].exists(), "the launch file outlived the editor"
 
 
 if __name__ == "__main__":
