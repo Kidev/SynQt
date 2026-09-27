@@ -159,6 +159,14 @@ The type enforces these real SQLite constraints, which Qt documents:
   it), and sets `busy_timeout_ms` from config.
 - **WAL mode.** `journal_mode: wal` (the default) allows concurrent readers alongside the
   single writer and improves throughput.
+- **Durability.** In WAL mode the type commits at SQLite's `synchronous=NORMAL`: a commit
+  reaches the WAL file without waiting for the disk, and the disk sync happens at each
+  checkpoint. A crash of the entity loses nothing. A power cut or an operating system crash
+  can lose the last commits before the checkpoint, and never corrupts the file. Set
+  `synchronous: full` in the entity's settings to sync at every commit instead, which caps
+  an entity writing row by row at a few hundred commits a second on an SSD (see
+  [benchmarks](benchmarks.md)). Any other journal mode defaults to `full`, because a
+  rollback journal at `normal` can corrupt the file on a power cut.
 - **One connection.** The entity owns one `QSqlDatabase` connection on its main thread.
   Heavy reads that must not block the writer could use a read only connection on a
   worker, but by default the type keeps one connection, for simplicity and correctness.
@@ -181,7 +189,7 @@ memoized results), owned by one entity and consumed by the entities that need it
 **Backend:** memory in the process: a bounded map with least recently used eviction, like
 QCache. With a `file` configured, it loads that snapshot when it connects and writes one
 when it disconnects, so a clean restart keeps its data. A killed process writes nothing.
-No separate cache server runs.
+The cache runs inside the entity, with no separate server.
 
 **Contract** (illustrative): `get(string key)`, `set(string key, var value,
 int ttlSeconds)`, `del(string key)`, `incr(string key)`, matching the `Cache` helper the
@@ -200,13 +208,13 @@ reachable only by the entities you authorize.
 
 **Backend:** a provider, as for persistence, but the default is different. The embedded
 default keeps documents in the entity's own memory: nothing to install or configure, and
-everything is lost when the process stops. Nothing bounds its size either, since it keeps
-nothing permanently. That suits you while you work out the shape of your data, not in
-front of users. The `mongodb` provider moves the same entity onto a MongoDB server, with
-its connect points and consumers unchanged; switch to it before the data matters.
-`synqt build` names every entity still on the embedded default. The entity's QML uses the
-`Docs` helper, passing the collection, the document and the filter as maps, never as an
-engine query string, so a Source keeps working across the swap.
+everything is lost when the process stops. Its size is unbounded as well, since it keeps
+nothing permanently. That suits working out the shape of your data. The `mongodb` provider
+moves the same entity onto a MongoDB server, with its connect points and consumers
+unchanged; switch to it before the data matters. `synqt build` names every entity still on
+the embedded default. The entity's QML uses the `Docs` helper, passing the collection, the
+document and the filter as maps, never as an engine query string, so a Source keeps
+working across the swap.
 
 A document store gives you freedom of shape, and gives up the relational guarantees
 (joins, foreign keys, a schema the engine enforces) that the relational type provides. Use
@@ -228,7 +236,7 @@ function byAuthor(author) {
 }
 ```
 
-not `Docs.find("notes", filterFromTheCaller)`.
+Avoid `Docs.find("notes", filterFromTheCaller)`.
 
 ### Gateway (the api entity)
 
@@ -248,8 +256,8 @@ release build, and refuses any URL outside the prefixes `network.outbound` lists
 code never touches a socket and never reaches a place the topology did not list.
 
 Prefixes are matched by structure. A declared `https://api.example.com/v1` covers that
-scheme, host and port, and that path or paths below it, and nothing else. It does not
-cover `https://api.example.com@evil.test/v1` (whose host is evil.test),
+scheme, host and port, and that path or paths below it, and nothing else. It excludes
+`https://api.example.com@evil.test/v1` (whose host is evil.test),
 `api.example.com.evil.test`, `http://` instead of `https://`, or `/v1evil`. This matters
 beyond where a request lands: the entry's headers travel with any request that matches,
 so a prefix you could escape by spelling would let someone send the API key to their own
@@ -319,7 +327,7 @@ header, and this surface reads no cookie.
 The rate limit counts one address, which depends on what sits in front. Reached directly,
 it is the connecting peer. Behind a proxy, every request comes from the proxy, so name it
 in `network.inbound.trusted_proxies`, and the address it forwards is counted instead.
-Nothing is trusted implicitly, because any client can write a forwarding header. A
+Only a listed proxy is trusted, because any client can write a forwarding header. A
 handler reads the resolved address as
 [`request.client`](runtime-api.md#api-the-inbound-http-surface).
 
@@ -350,9 +358,9 @@ no entity can be left out of the record by a forgotten line.
 **Security:** the console binds `127.0.0.1`, and `synqt check` refuses any other host
 without `monitoring: {public: acknowledged}`. The console has its own identity, separate
 from the application's, and an anonymous visitor gets a sign-in page instead of the
-console, so they cannot address the console at all. No credential, no call argument a
-member did not [`capture`](programming-model.md), and nothing a browser claimed ever enters
-the record.
+console, so they cannot address the console at all. The record keeps out every
+credential, every call argument a member did not [`capture`](programming-model.md), and
+anything a browser claimed.
 
 `synqt add entity ops --type monitor` writes the entity, its console client, the sign-in
 gate and the `monitoring.entity` line in one step, because any three of the four without

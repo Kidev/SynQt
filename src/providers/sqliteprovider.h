@@ -12,10 +12,10 @@
 namespace SynQt {
 
 /// The default persistence provider: Qt SQL with the bundled QSQLITE driver, the embedded
-/// in-process engine (no separate daemon). Opens with WAL journalling and QSQLITE_BUSY_TIMEOUT
-/// so a busy database retries rather than fails immediately. The connection is owned by the
-/// thread that created it (the entity's event loop), which serializes writes. Migrations are
-/// forward-only and versioned in a metadata table.
+/// in-process engine (no separate daemon). Opens with WAL journalling at synchronous=NORMAL
+/// and QSQLITE_BUSY_TIMEOUT so a busy database retries rather than fails immediately. The
+/// connection is owned by the thread that created it (the entity's event loop), which
+/// serializes writes. Migrations are forward-only and versioned in a metadata table.
 class SqliteProvider final : public IPersistenceProvider
 {
 public:

@@ -38,6 +38,31 @@ QString journalModeOrDefault(const QString &requested)
     return QStringLiteral("wal");
 }
 
+/// The synchronous level to request, from the topology, given the journal mode the
+/// database actually took.
+///
+/// WAL at NORMAL syncs at each checkpoint rather than at each commit and cannot corrupt the
+/// file; a rollback journal at NORMAL can, so any other mode defaults to FULL. Validated
+/// for the same reason as the journal mode.
+QString synchronousOrDefault(const QString &requested, const QString &journalMode)
+{
+    static const QStringList levels{QStringLiteral("normal"), QStringLiteral("full"),
+                                    QStringLiteral("extra")};
+    const QString fallback{journalMode == QLatin1String("wal") ? QStringLiteral("normal")
+                                                               : QStringLiteral("full")};
+    if (requested.isEmpty()) {
+        return fallback;
+    }
+    const QString lowered{requested.toLower()};
+    if (levels.contains(lowered)) {
+        return lowered;
+    }
+    qWarning("SynQt: '%s' is not a SQLite synchronous level; using %s. One of: %s",
+             qUtf8Printable(requested), qUtf8Printable(fallback.toUpper()),
+             qUtf8Printable(levels.join(QStringLiteral(", "))));
+    return fallback;
+}
+
 } // namespace
 
 SqliteProvider::SqliteProvider(ProviderConfig config)
@@ -86,10 +111,15 @@ bool SqliteProvider::connect(QString *error)
         }
         return false;
     }
-    // WAL journalling (readers do not block a writer) and enforced foreign keys.
+    // WAL journalling (readers do not block a writer), the synchronous level for the mode
+    // the database took (an in-memory database answers "memory" to a request for WAL), and
+    // enforced foreign keys.
     QSqlQuery pragma{m_db};
     pragma.exec(QStringLiteral("PRAGMA journal_mode=%1")
                     .arg(journalModeOrDefault(m_config.journalMode)));
+    const QString journalMode{pragma.next() ? pragma.value(0).toString().toLower() : QString{}};
+    pragma.exec(QStringLiteral("PRAGMA synchronous=%1")
+                    .arg(synchronousOrDefault(m_config.synchronous, journalMode)));
     pragma.exec(QStringLiteral("PRAGMA foreign_keys=ON"));
     if (!runStatement(m_db,
                       QStringLiteral("CREATE TABLE IF NOT EXISTS synqt_migrations "

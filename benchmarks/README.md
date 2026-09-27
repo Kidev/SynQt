@@ -468,22 +468,24 @@ btrfs on an SSD):
 
 | Metric | Value |
 |--------|-------|
-| `sqlite_write_autocommit` | p50 5.7 ms, p99 6.2 ms (about 177 rows/s) |
-| `sqlite_write_batched` (one txn) | about 385 k rows/s |
-| `sqlite_read_point` (indexed) | p50 5 us, p99 6 us |
-| `sqlite_write_contended` (2nd writer active) | p50 5.7 ms, p99 6.2 ms, 4 of 2000 writes refused, 3 948 rival writes in the window |
+| `sqlite_write_autocommit` | p50 13 us, p99 26 us (about 25 k rows/s) |
+| `sqlite_write_batched` (one txn) | about 462 k rows/s |
+| `sqlite_read_point` (indexed) | p50 4 us, p99 6 us |
+| `sqlite_write_contended` (2nd writer active) | p50 13 us, p99 31 us, 0 of 2000 writes refused, 2 627 rival writes in the window |
 | write lock held 1000 ms | no busy timeout is refused, and a 5000 ms busy timeout waits and lands |
-| `cache_get_hit` / `cache_get_miss` / `cache_set` | 92 / 71 / 104 ns/op |
+| `cache_get_hit` / `cache_get_miss` / `cache_set` | 88 / 77 / 96 ns/op |
 | `cache_set_under_eviction` | about 0.20 us/op |
 
-Qt bundles SQLite at its default `synchronous=FULL`, and the provider keeps it, so a
-commit in WAL mode waits for the WAL to reach the disk. Every autocommit write pays that
-sync, about 5.7 ms here, and one transaction around many writes pays it once, which is
-the 2 000-fold difference between the first two rows. The harness records the filesystem
-and the synchronous level in the baseline, and the gate refuses a run on tmpfs or ramfs,
-where a sync costs nothing and the autocommit row would measure memory. With a second
-connection hammering the same file, the single writer's median is unchanged (5.71 ms
-against 5.74), which is the contention reading that matters.
+The provider opens a WAL database at `synchronous=NORMAL`, so a commit reaches the WAL
+file without waiting for the disk, and the disk sync happens at each checkpoint. One
+transaction around many writes still saves the per-statement work, which is the 18-fold
+difference between the first two rows. An entity set to `synchronous: full` syncs at every
+commit instead: about 177 rows/s autocommit on this disk (5.7 ms a commit), against
+385 k rows/s batched. The harness records the filesystem and the synchronous level in the
+baseline, and the gate refuses a run on tmpfs or ramfs, where a sync costs nothing and a
+`full` run would measure memory. With a second connection hammering the same file, the
+single writer's median is unchanged (13 us against 13 us), which is the contention
+reading that matters.
 
 That reading only means something if the second connection was writing while it was
 taken, and for a while it was not guaranteed to be. The measured writes start the moment

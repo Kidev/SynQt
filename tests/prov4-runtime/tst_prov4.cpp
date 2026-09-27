@@ -227,6 +227,30 @@ private slots:
                  QStringLiteral("milk"));
     }
 
+    // The settings block reaches the engine: a WAL database with no `synchronous:` commits
+    // at NORMAL, and one that names FULL gets it.
+    void theSynchronousSettingReachesTheDatabase()
+    {
+        QQmlEngine engine;
+        EntityRuntime unwritten{
+            relationalTopology(m_dir.filePath(QStringLiteral("unwritten.db"))), &engine};
+        QVERIFY2(unwritten.start(), qPrintable(unwritten.errorString()));
+        Db *db{qobject_cast<Db *>(onlyHost(unwritten)->contextObject(QStringLiteral("Db")))};
+        QVERIFY(db != nullptr);
+        QVariantList rows = db->query(QStringLiteral("PRAGMA synchronous"), QVariantList{});
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("synchronous")).toInt(), 1);
+
+        Topology full{relationalTopology(m_dir.filePath(QStringLiteral("full.db")))};
+        full.provider.insert(QStringLiteral("synchronous"), QStringLiteral("full"));
+        QQmlEngine secondEngine;
+        EntityRuntime written{full, &secondEngine};
+        QVERIFY2(written.start(), qPrintable(written.errorString()));
+        db = qobject_cast<Db *>(onlyHost(written)->contextObject(QStringLiteral("Db")));
+        QVERIFY(db != nullptr);
+        rows = db->query(QStringLiteral("PRAGMA synchronous"), QVariantList{});
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("synchronous")).toInt(), 2);
+    }
+
     void runtimeInjectsCacheFromBlueprintAndItWorks()
     {
         QQmlEngine engine;
@@ -387,7 +411,8 @@ private slots:
         http->get(QStringLiteral("http://127.0.0.1:1/feed"))
             ->then(QJSValue{},
                    engine.evaluate(QStringLiteral("(function(e) { failure = e; })")));
-        QTRY_VERIFY(!engine.globalObject().property(QStringLiteral("failure")).toString().isEmpty());
+        QTRY_VERIFY(
+            !engine.globalObject().property(QStringLiteral("failure")).toString().isEmpty());
         QVERIFY(!engine.globalObject()
                      .property(QStringLiteral("failure"))
                      .toString()

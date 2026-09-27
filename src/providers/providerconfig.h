@@ -19,6 +19,7 @@ struct ProviderConfig
     /// Embedded relational (sqlite).
     QString file;             ///< database file path
     QString journalMode{QStringLiteral("wal")};
+    QString synchronous;      ///< empty: NORMAL under WAL, FULL under any other journal
     int busyTimeoutMs{5000};
 
     /// External relational (postgres, ...).

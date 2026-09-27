@@ -62,6 +62,7 @@ ProviderConfig providerConfigFromMap(const QVariantMap &map)
     config.name = map.value(QStringLiteral("name")).toString();
     config.file = map.value(QStringLiteral("file"), config.file).toString();
     config.journalMode = map.value(QStringLiteral("journal_mode"), config.journalMode).toString();
+    config.synchronous = map.value(QStringLiteral("synchronous"), config.synchronous).toString();
     config.busyTimeoutMs =
         map.value(QStringLiteral("busy_timeout_ms"), config.busyTimeoutMs).toInt();
     config.host = map.value(QStringLiteral("host"), config.host).toString();

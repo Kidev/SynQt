@@ -484,6 +484,59 @@ private slots:
                  QStringLiteral("wal"));
     }
 
+    // A WAL database commits at NORMAL, which syncs at each checkpoint instead of each
+    // commit. A rollback journal keeps FULL, because NORMAL there can corrupt the file on a
+    // power cut. `synchronous:` overrides either, and a level SQLite does not have gets a
+    // warning and the default for the mode.
+    void theSynchronousLevelFollowsTheJournalMode_data()
+    {
+        QTest::addColumn<QString>("journalMode");
+        QTest::addColumn<QString>("synchronous");
+        QTest::addColumn<int>("expected");
+        QTest::newRow("wal by default") << QStringLiteral("wal") << QString{} << 1;
+        QTest::newRow("delete by default") << QStringLiteral("delete") << QString{} << 2;
+        QTest::newRow("wal asking for full") << QStringLiteral("wal") << QStringLiteral("FULL")
+                                             << 2;
+        QTest::newRow("delete asking for normal")
+            << QStringLiteral("delete") << QStringLiteral("normal") << 1;
+        QTest::newRow("wal asking for extra") << QStringLiteral("wal") << QStringLiteral("extra")
+                                              << 3;
+    }
+
+    void theSynchronousLevelFollowsTheJournalMode()
+    {
+        QFETCH(QString, journalMode);
+        QFETCH(QString, synchronous);
+        QFETCH(int, expected);
+        ProviderConfig config{sqliteConfig(dbFile(QStringLiteral("sync-%1.db")
+                                                      .arg(QTest::currentDataTag())))};
+        config.journalMode = journalMode;
+        config.synchronous = synchronous;
+        SqliteProvider provider{config};
+        QString error;
+        QVERIFY2(provider.connect(&error), qPrintable(error));
+        const DbResult level{provider.query(QStringLiteral("PRAGMA synchronous"), {})};
+        QVERIFY2(level.ok, qPrintable(level.error));
+        QCOMPARE(level.rows.first().toMap().value(QStringLiteral("synchronous")).toInt(),
+                 expected);
+    }
+
+    void anUnknownSynchronousLevelFallsBackToTheDefault()
+    {
+        ProviderConfig config{sqliteConfig(dbFile(QStringLiteral("sync-off.db")))};
+        config.synchronous = QStringLiteral("off");
+        SqliteProvider provider{config};
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression{QStringLiteral("'off' is not a SQLite "
+                                                               "synchronous level; using "
+                                                               "NORMAL")});
+        QString error;
+        QVERIFY2(provider.connect(&error), qPrintable(error));
+        const DbResult level{provider.query(QStringLiteral("PRAGMA synchronous"), {})};
+        QVERIFY2(level.ok, qPrintable(level.error));
+        QCOMPARE(level.rows.first().toMap().value(QStringLiteral("synchronous")).toInt(), 1);
+    }
+
     // Before connect() and after disconnect() every operation is refused with a reason, and
     // a database that cannot be opened is a connect() that fails and says why.
     void aProviderThatIsNotConnectedRefusesEveryOperation()
@@ -525,8 +578,8 @@ private slots:
         QQmlEngine engine;
         Db db{&provider};
         engine.rootContext()->setContextProperty(QStringLiteral("Db"), &db);
-        QQmlComponent component{&engine,
-                                QUrl::fromLocalFile(QStringLiteral(M9_SRCDIR "/database/Items.qml"))};
+        QQmlComponent component{
+            &engine, QUrl::fromLocalFile(QStringLiteral(M9_SRCDIR "/database/Items.qml"))};
         std::unique_ptr<QObject> source{component.create()};
         QVERIFY2(source != nullptr, qPrintable(component.errorString()));
 
@@ -581,8 +634,8 @@ private slots:
         QQmlEngine engine;
         Db db{provider};
         engine.rootContext()->setContextProperty(QStringLiteral("Db"), &db);
-        QQmlComponent component{&engine,
-                                QUrl::fromLocalFile(QStringLiteral(M9_SRCDIR "/database/Items.qml"))};
+        QQmlComponent component{
+            &engine, QUrl::fromLocalFile(QStringLiteral(M9_SRCDIR "/database/Items.qml"))};
         std::unique_ptr<QObject> source{component.create()};
         if (source == nullptr) {
             m_lastSkip = component.errorString();
@@ -605,8 +658,9 @@ private slots:
         QVariantList normalized;
         for (const QVariant &entry : read.rows) {
             const QVariantMap map{entry.toMap()};
-            normalized.append(QVariantMap{{QStringLiteral("text"), map.value(QStringLiteral("text"))},
-                                          {QStringLiteral("author"), map.value(QStringLiteral("author"))}});
+            normalized.append(
+                QVariantMap{{QStringLiteral("text"), map.value(QStringLiteral("text"))},
+                            {QStringLiteral("author"), map.value(QStringLiteral("author"))}});
         }
         return normalized;
     }
@@ -1053,11 +1107,12 @@ private slots:
         docs.insert(QStringLiteral("users"), {{QStringLiteral("name"), QStringLiteral("bob")},
                                               {QStringLiteral("role"), QStringLiteral("user")}});
 
-        QCOMPARE(docs.find(QStringLiteral("users"), {{QStringLiteral("role"), QStringLiteral("admin")}}, {}).size(), 1);
-        QCOMPARE(docs.update(QStringLiteral("users"), {{QStringLiteral("name"), QStringLiteral("bob")}},
-                             {{QStringLiteral("role"), QStringLiteral("admin")}}), 1);
-        QCOMPARE(docs.find(QStringLiteral("users"), {{QStringLiteral("role"), QStringLiteral("admin")}}, {}).size(), 2);
-        QCOMPARE(docs.remove(QStringLiteral("users"), {{QStringLiteral("name"), QStringLiteral("ada")}}), 1);
+        const QString users{QStringLiteral("users")};
+        const QVariantMap admins{{QStringLiteral("role"), QStringLiteral("admin")}};
+        QCOMPARE(docs.find(users, admins, {}).size(), 1);
+        QCOMPARE(docs.update(users, {{QStringLiteral("name"), QStringLiteral("bob")}}, admins), 1);
+        QCOMPARE(docs.find(users, admins, {}).size(), 2);
+        QCOMPARE(docs.remove(users, {{QStringLiteral("name"), QStringLiteral("ada")}}), 1);
         QCOMPARE(docs.find(QStringLiteral("users"), {}, {}).size(), 1);
     }
 
@@ -1659,7 +1714,8 @@ private slots:
             {QStringLiteral("name"), QVariantMap{{QStringLiteral("$date"),
                                                   QStringLiteral("not a date")}}}};
         docs->remove(users, {});
-        for (IDocumentProvider *provider : {docs.get(), static_cast<IDocumentProvider *>(&memory)}) {
+        for (IDocumentProvider *provider :
+             {docs.get(), static_cast<IDocumentProvider *>(&memory)}) {
             provider->insert(users, {{QStringLiteral("name"), QStringLiteral("ada")}});
             provider->insert(users, {{QStringLiteral("name"), QStringLiteral("bob")}});
         }
@@ -2136,8 +2192,8 @@ private slots:
                    && far.requests.size() == before + 1;
         }};
 
-        QVERIFY(sent(upstream->post(QStringLiteral("items"),
-                                    QVariantMap{{QStringLiteral("text"), QStringLiteral("milk")}})));
+        const QVariantMap milk{{QStringLiteral("text"), QStringLiteral("milk")}};
+        QVERIFY(sent(upstream->post(QStringLiteral("items"), milk)));
         QCOMPARE(far.requests.last().method, QByteArrayLiteral("POST"));
         QCOMPARE(far.requests.last().path, QByteArrayLiteral("/v1/items"));
         QCOMPARE(far.requests.last().headers.value("content-type"),
