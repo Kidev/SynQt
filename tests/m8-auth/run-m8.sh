@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The edge login flow (native, against the in-process dev stub provider) and the
-# `synqt add auth` scaffolding. jwt-cpp + picojson (vcpkg) are required for ID-token
+# `synqt add auth` scaffolding. jwt-cpp + picojson are required for ID-token
 # verification. The include dir is auto-detected or set with -DJWT_CPP_INCLUDE_DIR=.
 
 set -euo pipefail

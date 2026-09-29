@@ -47,8 +47,8 @@ DEFAULT_SUBNET = "172.30.238.0/24"
 # The first container address. .1 is the gateway; entities start at .11.
 FIRST_HOST = 11
 
-# The jwt-cpp version SynQtIdentity uses to verify OIDC ID tokens. Keep in step with
-# .github/workflows/{ctest,benchmarks,leaks}.yml; the floor is v0.7.1
+# The jwt-cpp version SynQtIdentity uses to verify OIDC ID tokens. Keep in step with every
+# workflow's JWT_CPP_VERSION (test_jwt_cpp_pin.py holds them together); the floor is v0.7.1
 # (jwt::helper::create_public_key_from_rsa_components).
 JWT_CPP_VERSION = "v0.7.2"
 

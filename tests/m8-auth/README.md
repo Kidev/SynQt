@@ -18,8 +18,7 @@ browser only ever ends with an httpOnly session cookie.
   callback URL instead of a loopback port.
 - `JwksVerifier` (`src/identity`). For an OpenID Connect provider, it verifies the ID
   token's RS256 signature against the provider JWKS, fetched and cached with
-  `QNetworkAccessManager`, plus `iss`, `aud`, `exp` and `nonce`, through pinned jwt-cpp
-  (MIT, vcpkg). There is no hand-rolled crypto. It checks the signature with the no-throw
+  `QNetworkAccessManager`, plus `iss`, `aud`, `exp` and `nonce`, through jwt-cpp (MIT). There is no hand-rolled crypto. It checks the signature with the no-throw
   `rs256::verify(..., ec)`, so no exception crosses the boundary.
 - `StubIdentityServer` (`src/edge`). A dev-only provider (`/authorize`, `/token`,
   `/userinfo`, `/jwks`) that authenticates one of the preconfigured people, verifies the

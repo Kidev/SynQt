@@ -14,7 +14,7 @@ namespace SynQt {
 
 /// An in-process document provider, for tests and small local use, and the reference
 /// implementation of IDocumentProvider. An external `mongodb` provider (the MongoDB C
-/// client through vcpkg) implements the same interface behind the same entity.
+/// client) implements the same interface behind the same entity.
 class MemoryDocumentProvider final : public IDocumentProvider
 {
 public:

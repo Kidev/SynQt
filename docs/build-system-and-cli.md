@@ -6,14 +6,15 @@
 SynQt builds one artifact per entity. This page covers the multi binary build, the
 toolchain it pins, the mesh certificate tooling that gives entities their identities, how
 QML becomes a WebAssembly bundle, and the `synqt` CLI. Underneath are `CMakePresets.json`
-with a generated user preset, vcpkg for native dependencies, and Emscripten for the
-WebAssembly build.
+with a generated user preset, and Emscripten for the WebAssembly build.
 
-Everything SynQt writes for a project goes in its `generated/` directory: the root
-`CMakeLists.txt`, the presets, and one `main.cpp` per entity, mirroring the entity
-folders. That directory is the CMake source directory (`cmake -S generated`), git ignores
-it, and every build rewrites it from `synqt.yaml`. SynQt never writes generated files into
-an entity's folder, so everything there is its author's.
+SynQt writes a project's build into its `generated/` directory: `generated/synqt.cmake`
+(the multi binary build) and one `main.cpp` per entity, mirroring the entity folders. The
+project's own `CMakeLists.txt` at the root includes it, so CMake runs on the project root.
+`CMakePresets.json` and `CMakeUserPresets.json` sit at the root too, because CMake reads
+presets only from the source directory. Git ignores `generated/`, and every build rewrites
+it from `synqt.yaml`. SynQt never writes generated files into an entity's folder, so
+everything there is its author's.
 
 ## The artifacts
 
@@ -50,15 +51,16 @@ missing piece. The CLI downloads nothing itself. The pieces:
 - **Emscripten,** through `emsdk`, into `synqt/toolchain/emsdk/<version>`, pinned to the
   version Qt selects (5.0.5 for 6.12.0). Other versions are unsupported, because
   Emscripten does not promise ABI stability across versions.
-- **vcpkg,** only if a project adds native dependencies beyond Qt and the bundled engine
-  backends. A default project needs none.
+- **jwt-cpp** (header-only, v0.7.1 or newer), which the edge's sign-in uses to verify ID
+  tokens. The build looks for it under `JWT_CPP_INCLUDE_DIR` and in a vcpkg tree. The
+  `synqt docker` image clones the release tag SynQt's own CI uses.
 
 The CLI checks a kit for these modules, not just for its directory. A stock WebAssembly kit
 has no QtRemoteObjects, and a toolchain reported complete because the directory exists
 would fail minutes into the build, inside CMake, with a message naming a package instead
 of the kit it is missing from.
 
-Resolution is not cached. It is a few `exists()` checks against the pinned paths, rerun
+Resolution runs fresh every time: a few `exists()` checks against the pinned paths, rerun
 whenever a command needs them, so a kit installed a moment ago is found immediately.
 
 The framework sources are found separately, because the generated CMake includes them
@@ -74,8 +76,8 @@ export SYNQT_ROOT=/path/to/SynQt
 
 Either way, the root is validated before anything is generated, so a wrong one fails with
 `cannot find the SynQt framework sources under ...` instead of a CMake error about a missing
-include later. `SYNQT_ROOT` is written into the generated `CMakeLists.txt` at scaffold
-time, and `-DSYNQT_ROOT=...` overrides it per build.
+include later. `SYNQT_ROOT` is written into `generated/synqt.cmake` on every
+build, and `-DSYNQT_ROOT=...` overrides it per build.
 
 **Provider dependencies.** When an entity selects a non default provider (see
 [providers](providers.md)), the build resolves its engine client. A relational provider
@@ -83,7 +85,8 @@ time, and `-DSYNQT_ROOT=...` overrides it per build.
 the bundled SQLite needs nothing, PostgreSQL usually loads against an ordinary libpq, and
 MySQL needs the plugin rebuilt against MariaDB Connector/C once per machine (see
 [providers](providers.md#bundled-providers-and-how-each-reaches-its-engine)). A document or cache
-provider (MongoDB, Redis) needs its client library, from the pinned vcpkg baseline. The
+provider (MongoDB, Redis) needs its client library (the MongoDB C driver, hiredis) from the
+system's packages when SynQt is built; without it the provider is compiled out. The
 default providers (embedded SQLite for persistence, memory for cache) need none of this, so
 a default project resolves no provider dependencies. `synqt doctor` reports any selected
 provider whose driver plugin or client library is missing, before you run.
@@ -229,8 +232,8 @@ what is on disk was written by someone, and this is only an inference. `--json` 
 same result as the document `synqt design` draws, which is how the editor fills in a
 contract for you.
 
-The result is a best guess, not proof. Nothing is compiled: the scan matches patterns in
-the source, so a literal argument proves a type and an expression proves nothing. A member
+The result is a best guess: the scan matches patterns in the source without compiling it,
+so a literal argument proves a type and an expression proves nothing. A member
 it had to guess is marked `check this type` on its own line, with the lines that produced
 the guess. Two ordinary QML habits, both recommended by the
 [QML conventions](https://doc.qt.io/qt-6/qml-codingconventions.html), make the answer much
@@ -245,8 +248,8 @@ infers types in plain JavaScript and follows each value to its origin; it needs 
 `ts-morph` (`npm install ts-morph` in the project), and refuses to run without them
 instead of silently giving worse answers. `heuristic` uses only the literal reader and
 needs nothing. The default, `auto`, uses TypeScript when installed and the literal reader
-otherwise, and the report's last line says which answered. Neither ever invents a type: a
-member nothing in the QML types comes back as `var`, marked for you to fill in.
+otherwise, and the report's last line says which answered. Both leave a type they cannot
+read open: a member nothing in the QML types comes back as `var`, marked for you to fill in.
 
 `synqt check` reads the same two ends and asks a narrower question: has the contract on
 this link drifted from the QML around it? It gives three kinds of answer, each narrow,
@@ -259,11 +262,11 @@ because people learn to ignore a check that complains about correct code:
 - **Error:** an argument's known type cannot match the parameter's declared type. The
   message names the point, the slot, the parameter, the declared type and the actual one.
 
-That last case is why `synqt check` also takes `--types`. It says nothing about an argument
+That last case is why `synqt check` also takes `--types`. It stays silent about an argument
 nobody could type, so the literal reader alone never produces this error, and TypeScript
-produces only the ones it is sure of. The check does not judge what an owner's Source keeps
+produces only the ones it is sure of. The check leaves alone what an owner's Source keeps
 for itself: a Source is an ordinary QML object, and its `property var store: []` crosses
-nothing. Nor does it judge a point some QML reached through a computed name, because the
+nothing. It also leaves alone a point some QML reached through a computed name, because the
 scan cannot follow that, and "nobody uses this" would be a claim about code it could not
 read.
 
@@ -335,13 +338,13 @@ Common flags:
 | `--release` | Optimised for each artifact's own environment, and stripped. |
 | `--custom <TYPE>` | The CMake build type you name: `Debug`, `Release`, `RelWithDebInfo` or `MinSizeRel`. |
 
-`--release` is not one setting, because the right release build of a WebAssembly bundle is
-not the right release build of a service:
+`--release` picks a build type per artifact, because a WebAssembly bundle and a service
+need different ones:
 
 | Artifact | `--release` builds it | Why |
 |---|---|---|
 | The browser client | `MinSizeRel` (`-Os`) | Every visitor downloads it over a network before a line of it runs, so its size is its latency. |
-| A service, the web edge, a monitor | `Release` (`-O3`) | Nothing downloads a service. Throughput is the whole cost. |
+| A service, the web edge, a monitor | `Release` (`-O3`) | A service stays on its host, so throughput is the whole cost. |
 | The native desktop client | `Release` (`-O3`) | Launched from local disk rather than fetched per use. |
 
 `--release` also strips the binaries, so they carry no symbol table. Anyone inspecting a
@@ -414,7 +417,7 @@ synqt build --client desktop --deploy --sign "Developer ID Application: Acme (AB
 synqt build --client desktop --deploy --unsigned
 ```
 
-Neither flag has a default, because an unsigned binary costs something different on each
+You must pick one, because an unsigned binary costs something different on each
 platform, and only one refuses to run it.
 [Desktop clients](desktop.md#building-for-desktop) has the full table, what each platform's
 step does, and what `DEPLOY.txt` leaves for you.
@@ -447,8 +450,8 @@ The provider name `dev` is special: it writes the
 register, so you can try a scope-gated route on a project's first afternoon. It sits beside
 a real provider instead of replacing it, and cannot run in a build.
 
-`synqt new` has no flag for a starting entity. An entity needs a name and a type, and such a
-flag (`--blueprint orders:relational`) only duplicated `synqt add entity` badly.
+Starting entities come from `synqt add entity` after `synqt new`, which takes the two
+things an entity needs: a name and a type.
 
 ### Starting from an example
 
@@ -463,6 +466,7 @@ synqt examples
   arena  the multiplayer tutorial, materialized
   chat   a room everybody in it sees at once
   gavel  the auction tutorial, materialized
+  plaza  the 3D tutorial, materialized
   stall  a storefront with edge-delivered campaigns
 
 Start one with: synqt new <directory> --example <name>
@@ -480,8 +484,8 @@ the start, and nothing later knows how it began. Two things change during the co
 survives), and the copy gets the two files the repository keeps once for all examples: a
 `.gitignore`, and a `.env.example` naming each secret the project reads from its
 environment, which you must fill in before the first run of an example that signs people
-in. Nothing from the source machine comes along: no build tree, `generated/`, user preset,
-`.env` or certificates.
+in. The copy leaves behind everything specific to the source machine: the build tree,
+`generated/`, the user preset, `.env` and certificates.
 
 `--example` and `--auth` cannot be combined, because an example has already decided whether
 it signs people in. Copy it, then run `synqt add auth <provider>` to change that.
@@ -504,8 +508,8 @@ takes a path nobody watched, and the difference only shows up later, in the gene
 project. So `synqt create` refuses to run without a terminal, and points you to
 `synqt new`.
 
-There is no question or flag for the origin model. A scaffolded project serves the client
-and the web edge from one origin, the only setup whose session cookie is first party and so
+A scaffolded project serves the client and the web edge from one origin, with no question
+or flag for the origin model. That is the only setup whose session cookie is first party and so
 the only one unaffected by browsers phasing out third party cookies. Splitting them is
 possible and still validated, but as a manual edit after reading
 [serving the client from another origin](project-layout-and-config.md#serving-the-client-from-another-origin),
@@ -575,10 +579,10 @@ named people and per-tab sessions.
    Brotli where the `brotli` module is available. The compressed copies sit beside the
    originals, and the edge picks one per request from `Accept-Encoding`. This always runs.
 
-SynQt does not use qmltc, Qt's whole component compiler. It is a technology preview that
-links private Qt API and breaks binary compatibility across patch releases, which a
-framework should not impose on its users. The client is compiled with qmlcachegen, as step
-2 describes.
+SynQt compiles the client with qmlcachegen, as step 2 describes, and leaves out qmltc,
+Qt's whole component compiler. qmltc is a technology preview that links private Qt API and
+breaks binary compatibility across patch releases, which a framework should not impose on
+its users.
 
 ## CMake and presets structure
 
@@ -600,20 +604,20 @@ single threaded binary. Both kits can stay built side by side. If you drive CMak
 keep the directories separate too.
 
 `project.qt_version` is the one source of the Qt version. The CLI reads it and derives the
-toolchain, the presets and the Emscripten pin from it. Nothing else in a project names a Qt
-version.
+toolchain, the presets and the Emscripten pin from it. It is the only place a project
+names a Qt version.
 
 ## Building the framework itself
 
 Contributors building SynQt get:
 
 - **The service runtime library** (native): Qt Core, Network, WebSockets and
-  RemoteObjects, plus HttpServer and NetworkAuth for a web edge (and the pinned `jwt-cpp`
-  from vcpkg to verify ID tokens, since Qt has no JWT API), plus Sql for the relational
+  RemoteObjects, plus HttpServer and NetworkAuth for a web edge (and `jwt-cpp` to verify ID
+  tokens, since Qt has no JWT API), plus Sql for the relational
   type. Each entity links only what it needs.
 - **The client runtime library** (WebAssembly): Qt Core, Network, WebSockets,
-  RemoteObjects, Qml and Quick. No HttpServer, NetworkAuth or Sql, because the client never
-  listens, holds no secrets and touches no storage.
+  RemoteObjects, Qml and Quick. It links no HttpServer, NetworkAuth or Sql, because the
+  client never listens, holds no secrets and touches no storage.
 - **The contract generator, the entity types, the mesh certificate tooling and the
   `synqt` CLI.**
 - **A test suite** covering the transports, the upgrade verifier, the mesh mutual TLS, the
@@ -674,7 +678,7 @@ bookkeeping (the CLA check and the AUTHORS regeneration).
   claims, never against absolute numbers from another machine.
 - [`docs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/docs.yml) builds and publishes this documentation site on a push to `main`.
 
-Neither WebAssembly workflow runs on every push: each builds a Qt module from source, which
+Both WebAssembly workflows skip ordinary pushes: each builds a Qt module from source, which
 is too slow. Both run on dispatch and when what they cover changes. A browser update can
 break the browser matrix with no change here, so its last green run proves only the day it
 ran.

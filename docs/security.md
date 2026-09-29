@@ -255,8 +255,8 @@ this way is itself a security property:
   localhost; a release build refuses it.
 - The engine sits on a private address that only its entity can reach, like any
   sensitive entity.
-- Provider client libraries are pinned through vcpkg and reviewed. A custom provider is
-  reviewed like entity code, so a provider brings in no unaudited binary.
+- Provider client libraries are maintained upstream clients from the system's packages
+  (the MongoDB C driver, hiredis). A custom provider is reviewed like entity code.
 
 Adding a managed PostgreSQL or a MongoDB cluster therefore does not widen the system's
 exposure. It adds one authenticated, verified connection with isolated credentials,
@@ -777,7 +777,8 @@ symbol to the list `tests/dev-exclusion` checks.
 
 - `project.qt_version` pins Qt and Emscripten to exact installers, so every entity
   builds on the same tested toolchain.
-- Native dependencies, if any, go through vcpkg with a pinned, recorded baseline.
+- jwt-cpp, the one native library outside Qt that every sign-in uses, is cloned at one
+  release tag in CI and in the `synqt docker` image, and a test fails when a copy drifts.
 - The generated contract layer is reproduced from what the connect points in
   `synqt.yaml` export, and nobody edits it by hand, so it cannot hide unreviewed
   behavior.

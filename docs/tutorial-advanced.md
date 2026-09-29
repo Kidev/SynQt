@@ -31,10 +31,10 @@ flowchart LR
 ```
 
 An adaptor is the lower box: a class that implements one family interface, is registered
-under a name, and is selected by one line of configuration. Nothing above it changes. The
-`Items.qml` that ran against SQLite runs against your engine, with the same `Caller`
-checks, the same topology that denies by default, and the same guarantee that no consumer
-can reach past the entity to its engine.
+under a name, and is selected by one line of configuration. Everything above it stays the
+same. The `Items.qml` that ran against SQLite runs against your engine, with the same
+`Caller` checks, the same topology that denies by default, and the same guarantee that no
+consumer can reach past the entity to its engine.
 
 ## What you will learn
 
@@ -59,7 +59,7 @@ it is familiar. Read [providers](providers.md) for the system you are extending.
 is C++, not QML, so you should be comfortable reading a class. You need not be a Qt expert;
 every Qt type used here links to its documentation.
 
-You do not need a project to follow along. Each page is a complete adaptor you could paste
+Following along needs no project. Each page is a complete adaptor you could paste
 into an entity, and you can read it without running anything. To run one, use any project
 from an earlier tutorial that has a database entity.
 
@@ -96,8 +96,9 @@ interface and nothing more, takes parameters separately, returns errors instead 
 throwing, keeps credentials in the entity environment, refuses an unverified connection in
 release, and documents what its engine cannot do. The framework adds two rules:
 
-- **A wrapped client library is pinned and license compatible.** It must be pinned in the
-  vcpkg baseline, and its license must be compatible with the other modules in the entity.
+- **A wrapped client library is maintained and license compatible.** It is an upstream
+  client the build finds on the system, and its license must be compatible with the other
+  modules in the entity.
   That is why the bundled MySQL provider uses MariaDB Connector/C and never Oracle's client;
   [licensing](licensing.md) explains why.
 - **It comes with a test.** Every bundled provider has one. Without a test, a provider

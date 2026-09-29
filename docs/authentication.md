@@ -37,7 +37,7 @@ The defaults `synqt add auth` sets:
   to the browser and never logged.
 - **ID token signatures verified against the provider's JWKS** when ID tokens supply the
   identity, because Qt does not verify ID tokens. Qt has no JWT or JWKS API, so the
-  framework verifies with the pinned `jwt-cpp` library (MIT, through vcpkg), and fetches
+  framework verifies with the `jwt-cpp` library (MIT, v0.7.1 or newer), and fetches
   and caches the JWKS with QNetworkAccessManager. No cryptography is written by hand.
   The key must be RSA, and a key that states a `use` or an `alg` must state `sig` and
   `RS256`. The token must name this client among its audiences, and a token with several

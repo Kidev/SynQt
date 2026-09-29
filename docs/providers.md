@@ -147,8 +147,8 @@ symbols. SynQt cannot use that plugin, for two reasons:
   load. Qt then reports only `Driver not loaded`, without naming the cause.
 
 So a `mysql` provider needs the QMYSQL plugin rebuilt against MariaDB Connector/C
-(LGPLv2.1), the client whose license lets a SynQt deployment ship it. `synqt build` does not
-do this for you. It is a one time step per machine, done by
+(LGPLv2.1), the client whose license lets a SynQt deployment ship it. It is a one time
+step per machine, outside `synqt build`, done by
 [`tools/qmysql-plugin/build-qmysql-plugin.sh`](https://github.com/Kidev/SynQt/blob/main/tools/qmysql-plugin/build-qmysql-plugin.sh)
 in the SynQt repository:
 
@@ -184,13 +184,12 @@ that it got it:
   certificate check with `tlsInsecure`, `tlsAllowInvalidCertificates` or
   `tlsAllowInvalidHostnames`.
 
-In both cases, what the entity claims must match what goes on the wire; a false claim is
-worse than none.
+In both cases, what the entity claims must match what goes on the wire.
 
 Document and cache providers wrap an external client library, because Qt has no official
 MongoDB or Redis module. The MongoDB provider wraps the MongoDB C client, and the Redis
-provider wraps hiredis. These libraries come
-through the pinned vcpkg baseline and are reviewed. SynQt wraps a maintained client behind
+provider wraps hiredis. Both come from the system's packages, and each provider is built
+only when its library is found. SynQt wraps a maintained client behind
 the entity instead of reimplementing the engine, so the rest of the system never speaks
 Mongo.
 
@@ -198,7 +197,7 @@ The embedded defaults (SQLite for persistence, memory for the cache and for docu
 need no engine and no extra build. That is why they are the defaults, and why a new
 project runs with none of this configured.
 
-They do not promise the same thing. SQLite writes a file, so a relational entity on the
+They promise different things. SQLite writes a file, so a relational entity on the
 default keeps its data across a restart. The other two keep data in the entity's memory.
 The cache is bounded and meant to forget. The document store is unbounded, keeps
 everything until the process stops, then loses it all. Move a document entity onto
@@ -333,9 +332,9 @@ implement the family interface yourself.
    two families.) Register the bare name, without the `custom:` prefix.
 3. Select it with `provider.name: custom:MyEngine`. The rest of the `provider` section
    holds settings your provider reads from its `ProviderConfig`. That selection also
-   compiles `providers/custom/` into the entity, so the registration runs. There is no
-   CMake to edit: the build writes `generated/synqt.cmake` from the topology every time,
-   and the project's root `CMakeLists.txt` only includes it.
+   compiles `providers/custom/` into the entity, so the registration runs. The build
+   writes `generated/synqt.cmake` from the topology every time, and the project's root
+   `CMakeLists.txt` only includes it, so there is no CMake to edit.
 
 `custom:` is a namespace: only names that carry it are looked up among your
 registrations, so a custom provider can never shadow a bundled one. `sqlite` always means
@@ -363,8 +362,9 @@ synqt add provider <name> --family <fam>  # Scaffold a custom provider skeleton 
 
 A relational provider loads its Qt SQL driver plugin from the kit at run time: SQLite needs
 nothing, and `mysql` needs the plugin build described above. For a document or cache
-provider, the build adds the pinned vcpkg client library. `synqt doctor` reports any provider whose engine
-client or driver plugin is missing, before you run.
+provider, the build links the client library it finds on the system, and compiles the
+provider out when there is none. `synqt doctor` reports any provider whose engine client or
+driver plugin is missing, before you run.
 
 ## Security of third party backends
 
@@ -374,8 +374,7 @@ it too. [Security](security.md) has the full treatment. For providers:
 - **The entity is the trust boundary, and hiding the engine is a security property.** Only
   the entity reaches the engine, and it runs every `Caller` check before any provider
   call, so its fine grained checks sit in front of an engine whose own authorization may
-  be coarser. No mesh consumer, and no browser, ever reaches the engine or its
-  credentials.
+  be coarser. Mesh consumers and browsers never reach the engine or its credentials.
 - **Credentials are `env:` only,** on that entity only: never in `synqt.yaml`, never in a
   client target, never logged. The build rejects a client target that references a
   provider secret.
@@ -386,8 +385,9 @@ it too. [Security](security.md) has the full treatment. For providers:
   a release build refuses it.
 - **The engine sits on a private address** that only its entity can reach, like any
   sensitive entity. It is never public, and the mesh never exposes it.
-- **Provider client libraries are pinned through vcpkg and reviewed,** like the rest of the
-  supply chain. A custom provider is reviewed like entity code.
+- **Provider client libraries are maintained upstream clients,** taken from the system's
+  packages: the MongoDB C driver and hiredis, never a reimplementation of an engine's
+  protocol. A custom provider is reviewed like entity code.
 
 ## Why this design
 
