@@ -747,6 +747,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _monitor_entity_messages(config, entities, release)
     messages += _monitor_as_consumer_messages(config, entities)
     messages += _console_delivery_messages(config)
+    messages += _console_edge_messages(config)
     config = appmodel.with_auth_connect_points(config)
     config = appmodel.with_monitoring_connect_points(config)
 
@@ -1502,6 +1503,32 @@ def _console_delivery_messages(config: Dict[str, Any]) -> List[str]:
             f"static sign-in directory instead, the way "
             f"'synqt add entity {name} --type monitor' writes it")
     return findings
+
+
+def _console_edge_messages(config: Dict[str, Any]) -> List[str]:
+    """`edge:` belongs on a console client and names the monitor that delivers it.
+
+    The build delivers the console from `monitoring.entity` and reads no `edge:`, so any
+    other value would be a link the designer draws and nothing makes.
+    """
+    owner = appmodel.monitor_entity(config)
+    found: List[str] = []
+    for entity in appmodel.entities(config):
+        if "edge" not in entity:
+            continue
+        name = entity.get("name")
+        value = entity.get("edge")
+        if not (appmodel.is_client(entity) and appmodel.monitor_watches(entity)):
+            found.append(
+                f"error: entity '{name}' has 'edge:', which only a console client carries "
+                f"(with 'console: true'), to name the monitor that delivers it; take it out")
+        elif value != owner:
+            delivered = (f"'{owner}', the monitor monitoring.entity names" if owner
+                         else "the monitor monitoring.entity names, and there is none")
+            found.append(
+                f"error: console client '{name}' has 'edge:' naming '{value}', but the "
+                f"console is delivered by {delivered}")
+    return found
 
 
 def _monitor_as_consumer_messages(config: Dict[str, Any],

@@ -32,9 +32,9 @@ applying runs the same scaffolder, and the change set lists all four files befor
 anything. The designer [on this site](visual-editor.md) writes the same four files: its
 templates are published from the scaffolder that owns them (`tools/gen-design-assets.py`,
 checked by `tools/synqt/tests/test_monitoring.py`), not kept as a second copy that could
-drift. Neither copy can draw a monitor without its console.
+drift. Both copies draw a monitor only together with its console.
 
-Neither the editor nor `synqt.yaml` lets a monitor consume a connect point. Entities report
+A monitor consumes no connect point, in the editor or in `synqt.yaml`. Entities report
 to a monitor and it reaches none of them, so nothing would ever open such a link. It would
 also put application data into a store meant to record what happened, not the data
 itself.
@@ -82,9 +82,9 @@ A trace is one story, and a span is one piece of work in it. SynQt opens a span 
 slot call that crosses a link. A click that reaches the edge, which calls a service, which
 calls another, is one trace with a span per hop, each the child of the one before.
 
-The identifiers travel with the session, which already goes down the chain, so there is no
-second channel to forget; but they are not part of the session, and nothing is authorized
-by a trace identifier. In detail:
+The identifiers travel with the session, which already goes down the chain, so no second
+channel exists to forget. They stay separate from the session, and a trace identifier
+authorizes nothing. In detail:
 
 * **A trace starts at the browser's call.** A visitor cannot choose a trace. The edge opens
   the first span itself and ignores any `traceparent` in the request, as it ignores a
@@ -95,7 +95,7 @@ by a trace identifier. In detail:
 * **Everything the entity logs while answering joins the span.** `Log.info` in a slot, a
   provider's query, a refusal by a scope gate inside a call all belong to the call, so a
   trace shows what happened, not only who called whom.
-* **A wait does not lend its trace to what it serves.** The identity routes wait for an
+* **A wait keeps its trace to itself.** The identity routes wait for an
   answer in a bounded nested event loop that keeps serving requests, so calls arriving
   during the wait belong to other people. Each wait detaches for its duration, and those
   calls start their own traces. A slot never waits this way.
@@ -112,7 +112,7 @@ by a trace identifier. In detail:
 A service reached by two clicks answers both on one link with one Caller. Each call
 continues the trace it arrived with, so the second is never filed under the first.
 
-Lowering `call` does not turn tracing off. A span opens for every call the category lets
+Tracing stays on when you lower `call`. A span opens for every call the category lets
 through at all, including ordinary calls that `monitoring.levels.call: warning` then
 declines to record, because what hangs off that span happens while the call runs: the
 outbound call carries it, and a refusal two entities later names it as parent. Deciding
@@ -241,7 +241,7 @@ Two rules hold whatever the collector:
 
 - **Export happens after the history is written,** so a collector that is down costs the
   monitor no record and no time.
-- **Nothing queues without a bound.** Past `max_in_flight` requests, a batch is dropped and
+- **Every queue has a bound.** Past `max_in_flight` requests, a batch is dropped and
   counted, because an exporter buffering for a collector that stopped answering is how a
   monitoring tool takes down the machine it watches.
 
@@ -257,7 +257,7 @@ and `synqt build --release` refuses it.
 ## The console
 
 The console is a separate client, built and delivered separately, reading a contract
-whose types are all strings, numbers or bools. Nothing in it depends on the topology it
+whose types are all strings, numbers or bools. It is independent of the topology it
 watches: adding an entity or renaming a connect point does not rebuild it, because a new
 entity is just another row on the ingest stream.
 
@@ -322,8 +322,8 @@ That map is the whole delivery gate, so `synqt check` verifies it. It refuses a
 `console: true` client mapped to any scope other than `operator`, on the monitor or on an
 application edge, and a monitor whose default scope resolves to any client. The second is
 what a monitor without a `bundles:` block would fall back to: the project's first client,
-which the generated main serves on that port. `operator` is not part of your project's
-scope vocabulary: an operator is not a user of your application, and a shared scope would
+which the generated main serves on that port. `operator` sits outside your project's
+scope vocabulary, because an operator is not a user of your application, and a shared scope would
 let one login reach the other's surface.
 
 ## The identity it uses
@@ -334,7 +334,7 @@ monitor's environment. A credential with fewer iterations is refused at load, no
 with a warning; one malformed entry does not lock everyone else out; and an empty store
 refuses everybody instead of allowing all.
 
-`synqt monitor operator add <name>` creates an entry. There is no `list` or `remove`: the
+`synqt monitor operator add <name>` creates an entry, and the CLI offers nothing else: the
 list lives in the deployment's environment, and a CLI that edited it would be editing a
 running deployment's secrets.
 
@@ -345,8 +345,8 @@ budget, and ten wrong guesses from anywhere would lock everyone out with `429`.
 
 ## When the monitor is down
 
-Nothing stops. An entity whose monitor is unreachable keeps running normally, apart from
-a spool file: it writes the batches it could not deliver to a bounded file in its own build
+An entity whose monitor is unreachable keeps running normally and adds a spool file: it
+writes the batches it could not deliver to a bounded file in its own build
 directory, and replays them when the monitor returns. Past the cap, the oldest batches are
 dropped and the newest kept, and the monitor learns how many were dropped when it returns,
 so the gap shows.
@@ -386,4 +386,5 @@ On the monitor entity itself:
 | `bundles` | what each scope may download; written by the scaffold |
 
 On the console client: `console: true`, and `edge:` naming the monitor that serves it,
-which the designer reads to draw that link.
+which the designer reads to draw that link. `synqt check` refuses an `edge:` naming any
+other entity, and one on an entity that is not a console client.

@@ -129,3 +129,41 @@ def test_a_web_edge_with_no_gate_is_left_alone():
     config = _served({"anonymous": "signin/", "operator": "ops-console"})
     assert not any("entity 'web'" in message
                    for message in check._console_delivery_messages(config))
+
+
+# The console client's `edge:` names the monitor that delivers it. The build delivers the
+# console from `monitoring.entity` whatever the key says, so a key naming anything else
+# would draw a link in the designer that the build does not make.
+
+
+def _edge_findings(config):
+    ok, messages = check.validate(config)
+    return [message for message in messages if "'edge:'" in message]
+
+
+def test_a_console_naming_its_monitor_is_accepted():
+    config = _served({"anonymous": "signin/", "operator": "ops-console"})
+    assert _edge_findings(config) == []
+
+
+def test_a_console_naming_another_entity_is_refused():
+    config = _served({"anonymous": "signin/", "operator": "ops-console"})
+    config["entities"][-1]["edge"] = "web"
+    findings = _edge_findings(config)
+    assert len(findings) == 1 and findings[0].startswith("error:"), findings
+    assert "'ops'" in findings[0] and "'web'" in findings[0]
+
+
+def test_an_edge_key_on_a_client_that_is_not_a_console_is_refused():
+    config = _served({"anonymous": "signin/", "operator": "ops-console"})
+    app = next(entity for entity in config["entities"] if entity["name"] == "app")
+    app["edge"] = "web"
+    findings = _edge_findings(config)
+    assert len(findings) == 1 and "'app'" in findings[0], findings
+
+
+def test_an_edge_key_on_a_service_is_refused():
+    config = _served({"anonymous": "signin/", "operator": "ops-console"})
+    config["entities"][0]["edge"] = "ops"
+    findings = _edge_findings(config)
+    assert len(findings) == 1 and "'web'" in findings[0], findings
