@@ -50,9 +50,30 @@ def test_a_link_carries_its_owner_and_consumers():
 
 def test_an_entity_carries_whether_it_is_shared():
     document = designdoc.read(EXAMPLES / "gavel")
-    shared = {entity["name"]: entity["shared"] for entity in document["entities"]}
+    shared = {entity["name"]: entity.get("shared") for entity in document["entities"]}
     assert shared["books"] is True
-    assert shared["app"] is False
+    # A client is never shared, and says so by not carrying the key at all.
+    assert "shared" not in next(e for e in document["entities"] if e["name"] == "app")
+
+
+@pytest.mark.parametrize("written", [True, False])
+def test_a_shared_key_on_a_client_survives_the_editor_for_check_to_refuse(tmp_path, written):
+    """`synqt check` refuses any `shared:` on a client, `false` included. The editor reads the
+    key as written and writes it back, so the editor and the command line see one project.
+    """
+    project = tmp_path / "gavel"
+    shutil.copytree(EXAMPLES / "gavel", project,
+                    ignore=shutil.ignore_patterns("build", ".synqt", "generated"))
+    text = (project / "synqt.yaml").read_text(encoding="utf-8")
+    text = text.replace("  - name: app\n", f"  - name: app\n    shared: {str(written).lower()}\n", 1)
+    (project / "synqt.yaml").write_text(text, encoding="utf-8")
+    document = designdoc.read(project)
+    client = next(e for e in document["entities"] if e["name"] == "app")
+    assert client["shared"] is written
+    base = configmod.load(project)
+    for config in (designdoc.to_config(document), designdoc.to_config(document, base=base)):
+        app = next(e for e in config["entities"] if e["name"] == "app")
+        assert app["shared"] is written
 
 
 def test_a_link_carries_the_contract_members():

@@ -157,7 +157,7 @@ def _entity(entity: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(targets, str):
         targets = [targets]
     bundles = entity.get("bundles")
-    return {
+    drawn = {
         "id": str(entity.get("name") or ""),
         "name": str(entity.get("name") or ""),
         "type": appmodel.entity_type(entity),
@@ -178,6 +178,15 @@ def _entity(entity: Dict[str, Any]) -> Dict[str, Any]:
         "x": 0,
         "y": 0,
     }
+    if appmodel.is_client(entity):
+        # A client has no answer to resolve: it carries the key only as written, so the
+        # `shared:` `synqt check` refuses there is drawn and painted rather than dropped.
+        declared = entity.get("shared")
+        if isinstance(declared, bool):
+            drawn["shared"] = declared
+        else:
+            del drawn["shared"]
+    return drawn
 
 
 def _param(param: Any) -> Dict[str, str]:
@@ -451,9 +460,12 @@ def _entity_config(entity: Dict[str, Any], base: Dict[str, Any]) -> Dict[str, An
     else:
         written.pop("identity", None)
     # Written only when it differs from what the entity resolves to. `shared` on a client is
-    # kept; `synqt check` reports it.
+    # written as drawn, whatever its value; `synqt check` reports it.
     declared = entity.get("shared")
-    default = appmodel.is_shared({"type": entity["type"]})
+    if appmodel.is_client({"type": entity["type"]}):
+        default = None
+    else:
+        default = appmodel.is_shared({"type": entity["type"]})
     if isinstance(declared, bool) and declared is not default:
         written["shared"] = declared
     else:

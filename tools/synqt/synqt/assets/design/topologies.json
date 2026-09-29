@@ -236,6 +236,37 @@
       }
     },
     {
+      "id": "shared-written-on-a-client-false",
+      "rule": "shared-on-a-client",
+      "level": "error",
+      "why": "Writing it false says nothing either, and the command line refuses it the same way, so the editor paints it too.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client",
+            "shared": false
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "contract": "Web",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "client-with-nothing-to-connect-to",
       "rule": "no-web-edge-for-client",
       "level": "error",
@@ -734,6 +765,90 @@
             "consumers": [
               "client",
               "ops"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "entity-named-with-a-leading-digit",
+      "rule": "entity-name-unusable",
+      "level": "error",
+      "why": "An entity name becomes a directory, a build target, the accessor other entities reach it by and its mesh certificate's subject, so it must be usable as all four.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "2fast",
+            "type": "relational"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "contract": "Web",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ]
+          },
+          {
+            "name": "2fast",
+            "contract": "2fast",
+            "owner": "2fast",
+            "consumers": [
+              "web"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "entity-named-like-the-mesh-authority",
+      "rule": "entity-name-unusable",
+      "level": "error",
+      "why": "synqt/mesh/ holds ca.crt and ca.key for the project's own certificate authority, and an entity called ca would have its certificate written over them.",
+      "document": {
+        "version": 1,
+        "project": "rules",
+        "entities": [
+          {
+            "name": "client",
+            "type": "client"
+          },
+          {
+            "name": "web",
+            "type": "web_edge"
+          },
+          {
+            "name": "ca",
+            "type": "relational"
+          }
+        ],
+        "links": [
+          {
+            "name": "web",
+            "contract": "Web",
+            "owner": "web",
+            "consumers": [
+              "client"
+            ]
+          },
+          {
+            "name": "ca",
+            "contract": "Ca",
+            "owner": "ca",
+            "consumers": [
+              "web"
             ]
           }
         ]

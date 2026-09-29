@@ -16,6 +16,45 @@ export function entityType(entity) {
     return String((entity && entity.type) || "") || "service";
 }
 
+// The names appmodel.is_valid_project_name and is_valid_entity_name accept. An entity name
+// becomes a directory, a build target, an accessor and a certificate's subject; a project
+// name becomes the CMake project, the client's QML module and the container names.
+const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
+const NAME_MAX = 64;
+const RESERVED_ENTITY_NAMES = ["ca", "docker-ca"];
+
+// Why `name` cannot name a project, or "" when it can.
+export function projectNameProblem(name) {
+    const text = String(name || "");
+    if (!text) {
+        return "A project needs a name.";
+    }
+    if (text.length > NAME_MAX || !NAME_PATTERN.test(text)) {
+        return `'${text.slice(0, 80)}' cannot name a project: a project name starts with a `
+            + `letter and is made of letters, digits, underscores and hyphens, up to `
+            + `${NAME_MAX} characters.`;
+    }
+    return "";
+}
+
+// Why `name` cannot name an entity, or "" when it can.
+export function entityNameProblem(name) {
+    const text = String(name || "");
+    if (!text) {
+        return "An entity needs a name.";
+    }
+    if (RESERVED_ENTITY_NAMES.includes(text.toLowerCase())) {
+        return `'${text}' is taken: synqt/mesh/ holds '${text.toLowerCase()}.crt' and `
+            + `'${text.toLowerCase()}.key' for the project's own certificate authority.`;
+    }
+    if (text.length > NAME_MAX || !NAME_PATTERN.test(text)) {
+        return `'${text.slice(0, 80)}' cannot name an entity: an entity name starts with a `
+            + `letter and is made of letters, digits, underscores and hyphens, up to `
+            + `${NAME_MAX} characters.`;
+    }
+    return "";
+}
+
 // The scope vocabulary a scaffolded project starts with, in the order project.renderYaml
 // writes it: lowest authority first, the order a front's scope seats are stacked in.
 export const SCOPES = ["anonymous", "user", "moderator", "admin"];
@@ -147,6 +186,17 @@ function repeats(names) {
         seen.add(name);
     }
     return twice;
+}
+
+function unusableEntityNames(design) {
+    return entitiesOf(design)
+        .filter((entity) => entityNameProblem(nameOf(entity)))
+        .map((entity) => ({
+            rule: "entity-name-unusable",
+            level: "error",
+            entity: nameOf(entity),
+            message: entityNameProblem(nameOf(entity)),
+        }));
 }
 
 function duplicateEntities(design) {
@@ -459,17 +509,18 @@ function frontFindings(design) {
     return found;
 }
 
-// A client is one browser and shares with nobody, so `shared` says nothing there.
+// A client is one browser and shares with nobody, so `shared` says nothing there, whichever
+// way it is written.
 function sharedOnAClient(design) {
     return entitiesOf(design)
-        .filter((entity) => entityType(entity) === "client" && entity.shared === true)
+        .filter((entity) => entityType(entity) === "client" && typeof entity.shared === "boolean")
         .map((entity) => ({
             rule: "shared-on-a-client",
             level: "error",
             entity: nameOf(entity),
-            message: `'${nameOf(entity)}' is the client and is marked shared. A client is `
-                + `one browser and shares with nobody. Write 'shared: false' on the edge if `
-                + `what you meant is a Source per session.`,
+            message: `'${nameOf(entity)}' is the client and sets 'shared'. A client is one `
+                + `browser and shares with nobody. Write 'shared: false' on the edge if what `
+                + `you meant is a Source per session.`,
         }));
 }
 
@@ -477,6 +528,7 @@ function sharedOnAClient(design) {
 // link in the order it was drawn, so the list is stable between runs.
 export function findings(design) {
     const found = [
+        ...unusableEntityNames(design),
         ...duplicateEntities(design),
         ...duplicateLinks(design),
         ...clientWithoutEdge(design),

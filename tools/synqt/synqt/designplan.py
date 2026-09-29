@@ -525,7 +525,10 @@ def _entity_field(entity: Dict[str, Any], key: str) -> Any:
         return appmodel.entity_type(entity)
     if key == "shared":
         # `shared: false` is the interesting value, so it is not a truthiness test. Written
-        # only when it differs from what the entity resolves to, as designdoc does.
+        # only when it differs from what the entity resolves to, as designdoc does; a client
+        # resolves to nothing, so its key is written as drawn for `synqt check` to refuse.
+        if appmodel.is_client(entity):
+            return value if isinstance(value, bool) else None
         default = appmodel.is_shared({"type": appmodel.entity_type(entity)})
         return value if isinstance(value, bool) and value is not default else None
     return str(value) if value else None

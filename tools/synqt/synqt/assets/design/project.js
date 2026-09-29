@@ -58,7 +58,13 @@ function entityLines(entity) {
     if (entity.edge) {
         lines.push(`    edge: ${scalar(entity.edge)}`);
     }
-    if (!isShared(entity) && entityType(entity) !== "client") {
+    // A client's `shared` is written as drawn, as designdoc.py writes it, so the file says
+    // what `synqt check` refuses rather than quietly losing it.
+    if (entityType(entity) === "client") {
+        if (typeof entity.shared === "boolean") {
+            lines.push(`    shared: ${entity.shared}`);
+        }
+    } else if (!isShared(entity)) {
         lines.push("    shared: false");
     }
     if ((entity.targets || []).length) {

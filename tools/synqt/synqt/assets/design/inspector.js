@@ -352,6 +352,17 @@ function entityPanel(design, entity, actions) {
                                  + "environment, so they stay on this side of the mesh."]}));
     }
 
+    // A client has no instancing to choose. A `shared:` read from the file is offered for
+    // removal, because `synqt check` refuses it whichever way it is written.
+    if (role === "client" && typeof entity.shared === "boolean") {
+        how.append(group("Shared", adder("Remove 'shared'", () => {
+            delete entity.shared;
+            actions.rebuild();
+        }), {help: "A client is one browser and shares with nobody, so `shared:` says nothing "
+                   + "here. To give every session a Source of its own, turn off \"One of it, "
+                   + "for everybody\" on the edge."}));
+    }
+
     // A monitor's Source and QML are the framework's, so it has no instancing to choose and
     // nothing to declare.
     const frameworks = linksAreDerived(entity);

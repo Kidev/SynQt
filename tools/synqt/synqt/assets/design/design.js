@@ -18,7 +18,8 @@
 // Run with no server behind it (the copy on synqt.org) the page still edits, and Apply
 // becomes a download of the project it would have written.
 
-import { entityType, findings as ruleFindings, frontsOf } from "./rules.js";
+import { entityNameProblem, entityType, findings as ruleFindings, frontsOf,
+         projectNameProblem } from "./rules.js";
 import { NODE_RADIUS, ROLE_HELP, draw, element, entityAt, extent, glyphSvg, linkRefusal,
          linkTitleNode, linksAreDerived, memberCode, nearestFreeSlot, roleOf, seatAt,
          seatsOfFront, slotIndex, turnsToward } from "./canvas.js";
@@ -1488,10 +1489,12 @@ function renameProject() {
         settled = true;
         const wanted = field.value.trim();
         field.replaceWith(page.project);
-        if (!keep || !wanted || wanted === was) {
-            if (keep && !wanted) {
-                say("A project needs a name.", "error");
-            }
+        if (!keep || wanted === was) {
+            return;
+        }
+        const problem = projectNameProblem(wanted);
+        if (problem) {
+            say(problem, "error");
             return;
         }
         state.design.project = wanted;
@@ -1521,6 +1524,10 @@ function renameTo(kind, name, wanted, what) {
     const trimmed = wanted.trim();
     if (!trimmed) {
         say(`A ${what} needs a name.`, "error");
+        return;
+    }
+    if (kind === "entity" && entityNameProblem(trimmed)) {
+        say(entityNameProblem(trimmed), "error");
         return;
     }
     const held = kind === "entity" ? state.design.entities : state.design.links;
@@ -2559,8 +2566,10 @@ async function review() {
     say("Working out what this would do...");
     try {
         const plan = await request("POST", "api/plan", {document: state.design});
-        state.plan = plan;
-        page.apply.disabled = !plan.ok;
+        // A plan worked out over a synqt.yaml that changed since the page read it would
+        // write over that change, and the server refuses it, so it is not offered.
+        state.plan = plan.stale ? null : plan;
+        page.apply.disabled = !plan.ok || plan.stale;
         const count = plan.changes.length;
         showSheet(count ? `${count} file${count === 1 ? "" : "s"} would change`
                         : "Nothing to do: the project already says this",

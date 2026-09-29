@@ -855,3 +855,24 @@ def test_removing_an_entity_named_by_a_path_deletes_nothing_outside(tmp_path, mo
     with pytest.raises(designplan.DesignPlanError, match="outside the project"):
         designplan.compute(project, document)
     assert (keep / "file.txt").is_file()
+
+
+@pytest.mark.parametrize("written", [True, False])
+def test_a_shared_key_taken_off_a_client_leaves_the_file(tmp_path, written):
+    """`synqt check` refuses any `shared:` on a client. The panel offers to take it out, and
+    the change set does, whichever value it had."""
+    project = _copy(tmp_path, "gavel")
+    config = project / "synqt.yaml"
+    config.write_text(config.read_text(encoding="utf-8").replace(
+        "  - name: app\n", f"  - name: app\n    shared: {str(written).lower()}\n", 1),
+        encoding="utf-8")
+    document = designdoc.read(project)
+    assert designplan.compute(project, document).changes == ()
+    client = next(entity for entity in document["entities"] if entity["name"] == "app")
+    del client["shared"]
+    plan = designplan.compute(project, document)
+    assert plan.ok, plan.findings
+    designplan.execute(project, plan)
+    app = next(entity for entity in yaml.safe_load(config.read_text(encoding="utf-8"))
+               ["entities"] if entity["name"] == "app")
+    assert "shared" not in app

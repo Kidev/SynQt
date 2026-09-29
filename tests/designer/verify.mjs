@@ -485,6 +485,95 @@ async function theBrowserIsHandedAFile() {
     }
 }
 
+// A change set worked out after synqt.yaml changed on disk would write over the change, and
+// the server refuses to apply it. The page must not offer Apply for it either.
+async function aPlanOverAChangedFileCannotBeApplied() {
+    const project = await copyProject();
+    const { proc, url } = await startEditor(project);
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+        await page.goto(url);
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "gavel");
+        const file = path.join(project, "synqt.yaml");
+        await fsp.appendFile(file, "# edited by hand while the editor was open\n");
+        await page.locator("#review").click();
+        await page.waitForSelector("#sheet:not([hidden])");
+        await waitForHint(page, "synqt.yaml has changed on disk");
+        check(await page.locator("#apply").isDisabled(),
+              "a change set worked out over a changed synqt.yaml offers no Apply");
+    } finally {
+        await browser.close();
+        proc.kill();
+    }
+}
+
+// A name becomes a directory, a build target and a certificate subject, so the page refuses
+// one that cannot be all of them where it is typed, and paints one it was handed.
+async function aNameThatCannotBeUsedIsRefused() {
+    const project = await copyProject();
+    const { proc, url } = await startEditor(project);
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+        await page.goto(url);
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "gavel");
+        await page.locator("#project").dblclick();
+        await page.locator(".bar__project-input").fill("9lives");
+        await page.locator(".bar__project-input").press("Enter");
+        await waitForHint(page, "'9lives' cannot name a project");
+        check(await page.locator("#project").textContent() === "gavel",
+              "a project name that cannot be used is refused where it is typed");
+
+        await page.locator("#nodes [data-entity='books']").click();
+        await page.locator("#inspector label.field", { hasText: "Name" })
+                  .locator("input[type=text]").first().fill("2fast");
+        await page.waitForSelector(".finding__rule:text-is('entity-name-unusable')");
+        check(true, "an entity name that cannot be used is painted as it is typed");
+        await page.locator("#review").click();
+        await waitForHint(page, "'2fast' is not an entity name");
+        check(await page.locator("#apply").isDisabled(),
+              "and the change set that would use it is refused");
+    } finally {
+        await browser.close();
+        proc.kill();
+    }
+}
+
+// `synqt check` refuses `shared:` on a client whichever way it is written. The page shows
+// the same refusal for a project that has one, and the panel takes it out.
+async function aSharedClientIsShownAndCanBeCleared() {
+    const project = await copyProject();
+    const file = path.join(project, "synqt.yaml");
+    const before = await fsp.readFile(file, "utf8");
+    await fsp.writeFile(file, before.replace("  - name: app\n", "  - name: app\n    shared: false\n"));
+    const { proc, url } = await startEditor(project);
+    const browser = await chromium.launch({ headless });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+        await page.goto(url);
+        await page.waitForFunction(
+            () => document.getElementById("project").textContent === "gavel");
+        check(await page.locator(".finding__rule:text-is('shared-on-a-client')").count() === 1,
+              "a client written 'shared: false' is painted as synqt check refuses it");
+        await page.locator("#nodes [data-entity='app']").click();
+        await page.getByRole("button", { name: "Remove 'shared'" }).click();
+        check(await page.locator(".finding__rule:text-is('shared-on-a-client')").count() === 0,
+              "the panel takes the key out");
+        await page.locator("#review").click();
+        await page.waitForSelector("#apply:not([disabled])");
+        await page.locator("#apply").click();
+        await waitForHint(page, "Applied");
+        const after = await fsp.readFile(file, "utf8");
+        check(!/- name: app\n\s+shared:/.test(after), "and the file no longer carries it");
+    } finally {
+        await browser.close();
+        proc.kill();
+    }
+}
+
 // The static host the documentation site is, near enough. It serves the files the hook
 // copies and knows nothing about /api/, so the editor's first request is answered with a
 // 404 and the page has to turn itself into a drawing board on the strength of that.
@@ -2104,6 +2193,9 @@ async function part(run) {
 
 await part(editorOverAProject);
 await part(theBrowserIsHandedAFile);
+await part(aPlanOverAChangedFileCannotBeApplied);
+await part(aNameThatCannotBeUsedIsRefused);
+await part(aSharedClientIsShownAndCanBeCleared);
 await part(theCopyOnTheSite);
 await part(theProjectALinkHandsYou);
 await part(theFrontThatSplitsCallers);
