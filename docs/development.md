@@ -250,6 +250,7 @@ noticing.
 | [`prov4-runtime`](https://github.com/Kidev/SynQt/tree/main/tests/prov4-runtime)          | The entity runtime injects the configured provider into a typed entity, and refuses to start when the provider cannot be built. |
 | [`api-inbound`](https://github.com/Kidev/SynQt/tree/main/tests/api-inbound)            | The inbound HTTP surface `network.inbound` opens: routes declared on `Api` from the entity's own QML, the API key, origin, body-size and rate checks `ApiServer` runs before any handler is reached, and the TLS it serves over or refuses to start without. |
 | [`custom-provider`](https://github.com/Kidev/SynQt/tree/main/tests/custom-provider)        | The skeletons `synqt add provider` scaffolds compile, register themselves, and are selectable by `provider.name: custom:<Name>`. |
+| [`docs-providers`](https://github.com/Kidev/SynQt/tree/main/tests/docs-providers)         | The custom providers the advanced cache and database tutorials build compile from the pages' own C++, register under their names, and refuse an unverified connection in release. |
 | [`consumer-facade`](https://github.com/Kidev/SynQt/tree/main/tests/consumer-facade)        | The `<Owner>.on<Signal>` handlers and the returning slot promise. |
 | [`fix1-auction`](https://github.com/Kidev/SynQt/tree/main/tests/fix1-auction)           | The auction tutorial as an acceptance fixture. |
 | [`fix2-arena`](https://github.com/Kidev/SynQt/tree/main/tests/fix2-arena)             | The multiplayer arena tutorial as an acceptance fixture. |

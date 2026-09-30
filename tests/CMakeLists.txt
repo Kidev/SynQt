@@ -26,6 +26,7 @@ set(SYNQT_HOST_SUITES
     url-routing
     remote-pages
     entity-test
+    docs-providers
     graphics
     privacy
     memory
