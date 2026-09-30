@@ -93,9 +93,19 @@ TestCase {
 [Qt Quick Test](https://doc.qt.io/qt-6/qtquicktest-index.html) and behave as they do
 anywhere. The only SynQt type is `EntityTest`.
 
-There is no test of a signed-out visitor. The `<user>` gate runs in the generated slot in
-front of `placeBid`, and a test calls the function directly (see
-[what a test cannot catch](#what-a-test-cannot-catch)).
+`harness.subject.placeBid(...)` calls your QML function. `harness.call("placeBid", [...])`
+calls the generated slot in front of it instead, so the `<user>` gate and the bounds the
+`export:` block writes run first, as they do on the wire. That is how a test pins a
+signed-out visitor:
+
+```qml
+    function test_a_signed_out_visitor_cannot_bid() {
+        harness.callerIsUser("anonymous");
+        ignoreWarning(/placeBid: refused, the caller does not hold the scope it needs/);
+        harness.call("placeBid", [150]);
+        compare(harness.subject.highBid, 100);
+    }
+```
 
 ## `EntityTest`
 
@@ -110,6 +120,7 @@ front of `placeBid`, and a test calls the function directly (see
 | `callerIsUser(scope, identity?)` | the next call comes from a browser user with that scope. `identity` is the normalized identity object (`sub`, `login`, `name`, `email`); omit it for an anonymous visitor. |
 | `callerIsEntity(name, verified?)` | the next call comes from another entity. `verified` defaults to true. Pass false to stand in for an opt-in `transport: local` link, where the name is trusted by colocation. |
 | `callerIsNobody()` | no caller at all, as when the owner mutates its own state on a timer. |
+| `call(slot, arguments?)` | call `slot` through the generated slot, so the member's `<scope>` gate and the export's bounds run before your function. Returns what the slot returns; a refused call logs a warning and returns the return type's default. A record argument is an object with the record's fields. |
 | `setScopeOrder(order, hierarchical?)` | the project's scope vocabulary. Defaults to `["anonymous", "user", "moderator", "admin"]`, hierarchical, which is what `synqt new` writes. |
 | `dbQuery(sql, params?)` | read the in-memory database directly, to assert on what a slot wrote rather than on what it returned. |
 | `cacheValue(key)` | read the in-memory cache directly. |
@@ -123,11 +134,12 @@ This line decides what a test here can prove.
 uses (`Edge` for an `edge` entity); `Caller`, created by the same factory the mesh and the
 web edge use, with the typed `emit<Signal>` methods and hierarchical `hasScope`; and the
 type helpers `Db`, `Cache`, `Docs` and `Jobs`, the same classes an entity gets, as is
-`Log`.
+`Log`. The Caller is bound to the Source the way a transport binds it, so a `<scope>` gate
+on a prop or a signal answers the caller you chose.
 
 **Substituted:** only the engine behind a helper. `Db` runs on in-memory SQLite, `Cache` and
-`Docs` on the memory providers. Nothing else is faked, and `Caller` has no test-only entry
-point: the harness reaches it the same way a transport does. So a slot cannot pass here and
+`Docs` on the memory providers. Everything else is real, and `Caller` has no test-only
+entry point: the harness reaches it the same way a transport does. So a slot cannot pass here and
 fail in production because the test stubbed the authorization.
 
 ### Asserting on what an entity said
@@ -154,16 +166,11 @@ creation.
 
 ### What a test cannot catch
 
-A slot can still fail in production for five reasons the harness does not model:
+A slot can still fail in production for four reasons the harness does not model:
 
 - **The transport.** The harness calls slots directly, so nothing here proves that a
   contract replicates, a model reaches a browser, or a link comes up. SynQt's own suite
   tests those guarantees.
-- **The contract's own checks.** `harness.subject.placeBid(...)` calls your QML function
-  directly, not the generated slot in front of it, so a `<admin>` gate or a `string[64]`
-  bound in the `export:` block does not refuse the call here. Those run on the wire, and
-  SynQt's suite tests them. A test here proves the authorization your function writes:
-  `Caller.hasScope` and the rest.
 - **The topology.** The consumer allowlist decides whether an entity may reach a connect
   point at all; `synqt check` covers it.
 - **The engine.** A statement that works on SQLite may fail on PostgreSQL. Testing the
@@ -173,8 +180,8 @@ A slot can still fail in production for five reasons the harness does not model:
   handler never runs. A call through it reaches nothing, and the test that made it fails
   with `SynQt: the 'Books' connect point is not available, so recordWinner() was not sent`.
 
-The neighbour is never connected and never stubbed: a stub would have to invent the other
-entity's answers, and a test that passes against invented answers is worse than none. So a
+The harness neither connects nor stubs the neighbour: a stub would have to invent the
+other entity's answers, and a test passing against invented answers hides a real failure. So a
 call into it fails the test. Test the other entity's slot in its own file, where its rules
 are real, and leave the call between them to `synqt check` (which decides whether it is
 allowed) and to a running system. A test that expects a call to be dropped says so with
@@ -221,8 +228,8 @@ usual Qt Test arguments:
 ./build/host-debug/app-tests/app_tests -platform offscreen Auction::test_a_lower_bid_is_refused
 ```
 
-With no `tests/tst_*.qml`, there is nothing to run, and `synqt test` says so instead of
-reporting a pass over zero tests.
+A project with no `tests/tst_*.qml` gets a message saying so, instead of a pass over zero
+tests.
 
 ## Testing an entity that is not the edge
 

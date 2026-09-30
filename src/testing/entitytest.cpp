@@ -19,6 +19,7 @@
 #include "persistencefactory.h"
 #include "providerconfig.h"
 #include "sessionmanager.h"
+#include "sourcefactory.h"
 #include "tracer.h"
 
 #include <QtQml/qqmlcomponent.h>
@@ -230,11 +231,111 @@ void EntityTest::rebuildCaller()
     if (m_caller != nullptr) {
         m_caller->setScopeOrder(m_scopeOrder, m_hierarchical);
     }
+    // Bound to the Source the way a transport binds it, so the generated gates on props,
+    // signals and slots answer this caller.
+    SourceFactory::bindCaller(m_subject, m_caller);
     // A null Caller means no caller: read outside a call it gives nothing, as on the
     // entity.
     m_context->setContextProperty(QStringLiteral("Caller"), m_caller);
     m_context->setContextProperty(QStringLiteral("Client"),
                                   m_callerKind == CallerKind::User ? m_caller : nullptr);
+}
+
+namespace {
+
+/// `value` as the parameter type a generated slot declares. A record crosses QML as an
+/// object, so it is written onto the gadget property by property.
+bool convertArgument(QVariant *value, QMetaType type)
+{
+    if (value->metaType() == type) {
+        return true;
+    }
+    const QMetaObject *gadget{type.metaObject()};
+    if (gadget != nullptr && (type.flags() & QMetaType::IsGadget)
+        && value->canConvert<QVariantMap>()) {
+        const QVariantMap fields{value->toMap()};
+        QVariant record{type};
+        for (int index{0}; index < gadget->propertyCount(); ++index) {
+            const QMetaProperty property{gadget->property(index)};
+            const QString name{QString::fromUtf8(property.name())};
+            if (fields.contains(name)) {
+                QVariant field{fields.value(name)};
+                if (!convertArgument(&field, property.metaType())) {
+                    return false;
+                }
+                property.writeOnGadget(record.data(), field);
+            }
+        }
+        *value = record;
+        return true;
+    }
+    return value->convert(type);
+}
+
+} // namespace
+
+QVariant EntityTest::call(const QString &slot, const QVariantList &arguments)
+{
+    if (m_subject == nullptr) {
+        qWarning("SynQt: call('%s') before load()", qUtf8Printable(slot));
+        return QVariant{};
+    }
+    // The generated slot: declared by repc on the Source class and implemented by the
+    // SourceHelper over it. The QML function of the same name sits on the type above the
+    // helper, so a lookup by name from the top would find the function and skip the checks.
+    // Searched within the helper's range, which takes in every class below it, and invoked
+    // virtually, so the helper's implementation is what runs.
+    const QMetaObject *helper{m_subject->metaObject()};
+    while (helper != nullptr
+           && !QByteArray{helper->className()}.endsWith(QByteArrayLiteral("SourceHelper"))) {
+        helper = helper->superClass();
+    }
+    QMetaMethod method;
+    const QByteArray name{slot.toUtf8()};
+    for (int index{helper != nullptr ? helper->methodCount() - 1 : -1}; index >= 0; --index) {
+        const QMetaMethod candidate{helper->method(index)};
+        if (candidate.methodType() != QMetaMethod::Slot || candidate.name() != name) {
+            continue;
+        }
+        // A point a service consumes carries the session the calling entity acts for as a
+        // last parameter, which a test does not write. The harness forwards none.
+        const qsizetype count{candidate.parameterCount()};
+        const bool forwardsSession{
+            count == arguments.size() + 1
+            && candidate.parameterNames().constLast() == QByteArrayLiteral("synqtSession")};
+        if (count == arguments.size() || forwardsSession) {
+            method = candidate;
+            break;
+        }
+    }
+    if (!method.isValid()) {
+        qWarning("SynQt: the contract has no slot %s taking %lld argument(s)",
+                 qUtf8Printable(slot), static_cast<long long>(arguments.size()));
+        return QVariant{};
+    }
+
+    // `=`, not brace-init: QVariantList{aList} wraps the list as a single element.
+    QVariantList converted = arguments;
+    if (method.parameterCount() > arguments.size()) {
+        converted.append(QVariantMap{});
+    }
+    QList<void *> argv{nullptr};
+    for (int index{0}; index < method.parameterCount(); ++index) {
+        if (!convertArgument(&converted[index], method.parameterMetaType(index))) {
+            qWarning("SynQt: argument %d of %s cannot be a %s", index + 1,
+                     qUtf8Printable(slot), method.parameterMetaType(index).name());
+            return QVariant{};
+        }
+        argv.append(converted[index].data());
+    }
+    const bool returns{method.returnMetaType() != QMetaType::fromType<void>()};
+    QVariant result{returns ? QVariant{method.returnMetaType()} : QVariant{}};
+    if (returns) {
+        argv[0] = result.data();
+    }
+    QMetaObject::metacall(m_subject, QMetaObject::InvokeMetaMethod, method.methodIndex(),
+                          argv.data());
+    return result;
 }
 
 void EntityTest::startRecording()

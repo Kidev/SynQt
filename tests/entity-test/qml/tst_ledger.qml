@@ -180,4 +180,43 @@ TestCase {
         verify(harness.load(), harness.errorString);
         compare(harness.recorded().filter(e => e.categoryName === "application").length, 0);
     }
+
+    // Through the contract. `call()` goes through the generated slot, so the `<admin>` gate
+    // on clearBids and the `string[8]` bound on note refuse here as they do on the wire.
+    function test_a_gated_slot_refuses_a_caller_below_its_scope() {
+        harness.callerIsUser("moderator", { sub: "mod" });
+        ignoreWarning(/Ledger\.clearBids: refused, the caller does not hold the scope/);
+        harness.call("clearBids");
+        compare(harness.subject.highBid, 100);
+    }
+
+    function test_a_gated_slot_answers_a_caller_in_its_scope() {
+        harness.callerIsUser("admin", { sub: "root" });
+        harness.call("clearBids");
+        compare(harness.subject.highBid, 0);
+    }
+
+    function test_an_argument_past_its_bound_never_reaches_the_function() {
+        harness.callerIsUser("user", { sub: "alice" });
+        ignoreWarning(/Ledger\.note/);
+        harness.call("note", ["far longer than eight"]);
+        compare(harness.subject.lastNote, "");
+        harness.call("note", ["short"]);
+        compare(harness.subject.lastNote, "short");
+    }
+
+    function test_a_returning_slot_answers_through_the_contract() {
+        harness.callerIsEntity("web");
+        compare(harness.call("recordWinner", ["vase", "alice", 120]), true);
+        harness.callerIsEntity("rogue");
+        compare(harness.call("recordWinner", ["vase", "mallory", 1]), false);
+    }
+
+    // A gated prop publishes what the owner assigned only to a caller in its scope.
+    function test_a_gated_prop_is_published_to_a_caller_in_its_scope_only() {
+        harness.callerIsUser("user", { sub: "alice" });
+        compare(harness.subject.auditNote, "");
+        harness.callerIsUser("moderator", { sub: "mod" });
+        compare(harness.subject.auditNote, "two bids withdrawn");
+    }
 }

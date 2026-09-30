@@ -13,8 +13,10 @@ Ledger {
     // a neighbour.
     readonly property bool databaseReachable: Database.ready
     property string lastRecorded: ""
+    property string lastNote: ""
 
     highBid: 100
+    auditNote: "two bids withdrawn"
 
     Database.onRecorded: item => {
         ledger.lastRecorded = item;
@@ -59,6 +61,17 @@ Ledger {
     function tickEvery(intervalMs) {
         const log = Log;
         Jobs.every(intervalMs, () => log.info("tick"));
+    }
+
+    // Gated on the contract, `<admin>`, and never checked here: the function trusts the
+    // generated slot in front of it.
+    function clearBids() {
+        ledger.highBid = 0;
+    }
+
+    // Bounded on the contract, `string[8]`, and never checked here either.
+    function note(text) {
+        ledger.lastNote = text;
     }
 
     // Only the edge may write the permanent record, and the edge is an entity.

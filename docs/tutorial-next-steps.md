@@ -122,7 +122,7 @@ consumer of the edge's connect point:
     consumers: [app, ticker]
 ```
 
-One detail is not obvious. `closeLot` is exported as `<admin> slot closeLot(...)`, and a
+One detail needs care. `closeLot` is exported as `<admin> slot closeLot(...)`, and a
 scope belongs to a user's session. The ticker is an entity with no session, so the gate
 would refuse it. A member that both users and entities call cannot be gated on a scope,
 so remove the `<admin>` in `synqt.yaml`:
@@ -293,10 +293,21 @@ It needs no browser, no certificates, no database and no C++. The slots read the
 `Caller`, created the way the web edge creates it, so a test cannot pass by stubbing the
 check it tests.
 
-The other two rules are the `<user>` and `<admin>` gates in the `export:` block. A test
-calls your QML function directly, not the generated slot in front of it, so a gate never
-runs there; SynQt's own suite tests the gates. The books entity's rule (only the edge may
-call `recordWinner`) is its consumer list, which `synqt check` enforces.
+The other two rules are the `<user>` and `<admin>` gates in the `export:` block.
+`harness.subject.placeBid(...)` calls your QML function, past the gate. `harness.call(...)`
+calls the generated slot in front of it, so the gate runs first:
+
+```qml
+    function test_a_signed_out_visitor_cannot_bid() {
+        harness.callerIsUser("anonymous");
+        ignoreWarning(/placeBid: refused, the caller does not hold the scope it needs/);
+        harness.call("placeBid", [40]);
+        compare(harness.subject.highBid, 0);
+    }
+```
+
+The books entity's rule (only the edge may call `recordWinner`) is its consumer list,
+which `synqt check` enforces.
 
 A test of `closeLot` has a catch. `closeLot` records the winner through `Books`, and in a
 test the books entity is never connected (`Books.ready` stays false). Close a lot that has

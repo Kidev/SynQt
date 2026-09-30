@@ -96,6 +96,14 @@ public:
     /// No consumer in the call, as when the owner mutates its own state on a timer.
     Q_INVOKABLE void callerIsNobody();
 
+    /// Call `slot` the way a consumer does: through the generated slot in front of the QML
+    /// function, so the member's `<scope>` gate and the export's bounds run before the
+    /// function is reached. Returns what the slot returns: the return type's default when
+    /// the call was refused, undefined for a slot that returns nothing or does not exist. A
+    /// refusal is a warning, as on the wire.
+    Q_INVOKABLE QVariant call(const QString &slot,
+                              const QVariantList &arguments = QVariantList());
+
     /// The project's scope vocabulary, so hasScope answers the way the running system
     /// would. Defaults to SynQt's own order, hierarchical.
     Q_INVOKABLE void setScopeOrder(const QStringList &order, bool hierarchical = true);
