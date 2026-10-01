@@ -8,7 +8,7 @@
 # localhost edge cert is generated at configure time.
 
 cmake_minimum_required(VERSION 3.21)
-project(synqt_fix4_plaza LANGUAGES CXX)
+project(synqt_plaza LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
@@ -37,32 +37,32 @@ execute_process(
             "${CMAKE_CURRENT_SOURCE_DIR}/../write-contracts.py" "${PLAZA}"
     RESULT_VARIABLE _syn_rc ERROR_VARIABLE _syn_err)
 if(NOT _syn_rc EQUAL 0)
-    message(FATAL_ERROR "fix4-plaza: could not write the plaza's contracts:\n${_syn_err}")
+    message(FATAL_ERROR "plaza: could not write the plaza's contracts:\n${_syn_err}")
 endif()
 
-set(FIX4_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
+set(PLAZA_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
 execute_process(
-    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${FIX4_CERTS}"
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${PLAZA_CERTS}"
     RESULT_VARIABLE _cert_rc ERROR_VARIABLE _cert_err)
 if(NOT _cert_rc EQUAL 0)
-    message(FATAL_ERROR "fix4-plaza: certificate generation failed:\n${_cert_err}")
+    message(FATAL_ERROR "plaza: certificate generation failed:\n${_cert_err}")
 endif()
 
 enable_testing()
 
-qt_add_executable(tst_fix4 tst_fix4.cpp)
+qt_add_executable(tst_plaza tst_plaza.cpp)
 
 # The web edge hosts EdgeSource from the example's QML; the clients use dynamic replicas.
-synqt_add_contract(tst_fix4 ROLE source
+synqt_add_contract(tst_plaza ROLE source
     SYN "${PLAZA}/generated/web/edge/Edge.syn")
 
-target_compile_definitions(tst_fix4 PRIVATE
-    FIX4_CERT_DIR="${FIX4_CERTS}"
-    FIX4_PLAZA_DIR="${PLAZA}"
-    FIX4_BUNDLE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bundle"
+target_compile_definitions(tst_plaza PRIVATE
+    PLAZA_CERT_DIR="${PLAZA_CERTS}"
+    PLAZA_DIR="${PLAZA}"
+    PLAZA_BUNDLE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bundle"
 )
 
-target_link_libraries(tst_fix4 PRIVATE
+target_link_libraries(tst_plaza PRIVATE
     SynQtEdge
     SynQtClient
     Qt6::Core
@@ -75,4 +75,4 @@ target_link_libraries(tst_fix4 PRIVATE
     Qt6::Test
 )
 
-add_test(NAME fix4 COMMAND tst_fix4)
+add_test(NAME plaza COMMAND tst_plaza)

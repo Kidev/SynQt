@@ -9,10 +9,10 @@ singleton type) simulates the one authoritative arena, and a per-caller `Edge` S
 over it carries each player's view. It runs on the native host kit, with the edge in one
 process, driven by native `SynClient`s acting as browsers.
 
-Run: `./run-fix2.sh` (builds `SynQtEdge`/`SynQtClient` + the test with a localhost edge
+Run: `./run-arena.sh` (builds `SynQtEdge`/`SynQtClient` + the test with a localhost edge
 cert generated at configure time, then `ctest`).
 
-`tst_fix2.cpp` verifies:
+`tst_arena.cpp` verifies:
 
 - Hands-on check 1. A console `steer(3999, 3999)` does not teleport. The edge stamps the
   blob and walks it toward the corner at its size's speed (at most `speedFor(mass) * dt` per

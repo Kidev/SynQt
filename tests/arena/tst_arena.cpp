@@ -62,7 +62,7 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     SynClientConfig config;
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
     config.connectPoints = {{QStringLiteral("edge"), QStringLiteral("Edge")}};
-    config.pinnedCaCertPath = QStringLiteral(FIX2_CERT_DIR "/ca.crt");
+    config.pinnedCaCertPath = QStringLiteral(ARENA_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("player")};
     config.reconnectBaseMs = 200;
@@ -76,7 +76,7 @@ QRemoteObjectReplica *arenaReplica(SynClient *client)
 
 } // namespace
 
-class TestFix2 : public QObject
+class TestArena : public QObject
 {
     Q_OBJECT
 
@@ -107,23 +107,23 @@ private slots:
         // singletonInstance forces its creation now and hands the test the same instance the
         // Sources see, so the assertions read the authoritative state directly.
         const int worldTypeId{qmlRegisterSingletonType(
-            QUrl::fromLocalFile(QStringLiteral(FIX2_SRCDIR "/web/World.qml")),
+            QUrl::fromLocalFile(QStringLiteral(ARENA_SRCDIR "/web/World.qml")),
             "SynQt", 1, 0, "World")};
         m_world = m_engine->singletonInstance<QObject *>(worldTypeId);
         QVERIFY(m_world);
 
         WebEdgeConfig config;
-        config.bundleDir = QStringLiteral(FIX2_SRCDIR "/bundle");
+        config.bundleDir = QStringLiteral(ARENA_SRCDIR "/bundle");
         config.host = QStringLiteral("127.0.0.1");
         config.port = 0;
-        config.certFile = QStringLiteral(FIX2_CERT_DIR "/server.crt");
-        config.keyFile = QStringLiteral(FIX2_CERT_DIR "/server.key");
+        config.certFile = QStringLiteral(ARENA_CERT_DIR "/server.crt");
+        config.keyFile = QStringLiteral(ARENA_CERT_DIR "/server.key");
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("player")};
 
         WebEdgeConnectPoint arena;
         arena.name = QStringLiteral("edge");
         arena.contract = QStringLiteral("Edge");
-        arena.serverFile = QStringLiteral(FIX2_SRCDIR "/web/Edge.qml");
+        arena.serverFile = QStringLiteral(ARENA_SRCDIR "/web/Edge.qml");
         arena.scope = QStringLiteral("player");        // only approved players acquire it
         arena.shared = false;                         // one per player, so Caller is bound
         config.connectPoints = {arena};
@@ -232,5 +232,5 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(TestFix2)
-#include "tst_fix2.moc"
+QTEST_GUILESS_MAIN(TestArena)
+#include "tst_arena.moc"

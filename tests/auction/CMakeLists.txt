@@ -7,7 +7,7 @@
 # are generated at configure time.
 
 cmake_minimum_required(VERSION 3.21)
-project(synqt_fix1_auction LANGUAGES CXX)
+project(synqt_auction LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
@@ -34,35 +34,35 @@ execute_process(
             "${CMAKE_CURRENT_SOURCE_DIR}/../write-contracts.py" "${GAVEL}"
     RESULT_VARIABLE _syn_rc ERROR_VARIABLE _syn_err)
 if(NOT _syn_rc EQUAL 0)
-    message(FATAL_ERROR "fix1-auction: could not write gavel's contracts:\n${_syn_err}")
+    message(FATAL_ERROR "auction: could not write gavel's contracts:\n${_syn_err}")
 endif()
 
-set(FIX1_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
+set(AUCTION_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
 execute_process(
-    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${FIX1_CERTS}"
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${AUCTION_CERTS}"
     RESULT_VARIABLE _cert_rc ERROR_VARIABLE _cert_err)
 if(NOT _cert_rc EQUAL 0)
-    message(FATAL_ERROR "fix1-auction: certificate generation failed:\n${_cert_err}")
+    message(FATAL_ERROR "auction: certificate generation failed:\n${_cert_err}")
 endif()
 
 enable_testing()
 
-qt_add_executable(tst_fix1 tst_fix1.cpp)
+qt_add_executable(tst_auction tst_auction.cpp)
 
 # The edge hosts EdgeSource, the books entity BooksSource; consumers use dynamic replicas.
-synqt_add_contract(tst_fix1 ROLE source
+synqt_add_contract(tst_auction ROLE source
     SYN "${GAVEL}/generated/web/edge/Edge.syn")
 # Books: consumed by the edge (ROLE both), with the session on every call (FORWARDS_SESSION).
-synqt_add_contract(tst_fix1 ROLE both FORWARDS_SESSION
+synqt_add_contract(tst_auction ROLE both FORWARDS_SESSION
     SYN "${GAVEL}/generated/db/relational/books/Books.syn")
 
-target_compile_definitions(tst_fix1 PRIVATE
-    FIX1_CERT_DIR="${FIX1_CERTS}"
-    FIX1_GAVEL_DIR="${GAVEL}"
-    FIX1_BUNDLE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bundle"
+target_compile_definitions(tst_auction PRIVATE
+    AUCTION_CERT_DIR="${AUCTION_CERTS}"
+    GAVEL_DIR="${GAVEL}"
+    AUCTION_BUNDLE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bundle"
 )
 
-target_link_libraries(tst_fix1 PRIVATE
+target_link_libraries(tst_auction PRIVATE
     SynQtEdge
     SynQtClient
     Qt6::Core
@@ -77,8 +77,8 @@ target_link_libraries(tst_fix1 PRIVATE
 
 # The books entity runs as its own process: `Books` is a Source there and an accessor in the edge.
 add_subdirectory(books)
-add_dependencies(tst_fix1 fix1_books)
-target_compile_definitions(tst_fix1 PRIVATE
-    FIX1_BOOKS_BIN="$<TARGET_FILE:fix1_books>")
+add_dependencies(tst_auction auction_books)
+target_compile_definitions(tst_auction PRIVATE
+    AUCTION_BOOKS_BIN="$<TARGET_FILE:auction_books>")
 
-add_test(NAME fix1 COMMAND tst_fix1)
+add_test(NAME auction COMMAND tst_auction)

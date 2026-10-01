@@ -40,7 +40,7 @@ reply).
 
 ## What the acceptance test pins
 
-`tests/fix3-stall` brings the example up on the native host kit and pins:
+`tests/stall` brings the example up on the native host kit and pins:
 
 1. `synqt check` passes on this project (the happy path).
 2. Adding the client as a consumer of the stock entity's connect point fails

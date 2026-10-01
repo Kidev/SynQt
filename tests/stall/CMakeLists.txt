@@ -5,7 +5,7 @@
 # native SynClient over the authenticated wss link. Native host kit.
 
 cmake_minimum_required(VERSION 3.21)
-project(synqt_fix3_stall LANGUAGES CXX)
+project(synqt_stall LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
@@ -22,12 +22,12 @@ if(NOT TARGET SynQtClient)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
 endif()
 
-set(FIX3_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
+set(STALL_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
 execute_process(
-    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${FIX3_CERTS}"
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${STALL_CERTS}"
     RESULT_VARIABLE _cert_rc ERROR_VARIABLE _cert_err)
 if(NOT _cert_rc EQUAL 0)
-    message(FATAL_ERROR "fix3-stall: certificate generation failed:\n${_cert_err}")
+    message(FATAL_ERROR "stall: certificate generation failed:\n${_cert_err}")
 endif()
 
 enable_testing()
@@ -36,16 +36,16 @@ enable_testing()
 # example ships (web/pages/*.qml and web/campaign-seed.qml).
 set(STALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../examples/stall")
 
-qt_add_executable(tst_fix3 tst_fix3.cpp)
+qt_add_executable(tst_stall tst_stall.cpp)
 
 # Pages comes from SynQtEdge, never a second generated copy.
-target_compile_definitions(tst_fix3 PRIVATE
-    FIX3_CERT_DIR="${FIX3_CERTS}"
-    FIX3_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
-    FIX3_STALL_DIR="${STALL_DIR}"
+target_compile_definitions(tst_stall PRIVATE
+    STALL_CERT_DIR="${STALL_CERTS}"
+    STALL_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    STALL_DIR="${STALL_DIR}"
 )
 
-target_link_libraries(tst_fix3 PRIVATE
+target_link_libraries(tst_stall PRIVATE
     SynQtEdge
     SynQtClient
     Qt6::Core
@@ -58,26 +58,26 @@ target_link_libraries(tst_fix3 PRIVATE
     Qt6::Test
 )
 
-add_test(NAME fix3 COMMAND tst_fix3)
+add_test(NAME stall COMMAND tst_stall)
 
 # The client half runs in its own process: both sides would define the Pages record.
-qt_add_executable(fix3_edge fix3_edge.cpp)
-target_compile_definitions(fix3_edge PRIVATE
-    FIX3_CERT_DIR="${FIX3_CERTS}"
-    FIX3_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
-    FIX3_STALL_DIR="${STALL_DIR}"
+qt_add_executable(stall_edge stall_edge.cpp)
+target_compile_definitions(stall_edge PRIVATE
+    STALL_CERT_DIR="${STALL_CERTS}"
+    STALL_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    STALL_DIR="${STALL_DIR}"
 )
-target_link_libraries(fix3_edge PRIVATE SynQtEdge Qt6::Core Qt6::Qml)
+target_link_libraries(stall_edge PRIVATE SynQtEdge Qt6::Core Qt6::Qml)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
-qt_add_executable(tst_fix3_client tst_fix3_client.cpp)
-synqt_add_contract(tst_fix3_client ROLE replica
+qt_add_executable(tst_stall_client tst_stall_client.cpp)
+synqt_add_contract(tst_stall_client ROLE replica
     SYN "${CMAKE_CURRENT_SOURCE_DIR}/../../src/edge/contracts/Pages.syn")
-target_compile_definitions(tst_fix3_client PRIVATE
-    FIX3_CERT_DIR="${FIX3_CERTS}"
-    FIX3_EDGE_BINARY="$<TARGET_FILE:fix3_edge>"
+target_compile_definitions(tst_stall_client PRIVATE
+    STALL_CERT_DIR="${STALL_CERTS}"
+    STALL_EDGE_BINARY="$<TARGET_FILE:stall_edge>"
 )
-target_link_libraries(tst_fix3_client PRIVATE
+target_link_libraries(tst_stall_client PRIVATE
     SynQtClient
     Qt6::Core
     Qt6::Gui
@@ -86,7 +86,7 @@ target_link_libraries(tst_fix3_client PRIVATE
     Qt6::WebSockets
     Qt6::Test
 )
-add_dependencies(tst_fix3_client fix3_edge)
+add_dependencies(tst_stall_client stall_edge)
 
-add_test(NAME fix3-client COMMAND tst_fix3_client)
+add_test(NAME stall-client COMMAND tst_stall_client)
 

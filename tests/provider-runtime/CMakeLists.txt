@@ -7,7 +7,7 @@
 # not the mesh, which tests/mesh and tests/topology cover).
 
 cmake_minimum_required(VERSION 3.21)
-project(synqt_prov4_runtime LANGUAGES CXX)
+project(synqt_provider_runtime LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
@@ -22,9 +22,9 @@ endif()
 
 enable_testing()
 
-qt_add_executable(tst_prov4 tst_prov4.cpp)
-target_compile_definitions(tst_prov4 PRIVATE PROV4_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(tst_prov4 PRIVATE
+qt_add_executable(tst_provider_runtime tst_provider_runtime.cpp)
+target_compile_definitions(tst_provider_runtime PRIVATE PROVIDER_RUNTIME_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tst_provider_runtime PRIVATE
     SynQtService
     Qt6::Core
     Qt6::Gui
@@ -35,4 +35,4 @@ target_link_libraries(tst_prov4 PRIVATE
     Qt6::Test
 )
 
-add_test(NAME prov4 COMMAND tst_prov4)
+add_test(NAME provider-runtime COMMAND tst_provider_runtime)

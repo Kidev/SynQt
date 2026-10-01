@@ -12,7 +12,7 @@ QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-cmake -S tests/fix4-plaza -B build/fix4-plaza -G Ninja \
+cmake -S tests/plaza -B build/plaza -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build/fix4-plaza
-ctest --test-dir build/fix4-plaza --output-on-failure
+cmake --build build/plaza
+ctest --test-dir build/plaza --output-on-failure

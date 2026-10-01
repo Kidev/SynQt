@@ -358,7 +358,8 @@ private slots:
         // to a visitor as a site that is down and to an operator as nothing at all.
         QQmlEngine engine;
         WebEdgeConfig config{makeConfig(false)};
-        config.keyFile = QStringLiteral(WEBEDGE_CERT_DIR "/server.crt");  // a certificate, not a key
+        // A certificate, not a key.
+        config.keyFile = QStringLiteral(WEBEDGE_CERT_DIR "/server.crt");
         WebEdge edge{config, &engine};
         QVERIFY(!edge.start());
         QVERIFY2(edge.errorString().contains(QStringLiteral("terminate TLS")),

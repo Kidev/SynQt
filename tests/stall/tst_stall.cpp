@@ -59,7 +59,7 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     // No consumer facade is registered here, so ServerAccessor exposes the raw Replica,
     // which is all this test needs to invoke fetchPage() directly.
     config.connectPoints = {{QStringLiteral("Pages"), QStringLiteral("Pages")}};
-    config.pinnedCaCertPath = QStringLiteral(FIX3_CERT_DIR "/ca.crt");
+    config.pinnedCaCertPath = QStringLiteral(STALL_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user")};
     config.reconnectBaseMs = 200;
@@ -81,7 +81,7 @@ QString seedHeadline(const PageResponse &response)
 
 } // namespace
 
-class TestFix3 : public QObject
+class TestStall : public QObject
 {
     Q_OBJECT
 
@@ -120,20 +120,20 @@ private slots:
         SynQt::registerModuleImports();
 
         WebEdgeConfig config;
-        config.bundleDir = QStringLiteral(FIX3_SRCDIR "/bundle");
+        config.bundleDir = QStringLiteral(STALL_SRCDIR "/bundle");
         config.host = QStringLiteral("127.0.0.1");
         config.port = 0;
-        config.certFile = QStringLiteral(FIX3_CERT_DIR "/server.crt");
-        config.keyFile = QStringLiteral(FIX3_CERT_DIR "/server.key");
+        config.certFile = QStringLiteral(STALL_CERT_DIR "/server.crt");
+        config.keyFile = QStringLiteral(STALL_CERT_DIR "/server.key");
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user")};
         config.scopesHierarchical = true;
-        config.pagesDir = QStringLiteral(FIX3_STALL_DIR "/web/edge/pages");
+        config.pagesDir = QStringLiteral(STALL_DIR "/web/edge/pages");
 
         // The public, seeded campaign page (one file serves every slug).
         WebEdgePage campaign;
         campaign.path = QStringLiteral("/c/:campaign");
         campaign.file = QStringLiteral("Campaign.qml");
-        campaign.seed = QStringLiteral(FIX3_STALL_DIR "/web/edge/campaign-seed.qml");
+        campaign.seed = QStringLiteral(STALL_DIR "/web/edge/campaign-seed.qml");
 
         // The scoped page. An anonymous fetch is refused before a byte is sent.
         WebEdgePage members;
@@ -265,5 +265,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TestFix3)
-#include "tst_fix3.moc"
+QTEST_MAIN(TestStall)
+#include "tst_stall.moc"

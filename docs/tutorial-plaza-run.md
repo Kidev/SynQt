@@ -8,7 +8,7 @@ on one machine, then tries to break it.
 
 ## Be two people at once
 
-You need neither two GitHub accounts nor a GitHub app. Create `.dev-identities` at the
+Two GitHub accounts and a GitHub app are both optional. Create `.dev-identities` at the
 project root, listing the people you want to be:
 
 ```yaml
@@ -60,7 +60,7 @@ helper and why none can reach a deployed system.
 
 `walk(1000, 0, 0)` walks. The edge reads `forward` as how hard the key pushes and caps it at
 a full push, so a thousand becomes one, and Alice moves at 3.5 m/s like anyone holding W.
-No argument sets a position, so there is none to forge: the rows that say where Alice is
+Only the edge sets a position, so the browser has none to forge: the rows that say where Alice is
 belong to the edge, and a model flows only from owner to consumers.
 
 Walking into Bob stops Alice at Bob. In Alice's tab the physics stops her first, because
@@ -69,18 +69,18 @@ the same place, two radii from Bob's center, and Bob's tab shows that. If Bob mo
 tenth of a second before Alice's prediction knew, the edge's answer wins and Alice's
 walker moves to it.
 
-Nobody gets pushed either. The edge moves each walker out of the others and never moves
-the others, so a walker who stands still stays put.
+Collisions push nobody. The edge moves each walker out of the others and leaves the
+others alone, so a walker who stands still stays put.
 
 </details>
 
 > [!IMPORTANT]
 > The sign-in is enforced twice, and only the second time counts. The overlay that says
 > "Sign in to walk in the plaza" is a courtesy. The connect point's `scope: user` is the
-> barrier: a visitor who has not signed in never acquires the point, so there is no
+> barrier: a visitor who has not signed in never acquires the point, so it has no
 > `Server.walk` to call and no `Server.walkers` to read.
 
-[`tests/fix4-plaza`](https://github.com/Kidev/SynQt/tree/main/tests/fix4-plaza) runs these
+[`tests/plaza`](https://github.com/Kidev/SynQt/tree/main/tests/plaza) runs these
 three checks against the example's own `web/edge/Edge.qml`: a console walk stays at walking
 speed, two walkers never get closer than two radii however one walks at the other, and a
 session without `user` never acquires the plaza.

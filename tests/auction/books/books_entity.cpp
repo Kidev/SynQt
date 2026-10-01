@@ -61,23 +61,23 @@ int main(int argc, char *argv[])
 {
     QCoreApplication app{argc, argv};
     if (app.arguments().size() < 2) {
-        QTextStream{stderr} << "usage: fix1_books <port>\n";
+        QTextStream{stderr} << "usage: auction_books <port>\n";
         return 2;
     }
 
     synqtRegisterBooksSources();
 
     MeshCredentials credentials;
-    credentials.caCertPath = QStringLiteral(FIX1_CERT_DIR "/ca.crt");
-    credentials.certPath = QStringLiteral(FIX1_CERT_DIR "/books.crt");
-    credentials.keyPath = QStringLiteral(FIX1_CERT_DIR "/books.key");
+    credentials.caCertPath = QStringLiteral(AUCTION_CERT_DIR "/ca.crt");
+    credentials.certPath = QStringLiteral(AUCTION_CERT_DIR "/books.crt");
+    credentials.keyPath = QStringLiteral(AUCTION_CERT_DIR "/books.key");
 
     ConnectPointConfig point;
     point.name = QStringLiteral("books");
     point.contract = QStringLiteral("Books");
     point.owner = QStringLiteral("books");
     point.consumers = {QStringLiteral("edge")};
-    point.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/db/relational/books/Books.qml");
+    point.serverFile = QStringLiteral(GAVEL_DIR "/db/relational/books/Books.qml");
     point.shared = true;
     point.endpoint.mode = MeshTransportMode::MutualTls;
     point.endpoint.host = QStringLiteral("127.0.0.1");
@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
     topology.type = QStringLiteral("relational");
     topology.provider = QVariantMap{{QStringLiteral("name"), QStringLiteral("sqlite")},
                                     {QStringLiteral("file"), QStringLiteral(":memory:")}};
-    topology.schema = schemaOf(QStringLiteral(FIX1_GAVEL_DIR
+    topology.schema = schemaOf(QStringLiteral(GAVEL_DIR
                                               "/db/relational/books/schema.sql"));
 
     QQmlEngine engine;

@@ -18,7 +18,7 @@ QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/run-all.sh
 
 That configures the repository root ([CMakeLists.txt](../CMakeLists.txt)) once, builds
 the runtime libraries and every host-kit suite, runs them under one ctest, and then runs
-the three suites whose entry point is a generator instead of CMake. It is what CI runs
+the six suites whose entry point is a generator instead of CMake. It is what CI runs
 ([ctest.yml](../.github/workflows/ctest.yml)). `BUILD_DIR` moves the tree, and it defaults
 to `build/all`.
 
@@ -82,14 +82,20 @@ Built and run by the tree:
 | [caller](caller) | Sessions and `Caller`: expiry, rotation, scope gating, per-peer authorization, and the three-entity todo matrix |
 | [auth](auth) | Edge login: PKCE, browser-bound state, JWKS verification, scope mapping, the cookie |
 | [providers](providers) | The family interfaces and the bundled providers. The live engine proofs skip cleanly unless `SYNQT_TEST_*` names a reachable server |
-| [prov4-runtime](prov4-runtime) | `EntityRuntime` injecting a typed entity's `Db`/`Cache`/`Http`/`Jobs` helper with no manual wiring |
-| [fix1-auction](fix1-auction) | The auction tutorial as an acceptance fixture, over [examples/gavel](../examples/gavel) |
-| [fix2-arena](fix2-arena) | The multiplayer tutorial likewise, over [examples/arena](../examples/arena) |
-| [fix3-stall](fix3-stall) | Edge-delivered pages end to end, seeded by the production per-connection `Caller` |
-| [fix4-plaza](fix4-plaza) | The 3D plaza tutorial likewise, over [examples/plaza](../examples/plaza): walking speed, nobody walking through anybody, and the sign-in gate |
+| [provider-runtime](provider-runtime) | `EntityRuntime` injecting a typed entity's `Db`/`Cache`/`Http`/`Jobs` helper with no manual wiring |
+| [api-inbound](api-inbound) | The inbound HTTP surface `network.inbound` opens: routes on `Api`, and the key, origin, body-size and rate checks that run before any handler |
+| [auction](auction) | The auction tutorial as an acceptance fixture, over [examples/gavel](../examples/gavel) |
+| [arena](arena) | The multiplayer tutorial likewise, over [examples/arena](../examples/arena) |
+| [stall](stall) | Edge-delivered pages end to end, seeded by the production per-connection `Caller` |
+| [plaza](plaza) | The 3D plaza tutorial likewise, over [examples/plaza](../examples/plaza): walking speed, nobody walking through anybody, and the sign-in gate |
 | [url-routing](url-routing) | The route table and the SPA fallback |
 | [remote-pages](remote-pages) | The `Pages` connect point and its page store |
+| [entity-test](entity-test) | The `SynQt.Test` harness an application's own QML tests use |
+| [docs-providers](docs-providers) | The custom providers the advanced tutorials build, compiled from the pages' own C++ |
+| [graphics](graphics) | The fallback for a browser with no WebGL: the notice, the route guard, and which types need the accelerated pipeline |
+| [privacy](privacy) | The `Privacy` accessor and the three QML types it backs |
 | [memory](memory) | What a repeated workload leaves behind. Browser connections, page loads, sessions and mesh reconnects run many times over one long-lived object, and the heap has to come back to where it started. Its `run-leakcheck.sh` runs the rest of the tree under LeakSanitizer |
+| [monitor](monitor) | The event pipeline every entity carries, the instrumentation that feeds it, and the exporters |
 
 The next suites run from their own script, because a generator has to run before there
 is anything to compile. They catch a tool whose output stopped compiling, which no test of
@@ -100,6 +106,9 @@ the generated strings can:
 | [custom-provider](custom-provider) | The skeletons `synqt add provider` writes compile clean, register themselves, and stay on their family interface |
 | [appgen-native](appgen-native) | The entity mains `appgen.py` emits for a whole topology compile and link, and a generated client resolves every declared route |
 | [desktop-client](desktop-client) | The same client QML as a native desktop app: compiled, installed, its edge URL baked in, and booting |
+| [monitor-console](monitor-console) | A scaffolded monitor, built and driven in a browser: the delivery gate, the sign-in form under the strict CSP, and the console |
+| [identity-picker](identity-picker) | The development scope picker in a browser, with three tabs of one browser as three people |
+| [dev-exclusion](dev-exclusion) | Development-only code absent from a release build, read from the symbol tables of two configurations |
 
 Owned by another toolchain, and therefore by another workflow:
 
@@ -109,7 +118,11 @@ Owned by another toolchain, and therefore by another workflow:
 | [wasm-quick3dphysics](wasm-quick3dphysics) | Qt Quick 3D Physics building and loading on WebAssembly, via [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) |
 | [site-home](site-home) | The built documentation site's front page in a browser, via [docs.yml](../.github/workflows/docs.yml) and `make test-site` |
 | [plaza-browser](plaza-browser) | The 3D plaza example built by `synqt dev` and walked by two people in one browser, via [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) |
+| [split-origin](split-origin) | What a third party session cookie survives in each engine, via [browser-matrix.yml](../.github/workflows/browser-matrix.yml) |
+| [designer](designer) | The design editor in a browser, via [tests.yml](../.github/workflows/tests.yml) |
 
-[lib](lib) is not a suite. It holds the shell helpers the runners share: issuing mesh
-certificates, and asking the host what a native executable looks like there instead of
-assuming Linux.
+Three directories hold something other than a suite. [lib](lib) holds the shell helpers
+the runners share: issuing mesh certificates, and asking the host what a native executable
+looks like there instead of assuming Linux. [security](security) holds the attack index,
+which `tools/synqt/tests/test_security_index.py` checks. [local-network](local-network) is
+the machine plumbing the split-origin rig needs, run by hand.

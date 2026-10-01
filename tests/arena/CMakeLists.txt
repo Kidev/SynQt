@@ -8,7 +8,7 @@
 # arena at all. Native host kit; a localhost edge cert is generated at configure time.
 
 cmake_minimum_required(VERSION 3.21)
-project(synqt_fix2_arena LANGUAGES CXX)
+project(synqt_arena LANGUAGES CXX)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
 
@@ -26,28 +26,28 @@ if(NOT TARGET SynQtClient)
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtContracts.cmake")
 
-set(FIX2_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
+set(ARENA_CERTS "${CMAKE_CURRENT_BINARY_DIR}/certs")
 execute_process(
-    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${FIX2_CERTS}"
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/gen-cert.sh" "${ARENA_CERTS}"
     RESULT_VARIABLE _cert_rc ERROR_VARIABLE _cert_err)
 if(NOT _cert_rc EQUAL 0)
-    message(FATAL_ERROR "fix2-arena: certificate generation failed:\n${_cert_err}")
+    message(FATAL_ERROR "arena: certificate generation failed:\n${_cert_err}")
 endif()
 
 enable_testing()
 
-qt_add_executable(tst_fix2 tst_fix2.cpp)
+qt_add_executable(tst_arena tst_arena.cpp)
 
 # The web edge hosts EdgeSource from its QML; the client uses a dynamic replica.
-synqt_add_contract(tst_fix2 ROLE source
+synqt_add_contract(tst_arena ROLE source
     SYN "${CMAKE_CURRENT_SOURCE_DIR}/shared/Edge.syn")
 
-target_compile_definitions(tst_fix2 PRIVATE
-    FIX2_CERT_DIR="${FIX2_CERTS}"
-    FIX2_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
+target_compile_definitions(tst_arena PRIVATE
+    ARENA_CERT_DIR="${ARENA_CERTS}"
+    ARENA_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-target_link_libraries(tst_fix2 PRIVATE
+target_link_libraries(tst_arena PRIVATE
     SynQtEdge
     SynQtClient
     Qt6::Core
@@ -60,4 +60,4 @@ target_link_libraries(tst_fix2 PRIVATE
     Qt6::Test
 )
 
-add_test(NAME fix2 COMMAND tst_fix2)
+add_test(NAME arena COMMAND tst_arena)

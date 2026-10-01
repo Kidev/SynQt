@@ -17,12 +17,12 @@ set(SYNQT_HOST_SUITES
     caller
     auth
     providers
-    prov4-runtime
+    provider-runtime
     api-inbound
-    fix1-auction
-    fix2-arena
-    fix3-stall
-    fix4-plaza
+    auction
+    arena
+    stall
+    plaza
     url-routing
     remote-pages
     entity-test

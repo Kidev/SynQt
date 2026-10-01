@@ -12,7 +12,7 @@ QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-cmake -S tests/fix2-arena -B build/fix2-arena -G Ninja \
+cmake -S tests/arena -B build/arena -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build/fix2-arena
-ctest --test-dir build/fix2-arena --output-on-failure
+cmake --build build/arena
+ctest --test-dir build/arena --output-on-failure

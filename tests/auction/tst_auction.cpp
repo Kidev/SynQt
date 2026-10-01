@@ -54,9 +54,9 @@ namespace {
 MeshCredentials credsFor(const QString &entity)
 {
     MeshCredentials credentials;
-    credentials.caCertPath = QStringLiteral(FIX1_CERT_DIR "/ca.crt");
-    credentials.certPath = QStringLiteral(FIX1_CERT_DIR "/") + entity + QStringLiteral(".crt");
-    credentials.keyPath = QStringLiteral(FIX1_CERT_DIR "/") + entity + QStringLiteral(".key");
+    credentials.caCertPath = QStringLiteral(AUCTION_CERT_DIR "/ca.crt");
+    credentials.certPath = QStringLiteral(AUCTION_CERT_DIR "/") + entity + QStringLiteral(".crt");
+    credentials.keyPath = QStringLiteral(AUCTION_CERT_DIR "/") + entity + QStringLiteral(".key");
     return credentials;
 }
 
@@ -68,7 +68,7 @@ ConnectPointConfig ledgerConnectPoint(quint16 port)
     connectPoint.owner = QStringLiteral("books");
     connectPoint.consumers = {QStringLiteral("edge")};
     connectPoint.serverFile =
-        QStringLiteral(FIX1_GAVEL_DIR "/db/relational/books/Books.qml");
+        QStringLiteral(GAVEL_DIR "/db/relational/books/Books.qml");
     connectPoint.shared = false;
     connectPoint.endpoint.mode = MeshTransportMode::MutualTls;
     connectPoint.endpoint.host = QStringLiteral("127.0.0.1");
@@ -126,7 +126,7 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     SynClientConfig config;
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
     config.connectPoints = {{QStringLiteral("edge"), QStringLiteral("Edge")}};
-    config.pinnedCaCertPath = QStringLiteral(FIX1_CERT_DIR "/ca.crt");
+    config.pinnedCaCertPath = QStringLiteral(AUCTION_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
                          QStringLiteral("moderator"), QStringLiteral("admin")};
@@ -141,7 +141,7 @@ QRemoteObjectReplica *auctionReplica(SynClient *client)
 
 } // namespace
 
-class TestFix1 : public QObject
+class TestAuction : public QObject
 {
     Q_OBJECT
 
@@ -178,11 +178,11 @@ private:
         // The web edge. It owns one point, and reaches the books entity through the "Books"
         // accessor of its mesh runtime.
         WebEdgeConfig config;
-        config.bundleDir = QStringLiteral(FIX1_BUNDLE_DIR);
+        config.bundleDir = QStringLiteral(AUCTION_BUNDLE_DIR);
         config.host = QStringLiteral("127.0.0.1");
         config.port = 0;
-        config.certFile = QStringLiteral(FIX1_CERT_DIR "/server.crt");
-        config.keyFile = QStringLiteral(FIX1_CERT_DIR "/server.key");
+        config.certFile = QStringLiteral(AUCTION_CERT_DIR "/server.crt");
+        config.keyFile = QStringLiteral(AUCTION_CERT_DIR "/server.key");
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user"),
                              QStringLiteral("moderator"), QStringLiteral("admin")};
 
@@ -193,7 +193,7 @@ private:
         WebEdgeConnectPoint point;
         point.name = QStringLiteral("edge");
         point.contract = QStringLiteral("Edge");
-        point.serverFile = QStringLiteral(FIX1_GAVEL_DIR "/web/edge/Edge.qml");
+        point.serverFile = QStringLiteral(GAVEL_DIR "/web/edge/Edge.qml");
         point.shared = true;
         config.connectPoints = {point};
 
@@ -219,14 +219,14 @@ private slots:
         // what fills in the session it is acting for. A raw dynamic Replica would not.
         // Registered as the generated edge main does, so `Books.on<Signal>:` resolves in the
         // edge's QML. The books entity registers the same name for its Source, which is why
-        // it is a separate binary here (tests/fix1-auction/books) exactly as it is in a
+        // it is a separate binary here (tests/auction/books) exactly as it is in a
         // deployment.
         synqtRegisterBooksConsumers();
 
         // The books entity, as its own process, on a port nothing else is using.
         m_ledgerPort = freePort();
         QVERIFY(m_ledgerPort != 0);
-        m_books.setProgram(QStringLiteral(FIX1_BOOKS_BIN));
+        m_books.setProgram(QStringLiteral(AUCTION_BOOKS_BIN));
         m_books.setArguments({QString::number(m_ledgerPort)});
         m_books.start();
         QVERIFY2(m_books.waitForStarted(5000), qPrintable(m_books.errorString()));
@@ -394,9 +394,9 @@ private slots:
         });
         QVERIFY(auditor.connectMutualTls(
             QHostAddress::LocalHost, m_ledgerPort, QStringLiteral("books"),
-            loadCertificate(QStringLiteral(FIX1_CERT_DIR "/ca.crt")),
-            loadCertificate(QStringLiteral(FIX1_CERT_DIR "/auditor.crt")),
-            loadPrivateKey(QStringLiteral(FIX1_CERT_DIR "/auditor.key"))));
+            loadCertificate(QStringLiteral(AUCTION_CERT_DIR "/ca.crt")),
+            loadCertificate(QStringLiteral(AUCTION_CERT_DIR "/auditor.crt")),
+            loadPrivateKey(QStringLiteral(AUCTION_CERT_DIR "/auditor.key"))));
 
         // The TLS handshake succeeds (the certificate is genuine) and the connect point
         // refuses the entity behind it, so no Replica ever becomes valid. The books entity
@@ -410,5 +410,5 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(TestFix1)
-#include "tst_fix1.moc"
+QTEST_GUILESS_MAIN(TestAuction)
+#include "tst_auction.moc"

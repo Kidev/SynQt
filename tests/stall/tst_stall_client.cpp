@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The stall storefront, the client half: an edge-delivered page reaches the router the way
-// it does in a shipped client. tst_fix3 fetches pages by calling the Pages replica itself;
+// it does in a shipped client. tst_stall fetches pages by calling the Pages replica itself;
 // this drives the production path instead. The edge pushes its route table, the client's
 // router learns a route it never compiled, asks for the page through the Pages consumer
 // facade, and the answer comes back through the promise bridge into a component the router
@@ -26,7 +26,7 @@
 
 using namespace SynQt;
 
-class TestFix3Client : public QObject
+class TestStallClient : public QObject
 {
     Q_OBJECT
 
@@ -40,7 +40,7 @@ private:
         SynClientConfig config;
         config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(m_port)};
         config.connectPoints = {{QStringLiteral("Pages"), QStringLiteral("Pages")}};
-        config.pinnedCaCertPath = QStringLiteral(FIX3_CERT_DIR "/ca.crt");
+        config.pinnedCaCertPath = QStringLiteral(STALL_CERT_DIR "/ca.crt");
         config.sessionCookie = QByteArrayLiteral("synqt_session=") + m_token;
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user")};
         config.reconnectBaseMs = 200;
@@ -70,7 +70,7 @@ private slots:
         synqtRegisterPagesConsumers();
         synqtRegisterPagesReplicas();
         m_edge.setProcessChannelMode(QProcess::ForwardedErrorChannel);
-        m_edge.start(QStringLiteral(FIX3_EDGE_BINARY), {});
+        m_edge.start(QStringLiteral(STALL_EDGE_BINARY), {});
         QVERIFY2(m_edge.waitForStarted(5000), qPrintable(m_edge.errorString()));
         while (m_port == 0 || m_token.isEmpty()) {
             QVERIFY2(m_edge.canReadLine() || m_edge.waitForReadyRead(10000),
@@ -124,5 +124,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TestFix3Client)
-#include "tst_fix3_client.moc"
+QTEST_MAIN(TestStallClient)
+#include "tst_stall_client.moc"

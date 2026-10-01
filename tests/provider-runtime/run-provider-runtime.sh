@@ -11,7 +11,7 @@ QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-cmake -S tests/prov4-runtime -B build/prov4-runtime -G Ninja \
+cmake -S tests/provider-runtime -B build/provider-runtime -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build/prov4-runtime
-ctest --test-dir build/prov4-runtime --output-on-failure
+cmake --build build/provider-runtime
+ctest --test-dir build/provider-runtime --output-on-failure

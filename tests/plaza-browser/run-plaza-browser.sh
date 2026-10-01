@@ -6,7 +6,7 @@
 #  [1] copy examples/plaza, add a telemetry timer, name two people;
 #  [2] `synqt dev --identity-picker` builds and serves the edge and the client;
 #  [3] two tabs sign in as Alice and Bob and walk (verify/verify.mjs).
-# tests/fix4-plaza proves the edge's half natively.
+# tests/plaza proves the edge's half natively.
 
 set -euo pipefail
 

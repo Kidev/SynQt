@@ -26,14 +26,14 @@ Qt Quick 3D Physics predicts   keeps them apart, publishes the rows
 ## The three hands-on checks
 
 1. `Server.walk(1000, 0, 0)` from the console walks at walking speed. The edge bounds the
-   push to a full one and moves the walker itself, so there is no position to forge.
+   push to a full one and moves the walker itself, so the browser has no position to forge.
 2. Two walkers never stand closer than two radii, however hard one walks at the other. The
    client's physics stops you at somebody, and the edge stops you at the same place.
 3. A visitor who has not signed in never has the plaza acquired, because the connect point
    is `scope: user`.
 
 All three are proven against this project's own `web/edge/Edge.qml` in
-[`tests/fix4-plaza`](../../tests/fix4-plaza).
+[`tests/plaza`](../../tests/plaza).
 
 ## What the client links
 

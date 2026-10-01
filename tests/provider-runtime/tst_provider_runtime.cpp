@@ -105,7 +105,7 @@ private:
 SYNQT_REGISTER_CACHE_PROVIDER("UnreachableCache", UnreachableCacheProvider)
 SYNQT_REGISTER_DOCUMENT_PROVIDER("UnreachableDocuments", UnreachableDocumentProvider)
 
-class TestProv4 : public QObject
+class TestProviderRuntime : public QObject
 {
     Q_OBJECT
 
@@ -136,7 +136,7 @@ private:
         connectPoint.shared = false;
         connectPoint.endpoint.mode = MeshTransportMode::LocalSocket;
         connectPoint.endpoint.socketName =
-            QStringLiteral("synqt-prov4-%1")
+            QStringLiteral("synqt-provider-runtime-%1")
                 .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
         topology.connectPoints = QList<ConnectPointConfig>{connectPoint};
         return topology;
@@ -157,7 +157,7 @@ private:
     {
         Topology topology{typeTopology(
             QStringLiteral("database"), QStringLiteral("relational"),
-            QStringLiteral(PROV4_SRCDIR "/database/Items.qml"),
+            QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/database/Items.qml"),
             QVariantMap{{QStringLiteral("name"), QStringLiteral("sqlite")},
                         {QStringLiteral("file"), dbFile}})};
         topology.schema = QStringList{
@@ -169,14 +169,14 @@ private:
     static Topology cacheTopology(const QString &providerName)
     {
         return typeTopology(QStringLiteral("cache"), QStringLiteral("cache"),
-                                 QStringLiteral(PROV4_SRCDIR "/cache/Counters.qml"),
+                                 QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/cache/Counters.qml"),
                                  QVariantMap{{QStringLiteral("name"), providerName}});
     }
 
     static Topology documentTopology(const QString &providerName)
     {
         return typeTopology(QStringLiteral("notes"), QStringLiteral("document"),
-                                 QStringLiteral(PROV4_SRCDIR "/document/Notes.qml"),
+                                 QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/document/Notes.qml"),
                                  QVariantMap{{QStringLiteral("name"), providerName}});
     }
 
@@ -266,7 +266,7 @@ private slots:
         // reached QML and not only the C++ side: nothing in this test called set() for
         // that key. It is a singleton, not a Source, because a Source belongs to a caller
         // and there is no caller here. The entity is what is alive at start-up.
-        QVERIFY(liveSingleton(engine, QStringLiteral(PROV4_SRCDIR "/cache/Counters.qml"),
+        QVERIFY(liveSingleton(engine, QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/cache/Counters.qml"),
                               "Counters") != nullptr);
         QCOMPARE(cache->get(QStringLiteral("from-qml")).toString(),
                  QStringLiteral("written-at-source-creation"));
@@ -291,7 +291,7 @@ private slots:
 
         // The entity's own file inserted this from Component.onCompleted: the injection
         // reached QML, in the singleton that is alive for as long as the entity is.
-        QVERIFY(liveSingleton(engine, QStringLiteral(PROV4_SRCDIR "/document/Notes.qml"),
+        QVERIFY(liveSingleton(engine, QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/document/Notes.qml"),
                               "Notes") != nullptr);
         const QVariantList atCreation = docs->find(QStringLiteral("notes"));
         QCOMPARE(atCreation.size(), 1);
@@ -323,9 +323,10 @@ private slots:
     void runtimeInjectsJobsFromBlueprintAndItWorks()
     {
         QQmlEngine engine;
-        EntityRuntime runtime{typeTopology(QStringLiteral("jobs"), QStringLiteral("jobs"),
-                                                QStringLiteral(PROV4_SRCDIR "/jobs/Rollups.qml"),
-                                                QVariantMap{}),
+        EntityRuntime runtime{typeTopology(
+                                  QStringLiteral("jobs"), QStringLiteral("jobs"),
+                                  QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/jobs/Rollups.qml"),
+                                  QVariantMap{}),
                               &engine};
         QVERIFY2(runtime.start(), qPrintable(runtime.errorString()));
 
@@ -336,7 +337,7 @@ private slots:
 
         // The entity's own file enqueued from Component.onCompleted and the queue drains
         // on the event loop, so the job is still pending here. The injection reached QML.
-        QVERIFY(liveSingleton(engine, QStringLiteral(PROV4_SRCDIR "/jobs/Rollups.qml"),
+        QVERIFY(liveSingleton(engine, QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/jobs/Rollups.qml"),
                               "Rollups") != nullptr);
         QCOMPARE(jobs->queued(), 1);
 
@@ -363,7 +364,7 @@ private slots:
         QQmlEngine engine;
         EntityRuntime runtime{
             typeTopology(QStringLiteral("api"), QStringLiteral("api"),
-                              QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
+                              QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/api/Upstream.qml"),
                               QVariantMap{{QStringLiteral("release"), true}},
                               {QStringLiteral("http://127.0.0.1:1/")}),
             &engine};
@@ -396,7 +397,7 @@ private slots:
         QQmlEngine engine;
         EntityRuntime runtime{
             typeTopology(QStringLiteral("api"), QStringLiteral("api"),
-                              QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
+                              QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/api/Upstream.qml"),
                               QVariantMap{{QStringLiteral("release"), false}},
                               {QStringLiteral("http://127.0.0.1:1/")}),
             &engine};
@@ -441,7 +442,7 @@ private slots:
         QQmlEngine engine;
         EntityRuntime runtime{
             typeTopology(QStringLiteral("api"), QStringLiteral("api"),
-                              QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
+                              QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/api/Upstream.qml"),
                               QVariantMap{{QStringLiteral("release"), false}},
                               {}, /*declaresOutbound*/ true),
             &engine};
@@ -468,7 +469,7 @@ private slots:
         QQmlEngine engine;
         EntityRuntime runtime{
             typeTopology(QStringLiteral("api"), QStringLiteral("api"),
-                              QStringLiteral(PROV4_SRCDIR "/api/Upstream.qml"),
+                              QStringLiteral(PROVIDER_RUNTIME_SRCDIR "/api/Upstream.qml"),
                               QVariantMap{{QStringLiteral("release"), false}},
                               {QStringLiteral("https://api.example.com/v1/")}),
             &engine};
@@ -600,5 +601,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TestProv4)
-#include "tst_prov4.moc"
+QTEST_MAIN(TestProviderRuntime)
+#include "tst_provider_runtime.moc"

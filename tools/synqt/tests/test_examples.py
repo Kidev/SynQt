@@ -5,8 +5,8 @@
 docs/tutorial-multiplayer.md). This pins the ``synqt check`` hands-on check each tutorial
 ends on: adding the client as a consumer of an internal connect point fails.
 
-The behavioural checks are proven at the QtRO level in tests/fix1-auction, tests/fix2-arena
-and tests/fix3-stall.
+The behavioural checks are proven at the QtRO level in tests/auction, tests/arena
+and tests/stall.
 """
 
 import copy
@@ -116,7 +116,7 @@ class PlazaCheckTest(unittest.TestCase):
         self.assertTrue(ok, messages)
 
     def test_a_signed_out_visitor_has_no_plaza(self):
-        # The plaza is gated on the whole point (tests/fix4-plaza proves the runtime half).
+        # The plaza is gated on the whole point (tests/plaza proves the runtime half).
         plaza = next(one for one in self.config["connect_points"] if one["owner"] == "edge")
         self.assertEqual(plaza["scope"], "user")
 

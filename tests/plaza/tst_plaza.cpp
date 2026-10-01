@@ -71,7 +71,7 @@ SynClientConfig clientConfig(quint16 port, const QByteArray &cookie)
     SynClientConfig config;
     config.edgeUrl = QUrl{QStringLiteral("wss://127.0.0.1:%1/sync").arg(port)};
     config.connectPoints = {{QStringLiteral("edge"), QStringLiteral("Edge")}};
-    config.pinnedCaCertPath = QStringLiteral(FIX4_CERT_DIR "/ca.crt");
+    config.pinnedCaCertPath = QStringLiteral(PLAZA_CERT_DIR "/ca.crt");
     config.sessionCookie = cookie;
     config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user")};
     config.reconnectBaseMs = 200;
@@ -229,7 +229,7 @@ double headingTowards(const QPointF &from, const QPointF &to)
 
 } // namespace
 
-class TestFix4 : public QObject
+class TestPlaza : public QObject
 {
     Q_OBJECT
 
@@ -252,18 +252,18 @@ private slots:
         m_engine = std::make_unique<QQmlEngine>();
 
         WebEdgeConfig config;
-        config.bundleDir = QStringLiteral(FIX4_BUNDLE_DIR);
+        config.bundleDir = QStringLiteral(PLAZA_BUNDLE_DIR);
         config.host = QStringLiteral("127.0.0.1");
         config.port = 0;
-        config.certFile = QStringLiteral(FIX4_CERT_DIR "/server.crt");
-        config.keyFile = QStringLiteral(FIX4_CERT_DIR "/server.key");
+        config.certFile = QStringLiteral(PLAZA_CERT_DIR "/server.crt");
+        config.keyFile = QStringLiteral(PLAZA_CERT_DIR "/server.key");
         config.scopeOrder = {QStringLiteral("anonymous"), QStringLiteral("user")};
 
         // The plaza, as the example's synqt.yaml declares it: shared, gated `user`.
         WebEdgeConnectPoint plaza;
         plaza.name = QStringLiteral("edge");
         plaza.contract = QStringLiteral("Edge");
-        plaza.serverFile = QStringLiteral(FIX4_PLAZA_DIR "/web/edge/Edge.qml");
+        plaza.serverFile = QStringLiteral(PLAZA_DIR "/web/edge/Edge.qml");
         plaza.scope = QStringLiteral("user");
         plaza.shared = true;
         config.connectPoints = {plaza};
@@ -427,5 +427,5 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(TestFix4)
-#include "tst_fix4.moc"
+QTEST_GUILESS_MAIN(TestPlaza)
+#include "tst_plaza.moc"

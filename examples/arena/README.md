@@ -31,11 +31,11 @@ The tutorial's three "try it, then think" checks are kept as acceptance fixtures
 
 1. `Server.steer(3999, 3999)` from the console only crawls, and never teleports. The
    edge takes an aim point and integrates every blob's motion itself at the speed the
-   blob's mass allows, so there is no position to forge. Proven in `tests/fix2-arena`.
+   blob's mass allows, so the client has no position to forge. Proven in `tests/arena`.
 2. A signed-out or unapproved caller never has `arena` acquired. The connect point's
    `scope: player` is the barrier, and the on-screen gate is not. An under-scoped session
    never acquires the Replica, so `steer`, `ping`, and the roster are all out of reach.
-   Proven in `tests/fix2-arena`.
+   Proven in `tests/arena`.
 3. Adding the client as a consumer of the records entity's connect point fails
    `synqt check`. The browser can reach only the edge, and the records entity is not a web
    edge. Proven in `tools/synqt/tests/test_examples.py`.
@@ -47,7 +47,7 @@ singleton, and gives each player a `web/edge/Edge.qml` Source that publishes onl
 slice. That is the interest management the last tutorial page builds. The edge declares
 `shared: false`, so there is one Source per caller. The framework instantiates the shared
 world once and injects it into each per-session Source by name (`World`), the same way it
-injects the mesh accessor `Records`. The `tests/fix2-arena` acceptance test drives that
+injects the mesh accessor `Records`. The `tests/arena` acceptance test drives that
 exact structure (a world instantiated once, injected as `World`, a per-session `Edge` over
 it) to prove the movement authority and the scope gate. Those two Sources use the
 framework's owner API (`set<Model>(rows)`, `Caller.hasScope`). The champions and the round
