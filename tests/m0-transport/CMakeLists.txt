@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# M0 transport spike. The edge (native, host Qt kit) and the client (WASM, wasm
+# The transport spike. The edge (native, host Qt kit) and the client (WASM, wasm
 # kit) are built by separate CMake configure runs because they use different
 # toolchains; this top-level file dispatches to exactly one entity per configure,
 # selected by -DSYNQT_M0_ENTITY=edge|client. Both share shared/ (the hand-written

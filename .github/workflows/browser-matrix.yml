@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
 # SPDX-License-Identifier: Apache-2.0
 
-# The M0 browser matrix (Chromium, Firefox, WebKit; ws and wss; reconnect) and the
+# The transport spike's browser matrix (Chromium, Firefox, WebKit; ws and wss; reconnect) and the
 # split-origin cookie measurement. Builds QtRemoteObjects into the WASM kit.
 
 name: "[TEST] Run the browser matrix (Chromium, Firefox, WebKit)"
@@ -27,7 +27,7 @@ env:
 
 jobs:
   m0:
-    name: M0 transport (${{ matrix.label }})
+    name: Transport spike (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -155,7 +155,7 @@ jobs:
           fi
           npx --yes playwright install webkit chromium firefox
 
-      - name: Run the M0 browser matrix (Chromium + Firefox + WebKit, ws + wss, reconnect)
+      - name: Run the spike's browser matrix (Chromium + Firefox + WebKit, ws + wss, reconnect)
         env:
           QT_HOST: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/${{ matrix.qt_host_dir }}
           QT_WASM: ${{ github.workspace }}/Qt/${{ env.QT_VERSION }}/wasm_singlethread

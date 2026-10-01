@@ -52,5 +52,5 @@ cd "$SPIKE/verify"
 npm install --no-audit --no-fund
 npx --yes playwright install chromium firefox
 
-echo "== [5/5] Run the M0 browser matrix + reconnect =="
+echo "== [5/5] Run the transport spike's browser matrix + reconnect =="
 node verify.mjs

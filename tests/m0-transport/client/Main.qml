@@ -11,7 +11,7 @@ ApplicationWindow {
     visible: true
     width: 480
     height: 640
-    title: "SynQt M0 transport spike"
+    title: "SynQt transport spike"
 
     ColumnLayout {
         anchors.fill: parent
