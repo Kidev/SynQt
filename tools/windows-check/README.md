@@ -68,7 +68,7 @@ export QT_HOST="/opt/Qt/6.12.0/gcc_64"                    # the Linux host kit (
 export OPENSSL_WIN="$HOME/.cache/synqt-openssl-win/Library" # a Windows OpenSSL prefix
 
 tools/windows-check/check-windows.sh                 # the QtCore probe (no OpenSSL needed)
-tools/windows-check/check-windows.sh tests/m3-mesh   # a real suite (needs OPENSSL_WIN)
+tools/windows-check/check-windows.sh tests/mesh   # a real suite (needs OPENSSL_WIN)
 ```
 
 Anything linking `SynQtService` (mesh mutual TLS) calls

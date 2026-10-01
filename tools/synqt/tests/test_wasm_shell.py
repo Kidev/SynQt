@@ -43,21 +43,21 @@ class WasmShellTest(unittest.TestCase):
         # Stand in for the one built file the script checks for.
         out = work / "build"
         out.mkdir()
-        (out / "m0-client.js").write_text("// built client\n", encoding="utf-8")
+        (out / "spike-client.js").write_text("// built client\n", encoding="utf-8")
 
         environment = dict(os.environ)
         environment["PYTHONPATH"] = str(blocker)
         result = subprocess.run(
-            [sys.executable, str(_SCRIPT), "--target", "m0-client", "--out", str(out)],
+            [sys.executable, str(_SCRIPT), "--target", "spike-client", "--out", str(out)],
             capture_output=True, text=True, env=environment, cwd=str(_REPO_ROOT))
 
         self.assertEqual(result.returncode, 0, result.stderr)
         page = (out / "index.html").read_text(encoding="utf-8")
         self.assertIn("<title>", page)
-        self.assertIn("m0-client.js", page)
+        self.assertIn("spike-client.js", page)
         boot = (out / "synqt-boot.js").read_text(encoding="utf-8")
-        self.assertIn("m0-client.wasm", boot)
-        self.assertIn("window.m0_client_entry", boot)
+        self.assertIn("spike-client.wasm", boot)
+        self.assertIn("window.spike_client_entry", boot)
 
     def test_the_blocker_really_denies_pyyaml(self):
         # The blocker itself works.

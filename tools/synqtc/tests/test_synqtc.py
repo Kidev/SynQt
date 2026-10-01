@@ -151,7 +151,7 @@ class SourceHelperTest(unittest.TestCase):
 
     def test_registering_sources_installs_the_qtquick_re_export(self):
         # Registering the contract installs the QtQuick re-export (see
-        # tests/m1-contract/tst_qmlimport.cpp).
+        # tests/contract/tst_qmlimport.cpp).
         syn = parse_text(TODO, stem="Todo")
         source = emit_source_helper_source(syn, "todo")
         self.assertIn("#if __has_include(<moduleimports.h>)", source)

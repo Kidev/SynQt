@@ -18,7 +18,7 @@ namespace SynQt {
 /// How the browser presents its session credential at the wss upgrade.
 ///
 /// Cookie only: a token in `Sec-WebSocket-Protocol` needs the server to echo the selected
-/// subprotocol, which the Qt 6.12 upgrade path cannot do. `tests/m5-webedge` fails when that
+/// subprotocol, which the Qt 6.12 upgrade path cannot do. `tests/webedge` fails when that
 /// changes.
 enum class SessionTransport { Cookie };
 

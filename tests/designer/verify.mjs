@@ -21,8 +21,8 @@
 // hosted copy has nobody, so this is where it is measured.
 //
 // Chromium only. What is being proven here is this page's own behaviour rather than
-// an engine's. The transport proofs that are per-engine questions are tests/m0-transport and
-// tests/m6-client. Exits 0 only if both cases pass.
+// an engine's. The transport proofs that are per-engine questions are tests/transport-spike and
+// tests/client. Exits 0 only if both cases pass.
 
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
@@ -153,7 +153,8 @@ async function dropEntity(page, label, at) {
 }
 
 // The project is read-only until it is opened for editing. The pane holds the entities' own
-// code, and a stray keystroke over a file being read is not an edit. One press opens all of it, so this is a no-op once it has been pressed.
+// code, and a stray keystroke over a file being read is not an edit. One press opens all of
+// it, so this is a no-op once it has been pressed.
 async function unlock(page) {
     if ((await page.locator("#source-lock").getAttribute("aria-pressed")) !== "true") {
         await page.locator("#source-lock").click();
@@ -363,10 +364,10 @@ async function editorOverAProject() {
         // The contract icon is what this checks. Clicking it opens what crosses, and the
         // list it opens is ticked out of what the owner declares and nothing else.
         //
-        // Said in the contract's own vocabulary rather than the QML the owner writes it in. This list
-        // is the `export:` block, where a function is a `slot`. Saying `function` for a
-        // member read out of the owner's file and `slot` for one that only exists on the
-        // point would make a single list carry two words for the same thing.
+        // Said in the contract's own vocabulary rather than the QML the owner writes it in.
+        // This list is the `export:` block, where a function is a `slot`. Saying `function`
+        // for a member read out of the owner's file and `slot` for one that only exists on
+        // the point would make a single list carry two words for the same thing.
         await page.locator('[data-contract="service"]').click();
         const ticks = inspector.locator(".ticks");
         check(await ticks.getByText("slot logWinner(string winner)", { exact: true })
@@ -548,7 +549,8 @@ async function aSharedClientIsShownAndCanBeCleared() {
     const project = await copyProject();
     const file = path.join(project, "synqt.yaml");
     const before = await fsp.readFile(file, "utf8");
-    await fsp.writeFile(file, before.replace("  - name: app\n", "  - name: app\n    shared: false\n"));
+    await fsp.writeFile(file,
+                      before.replace("  - name: app\n", "  - name: app\n    shared: false\n"));
     const { proc, url } = await startEditor(project);
     const browser = await chromium.launch({ headless });
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -1351,9 +1353,10 @@ async function theProjectALinkHandsYou() {
         await openAndWaitFor(page, "synqt.yaml", "prop var tally");
         check(true, "reaching into another entity adds the member it reached for, with the "
                     + "type nothing gave away");
-        // One member rather than one per letter. A name is typed a letter at a time, so every prefix
-        // of it arrives here as a reference of its own. If each became a member and stayed
-        // one, `tally` would cost the contract `t`, `ta`, `tal` and `tall` on the way.
+        // One member rather than one per letter. A name is typed a letter at a time, so
+        // every prefix of it arrives here as a reference of its own. If each became a
+        // member and stayed one, `tally` would cost the contract `t`, `ta`, `tal` and
+        // `tall` on the way.
         const halves = (await sourceText(page))
             .split("\n")
             .filter((row) => /^\s+prop var tall?y?$/.test(row));
@@ -1663,9 +1666,9 @@ async function typingIntoTheProject() {
             () => document.querySelectorAll("#nodes [data-entity]").length === 3);
 
         // Declaring on an entity, from the panel. This is the pool every connect point the
-        // entity owns ticks its contract from, and it is reachable from the panel rather than only by typing the
-        // line into the file. A free-text prompt on a link and nothing at
-        // all on an entity would leave it there.
+        // entity owns ticks its contract from, and it is reachable from the panel rather
+        // than only by typing the line into the file. A free-text prompt on a link and
+        // nothing at all on an entity would leave it there.
         await page.locator("#nodes [data-entity='store']").click();
         const declares = page.locator(".members").filter(
             { hasText: "What this entity declares" });

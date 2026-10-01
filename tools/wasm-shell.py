@@ -9,7 +9,7 @@ and CSS come from `synqt.clientshell.render_client_shell`, the renderer `synqt b
 The boot is the same qtloader call without the manifest fetch and the service worker, which
 a spike build does not have.
 
-    tools/wasm-shell.py --target m0-client --out build/m0-client
+    tools/wasm-shell.py --target spike-client --out build/spike-client
 """
 
 from __future__ import annotations

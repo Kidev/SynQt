@@ -1,0 +1,32 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "spike-edge",
+            "displayName": "Spike edge (native, host Qt kit)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../../build/spike-edge",
+            "cacheVariables": {
+                "SYNQT_SPIKE_ENTITY": "edge",
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_PREFIX_PATH": "/opt/Qt/6.12.0/gcc_64"
+            }
+        },
+        {
+            "name": "spike-client",
+            "displayName": "Spike client (WASM single-threaded)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../../build/spike-client",
+            "toolchainFile": "/opt/Qt/6.12.0/wasm_singlethread/lib/cmake/Qt6/qt.toolchain.cmake",
+            "cacheVariables": {
+                "SYNQT_SPIKE_ENTITY": "client",
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "spike-edge", "configurePreset": "spike-edge" },
+        { "name": "spike-client", "configurePreset": "spike-client" }
+    ]
+}

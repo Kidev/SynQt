@@ -11,7 +11,7 @@
 #   tests/lib/live-engines.sh down        # remove the containers
 #
 #   eval "$(tests/lib/live-engines.sh up && tests/lib/live-engines.sh env)"
-#   tests/m9-providers/run-m9.sh
+#   tests/providers/run-providers.sh
 #
 # An engine that does not come up is left out of `env`, and its proofs skip. The certificate
 # names `localhost` only; a second CA that signed nothing is there to be refused. Files go

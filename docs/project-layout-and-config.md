@@ -121,8 +121,8 @@ Conventions for the whole file:
   `env:DB_PASSWORD`), and validation enforces it. The entity resolves the name when it
   starts, most specific source first: its own environment, then its env file
   (`web/edge/.env` for an entity in `web/`, or wherever `env: {file: ...}` points), then
-  the project `.env`. No file overrides a variable the real environment already set, so an
-  entity can run with a container secret, a systemd unit or a CI secret store and no file
+  the project `.env`. A variable the real environment already set wins over every file, so
+  an entity can run with a container secret, a systemd unit or a CI secret store and no file
   on disk.
 - **Comments use `#`.** The scaffolded file uses them to explain each default in place.
 
@@ -182,8 +182,8 @@ project tree, so nothing needs regenerating by hand or committing.
 It holds an x and y per entity, where the [designer](visual-editor.md) left each node on
 its canvas. Only the editor reads it. An entity it does not mention gets the default
 layout: the browser on the left, and everything the browser must not reach on the right.
-Deleting it loses only the arrangement. It is not git ignored, because a team usually
-wants the same diagram on every screen; add it to your own `.gitignore` if you prefer.
+Deleting it loses only the arrangement. It stays tracked, because a team usually wants
+the same diagram on every screen; add it to your own `.gitignore` if you prefer.
 
 ### `scopes` (browser user permissions)
 
@@ -210,8 +210,8 @@ connect points each one owns and consumes, the whole mesh topology. Every entity
 `name` and a `type`; the other keys depend on the type.
 
 `name` is also the entity's directory, its QML module, and the name other entities use to
-reach it. There is no separate path key: an entity sits under its name inside its type's
-folder, so `name: edge` on a `web_edge` puts its QML in `web/edge/`, its secrets in
+reach it. An entity sits under its name inside its type's folder, with no separate path
+key, so `name: edge` on a `web_edge` puts its QML in `web/edge/`, its secrets in
 `web/edge/.env`, and its build output in `build/edge/`. A client's window is always
 `client/<name>/Main.qml`, so nothing declares an entry point either.
 
@@ -265,8 +265,8 @@ A web edge entity, with sub sections for its public (internet facing) side, its 
     #   https://synqt.org/deploying/#8-running-more-than-one-edge
     # threads: 4
     #   Spread this edge's accepted browser sockets across N IO threads, in one process.
-    #   Default 1, which is every project that does not write this. Nothing you wrote
-    #   moves: the Sources, the QML engine and the entity singleton stay on the main
+    #   Default 1, which is every project that does not write this. Everything you wrote
+    #   stays put: the Sources, the QML engine and the entity singleton stay on the main
     #   thread, so unlike `replicas:` there is nothing for `synqt check` to prove and no
     #   `behind:` requirement. See
     #   https://synqt.org/deploying/#running-one-edge-on-more-than-one-core
@@ -279,8 +279,8 @@ A web edge entity, with sub sections for its public (internet facing) side, its 
       #   The peers whose `X-Forwarded-For` this edge believes, as addresses or CIDR
       #   ranges. Empty (the default) means the connecting peer IS the visitor, which is
       #   true of an edge facing the internet directly and false of every connection at
-      #   once as soon as a proxy or balancer sits in front. Nothing is trusted
-      #   implicitly. A header from a peer not on this list is ignored, because otherwise
+      #   once as soon as a proxy or balancer sits in front. A header from a peer not on
+      #   this list is ignored, because otherwise
       #   the per-IP connection cap and rate limits become a bucket each client picks.
       # origin: https://app.example.com
       #   The origin browsers reach this edge at, which is a different question from the
@@ -478,8 +478,7 @@ origin, body size.
 proxy named, it is the connecting peer: correct when callers connect directly, but once a
 proxy sits in front, every request comes from the proxy and everybody shares one budget.
 Naming the proxy makes the limit count the address the proxy put in `X-Forwarded-For`, so
-each caller gets their own budget again. Nothing is trusted implicitly: the header is read
-only from a listed peer, and only its rightmost entry that is not itself a listed hop,
+each caller gets their own budget again. The header is read only from a listed peer, and only its rightmost entry that is not itself a listed hop,
 because everything further left is whatever the client sent. `synqt check` refuses an entry
 that is not an address or CIDR range, instead of dropping it silently at startup, which
 would leave the surface counting the proxy as every caller.
@@ -509,9 +508,8 @@ total limit still applies. Zero disables either.
 A handler may answer later, as any handler that calls a connect point or an upstream does.
 The connection stays open until `reply_timeout_ms`; after that the request fails with 504
 and the failure is reported, so a handler that never answers costs a status code, not a
-socket. `0` does not mean wait forever: a silent handler would hold its request and
-connection for the life of the process, so zero falls back to the default, with a one-time
-notice.
+socket. `0` falls back to the default, with a one-time notice, because an unbounded wait
+would let a silent handler hold its request and connection for the life of the process.
 
 Validation of the block:
 
@@ -619,8 +617,7 @@ the full member grammar, the types a member can name, and what a bare name resol
 `synqt check` compares every line with the owner's Source, and a member the Source does not
 implement is an error.
 
-Neither the point nor the contract has a name of its own. A point exports its owner's name,
-capitalized: `owner: edge` exports `Edge`, the QML type the owner's Source is rooted at.
+The point and its contract both take their owner's name, capitalized: `owner: edge` exports `Edge`, the QML type the owner's Source is rooted at.
 That is also `web/edge/Edge.qml`, the edge's own file, because an entity and its exported
 surface are one thing. The build writes the contract to
 `generated/<owner's folder>/Edge.syn`, which nobody edits.
@@ -640,13 +637,13 @@ count)`. The point's scope decides who acquires it at all. A member's scope deci
 anything about that member crosses to a caller who did. See
 [gating one member](programming-model.md#gating-one-member-scope).
 
-The number of Sources a point creates is not set here: it follows from `shared:` on the
-owning entity. Shared (the default) means one Source that everybody reaches through their
+The number of Sources a point creates follows from `shared:` on the owning entity. Shared (the default) means one Source that everybody reaches through their
 own mirror; `shared: false` means one Source per caller. See
 [the programming model](programming-model.md#how-many-of-an-entity-there-are-shared).
 
-No value means "one Source for everybody", because such a Source could not know who was
-calling, so its slots would have no `Caller`. State every caller shares belongs in the
+Every caller reaches a Source of its own (a mirror, on a shared entity), because a Source
+answering everybody directly could not know who was calling, and its slots would have no
+`Caller`. State every caller shares belongs in the
 owner entity's
 [singleton](programming-model.md#connect-points-owned-by-one-entity-consumed-by-others),
 which outlives all callers. A Source is live state either way, and a per-caller Source
@@ -758,10 +755,10 @@ edge, Chromium 149 closes the connection (code 1006, `Sent non-empty
 'Sec-WebSocket-Protocol' header but no response was received`) while Firefox 151 opens it.
 An edge that works in one engine and not the other is worse than a clear refusal. A test
 keeps the Qt half of that measurement
-([`tests/m5-webedge`](https://github.com/Kidev/SynQt/tree/main/tests/m5-webedge)), and it
+([`tests/webedge`](https://github.com/Kidev/SynQt/tree/main/tests/webedge)), and it
 fails the day a Qt release makes this transport possible.
 
-Nothing needs it: a browser holds the httpOnly cookie, and a native desktop client,
+Both clients manage without it: a browser holds the httpOnly cookie, and a native desktop client,
 which terminates its own TLS, presents its stored session directly on the handshake.
 
 ### Serving the client from another origin (deprecated) { #serving-the-client-from-another-origin }
@@ -815,11 +812,11 @@ are in [`tests/split-origin`](https://github.com/Kidev/SynQt/tree/main/tests/spl
 | WebKit, which is Safari's engine, today | nothing works. The session request comes back unreadable and the upgrade carries no credential, with or without `Partitioned` |
 | third party cookies restricted | nothing works. The session request is ignored, the upgrade arrives with no credential, and the edge refuses it |
 
-In the last two rows, the app appears on screen but stays disconnected for good; it does
-not degrade gradually. The middle row is a shipping browser today, and the others show
+In the last two rows, the app appears on screen and stays disconnected for good, with no
+gradual degradation. The middle row is a shipping browser today, and the others show
 where browsers are heading.
 
-The obvious fix does not work either. Marking the cookie `Partitioned` (CHIPS) is the
+The obvious fix fails too. Marking the cookie `Partitioned` (CHIPS) is the
 standard way to keep a third party cookie alive, and it rescues the session bootstrap and
 the upgrade under restriction. But it breaks login everywhere, even in browsers where the
 plain cookie still works: the OAuth callback is a top level navigation to the edge, so the
@@ -833,8 +830,8 @@ code, and the page would exchange it there, so the cookie lands in the client's 
 and login works. But that fixes one engine. In the same measurement, Firefox stored the
 `Partitioned` cookie with no partition key, meaning it ignored CHIPS, so under restriction
 the mode still fails there whatever the callback does. WebKit, measured since, never reads
-the cookie back from the client site, with or without the attribute. A redesign that fixes
-Chromium but not Firefox and Safari fixes nothing, so the mode is deprecated instead.
+the cookie back from the client site, with or without the attribute. A redesign would fix
+Chromium alone, so the mode is deprecated instead.
 
 #### What to do instead
 
@@ -845,7 +842,7 @@ and none of the above applies. Whether that node owns its connect points or forw
 to an edge behind it is an operational choice the client never sees: it reaches
 everything through `Server` either way.
 
-That is why `split_origin` is not in the scaffold and is deprecated. Several edges under
+That is why `split_origin` is deprecated and left out of the scaffold. Several edges under
 one origin ([replicas](deploying.md#8-running-more-than-one-edge)), behind whatever
 forwarder or CDN node the deployment already has, give what split origin was for without
 a third party cookie in the critical path. `split_origin` still runs, but you carry the
@@ -863,7 +860,7 @@ mesh:
   require_mtls_cross_host: true      # cross host links must be mTLS; cannot be disabled in release
 ```
 
-Certificate lifetime is not configurable. Entity certificates last 398 days and the CA
+Certificate lifetime is fixed. Entity certificates last 398 days and the CA
 twice that, and `synqt mesh status` warns 30 days before one expires. The 398 comes from
 Apple's verifier, which refuses any TLS leaf issued after 2020-09-01 that is valid for
 more than 398 days, whatever it chains to, so a macOS host can reject a longer lifetime
@@ -1014,20 +1011,20 @@ cookie) and asks the auth entity for every step that needs a secret. See
 
 `desktop_session` is the only key here that stores something on a visitor's disk, so it is
 opt in. Under `device`, a native client keeps a rotating, single-use device credential in
-the OS secure store and spends it at the next launch for a fresh session. The session's own
-lifetime does not change. `store` is an ordinary provider block (the same keys as an
+the OS secure store and spends it at the next launch for a fresh session. The session keeps
+its own lifetime. `store` is an ordinary provider block (the same keys as an
 entity's `provider:`, `env:` references included), and a second edge must be able to reach
 it if the deployment ever runs two. [Desktop clients](desktop.md#storing-the-session)
 covers what each platform binds the credential to and why there is no file fallback.
 
 `synqt check` refuses `device` without a `store`, `device` when no client entity lists the
 `desktop` target, and `min_binding: hardware`: each produces a build where nobody ever
-stays signed in, with no explanation. No store SynQt ships reports the `hardware` level, so
-requiring it excludes every machine. A floor of `application` gets a warning instead,
+stays signed in, with no explanation. Every store SynQt ships stops below the `hardware`
+level, so requiring it excludes every machine. A floor of `application` gets a warning instead,
 because whether a machine reaches it depends on that machine, and the edge decides at
 enrolment.
 
-Two behaviors are not settings, because they are mandatory, and a key that could
+Two behaviors are fixed, because they are mandatory, and a key that could
 contradict them would only allow mistakes. The session cookie's `SameSite` follows
 [`project.origin_model`](#project) (`Lax` for `same_origin`, `None; Secure` for
 `split_origin`), and the session id always rotates on a privilege change.
@@ -1133,9 +1130,8 @@ register as `Header` in the same module, and one would silently hide the other.
 `synqt check` refuses a route whose view is missing, naming the route and the file it
 looked for. It also refuses a view outside the client entity's directory (an absolute
 path, a `../` path, or a Windows drive path). Both `synqt check` and the generator refuse
-a route with neither a `view` nor a `remote`, since it has nothing to show. Do not add
-views to the generated `CMakeLists.txt` by hand: every build rewrites it from
-`synqt.yaml`.
+a route with neither a `view` nor a `remote`, since it has nothing to show. A view needs no
+entry in `generated/synqt.cmake`, which every build rewrites from `synqt.yaml`.
 
 ### `graphics`: which routes need an accelerated scene graph
 
@@ -1144,8 +1140,7 @@ lack it, because a policy disables it or the browser blocks their driver. The cl
 before it starts and falls back to Qt's raster adaptation, which handles ordinary 2D Qt
 Quick completely. This needs no configuration.
 
-Three features do not work on the raster adaptation, and they draw nothing instead of
-degrading: [Qt Quick 3D](https://doc.qt.io/qt-6/qtquick3d-index.html), `ShaderEffect` and
+Three features need the accelerated pipeline and draw nothing on the raster adaptation: [Qt Quick 3D](https://doc.qt.io/qt-6/qtquick3d-index.html), `ShaderEffect` and
 [Qt Quick Effects](https://doc.qt.io/qt-6/qtquickeffects-qmlmodule.html). A route using any
 of them shows a notice explaining this instead of an empty area.
 
@@ -1186,7 +1181,7 @@ the page otherwise, so write it to work in both positions.
 
 ### Edge-delivered pages (`remote:`)
 
-A `remote:` route is not compiled into the client. Its file lives in the web edge entity's
+A `remote:` route stays out of the compiled client. Its file lives in the web edge entity's
 `pages/` directory: for an edge named `edge`, `remote: Campaign.qml` means
 `web/edge/pages/Campaign.qml`. The edge holds these files and sends one over the same
 authenticated `wss` link when a visitor navigates to its route, so a delivered page never
@@ -1194,7 +1189,7 @@ enters the bundle, and you can add or change it without rebuilding the client.
 [Remote pages](remote-pages.md) covers the full feature: the palette trust boundary, the
 page seed, and what a page's `scope` protects and what it does not.
 
-Unlike `view:` routes, `remote:` routes are not fixed at build time. The edge sends the
+`remote:` routes can change after the build, unlike `view:` routes. The edge sends the
 connected client its route table, so the client learns from the edge which paths it
 delivers, and a new `remote:` route works without a client rebuild. When the two tables
 merge, the compiled-in one wins: a path the bundle declares as a `view:` stays, even if
@@ -1218,15 +1213,15 @@ Three rules decide what a path resolves to:
 - **The query string is not part of the path.** It is split off before matching and arrives
   as `Router.query`, so `/search` and `/search?q=hat` are the same route.
 
-A route guard redirects; it keeps nothing secret. Every view's QML ships to every visitor.
+A route guard only redirects. Every view's QML ships to every visitor.
 The data behind a privileged view is protected by the scope-gated connect point, which the
 edge refuses to an under-scoped session. See
 [route guards](programming-model.md#route-guards-which-client-views-are-reachable).
 
 ### Development settings live on the command line
 
-There is no `dev` section. `synqt dev` is a command, not a deployment, so development
-options are passed on its command line:
+`synqt dev` is a command, not a deployment, so development options go on its command line
+instead of in a `dev` section:
 
 | Flag | Default | Effect |
 |------|---------|--------|
@@ -1237,7 +1232,7 @@ options are passed on its command line:
 | `--identity-picker` | the project's own sign-in | replace every sign-in with one page listing the project's scopes, so a scope can be held without a provider ([the scope picker](authentication.md#skipping-the-flow-the-scope-picker)) |
 | `--profile NAME` | none | layer `synqt.NAME.yaml` over `synqt.yaml`, which is where a per developer override belongs |
 
-Two things about a development run cannot change. The browser link uses plaintext, because
+Two things about a development run are fixed. The browser link uses plaintext, because
 it runs on loopback and a self-signed certificate there teaches the wrong habit. Mesh links
 keep mutual TLS, with a throwaway development CA that `synqt dev` creates (see
 [`mesh`](#mesh-service-to-service-security)), because developing without the deployment's
@@ -1291,11 +1286,11 @@ suspends inside `processEvents()`, and any browser event resumes it and drains t
 so nothing depends on a single callback. Asyncify also lets `QEventLoop::exec()` run on the
 main thread, which otherwise calls `qFatal()`.
 
-SynQt does not need it. The framework resolves a returning slot's reply from the call's own
+SynQt's own code runs without it. The framework resolves a returning slot's reply from the call's own
 state, not from a queued signal, and defers object deletion with a timer, not a posted
 event, so none of its code depends on that callback. Turn it on if your own client C++
 queues connections on that path and you prefer the larger bundle to auditing them.
-[`tests/m0-transport/FIREFOX-LINUX.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/FIREFOX-LINUX.md)
+[`tests/transport-spike/FIREFOX-LINUX.md`](https://github.com/Kidev/SynQt/blob/main/tests/transport-spike/FIREFOX-LINUX.md)
 has the measurement in both engines.
 
 ### `check`
@@ -1384,8 +1379,8 @@ build left on the same origin.
 ### `build.desktop`
 
 A map nested under `build`, present only when the client entity lists `desktop` in its
-`targets`. The edge does not serve a native client, so unlike the browser client, it cannot
-read the edge's address from the page that delivered it. This section gives it that
+`targets`. A native client is installed rather than served by the edge, so unlike the
+browser client it cannot read the edge's address from the page that delivered it. This section gives it that
 address. See [desktop clients](desktop.md).
 
 ```yaml
@@ -1394,8 +1389,8 @@ build:
     edge_url: wss://app.example.com/sync   # the public edge endpoint the app connects to
 ```
 
-There is no platform list. A desktop build produces an app for the machine it runs on,
-using that machine's host Qt kit, so building for all three platforms means running
+A desktop build produces an app for the machine it runs on, using that machine's host Qt
+kit, so building for all three platforms means running
 `synqt build --client desktop` on each. The CLI does not cross compile native desktop apps.
 The app takes the client entity's name.
 
@@ -1432,7 +1427,7 @@ entities:
 `entities` merge entry by entry on `name`, and `connect_points` on `owner`, so a profile
 can adjust one entity or one point without restating the topology. Every other list, such as a connect point's
 `consumers` or `scopes.order`, is replaced whole, because its members and order are its
-value. A profile changes and adds, but never removes. There is no delete syntax: dropping a
+value. A profile changes and adds, and has no delete syntax: dropping a
 consumer or an entity is a security change, and it belongs in the file that declares the
 list, not in an overlay.
 

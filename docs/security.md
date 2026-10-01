@@ -105,7 +105,7 @@ the caller. The edge decides again, on the same connection, which scope-gated co
 points the session now meets. It hosts each point the visitor has just gained, and the
 browser's Replica for it comes up. It withdraws each point the session no longer meets,
 so a demotion stops every push on that point, not only the next call.
-`tests/m7-caller` raises and lowers a scope on one live connection to check both.
+`tests/caller` raises and lowers a scope on one live connection to check both.
 
 **The old credential after a rotation.** A slot cannot set a cookie, so the browser
 still holds the credential the elevation replaced. For ten minutes the edge remembers
@@ -114,7 +114,7 @@ instead of a fresh anonymous session. A route whose own response carries the new
 cookie (the monitor's password gate) keeps no such hand-off. There, the browser that
 signed in already holds the new credential, and a hand-off could only let someone else
 redeem the old id for the new session. That is session fixation, which rotation on
-elevation exists to prevent, so the old id is dead at once. `tests/m5-webedge` presents
+elevation exists to prevent, so the old id is dead at once. `tests/webedge` presents
 it again after a sign-in and checks that it gets nothing.
 
 Rejecting at the upgrade, before a socket or any QtRO state exists, keeps
@@ -145,8 +145,8 @@ cross origin relaxation in the system, and it is off in every other deployment.
 
 The cost is a third party session cookie, and it was measured. When third party
 cookies are restricted, the browser cannot obtain the session and the edge refuses the
-upgrade, so the app loads and never connects. The `Partitioned` (CHIPS) attribute does
-not fix this; it breaks login instead. The measurement and the full table are in
+upgrade, so the app loads and never connects. The `Partitioned` (CHIPS) attribute breaks
+login instead of fixing this. The measurement and the full table are in
 [serving the client from another
 origin](project-layout-and-config.md#serving-the-client-from-another-origin). A reverse
 proxy or a nearby node that serves both the bundle and the sync path under one hostname
@@ -209,8 +209,8 @@ links. Inside a slot, the owner can check `Caller.entity` for finer decisions (f
 example, a database slot only the edge may call). Push only properties and per caller
 instances work here as they do for browser users.
 
-**No registry, deny by default.** SynQt does not use the QtRO registry. The registry
-offers ambient discovery and automatic connection: any node that reaches it can find
+**A declared topology, denied by default.** SynQt leaves the QtRO registry unused. The
+registry offers ambient discovery and automatic connection: any node that reaches it can find
 sources and connect to them, which a zero trust mesh cannot allow. Instead, the
 configuration declares the whole topology (each connect point names its owner and
 consumers), and the framework opens only those links, each mutually authenticated. An
@@ -241,8 +241,8 @@ behind an entity (PostgreSQL, MongoDB, Redis; see [providers](providers.md)), on
 entity can reach the engine, and the entity is the trust boundary. Hiding the engine
 this way is itself a security property:
 
-- The engine connection lives only inside the entity. No mesh consumer and no browser
-  gets the engine address, the credentials, or a direct path to it. Every call passes
+- The engine connection lives only inside the entity, so mesh consumers and browsers
+  never get the engine address, the credentials, or a direct path to it. Every call passes
   the entity's `Caller` checks before any provider call runs, so the entity's fine
   grained authorization sits in front of an engine whose own may be coarser.
 - Engine credentials are `env:` references on that entity only. They never appear in
@@ -258,9 +258,9 @@ this way is itself a security property:
 - Provider client libraries are maintained upstream clients from the system's packages
   (the MongoDB C driver, hiredis). A custom provider is reviewed like entity code.
 
-Adding a managed PostgreSQL or a MongoDB cluster therefore does not widen the system's
-exposure. It adds one authenticated, verified connection with isolated credentials,
-inside one entity, behind the same two trust boundaries as the embedded case.
+Adding a managed PostgreSQL or a MongoDB cluster therefore adds one authenticated,
+verified connection with isolated credentials, inside one entity, behind the same two
+trust boundaries as the embedded case. The system's exposure stays as it was.
 
 ## Authorization, restated for the mesh
 
@@ -317,16 +317,16 @@ same map under the same rules, because every entity further down repeats them an
 monitoring history records them. A browser's `Caller` discards them, as it discards a
 claimed session, so a trace starts at the edge. Between entities, a trace identifier is
 accepted only in the shape the tracer mints, so a peer cannot choose the length or
-content of a value that travels under this entity's name. A trace identifier authorizes
-nothing. It says which story a call belongs to, never who may make it.
+content of a value that travels under this entity's name. A trace identifier says which
+story a call belongs to and authorizes nothing.
 
 ## Data minimization in the contract
 
 The contract is an allowlist of what may cross a link. The framework cannot send what
 the contract does not declare. A model exposes only its listed roles, so an owner's row
 can hold owner ids, internal flags or private fields that never reach a consumer. Only
-configured connect points are exposed. No consumer, browser or entity, can reach an
-arbitrary QObject, and without the registry there is no discovery path either.
+configured connect points are exposed. A consumer, browser or entity, reaches only those
+points, and without the registry it has no discovery path either.
 
 The allowlist also applies per caller. A member written `<admin>` in the `export:` block
 ([gating one member](programming-model.md#gating-one-member-scope)) crosses only to a
@@ -387,7 +387,7 @@ merely hidden, a browser console could read them.
     process (page loads and reconnects included) would be refused at accept from then
     on, and after the global quota, so would everyone. The edge counts itself and
     decrements when the raw socket is destroyed, which no hand-over can bypass.
-    `tests/m5-webedge` opens more links than the cap from one address, one at a time,
+    `tests/webedge` opens more links than the cap from one address, one at a time,
     to check this.
 
 - **Session ceiling.** `security.max_sessions` (100000) bounds the one table a stranger
@@ -419,7 +419,7 @@ merely hidden, a browser console could read them.
   `synqt check` refuses that combination so a deployment does not discover it under
   load.
 - **Header and URL ceilings.** Qt's defaults: 64 KiB of headers in total, 48 KiB for
-  one field, 128 fields, a 64 KiB URL. No browser comes near them. They are the only
+  one field, 128 fields, a 64 KiB URL. Browsers stay far below them. They are the only
   bound on how long one peer can dribble a request, and at one byte every few seconds
   that bound is days away. The socket cap limits how many such peers there can be.
 - **Read buffer ceiling.** Capping each frame does not cap their sum, so the transport
@@ -484,7 +484,7 @@ merely hidden, a browser console could read them.
   alone is a guess: the compiler decides what one level of nesting costs, and
   sixty-four levels fit the 8 MB main thread stack on Linux and macOS but not the 1 MB
   one on Windows. Both limits are far above what a real deployment reaches, and neither
-  is a setting to tune. `tests/m8-auth/tst_m8.cpp` sends more callbacks than the limits
+  is a setting to tune. `tests/auth/tst_auth.cpp` sends more callbacks than the limits
   allow at a stalled provider, against an edge on a deliberately small stack, and
   checks that the edge holds.
 
@@ -616,7 +616,7 @@ Anyone can show a user a link, and the link sets the stored path, so validation 
 only thing that stops the resume from becoming an open redirect. The client accepts a
 stored path only when all of these hold, and checks again when it uses the path:
 
-- It is not empty and has at most 2048 characters.
+- It has between 1 and 2048 characters.
 - It starts with exactly one `/`. A protocol relative `//host` is another origin: the
   open redirect this guards against.
 - It contains no `:`. A scheme cannot follow a leading `/` anyway, so the rule is
@@ -743,7 +743,7 @@ entry unless the same flag is set. The picker registers its routes only when
 reached through a bug in one of those checks or through an argument someone passes, and
 anyone holding the artifact can read its strings.
 
-So a release build does not contain the code at all. Three independent layers ensure
+So a release build leaves the code out entirely. Three independent layers ensure
 it, in the order they would fail:
 
 1. **CMake never names the file.** `src/edge/CMakeLists.txt` adds the development
@@ -824,9 +824,9 @@ Browser link:
   Transport on macOS, Schannel on a Windows build without OpenSSL) receive the pair as a
   PKCS#12 blob, which Qt writes only for RSA and DSA. On those, the edge refuses an
   elliptic curve key at startup and says so.
-- **One origin.** No `origin_model` unless you chose split origin on purpose.
+- **One origin.** Leave `origin_model` unset unless you chose split origin on purpose.
   `allowed_origins` lists exactly the origins that may open the sync connection.
-- **The session is the httpOnly Secure cookie.** There is no other transport. The
+- **The session is the httpOnly Secure cookie.** It is the only transport. The
   subprotocol is refused, for a toolkit reason recorded with the config keys.
 - **CSP is the restrictive default,** and any widening has been reviewed.
 - **A private deployment serves a gate to visitors who have not signed in.** Map the
@@ -836,7 +836,7 @@ Browser link:
   privileged view still ships to every visitor. A file outside the caller's bundle
   answers 404, never 403.
 - **Cross origin isolation matches the threading mode.**
-- **The route table passes `synqt check`.** No client route claims a path the edge
+- **The route table passes `synqt check`.** Client routes leave alone every path the edge
   answers itself (the sync endpoint or the login routes), and the fallback is a declared
   route. A guard is only a redirect, so every privileged view still gets its data
   through a scope gated connect point.
@@ -866,16 +866,16 @@ Mesh links:
 Authorization and data:
 
 - **Every privileged slot checks `Caller`** (the user's scope and ownership, or the
-  calling entity) and validates its input before acting. No slot relies on a check on
-  the consumer side.
+  calling entity) and validates its input before acting, whatever the consumer side
+  already checked.
 - **Private per caller state uses `shared: false`,** so one caller's state never sits in
   another caller's Source.
 - **Contracts expose only what consumers need.** Private fields stay off the contract.
 - **The database, and any sensitive entity, is reachable only through authorized connect
   points,** never from the browser or the internet.
 - **External engines behind a provider** sit on a private address, connect over verified
-  TLS, and have `env:` credentials on their entity only. No consumer can reach the
-  engine directly.
+  TLS, and have `env:` credentials on their entity only. Only that entity reaches the
+  engine.
 - **Every `network.outbound` entry is as narrow as it can be,** host and path included,
   because the entry's headers travel with every call under it. The runtime compares
   scheme, host, port and path segments, not the URL text, so no spelling escapes a

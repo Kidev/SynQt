@@ -9,10 +9,10 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "tests/m0-transport/verify/run-mt.sh"
-      - "tests/m0-transport/verify/verify-mt.mjs"
+      - "tests/transport-spike/verify/run-mt.sh"
+      - "tests/transport-spike/verify/verify-mt.mjs"
       - "tests/wasm-quick3dphysics/**"
-      - "tests/m6-client/**"
+      - "tests/client/**"
       - "tests/plaza-browser/**"
       - "examples/arena/**"
       - "examples/plaza/**"
@@ -50,8 +50,8 @@ jobs:
             needs_qtremoteobjects: true
             qt_modules: qtwebsockets
             browsers: chromium firefox webkit
-            script: tests/m0-transport/verify/run-mt.sh
-            verify_dir: tests/m0-transport/verify
+            script: tests/transport-spike/verify/run-mt.sh
+            verify_dir: tests/transport-spike/verify
           - label: physics-single
             kit: wasm_singlethread
             needs_qtremoteobjects: false
@@ -70,8 +70,8 @@ jobs:
             needs_jwt_cpp: true
             qt_modules: qtwebsockets
             browsers: chromium firefox webkit
-            script: tests/m6-client/run-m6.sh
-            verify_dir: tests/m6-client/verify
+            script: tests/client/run-client.sh
+            verify_dir: tests/client/verify
           - label: plaza-browser
             kit: wasm_singlethread
             needs_qtremoteobjects: true

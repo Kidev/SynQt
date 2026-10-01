@@ -6,7 +6,7 @@
 // One claim needs a browser and cannot be made anywhere else. Two tabs of one browser
 // context share one cookie jar, because RFC 6265 scopes a cookie to a host and not a port,
 // and "the second sign-in did not become the first" is a statement about that jar.
-// tests/m5-webedge proves the edge sets two differently-named cookies. Only this proves a
+// tests/webedge proves the edge sets two differently-named cookies. Only this proves a
 // browser then keeps two sessions and hands each tab its own.
 //
 // Which bundle came back is how a tab is asked who it is. The session cookie is httpOnly,

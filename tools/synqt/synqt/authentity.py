@@ -7,7 +7,7 @@ With ``identity.provider_entity`` an auth entity owns ``identity`` (the OAuth en
 ``sessions`` (the authoritative session store). Their Sources are the same in every project:
 they forward each slot to the C++ engine the generated ``main.cpp`` puts in their context,
 and forward answers back as signals. The text is fixed and checked in at
-``tests/m8-auth/auth/`` as that suite's fixture; a unit test keeps the two identical.
+``tests/auth/auth/`` as that suite's fixture; a unit test keeps the two identical.
 """
 
 from __future__ import annotations

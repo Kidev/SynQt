@@ -62,7 +62,7 @@ def client_asyncify(config: Dict[str, Any]) -> bool:
     timer fires; with it, the main thread suspends in ``processEvents()`` and any handler
     resumes it. SynQt does not depend on it (``src/consumer/promise.cpp``,
     ``SynQt::deleteSoon``); it is for applications with their own queued connections. See
-    tests/m0-transport/FIREFOX-LINUX.md.
+    tests/transport-spike/FIREFOX-LINUX.md.
     """
     return bool((config.get("build") or {}).get("client_asyncify", False))
 

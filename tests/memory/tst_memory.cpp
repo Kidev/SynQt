@@ -447,7 +447,7 @@ private slots:
     // QNetworkAccessManager caches a connection and its TLS session per host:port and
     // releases them only on an inactivity timer, so a long-lived one pointed at a fresh
     // port every cycle holds about 131 KB per edge that has nothing to do with the edge.
-    // tests/m5-webedge uses a shared client and so shows that cost; with a fresh client it
+    // tests/webedge uses a shared client and so shows that cost; with a fresh client it
     // is zero, and what is left over is the edge, which keeps nothing.
     void anEdgeThatServedARequestLetsGoOfAllOfIt()
     {
@@ -484,7 +484,7 @@ private slots:
     // it through SocketChannel, which adopts the raw socket to carry it to another thread.
     //
     // LeakSanitizer sees the same leak as a graph with no root under
-    // QSslServer::incomingConnection, (N-1) times for N repetitions of any m5 slot that
+    // QSslServer::incomingConnection, (N-1) times for N repetitions of any webedge slot that
     // completes an upgrade.
     void anEdgeThatCarriedABrowserLetsGoOfTheSocketItArrivedOn()
     {
@@ -1030,7 +1030,7 @@ private slots:
 
     // A mesh link is kept up, so a consumer builds a new node, transport and Replica every
     // time an owner restarts. Restarting a service is ordinary, so the old ones have to go.
-    // This is the reconnect m4 proves correct, asked what it costs to do it a hundred
+    // This is the reconnect tests/topology proves correct, asked what it costs to do it a hundred
     // times.
     void theMeshLinkLetsGoOfEveryRetiredNode()
     {

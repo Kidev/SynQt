@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Build the client runtime library and the transport acceptance test,
+# then run it (acquire a host Source through WebSocketTransport over a real local
+# plaintext WebSocket. Property change reaches the Replica. Slot call reaches the
+# Source).
+
+set -euo pipefail
+
+QT_HOST="${QT_HOST:-/opt/Qt/6.12.0/gcc_64}"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO_ROOT"
+
+cmake -S tests/browser-transport -B build/browser-transport -G Ninja \
+    -DCMAKE_PREFIX_PATH="$QT_HOST" \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build/browser-transport
+
+ctest --test-dir build/browser-transport --output-on-failure

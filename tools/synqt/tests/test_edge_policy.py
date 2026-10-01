@@ -129,7 +129,7 @@ class TestSecurityBlock(unittest.TestCase):
 
     def test_an_unimplemented_session_transport_is_refused(self):
         # `session_transport: subprotocol` is refused: this upgrade path cannot select a
-        # subprotocol (see tests/m5-webedge).
+        # subprotocol (see tests/webedge).
         with self.assertRaises(appmodel.AppGenError) as caught:
             render(base_config(security={"session_transport": "subprotocol"}))
         self.assertIn("session_transport", str(caught.exception))

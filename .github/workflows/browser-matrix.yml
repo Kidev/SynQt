@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "tests/m0-transport/**"
+      - "tests/transport-spike/**"
       - "tests/split-origin/**"
       - ".github/workflows/browser-matrix.yml"
 
@@ -26,7 +26,7 @@ env:
   AQT_VERSION: "16db45a70b5905ad596941b223469bc86a56901e"
 
 jobs:
-  m0:
+  spike:
     name: Transport spike (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -45,7 +45,7 @@ jobs:
       QT_VERSION: "6.12.0"
       EM_VERSION: "5.0.5"
       QT_ROOT: ${{ github.workspace }}/Qt
-      M0_HEADLESS: "1"
+      SPIKE_HEADLESS: "1"
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -147,7 +147,7 @@ jobs:
           cmake --install "$RUNNER_TEMP/qtro-wasm"
 
       - name: Install Playwright engines (WebKit + Chromium + Firefox)
-        working-directory: tests/m0-transport/verify
+        working-directory: tests/transport-spike/verify
         run: |
           npm install --no-audit --no-fund
           if [ "${{ runner.os }}" = "Linux" ]; then
@@ -164,7 +164,7 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
           source "$HOME/emsdk/emsdk_env.sh"
-          tests/m0-transport/verify/run-m0.sh
+          tests/transport-spike/verify/run-spike.sh
 
       # WebKit cannot be told to map hosts, so the hosts file does.
       - name: Map the split-origin test sites
@@ -179,8 +179,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: m0-${{ matrix.label }}-log
-          path: build/m0-verify.log
+          name: spike-${{ matrix.label }}-log
+          path: build/spike-verify.log
           if-no-files-found: ignore
 
       - name: Archive the split-origin measurement

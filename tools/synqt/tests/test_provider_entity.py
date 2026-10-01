@@ -268,10 +268,10 @@ class SourceQmlBridges(unittest.TestCase):
         self.assertIn("Sessions.applyUpsert(token, scope, identityJson, createdMs)",
                       session)
 
-    def test_the_generated_bridge_is_the_one_m8_proves_over_a_real_mesh_link(self):
-        """The generated bridges are the files tests/m8-auth proves over a real mesh link."""
+    def test_the_generated_bridge_is_the_one_the_auth_suite_proves_over_a_real_mesh_link(self):
+        """The generated bridges are the files tests/auth proves over a real mesh link."""
         from pathlib import Path
-        fixtures = Path(__file__).resolve().parents[3] / "tests" / "m8-auth" / "auth"
+        fixtures = Path(__file__).resolve().parents[3] / "tests" / "auth" / "auth"
         for contract, file_name in (("Identity", "Identity.qml"), ("SessionStore", "SessionStore.qml")):
             with self.subTest(contract=contract):
                 self.assertEqual(authentity.render_source_qml(contract),

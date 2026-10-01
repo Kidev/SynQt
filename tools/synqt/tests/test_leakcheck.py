@@ -48,7 +48,7 @@ Direct leak of 1856 byte(s) in 4 object(s) allocated from:
     #5 0x6 in QtPrivate::QSlotObjectBase::call(QObject*, void**) qtbase/src/corelib/kernel/qobjectdefs_impl.h:462
     #6 0x7 in void doActivate<false>(QObject*, int, void**) qtbase/src/corelib/kernel/qobject.cpp:4372
     #7 0x8 in operator() {repo}/src/transport/websockettransport.cpp:42
-    #8 0x9 in main {repo}/tests/m7-caller/tst_m7.cpp:516
+    #8 0x9 in main {repo}/tests/caller/tst_caller.cpp:516
 
 SUMMARY: AddressSanitizer: 1856 byte(s) leaked in 4 allocation(s).
 """
@@ -61,7 +61,7 @@ OURS_AT_THE_TOP = """
 Direct leak of 128 byte(s) in 1 object(s) allocated from:
     #0 0x1 in operator new(unsigned long) (/usr/lib/libasan.so.8+0x1)
     #1 0x2 in SynQt::WebEdge::start() {repo}/src/edge/webedge.cpp:700
-    #2 0x3 in main {repo}/tests/m5-webedge/tst_m5.cpp:120
+    #2 0x3 in main {repo}/tests/webedge/tst_webedge.cpp:120
 
 SUMMARY: AddressSanitizer: 128 byte(s) leaked in 1 allocation(s).
 """
@@ -76,7 +76,7 @@ ALL_INDIRECT_NO_ROOT = """
 Indirect leak of 4096 byte(s) in 8 object(s) allocated from:
     #0 0x1 in operator new(unsigned long) (/usr/lib/libasan.so.8+0x1)
     #1 0x2 in SynQt::WebEdge::start() {repo}/src/edge/webedge.cpp:979
-    #2 0x3 in main {repo}/tests/m5-webedge/tst_m5.cpp:120
+    #2 0x3 in main {repo}/tests/webedge/tst_webedge.cpp:120
 
 SUMMARY: AddressSanitizer: 4096 byte(s) leaked in 8 allocation(s).
 """
@@ -93,7 +93,7 @@ def test_a_process_that_leaked_whole_is_named_not_counted_as_zero(tmp_path, caps
     assert "named no root" in printed
     assert "4096 bytes" in printed
     # Named by the suite, not by the pid the log file is named after.
-    assert "tests/m5-webedge/tst_m5.cpp" in printed
+    assert "tests/webedge/tst_webedge.cpp" in printed
     # Named but left uncharged: the site is where the block was born, and something else
     # dropped it.
     assert "framework (src/), which is what this gate is for: 0 records" in printed

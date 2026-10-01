@@ -4,7 +4,7 @@
 # EntityRuntime injects a blueprint's backend helper (Db/Cache/Docs/Http/Jobs)
 # into every owned Source from the entity's provider config, with no manual wiring. Native
 # host kit; a local-socket connect point keeps the owner cert-free (this proves injection,
-# not the mesh, which tests/m3-mesh and tests/m4-topology cover).
+# not the mesh, which tests/mesh and tests/topology cover).
 
 cmake_minimum_required(VERSION 3.21)
 project(synqt_prov4_runtime LANGUAGES CXX)

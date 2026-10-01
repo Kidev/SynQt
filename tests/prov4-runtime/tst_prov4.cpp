@@ -114,7 +114,7 @@ private:
 
     /// A one connect point topology of `entityType`, owned by `entity`, whose Source is
     /// `sourceFile`. A local socket keeps the owner cert-free: these tests prove injection,
-    /// not the mesh, which tests/m3-mesh and tests/m4-topology cover.
+    /// not the mesh, which tests/mesh and tests/topology cover.
     static Topology typeTopology(const QString &entity, const QString &entityType,
                                  const QString &sourceFile, QVariantMap provider,
                                  QStringList outbound = {}, bool declaresOutbound = false)

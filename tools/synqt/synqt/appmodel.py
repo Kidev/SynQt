@@ -869,7 +869,7 @@ def default_scope(config: Dict[str, Any]) -> str:
 # The session credential the browser presents at the wss upgrade. Only the cookie is
 # implemented. A subprotocol token needs the server to select and echo a subprotocol, and on
 # the QHttpServer upgrade path `QHttpServerWebSocketUpgradeResponse::accept()` takes no
-# arguments. `tests/m5-webedge/tst_m5.cpp::theUpgradePathCannotNegotiateASubprotocol` fails
+# arguments. `tests/webedge/tst_webedge.cpp::theUpgradePathCannotNegotiateASubprotocol` fails
 # when Qt makes this possible.
 SESSION_TRANSPORTS = ("cookie",)
 

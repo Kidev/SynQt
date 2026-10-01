@@ -4,7 +4,7 @@
 """The multi-threaded WASM client under cross-origin isolation.
 
 ``build.client_threads`` drives the kit, the CMake preset, the edge COOP/COEP and worker-src
-headers, and the pairing check. The edge header emission is covered by tests/m5-webedge.
+headers, and the pairing check. The edge header emission is covered by tests/webedge.
 """
 
 import json
@@ -104,7 +104,7 @@ class EdgeMainTest(unittest.TestCase):
         self.assertIn("config.crossOriginIsolation = false;", self._edge_main(_single()))
 
     def test_multi_edge_turns_isolation_on(self):
-        # The generated edge turns on crossOriginIsolation (verified in tests/m5-webedge).
+        # The generated edge turns on crossOriginIsolation (verified in tests/webedge).
         self.assertIn("config.crossOriginIsolation = true;", self._edge_main(_multi()))
 
 

@@ -4,7 +4,7 @@
 """The mirror under ``generated/`` that makes a file rooted at its own name loadable.
 
 ``Ledger.qml`` rooted at ``Ledger`` resolves the name to itself ("Ledger is instantiated
-recursively", measured in tests/m1-contract). A connect point Source is the exception:
+recursively", measured in tests/contract). A connect point Source is the exception:
 ``import SynQt`` provides the contract type, which beats the directory import.
 """
 

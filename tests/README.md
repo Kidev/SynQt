@@ -25,7 +25,7 @@ to `build/all`.
 One suite, when that is what you are working on:
 
 ```sh
-QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/m5-webedge/run-m5.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/webedge/run-webedge.sh
 ```
 
 Both paths work because each suite guards its `add_subdirectory` of the runtime
@@ -71,17 +71,17 @@ Built and run by the tree:
 
 | Suite | What it holds to account |
 | --- | --- |
-| [m1-contract](m1-contract) | `.syn` to rep to compiled Source and Replica: push semantics, model roles, malformed input rejected |
-| [m2-transport](m2-transport) | `WebSocketTransport`: the QtRO acceptance path, and the device contract under it (framing, partial reads, large messages, the read-buffer ceiling, close handling) |
-| [m3-mesh](m3-mesh) | The mesh: mutual TLS on every link, a wrong or missing certificate refused at the handshake, the opt-in local socket |
-| [m4-topology](m4-topology) | `EntityRuntime` and deny by default: an entity not on a consumer list is refused |
-| [m5-webedge](m5-webedge) | The edge: bundle and headers, the upgrade pipeline, and the resource limits on it |
-| [m6-client](m6-client) | The client runtime natively (`SynClient`, `Server`, `Session`, `Router`), then the WASM client in every browser engine that installs. The browser phases need a kit this tree does not install, so `run-m6.sh` runs them and says so when it cannot, and [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) installs the kit in CI |
-| [m6-clientupdate](m6-clientupdate) | The client update decision behind the QML `App` accessor |
+| [contract](contract) | `.syn` to rep to compiled Source and Replica: push semantics, model roles, malformed input rejected |
+| [browser-transport](browser-transport) | `WebSocketTransport`: the QtRO acceptance path, and the device contract under it (framing, partial reads, large messages, the read-buffer ceiling, close handling) |
+| [mesh](mesh) | The mesh: mutual TLS on every link, a wrong or missing certificate refused at the handshake, the opt-in local socket |
+| [topology](topology) | `EntityRuntime` and deny by default: an entity not on a consumer list is refused |
+| [webedge](webedge) | The edge: bundle and headers, the upgrade pipeline, and the resource limits on it |
+| [client](client) | The client runtime natively (`SynClient`, `Server`, `Session`, `Router`), then the WASM client in every browser engine that installs. The browser phases need a kit this tree does not install, so `run-client.sh` runs them and says so when it cannot, and [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) installs the kit in CI |
+| [clientupdate](clientupdate) | The client update decision behind the QML `App` accessor |
 | [consumer-facade](consumer-facade) | `<Owner>.on<Signal>` attached handlers and the promise a returning slot gives back |
-| [m7-caller](m7-caller) | Sessions and `Caller`: expiry, rotation, scope gating, per-peer authorization, and the three-entity todo matrix |
-| [m8-auth](m8-auth) | Edge login: PKCE, browser-bound state, JWKS verification, scope mapping, the cookie |
-| [m9-providers](m9-providers) | The family interfaces and the bundled providers. The live engine proofs skip cleanly unless `SYNQT_TEST_*` names a reachable server |
+| [caller](caller) | Sessions and `Caller`: expiry, rotation, scope gating, per-peer authorization, and the three-entity todo matrix |
+| [auth](auth) | Edge login: PKCE, browser-bound state, JWKS verification, scope mapping, the cookie |
+| [providers](providers) | The family interfaces and the bundled providers. The live engine proofs skip cleanly unless `SYNQT_TEST_*` names a reachable server |
 | [prov4-runtime](prov4-runtime) | `EntityRuntime` injecting a typed entity's `Db`/`Cache`/`Http`/`Jobs` helper with no manual wiring |
 | [fix1-auction](fix1-auction) | The auction tutorial as an acceptance fixture, over [examples/gavel](../examples/gavel) |
 | [fix2-arena](fix2-arena) | The multiplayer tutorial likewise, over [examples/arena](../examples/arena) |
@@ -105,7 +105,7 @@ Owned by another toolchain, and therefore by another workflow:
 
 | Suite | Where it runs |
 | --- | --- |
-| [m0-transport](m0-transport) | The QtRO-over-WebSockets go/no-go spike, kept as a regression guard for an unsupported path. Real browsers, via [browser-matrix.yml](../.github/workflows/browser-matrix.yml) |
+| [transport-spike](transport-spike) | The QtRO-over-WebSockets go/no-go spike, kept as a regression guard for an unsupported path. Real browsers, via [browser-matrix.yml](../.github/workflows/browser-matrix.yml) |
 | [wasm-quick3dphysics](wasm-quick3dphysics) | Qt Quick 3D Physics building and loading on WebAssembly, via [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) |
 | [site-home](site-home) | The built documentation site's front page in a browser, via [docs.yml](../.github/workflows/docs.yml) and `make test-site` |
 | [plaza-browser](plaza-browser) | The 3D plaza example built by `synqt dev` and walked by two people in one browser, via [wasm-proofs.yml](../.github/workflows/wasm-proofs.yml) |

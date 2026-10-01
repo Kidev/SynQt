@@ -31,7 +31,7 @@ _MODULE_LICENSE = {
 }
 
 #: The CMake component each client Qt module is linked as. `cmakegen` writes the client
-#: `target_link_libraries` from it too; test_m10 checks both.
+#: `target_link_libraries` from it too; test_cli_flow checks both.
 CLIENT_MODULES = {
     "Qt6::Core": "Qt Core",
     "Qt6::Gui": "Qt Gui",

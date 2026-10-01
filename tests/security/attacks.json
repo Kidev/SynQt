@@ -45,140 +45,140 @@
       "id": "nested-callbacks-exhaust-the-stack",
       "what": "Callbacks are fired at the open /auth/callback route faster than the token exchanges behind them finish. Each one waits in a nested event loop that goes on serving requests, so every arrival nests inside the last and the depth follows the request rate until the stack runs out.",
       "defended_by": "At most sixty-four callbacks are exchanged at once, whether identity runs on the edge or on an auth entity, and the nesting may spend at most a quarter of the running thread's stack, whichever comes first. The stack bound matters on Windows, whose main thread gets one megabyte where Linux and macOS give eight.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "concurrentCallbacksAreBoundedWithIdentityInProcess"
     },
     {
       "id": "id-token-key-chosen-by-position",
       "what": "An ID token that names no signing key is verified against whichever key the provider happened to list first. During a rotation a provider publishes two, so whether a token is accepted depends on the order of a JSON array rather than on who signed it.",
       "defended_by": "A token with no kid is accepted only where the provider publishes exactly one key. With more than one it is refused, and the refusal names the ambiguity rather than the signature.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "anIdTokenThatNamesNoKeyIsRefusedWhenTheProviderPublishesTwo"
     },
     {
       "id": "mesh-key-readable-while-it-is-written",
       "what": "Another account on the build machine reads the project CA private key in the window between openssl creating the file and the tool restricting it. Whoever holds that key issues themselves a certificate for any entity, and every mesh link accepts it.",
       "defended_by": "The key file is created 0600 before openssl is run, so it is never readable by anyone else, rather than made unreadable a moment after it was.",
-      "file": "tools/synqt/tests/test_m10.py",
+      "file": "tools/synqt/tests/test_cli_flow.py",
       "test": "test_a_private_key_is_never_readable_by_anyone_else_even_briefly"
     },
     {
       "id": "entity-name-escapes-the-mesh-directory",
       "what": "A name given to `synqt mesh cert` is put literally into the key and certificate file names, the certificate subject and the SAN. A separator writes a private key outside the mesh directory; a `/` opens a second RDN, so the identity a peer is authenticated as is not the one the operator asked for.",
       "defended_by": "The same name rule `synqt check` holds a declared entity to is applied to the name typed at the prompt, before openssl is reached.",
-      "file": "tools/synqt/tests/test_m10.py",
+      "file": "tools/synqt/tests/test_cli_flow.py",
       "test": "test_a_name_that_is_not_an_entity_name_never_reaches_openssl"
     },
     {
       "id": "cross-site-websocket-hijack",
       "what": "A page on another origin opens a WebSocket to the edge, and the browser attaches the victim's session cookie to it.",
       "defended_by": "The upgrade verifier compares Origin against security.allowed_origins before a socket exists. A browser cannot forge Origin.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "disallowedOriginRejectedBeforeSocket"
     },
     {
       "id": "origin-gate-refuses-everyone",
       "what": "The origin gate is set against an origin no browser can arrive with, so it refuses every visitor and the app loops at the sign-in screen. It shipped that way: an edge built its own origin out of its bind address, and the default bind is 0.0.0.0.",
       "defended_by": "The edge derives its origin from public.origin, and a wildcard bind resolves to localhost rather than to itself. The test arrives the way a browser has to, at an address the edge did not name.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "wildcardBoundEdgeAcceptsTheBrowserThatCanReachIt"
     },
     {
       "id": "forged-session-at-upgrade",
       "what": "A hand-written client presents a session cookie it made up, or none at all.",
       "defended_by": "The verifier looks the credential up in the session manager and denies 401 before a socket exists.",
-      "file": "tests/m7-caller/tst_m7.cpp",
+      "file": "tests/caller/tst_caller.cpp",
       "test": "forgedSessionRefusedAtUpgrade"
     },
     {
       "id": "read-access-outlives-the-credential",
       "what": "A visitor signs out, and the tab that was open keeps receiving everything the owner pushes to the connect points that session had acquired.",
       "defended_by": "Ending a session closes the connections it authorized. Which points a connection hosts is decided at the upgrade from the scope the session holds, so revoking the credential has to take the socket with it.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "revokingASessionClosesTheConnectionsItAuthorized"
     },
     {
       "id": "a-demotion-leaves-the-point-streaming",
       "what": "A slot lowers a visitor's scope with Caller.setScope (an admin removing somebody's role, say). The connection stays up, and the connect points the edge hosted for the higher scope stay hosted on it: every property and model on them keeps replicating to a browser that has just lost the right to see them, and only a new call is refused.",
       "defended_by": "A rotation is a scope change, so the edge decides again on the live connection which scope-gated points the session now meets: one it no longer meets is withdrawn from the connection's node (and QtRO tells the browser), and one it has just become entitled to is hosted, which is also what makes a raised scope reach the browser without a reload.",
-      "file": "tests/m7-caller/tst_m7.cpp",
+      "file": "tests/caller/tst_caller.cpp",
       "test": "aScopeChangeUnderALiveConnectionMovesWhatItHosts"
     },
     {
       "id": "read-access-outlives-the-credential-on-a-threaded-edge",
       "what": "The same sign-out, on an edge running `threads: N`, where the socket to close belongs to an IO thread and not to the one the session manager runs on.",
       "defended_by": "The edge ends a connection through its device, which is on its own thread whichever thread the socket is on, and never by calling close() on the socket across a thread, which does nothing and reports nothing.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "revokingASessionClosesAThreadedConnection"
     },
     {
       "id": "read-access-outlives-an-elevated-credential",
       "what": "The same sign-out, on a session that was elevated while it was connected. An elevation rotates the credential, and the edge went on holding the socket under the id the handshake presented, so ending the session looked for the current one, found nothing, and closed nothing. The visitor's calls failed from then on, and the tab went on receiving every push.",
       "defended_by": "The edge follows the rotation in its own bookkeeping: the socket and the session's Sources move to the new credential, so the three ways a session ends still reach them.",
-      "file": "tests/m6-client/tst_m6.cpp",
+      "file": "tests/client/tst_client.cpp",
       "test": "revokingAnElevatedSessionClosesTheConnectionItAuthorized"
     },
     {
       "id": "sign-out-that-signs-nobody-out",
       "what": "Session.logout() resets the client and leaves the session alive at the edge, so the next page load signs the visitor straight back in.",
       "defended_by": "SynClient answers the request by reaching the edge's logout route; the session is gone from the edge afterwards.",
-      "file": "tests/m6-client/tst_m6.cpp",
+      "file": "tests/client/tst_client.cpp",
       "test": "logoutEndsTheSessionAtTheEdgeAndNotOnlyInTheClient"
     },
     {
       "id": "anonymous-where-identity-is-required",
       "what": "A caller with no identity connects to an edge whose project requires one.",
       "defended_by": "The verifier refuses it at the upgrade, before any object exists.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "anonymousUpgradeRefusedWhenIdentityIsRequired"
     },
     {
       "id": "under-scoped-caller",
       "what": "A signed-in user calls a slot their scope does not permit, or asks for another user's rows.",
       "defended_by": "The owner authorizes Caller inside every privileged slot; a consumer-side check is never the boundary.",
-      "file": "tests/m7-caller/tst_m7.cpp",
+      "file": "tests/caller/tst_caller.cpp",
       "test": "userAuthorizationMatrix"
     },
     {
       "id": "rogue-entity-no-certificate",
       "what": "A process on the network dials a mesh listener with no client certificate.",
       "defended_by": "Both ends verify the peer against the project CA; the handshake fails before any connection exists.",
-      "file": "tests/m3-mesh/tst_m3.cpp",
+      "file": "tests/mesh/tst_mesh.cpp",
       "test": "missingCertificateRejected"
     },
     {
       "id": "rogue-entity-foreign-certificate",
       "what": "The same, with a certificate from some other authority.",
       "defended_by": "The CA is the project's own and is the only one either end trusts.",
-      "file": "tests/m3-mesh/tst_m3.cpp",
+      "file": "tests/mesh/tst_mesh.cpp",
       "test": "foreignCertificateRejected"
     },
     {
       "id": "an-owner-impersonated-with-a-certificate-the-ca-did-issue",
       "what": "Something holding a certificate the project CA issued (a compromised low-privilege entity, or the edge's browser-facing certificate, which the same CA signs for localhost and 127.0.0.1) listens where the database should be. The CA vouches for it, so a consumer that verified only the chain, or the address it dialled, would complete the handshake and hand the impostor every call and every session meant for the database.",
       "defended_by": "A consumer verifies the owner's certificate against the entity name the topology says owns the point (the peer verify name of the handshake), never against the address, so a certificate that names anything else fails the handshake before a byte of QtRO crosses. Proven with a CA-signed certificate that does match the address.",
-      "file": "tests/m3-mesh/tst_m3.cpp",
+      "file": "tests/mesh/tst_mesh.cpp",
       "test": "anOwnerPresentingAnotherEntitysCertificateIsRefused"
     },
     {
       "id": "entity-not-on-the-consumer-list",
       "what": "An entity holding a valid project certificate acquires a connect point it was never listed as a consumer of.",
       "defended_by": "Deny by default: the owner refuses a connection from an entity the point does not name, certificate or no certificate.",
-      "file": "tests/m7-caller/tst_m7.cpp",
+      "file": "tests/caller/tst_caller.cpp",
       "test": "unlistedEntityRefusedAtHandshake"
     },
     {
       "id": "browser-reaching-past-the-edge",
       "what": "Anything but the web edge calls the database's connect point.",
       "defended_by": "The database authorizes the calling entity by its verified certificate subject inside the slot.",
-      "file": "tests/m7-caller/tst_m7.cpp",
+      "file": "tests/caller/tst_caller.cpp",
       "test": "databaseRefusesNonEdgeEntity"
     },
     {
       "id": "consumer-writes-the-owners-model",
       "what": "A consumer calls setData on a replicated model and the owner's rows change under it.",
       "defended_by": "SynQt::SourceModel refuses a write that arrived from a replica; a consumer that wants owner state changed calls a slot.",
-      "file": "tests/m1-contract/tst_modelwrite.cpp",
+      "file": "tests/contract/tst_modelwrite.cpp",
       "test": "consumerCannotWriteTheModel"
     },
     {
@@ -192,91 +192,91 @@
       "id": "undeclared-field-crosses-the-wire",
       "what": "A row carries a field the contract never declared (an owner id, an email) and it reaches the browser.",
       "defended_by": "The boundary keeps the declared roles and drops the rest, where the rows are published.",
-      "file": "tests/m1-contract/tst_modelwrite.cpp",
+      "file": "tests/contract/tst_modelwrite.cpp",
       "test": "anUndeclaredFieldIsStillDropped"
     },
     {
       "id": "oversized-value-past-a-declared-width",
       "what": "A value longer than the contract's declared width is published or passed, and the receiver stores whatever arrives.",
       "defended_by": "A declared width is a rule the owner keeps at the boundary: the publish is refused whole rather than truncated into something that looks right.",
-      "file": "tests/m1-contract/tst_modelwrite.cpp",
+      "file": "tests/contract/tst_modelwrite.cpp",
       "test": "aRoleOverItsBoundRefusesThePublish"
     },
     {
       "id": "signal-argument-past-a-declared-width",
       "what": "The same, on the way out, where nothing on the receiving side would ever see the original.",
       "defended_by": "The signal is not raised at all.",
-      "file": "tests/m1-contract/tst_modelwrite.cpp",
+      "file": "tests/contract/tst_modelwrite.cpp",
       "test": "aSignalArgumentOverItsBoundIsNeverRaised"
     },
     {
       "id": "sql-injection-through-a-parameter",
       "what": "A caller-supplied value carries SQL and the statement runs it.",
       "defended_by": "Every value is bound, never concatenated; the payload is stored and read back as the text it is.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "parameterizedValuesAreInjectionInert"
     },
     {
       "id": "outbound-allowlist-escaped-by-spelling",
       "what": "A URL that is not the declared place but begins with its text (userinfo, a host suffix, a path suffix) is called, and the endpoint's declared headers, which is where the API key lives, go with it.",
       "defended_by": "The allowlist compares scheme, host, port and path segments, and refuses userinfo outright.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "theOutboundAllowlistIsAPlaceAndNotAStringPrefix"
     },
     {
       "id": "plaintext-to-an-external-engine",
       "what": "A release build reaches a database or an upstream API over an unverified plaintext connection.",
       "defended_by": "Refused in release, on both the provider and the outbound HTTP path.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "postgresRefusesPlaintextInRelease"
     },
     {
       "id": "an-engine-certificate-for-another-host",
       "what": "A release build's cache connection is intercepted by a server presenting a certificate the configured anchor signed, but for a different host. hiredis passes the host name as SNI and never compares it with the certificate, so any certificate that chains verified, and with no ca_cert the anchor is the system trust store: a certificate anyone can have issued for a domain of their own passed for the cache, and the cache password and every value went to it.",
       "defended_by": "The Redis provider builds its own TLS context, verifying the chain and the configured host (an address against the certificate's IP entries, a name against its DNS entries, no partial wildcards) before hiredis sends a byte. The relational engines are held to the same check by the driver, and each is proven against a live server reached through an address its certificate does not name.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "redisVerifiedTlsChecksItsAnchorAndName"
     },
     {
       "id": "an-engine-certificate-from-another-ca",
       "what": "A database, cache or document engine is impersonated by a server whose certificate was issued by a CA other than the one the provider was configured to trust.",
       "defended_by": "Every external provider verifies the engine against its ca_cert in release, and each engine is proven live to refuse a certificate from a second CA that signed nothing it is given.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "postgresVerifiedTlsIsEncryptedAndChecksItsAnchorAndName"
     },
     {
       "id": "a-document-filter-that-matches-everything",
       "what": "A caller sends a value shaped like extended JSON, such as {\"$date\": \"not a date\"}, into a document filter. libbson refuses to build it, and the MongoDB provider stood an empty document in for it, which is the filter that matches every document: a remove meant for one row emptied the collection, an update rewrote all of it, and a find returned all of it.",
       "defended_by": "A filter, an option set or a document the driver cannot read refuses the operation with a warning naming the operation and the collection: find returns nothing, update and remove touch nothing, insert stores nothing. The memory provider matches nothing on the same filter, and a live proof holds the two to it.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "aFilterTheDriverCannotReadMatchesNothing"
     },
     {
       "id": "login-csrf",
       "what": "An attacker hands a victim a valid state and their own authorization code, so the victim ends up signed in as the attacker.",
       "defended_by": "The callback must carry the state cookie the login set in that same browser, compared in constant time.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "loginCsrfRejected"
     },
     {
       "id": "replayed-or-invented-oauth-state",
       "what": "A callback arrives with a state this edge never issued, or one it has already consumed.",
       "defended_by": "Only a pending state this edge is still holding is accepted, and taking it consumes it.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "unknownStateRejected"
     },
     {
       "id": "id-token-from-the-wrong-issuer",
       "what": "A token signed by somebody else, or for somebody else, is presented as proof of identity.",
       "defended_by": "The ID token's signature is verified against the provider's JWKS and its claims against the provider that was asked.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "oidcWrongIssuerRejected"
     },
     {
       "id": "dev-stub-identity-in-a-real-build",
       "what": "The development sign-in ships. It authenticates whoever asks as one of the people the project configured, with no password and no third party involved, so an edge that ran it in production would hand a session to anyone who found the login route.",
       "defended_by": "Three gates, and each closes on its own. The server is started only by an edge given --dev, which `synqt dev` passes and no build, `synqt serve`, unit or container ever does. StubIdentityServer refuses to be constructed without an acknowledgement that can only be written on purpose. And the runtime refuses the devStub provider entry itself without the same flag, so an edge that somehow held the server still answers the login route with 403.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "devStubRefusedWithoutGate"
     },
     {
@@ -290,56 +290,56 @@
       "id": "oversized-frame",
       "what": "A peer sends a frame large enough to be worth buffering, repeatedly.",
       "defended_by": "The frame cap rejects before buffering, and the read-buffer cap closes a connection whose peer outruns the reader.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "oversizedFrameRejected"
     },
     {
       "id": "connection-flood",
       "what": "One address opens connections until the edge runs out of something.",
       "defended_by": "Per-IP and global caps, applied inside the verifier.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "connectionCapRefusesTheOneOverTheLimit"
     },
     {
       "id": "socket-flood-that-never-becomes-a-connection",
       "what": "One address opens sockets and never finishes a request on any of them. The per-IP and global connection caps are counted in hostConnection(), which runs once an upgrade has been accepted, so a peer that never gets that far was never counted by them; if it also never goes idle it never hits the keep-alive timeout either, and the only remaining bound was the 64 KiB header ceiling, days away at a byte every few seconds. One address could hold as many sockets as the process had descriptors.",
       "defended_by": "A socket ceiling the edge counts itself at accept (WebEdge::trackPendingUpgrade), set from the link ceilings a project already chose times WebEdgeConfig::SocketsPerLink, and counted back down when the raw socket is destroyed. Releasing a socket readmits the next caller, so the ceiling does not lock an address out after a burst.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "socketCapRefusesAPeerThatOpensSocketsAndSendsNothing"
     },
     {
       "id": "socket-ceiling-that-never-counts-a-link-back-down",
       "what": "An address opens its quota of WebSocket links over the life of the process, page loads and reconnects included, and is then refused at accept although none of them is still open. Qt 6.12's QHttpServerConfiguration socket ceilings decrement on the socket's `disconnected`, and QHttpServer's upgrade path wildcard-disconnects the socket as it hands it over, so an upgraded socket held its slot forever; after the global figure every address was refused. A client reconnecting with backoff walked into it on its own.",
       "defended_by": "The edge keeps the count on the raw socket's own destruction, which an upgrade cannot disconnect, and does not hand Qt the two ceilings at all.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "aClosedWebSocketLinkGivesItsSocketBack"
     },
     {
       "id": "oversized-request-body",
       "what": "A stranger posts a huge body to the edge to make it buffer megabytes per request.",
       "defended_by": "QHttpServer's body ceiling is set from what the entity accepts (64 KiB with no network.inbound), so the body is refused with 413 before a route sees it.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "anOversizedBodyIsRefusedBeforeARouteSeesIt"
     },
     {
       "id": "request-flood",
       "what": "One address sends requests as fast as it can, to spend the edge's time rather than its connections.",
       "defended_by": "security.max_requests_per_second, off by default and answered with 429; synqt check refuses it on an edge that names a balancer, where Qt would count every visitor as one peer.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "aFloodOfRequestsFromOneAddressIsRefused"
     },
     {
       "id": "page-loads-fill-the-session-table",
       "what": "A request to the client route with no live cookie is handed a fresh session, and only the TTL took it away. A stranger who can reach the edge grows the session table at one record per request for as long as the TTL lasts (twelve hours by default), and on a replicated edge every record is forwarded to the auth entity and every other replica's cache.",
       "defended_by": "The session table has a ceiling (security.max_sessions). At the ceiling the manager lets go of the oldest anonymous session at the default scope that no browser is connected on, so a flood evicts its own sessions and a visitor arriving during it is still given one; a signed-in session is never evicted, and when nothing can be let go of the mint is refused rather than grown.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "aFloodOfPageLoadsCannotGrowTheSessionTablePastItsCeiling"
     },
     {
       "id": "half-open-handshake",
       "what": "A peer connects and never finishes the upgrade, holding a socket for free.",
       "defended_by": "A timer per accepted socket closes one that has sent nothing by security.handshake_timeout_ms.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "stalledUpgradeClosed"
     },
     {
@@ -367,14 +367,14 @@
       "id": "under-scoped-caller-reads-a-gated-member",
       "what": "A signed-in visitor without the scope a member is gated on reads it anyway: the slot may refuse, but a prop and a model are pushed state and take no call to read.",
       "defended_by": "A `<scope>` gate is on the flow, not the shape. The Source answering that caller never seeds or follows a member they may not see, so no value is ever serialized toward them, and losing the scope withdraws what was already sent.",
-      "file": "tests/m7-caller/tst_memberscope.cpp",
+      "file": "tests/caller/tst_memberscope.cpp",
       "test": "aMirrorPublishesOnlyWhatItsCallerMaySee"
     },
     {
       "id": "a-caller-reaches-the-tier-that-is-not-theirs",
       "what": "A signed-in visitor reaches the entity behind a front that serves a scope they do not hold, or an unauthorized caller reaches any of them.",
       "defended_by": "A front hands each caller to the entity its scope names and to no other, so no link to the rest is opened for them at all; the front's own member gate refuses a slot before anything is forwarded, so the entity behind never sees a call its caller had no scope for.",
-      "file": "tests/m7-caller/tst_front.cpp",
+      "file": "tests/caller/tst_front.cpp",
       "test": "anUnderScopedCallerIsRefusedAtTheFront"
     },
     {
@@ -395,49 +395,49 @@
       "id": "desktop-login-open-redirect",
       "what": "A visitor is sent a login link whose `return` points somewhere the attacker controls, so the finished sign-in is redirected to them.",
       "defended_by": "The edge accepts one shape of return URL and no other: http, a loopback literal, a port, no userinfo, no path, no query, no fragment. Anything else refuses the login outright, before the provider is contacted.",
-      "file": "tests/m8-auth/tst_desktop.cpp",
+      "file": "tests/auth/tst_desktop.cpp",
       "test": "returnMustBeLoopback"
     },
     {
       "id": "desktop-claim-read-out-of-browser-history",
       "what": "Somebody reads the loopback URL back out of the system browser's history, or off a synced copy of it, and uses what it carried to sign in as that visitor.",
       "defended_by": "The URL carries a claim code, never the session. The code lives a minute, is spent by the first attempt whether or not that attempt was right, and buys nothing without the S256 verifier that never left the app.",
-      "file": "tests/m8-auth/tst_desktop.cpp",
+      "file": "tests/auth/tst_desktop.cpp",
       "test": "claimIsSingleUseAndBoundToItsVerifier"
     },
     {
       "id": "desktop-login-answered-by-a-local-process",
       "what": "A process on the same machine connects to the app's loopback port and hands it a claim code for an account the attacker controls, signing the visitor in as somebody else.",
       "defended_by": "The client refuses any arrival that does not carry the nonce it generated for the sign-in it started, compared in constant time, and claims nothing.",
-      "file": "tests/m8-auth/tst_desktop.cpp",
+      "file": "tests/auth/tst_desktop.cpp",
       "test": "aSignInAnswerIsTakenOnlyWhenItIsThisClients"
     },
     {
       "id": "desktop-login-on-a-project-without-one",
       "what": "A loopback login is started against an edge whose project ships no desktop client, so the redirect goes to a port only something hostile would be listening on.",
       "defended_by": "The whole flow is off unless the project builds a desktop client: the login refuses the return, and the claim endpoint answers nothing.",
-      "file": "tests/m8-auth/tst_desktop.cpp",
+      "file": "tests/auth/tst_desktop.cpp",
       "test": "withoutADesktopClientThereIsNoDesktopLogin"
     },
     {
       "id": "claim-endpoint-reached-from-page-script",
       "what": "Script on any page posts to the claim endpoint, spending a code a sign-in is halfway through.",
       "defended_by": "The endpoint refuses anything carrying an Origin at all, which puts it out of reach of page script rather than relying on the code being unguessable.",
-      "file": "tests/m8-auth/tst_desktop.cpp",
+      "file": "tests/auth/tst_desktop.cpp",
       "test": "claimRefusesAnythingWithAnOrigin"
     },
     {
       "id": "stolen-device-credential-replayed",
       "what": "A device credential is copied off a disk and redeemed from another machine, alongside the machine it was taken from.",
       "defended_by": "Every redemption rotates, so the two copies diverge at the next relaunch. Presenting a retired generation past the overlap window revokes the family and every session it opened, which is what turns a silent theft into an event the edge acts on.",
-      "file": "tests/m8-auth/tst_device.cpp",
+      "file": "tests/auth/tst_device.cpp",
       "test": "aRetiredGenerationPastTheWindowRevokesTheFamily"
     },
     {
       "id": "one-device-generation-redeemed-at-two-edges-at-once",
       "what": "Edges sharing the device store each read a family's row before either writes the next generation, so a stolen copy of the live credential spent at one edge while the real client spends it at another is accepted twice. Both get a session, both get a next generation, and the retired generation that reuse detection watches for is never presented.",
       "defended_by": "The next generation is written only while the row still holds the generation that edge read, and a redemption whose write changed no row issues nothing. Of two edges racing on one generation, exactly one redeems it.",
-      "file": "tests/m8-auth/tst_device.cpp",
+      "file": "tests/auth/tst_device.cpp",
       "test": "twoEdgesRedeemingOneGenerationIssueOneSession"
     },
     {
@@ -458,21 +458,21 @@
       "id": "a-window-counter-in-the-memory-cache-never-lifts",
       "what": "An entity counts attempts per visitor in its cache with a deadline (set with a TTL, then incr on each attempt), so a lockout lifts when the window ends. The memory provider's incr stored the new count with no deadline, and its snapshot reloaded every entry with none, so a count anybody can drive up for another visitor's key locked that visitor out for the life of the process, or past a restart. Redis keeps the deadline on INCRBY and in its own snapshot, so the same QML behaved differently behind the two engines.",
       "defended_by": "incr keeps the deadline a key already has, and a snapshot saves each entry's deadline and leaves out an entry whose deadline passed while the process was down.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "memoryCacheIncrKeepsTheDeadlineItFound"
     },
     {
       "id": "an-erasure-by-id-removes-nothing-behind-mongodb",
       "what": "A document entity removes a visitor's record by the id insert() returned for it (an erasure request, a delete of one's own item). Behind MongoDB that id was the text of an ObjectId while the stored _id was the ObjectId itself, so a filter on it matched nothing: the call reported zero removed, the record stayed, and the same QML removed it behind the memory provider.",
       "defended_by": "An ObjectId crosses the provider as its text in both directions: documents read back carry it as text, and a filter naming that text matches the ObjectId or a document stored with the same text as its own _id.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "anInsertedIdNamesItsDocumentBehindEitherEngine"
     },
     {
       "id": "a-cached-object-reads-back-empty-behind-redis",
       "what": "An entity caches an object (a profile, a permission set) and reads it back to decide something. The Redis provider stored the value's text form, which for an object or a list is empty and for a number is its digits, so the same QML read an empty string or a string where the memory provider returned the object or the number.",
       "defended_by": "The Redis provider stores each value as its JSON text and reads it back as the value it was set with; a counter still counts, since the JSON for an integer is its digits.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "aCachedValueKeepsItsTypeBehindEitherEngine"
     },
     {
@@ -486,105 +486,105 @@
       "id": "device-credential-used-as-a-session",
       "what": "A device credential found on a disk is presented as the session cookie at the WebSocket upgrade.",
       "defended_by": "What is persisted is not a session. Neither half of it is a live session credential, so the upgrade verifier refuses it before a socket exists; it is only redeemable at one POST route, once.",
-      "file": "tests/m8-auth/tst_device.cpp",
+      "file": "tests/auth/tst_device.cpp",
       "test": "aDeviceSecretIsRefusedAtTheUpgrade"
     },
     {
       "id": "device-redemption-from-page-script",
       "what": "Page script on any origin POSTs to the device route to turn a credential into a session in a browser.",
       "defended_by": "The route refuses any request carrying an Origin header at all, which puts it out of reach of page script rather than relying on the credential staying secret.",
-      "file": "tests/m8-auth/tst_device.cpp",
+      "file": "tests/auth/tst_device.cpp",
       "test": "anOriginHeaderIsRefused"
     },
     {
       "id": "signed-out-device-still-redeemable",
       "what": "A visitor signs out, and the credential their app left on disk still buys a session.",
       "defended_by": "Signing out deletes the family the session came from, read from what the edge recorded when it minted that session rather than from anything the caller sent.",
-      "file": "tests/m8-auth/tst_device.cpp",
+      "file": "tests/auth/tst_device.cpp",
       "test": "logoutEndsTheFamily"
     },
     {
       "id": "stale-scope-on-a-redeemed-session",
       "what": "A visitor demoted since they signed in keeps the scope they had for the rest of their device credential's month.",
       "defended_by": "Redemption re-runs the scope mapping hook against the identity stored with the family, every time, instead of carrying a scope forward.",
-      "file": "tests/m8-auth/tst_device.cpp",
+      "file": "tests/auth/tst_device.cpp",
       "test": "redemptionRederivesScope"
     },
     {
       "id": "device-family-denial-of-service",
       "what": "Somebody who learned a device family id offers wrong secrets for it to get its owner signed out.",
       "defended_by": "Only a retired generation past the overlap window revokes a family. A secret belonging to no generation is refused and costs the owner nothing, and the route is rate limited per address.",
-      "file": "tests/m8-auth/tst_device.cpp",
+      "file": "tests/auth/tst_device.cpp",
       "test": "anUnknownCredentialIsRefused"
     },
     {
       "id": "reuse-detection-fired-by-a-broken-store",
       "what": "A machine whose secure store cannot complete a write signs its owner out: the rotation it could not save leaves the retired generation on disk, and the next launch presents it as a second copy in circulation.",
       "defended_by": "A write that fails, and a write abandoned at its deadline, both leave nothing behind, so the retired generation is never presented again and the family survives. Revocation stays the answer to two copies existing, which is what makes it worth acting on.",
-      "file": "tests/m8-auth/tst_devicestore.cpp",
+      "file": "tests/auth/tst_devicestore.cpp",
       "test": "aRotationThatCannotBeStoredLeavesNothingBehind"
     },
     {
       "id": "device-rate-window-spent-by-a-neighbour",
       "what": "Somebody behind the same address spends the device route's per-address rate window, and every honest client on that address deletes the stored sign-in it is holding, because the refusal it gets back is the one that means the credential is dead.",
       "defended_by": "The rate window answers 429 with Retry-After and not the credential refusal, which gives nothing away because it is decided before the credential is read, and the client drops what is stored only on the edge's own refusal of the credential. Everything else, a rate limit and a proxy's bad minute alike, is waited out with the credential intact.",
-      "file": "tests/m8-auth/tst_devicestore.cpp",
+      "file": "tests/auth/tst_devicestore.cpp",
       "test": "aRateLimitDoesNotCostTheStoredSignIn"
     },
     {
       "id": "device-credential-burnt-by-a-refused-socket",
       "what": "An edge that answers HTTP but refuses this client's WebSocket leaves it reconnecting every few hundred milliseconds, and each reconnect spends the stored credential again for a session identical to the one already in hand: a generation retired per reconnect, the shared rate window gone within the minute, and then the credential deleted over the refusal that follows.",
       "defended_by": "The credential buys a session, not a connection. It is spent at most once per session that a connection has been accepted for, so a socket the session cannot answer for is retried with the session it already bought.",
-      "file": "tests/m8-auth/tst_devicestore.cpp",
+      "file": "tests/auth/tst_devicestore.cpp",
       "test": "aClientThatCannotConnectSpendsTheCredentialOnce"
     },
     {
       "id": "device-credential-copied-off-disk",
       "what": "Somebody with read access to a machine's files copies the stored sign-in and replays it from their own, which a credential written to a file would let them do without ever facing the OS store that was supposed to protect it.",
       "defended_by": "There is no file fallback anywhere, on any platform or in any build: a machine with no secure store keeps the credential for the life of the process and signs in again next launch. Proved against the real config, data and cache directories rather than against the absence of a code path, with the store injected so the claim is checked on every platform and not only where a keyring happens to be missing.",
-      "file": "tests/m8-auth/tst_devicestore.cpp",
+      "file": "tests/auth/tst_devicestore.cpp",
       "test": "withoutAStoreNothingIsWritten"
     },
     {
       "id": "forged-forwarded-for-escapes-the-cap",
       "what": "A visitor writes their own X-Forwarded-For to be counted as somebody else, so the per-IP connection cap becomes a bucket they pick per connection.",
       "defended_by": "The forwarding header is read only when the direct peer is on public.trusted_proxies; from anyone else it is ignored outright and the peer address is the visitor.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "aForgedForwardedHeaderDoesNotMoveTheCap"
     },
     {
       "id": "prepended-forwarded-hops",
       "what": "A visitor behind the real balancer prepends hops to X-Forwarded-For, so the address the edge reads is one they chose rather than the one the balancer observed.",
       "defended_by": "Only the rightmost entry that is not itself a trusted hop is taken as the client; everything left of it was written by the client and is never the answer.",
-      "file": "tests/m5-webedge/tst_clientaddress.cpp",
+      "file": "tests/webedge/tst_clientaddress.cpp",
       "test": "appendedHopsDoNotBecomeTheClient"
     },
     {
       "id": "login-csrf-across-replicas",
       "what": "An attacker begins a login, hands the victim the state plus their own authorization code, and aims the callback at an edge process that never saw the login start.",
       "defended_by": "The browser CSRF binding is held with the state by the identity engine, not by the edge that began the login, and is compared there in constant time before the code is spent.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aCallbackWithTheWrongBindingIsRefusedOnEveryEdge"
     },
     {
       "id": "callback-replayed-against-another-replica",
       "what": "A completed OAuth callback is replayed against a second edge process, to buy a second session from a record the first process already spent.",
       "defended_by": "The pending record is consumed on the identity engine, so it is single-use for the whole deployment rather than once per process.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aReplayedCallbackIsRefusedOnEveryEdge"
     },
     {
       "id": "desktop-claim-replayed-against-another-replica",
       "what": "A desktop claim code, read out of the system browser's history, is spent again against a second edge process to buy a second session.",
       "defended_by": "The claim is held by the identity engine, not by the edge that minted it, so spending it on one process spends it for all of them.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aDesktopClaimIsSpentOnceAcrossReplicas"
     },
     {
       "id": "desktop-claim-verifier-guessing",
       "what": "A claim code is held and verifiers are tried against it repeatedly, on any process that will answer.",
       "defended_by": "The code is taken out of the store before the verifier is checked, so a wrong guess spends it: one code, one attempt, deployment-wide.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aDesktopClaimWithTheWrongVerifierIsRefusedAndSpent"
     },
     {
@@ -605,14 +605,14 @@
       "id": "unauthenticated-bundle-fetch",
       "what": "A visitor with no session asks for a file of a bundle their scope does not map to, to read the QML of a view the route guard would only have refused to navigate to.",
       "defended_by": "The edge resolves the bundle from the caller's session scope before it looks any file up, so a path outside that bundle resolves to nothing. It answers 404 rather than 403: a private deployment does not confirm that an operator console exists.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "anAssetOfAnotherBundleIsNotFound"
     },
     {
       "id": "deep-link-bundle-leak",
       "what": "A visitor with no session follows a deep link into a privileged route, which the client route does not answer and the shell fallback does.",
       "defended_by": "shellOrNotFound serves the shell of the caller's own bundle, so a deep link with no session lands on the gate instead of on an application shell that would then fail to fetch its module.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "aDeepLinkWithNoSessionLandsOnTheGateShell"
     },
     {
@@ -626,7 +626,7 @@
       "id": "the-credential-is-readable-off-the-caller",
       "what": "`Client.id` is the documented key an owner marks ownership with, and it was the session cookie itself. An owner that wrote it into a row, logged it, or declared `ownerId` as a model role shipped every visitor's credential to every browser, and any tab that read it held everybody's session.",
       "defended_by": "A user Caller names its session by the key (half of the credential's SHA-256, the same `Caller.session.key` a downstream entity is handed) and nothing on the Caller answers with the credential: `Caller.id` is the key and `Caller.session` carries `key`, `scope` and `identity` only, on the edge exactly as down the chain.",
-      "file": "tests/m7-caller/tst_sessions.cpp",
+      "file": "tests/caller/tst_sessions.cpp",
       "test": "aUserCallerNeverHandsOutItsCredential"
     },
     {
@@ -717,63 +717,63 @@
       "id": "outbound-allowlist-escaped-by-a-redirect",
       "what": "An allowlisted third party answers a redirect to a host network.outbound never named. Qt follows it by default and carries the request's headers, which on this path are the endpoint's own credential headers, so the deployment's API key leaves and the entity reaches somewhere it may not.",
       "defended_by": "Http sends every call under UserVerifiedRedirectPolicy and holds each hop to the network.outbound entry the call was made through; a target outside it is never allowed and the reply is abandoned.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "aRedirectOutOfTheAllowlistIsRefused"
     },
     {
       "id": "outbound-key-carried-to-another-allowlisted-endpoint",
       "what": "A project declares two named network.outbound endpoints with two keys. The first answers a redirect to the second. Qt builds the redirected request as a copy of the original, headers included, so the first endpoint's key was sent to the second, which is a third party the deployment named but never meant to hold that credential.",
       "defended_by": "A redirect must stay under the endpoint the call started at, not merely inside the allowlist; one that leaves it is refused and the reply abandoned before a header reaches the new host.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "aRedirectToAnotherEndpointDoesNotCarryTheFirstOnesKey"
     },
     {
       "id": "an-outbound-answer-too-large-to-hold",
       "what": "An allowlisted upstream, broken or compromised, answers an outbound call with a body far larger than any API answer, announced or chunked, to exhaust the entity's memory; or announces one and then stalls, holding the call. The ceiling was checked on downloadProgress, which Qt throttles, so an announced oversized body behind a stalled sender was refused only by the thirty second transfer timeout, and a fast one was buffered past the ceiling before it was checked.",
       "defended_by": "The announced length is refused when the headers arrive and what has arrived is counted on every readyRead, so either shape is refused as it arrives, well inside the transfer timeout.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "anAnswerLargerThanTheCeilingIsRefusedAsItArrives"
     },
     {
       "id": "id-token-with-no-expiry",
       "what": "A provider signs an ID token carrying no exp claim, so a copy of it opens a session for as long as the signing key lives. The same token with no sub signs every visitor in as one empty subject.",
       "defended_by": "JwksVerifier requires exp and sub rather than checking exp only when it is present.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "anIdTokenMissingARequiredClaimIsRefused"
     },
     {
       "id": "an-expired-id-token",
       "what": "A copy of a correctly signed ID token is presented after its expiry, or one is minted for a different client and presented among a list of audiences, or signed with a key the provider publishes as something other than RSA.",
       "defended_by": "An ID token is refused a minute past its exp, its audience must include this client whether it is written as a string or a list, and an RS256 signature is only ever checked against an RSA key.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "anIdTokenIsHeldToItsExpiryItsAudienceAndAnRsaKey"
     },
     {
       "id": "a-key-set-too-large-to-hold",
       "what": "Whoever controls, or sits on the path to, a provider's JWKS or OAuth endpoints answers with a body far larger than any key set or profile, announced and then stalled, or streamed fast. The ceiling was read off downloadProgress, which Qt throttles, so a stalled one was refused only by the fetch deadline and a fast one was held past the ceiling first.",
       "defended_by": "Every identity provider request refuses an answer on its announced length when the headers arrive and on what has arrived at every read; a key set over plaintext from off this machine is not fetched, and an empty one is refused rather than cached.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aKeySetIsFetchedOnlyWhenItCanBeOne"
     },
     {
       "id": "an-unverified-address-taken-as-the-users",
       "what": "On a provider whose profile leaves the address private, the fallback reads the address list, where anyone can add an address they do not own and mark it primary. An application that matches accounts by email would then hand the signer-in somebody else's account.",
       "defended_by": "Only an address that is both primary and verified becomes the identity's email; otherwise the email is null.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aProfileIsNormalizedOrTheLoginIsRefused"
     },
     {
       "id": "logout-csrf",
       "what": "Another site navigates a visitor to the logout route, which is a GET, and ends their session and the device credential that would have kept them signed in. SameSite=Lax is sent on a top-level navigation, and split_origin's cookie is sent on everything.",
       "defended_by": "The logout route refuses a request whose Sec-Fetch-Site says it came from another site. A non-browser caller sends none and is unaffected.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "logoutFromAnotherSiteIsRefused"
     },
     {
       "id": "password-gate-login-csrf",
       "what": "Another site submits a form to the entity password gate (`sign_in`) carrying credentials of its own. The Lax session cookie stays home on a cross-site POST, so the gate minted a fresh session at the sign-in scope and set it in the visitor's browser: the visitor was signed in as somebody else's operator without having done anything.",
       "defended_by": "The gate reads Sec-Fetch-Site the way the sign-out route does and refuses a cross-site request (and a same-site one under the same-origin model) before the credentials are read; a caller that is not a browser sends none and is unaffected. A browser that sends no Sec-Fetch-Site (Safari before 16.4) still sends an Origin on every POST, and one the edge did not name is refused on that alone.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "thePasswordGateRefusesAFormAnotherSiteSubmitted"
     },
     {
@@ -808,14 +808,14 @@
       "id": "provider-tokens-outlive-the-session",
       "what": "A session is revoked (which is what a detected device-credential reuse does to every session that credential opened), and the edge goes on holding that visitor's provider access and refresh tokens, live, for as long as the process runs.",
       "defended_by": "Both of the ways a session ends without anybody pressing anything are wired to the release: expiry and revocation. The rotation that a scope change reports as a removal is read and handed to followRotation instead, so an elevation does not look like an ending.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "revokingASessionReleasesItsProviderTokens"
     },
     {
       "id": "provider-tokens-orphaned-by-an-elevation",
       "what": "A sign-in elevates a scope, which rotates the session credential, and the provider tokens stay keyed on the credential that was replaced. The live session can no longer reach its tokens, and the unreachable entry is refreshed against the provider forever.",
       "defended_by": "The identity provider follows the rotation: the tokens and the device family move to the new credential, on the edge or on the auth entity, the same way the edge moves the socket and the session's Sources.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "elevatingASessionCarriesItsProviderTokens"
     },
     {
@@ -829,7 +829,7 @@
       "id": "rate-limit-reset-by-flooding-the-window-table",
       "what": "Every gate that rations by client address keeps a table keyed by address, and each one emptied that table when it grew too large. So a guesser who can present addresses (an IPv6 /64, or a forwarding header on a deployment that trusts one) fills it with entries they will never use again, the table is emptied, and the count against the address they are guessing from is back to zero. The ceiling was the reset.",
       "defended_by": "The table drops only the windows that have run out, which are evidence of nothing. When that frees nothing the gate refuses for the rest of the window rather than forgetting what it knows.",
-      "file": "tests/m5-webedge/tst_ratewindow.cpp",
+      "file": "tests/webedge/tst_ratewindow.cpp",
       "test": "aFloodOfLiveAddressesDoesNotClearTheGuessersOwnCount"
     },
     {
@@ -850,21 +850,21 @@
       "id": "an-edge-listening-with-no-key",
       "what": "An edge is configured to terminate TLS and given a private key it cannot read: an elliptic-curve key where only RSA was asked for, a path that is not a key, a file it cannot open. QSslKey answers a null key and nothing about that looks like an error, so the edge listens on the public port and fails every handshake. To a visitor the site is down; to an operator there is nothing in the log naming the file, and the temptation is to reach for the plaintext port.",
       "defended_by": "The key is read by trying every algorithm rather than one, so an ordinary EC key works; and an edge told to terminate TLS and unable to refuses to start, naming the two files.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "theEdgeRefusesToStartWithAKeyItCannotRead"
     },
     {
       "id": "an-edge-listening-with-a-key-its-backend-cannot-present",
       "what": "The same dead port by another road. The key is read, so nothing about it looks wrong, but the TLS backend this build runs on cannot hand it to the platform: a backend with no key API of its own converts the certificate and the key into a PKCS#12 blob, and Qt writes an algorithm identifier for RSA and DSA and for nothing else, so an elliptic-curve key arrives malformed, the platform import fails, and the socket is left with no identity. The edge listens on the public port and every handshake fails, which is the state the file check was added to prevent, reached without ever failing that check.",
       "defended_by": "Reading the key is not the last question asked of it. A web edge, an inbound API surface and a mesh owner each ask whether the active TLS backend can present the key they just read, and refuse to start naming the file and the backend when it cannot.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "theEdgeTerminatesTlsWithAnEllipticCurveKey"
     },
     {
       "id": "a-refresh-sweep-that-never-stops",
       "what": "An identity provider answers a refresh without naming how long the new token lasts, which RFC 6749 section 5.1 permits (`expires_in` is RECOMMENDED, not REQUIRED). The edge kept the expiry the refresh replaced, so the entry stayed inside the sweep's margin: the next pass refreshed it again, and every pass after that, spending a rotating refresh token against the provider once per interval for the life of every such session. The load is on a third party and grows with the number of signed-in users, and a provider that rate-limits or that invalidates a rotated pair sees it as abuse from the deployment.",
       "defended_by": "A refresh writes the lifetime the provider named or none at all, never the one that expired, which is what the code exchange already did; the sweep skips an entry whose expiry nobody named.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aRefreshThatNamesNoLifetimeIsNotSweptAgain"
     },
     {
@@ -878,7 +878,7 @@
       "id": "the-caller-before-this-one",
       "what": "A shared entity answers everybody from one Source, and the Caller in that Source's QML is re-pointed at whoever is calling before each slot runs. Its properties were declared CONSTANT, so QML never re-read them: a binding such as `text: Caller.identity.name`, or any gate written against `Caller.scope`, kept the answer for the first caller of the process and served it to every caller after. What shows on one visitor's page, and what a member is published against, is then another visitor's identity and another visitor's scope.",
       "defended_by": "None of the nine properties is CONSTANT; all of them notify on one signal, raised when the caller is adopted and when an elevation rotates the session, and only when something an accessor reads actually moved.",
-      "file": "tests/m7-caller/tst_memberscope.cpp",
+      "file": "tests/caller/tst_memberscope.cpp",
       "test": "aBindingOnTheCallerFollowsWhoIsCallingNow"
     },
     {
@@ -892,7 +892,7 @@
       "id": "two-nonces-in-one-authorization-request",
       "what": "An OpenID Connect authorization request carries the `nonce` parameter twice, with two different values: Qt puts one in whenever the scope contains `openid`, and the framework added a second beside it. RFC 6749 section 3.1 forbids a repeated parameter, so a provider that enforces it answers invalid_request and nobody signs in at all; one that does not enforce it echoes whichever value it read first into the ID token, which decides by coin toss whether the nonce check the edge then runs can pass. A nonce that may or may not match is not a replay defence, and a login that fails on the strict providers is a login that only ever worked against a lenient stub.",
       "defended_by": "The framework hands Qt its own random token through setNonce and sets NonceMode::Enabled, rather than inserting a parameter beside the one Qt generates, so exactly one nonce leaves the edge and it is the one the returned ID token is checked against.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "anAuthorizationRequestCarriesOneNonce"
     },
     {
@@ -906,28 +906,28 @@
       "id": "a-mapping-hook-invents-a-scope",
       "what": "The project's scopeFor() returns a scope name that is not one of the scopes in scopes.order, because the hook was written against a different vocabulary or the name was mistyped. The edge took the string and used it, so the session held a scope no connect point gate and no route guard could satisfy: the visitor signed in successfully and could reach nothing, and no layer anywhere reported why. The same code path answered \"user\" when the hook failed outright, so a renamed or uncompilable hook handed every visitor an authenticated scope instead.",
       "defended_by": "The hook returns a member of the generated Scope enum rather than a string, and IdentityProvider::mapScope resolves that member as an index into the declared vocabulary the edge was given: an answer outside the range names no scope and fails the login closed, with the reason logged, and there is no fallback left for a hook that does not answer. synqt check refuses a member scopes.order does not declare before the build, and refuses a project that serves a sign-in while declaring no scopes or naming no hook.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aHookAnswerOutsideTheVocabularyFailsTheLoginClosed"
     },
     {
       "id": "refused-login-keeps-provider-tokens",
       "what": "A signed-in account the project's mapping hook does not place completes the OAuth exchange and is then refused a session. The provider's access, refresh and ID tokens had already been stored under the login's state key, and the refusal returned without releasing them: one entry per refused attempt for the life of the process, each with a refresh token the sweep kept spending at the provider on behalf of somebody who was never signed in.",
       "defended_by": "handleCallback releases the tokens under the state key on every path that mints no session, on the edge and on the auth entity alike.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aLoginTheHookRefusesLeavesNoTokensBehind"
     },
     {
       "id": "a-development-edge-serves-the-scope-picker-to-anybody",
       "what": "The development scope picker mints a session at any scope the project declares, with no credential of any kind: that is what it is for, and it is why reaching it from anything but a developer's own `synqt dev` would be a complete authorization bypass. A route that exists and refuses is still a route, and it answers differently from a path the edge does not serve, so a caller guessing /synqt/dev/identity learns whether the edge has one.",
       "defended_by": "Three layers, none of which is the only one. The picker's sources are named in src/edge/CMakeLists.txt only under SYNQT_DEV_TOOLS, so a release SynQtEdge does not contain the class (proven by adding IdentityPicker to tests/dev-exclusion's DEV_SYMBOLS); the header refuses to be included by a build that did not set it; and the routes are registered only when `synqt dev --identity-picker` set WebEdgeConfig::identityPicker, which nothing built and nothing served passes. Inside the POST, the chosen scope is bounds-checked against the declared vocabulary, so an edited form cannot name a scope the project never declared.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "aDevEdgeWithoutTheFlagHasNoPickerRoute"
     },
     {
       "id": "a-named-development-identity-outranks-the-mapping-hook",
       "what": "A named development identity from `.dev-identities` carries a scope written in that file, and the file is a developer's convenience with no authority over anything. If the picker minted the session at the scope the file asked for, a developer could sign in as somebody the project's own mapping hook refuses, or at a scope it would never give them, and develop against a state the application cannot reach: every gate would look satisfied in development and refuse the same person in production.",
       "defended_by": "The hook decides. The picker asks the identity provider the same question a real login asks (IdentityProvider::mapScope) and the answer is what the session gets; the file's scope is only what the picker lists, and where the two differ the page shows both. Where the hook refuses the identity the picker refuses it too, with the hook's own reason. A project with no hook has nothing to ask, and the page says so rather than letting the file's scope read as an answer a hook agreed with. The posted index is bounds-checked against the list the page drew, so a hand-posted number cannot reach past it.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "aNamedIdentityTheHookRefusesIsRefusedHereToo"
     },
     {
@@ -941,42 +941,42 @@
       "id": "a-peer-that-stops-reading",
       "what": "A browser keeps its connection open and never drains it (a debugger paused on the page, a frozen tab, or a client written to do exactly this). Once its receive window and the kernel's send buffer are full, every message the owner publishes for it lands in the socket's own buffer, which Qt does not bound, so the edge kept every fan-out message for such a tab for as long as it stayed connected: 65 MB measured for one stalled connection, times the connection cap.",
       "defended_by": "The transport measures the socket's unsent backlog after each flush, which is what the kernel refused and not what one pass wrote. Past four times max_message_bytes the peer has to be seen taking bytes, and one that has handed the kernel nothing for thirty seconds is aborted rather than closed, because a close frame would queue behind everything it is not reading. Progress and not the backlog's size is the test, so a browser on a slow link is never cut off for falling behind; that case is proved separately (aPeerThatReadsSlowlyIsNotAStalledPeer), because a ceiling counted in bytes alone gets it wrong and getting it wrong is worse than having no ceiling.",
-      "file": "tests/m2-transport/tst_wstransport.cpp",
+      "file": "tests/browser-transport/tst_wstransport.cpp",
       "test": "aPeerThatStopsReadingHitsTheWriteBufferLimit"
     },
     {
       "id": "a-slow-browser-cut-off-as-if-it-had-stopped",
       "what": "Not an attack but the defence's own failure mode, and the reason the one above is written the way it is. A ceiling counted in bytes alone cannot tell a peer that has stopped reading from one that is merely behind, so it disconnects every browser on a slow link that is sent something large: the framework deciding how fast a visitor's connection has to be, which is worse than having no ceiling at all.",
       "defended_by": "Being past the ceiling is not on its own a reason to do anything. What trips the guard is a peer already past it that has handed the kernel nothing for the stall timeout, so a peer taking bytes steadily is never touched however far behind it gets. The test keeps a reader well past the ceiling for five times the timeout while it drains, and fails against the byte-only rule.",
-      "file": "tests/m2-transport/tst_wstransport.cpp",
+      "file": "tests/browser-transport/tst_wstransport.cpp",
       "test": "aPeerThatReadsSlowlyIsNotAStalledPeer"
     },
     {
       "id": "a-peer-that-stops-reading-on-a-threaded-edge",
       "what": "The same peer on an edge whose sockets live on IO threads, where the backlog can only be measured on the socket's thread and the device that QtRO writes to is on another.",
       "defended_by": "The channel applies the same progress test and aborts on the socket's thread, and the device on the main thread closes on its verdict, refusing every later write rather than gathering another batch for a connection on its way down.",
-      "file": "tests/m2-transport/tst_threadedsocket.cpp",
+      "file": "tests/browser-transport/tst_threadedsocket.cpp",
       "test": "aPeerThatStopsReadingIsAbortedOnItsOwnThread"
     },
     {
       "id": "a-peer-that-floods-a-threaded-edge",
       "what": "A caller with an authorized link to an edge running `threads: N` sends as fast as the wire allows while the thread that hosts its Sources is busy: the IO thread takes every message off the socket and posts it to the host thread, and that event queue grows at line rate with nothing bounding it, because the device's own read ceiling measures only what its reader has not taken and QtRO takes each message the moment it lands.",
       "defended_by": "The channel counts what it has sent across and the device has not yet acknowledged reading, and aborts the socket on its own thread when that count would pass the connection's read ceiling; the device closes on the verdict exactly as it does when its own buffer fills.",
-      "file": "tests/m2-transport/tst_threadedsocket.cpp",
+      "file": "tests/browser-transport/tst_threadedsocket.cpp",
       "test": "aPeerThatFloodsAThreadThatIsNotReadingIsCutOff"
     },
     {
       "id": "a-demoted-caller-keeps-the-tier-their-old-scope-named",
       "what": "A fronted connect point (`behind:`) hands each caller to the entity serving their scope, and that entity, by the documented contract of a front, authorizes on Caller and never asks about scope. Which tier a connection relayed to was decided once, when it was accepted: a front carries no `scope:` of its own, so the scope-change handler skipped it, and a caller demoted from admin under a live connection went on reading from and calling into the admin tier's entity until they happened to reload.",
       "defended_by": "The tier is decided again on every scope change under the connection (WebEdge::hostConnection's rotation handler, through servesScope and pointRelay), and the generated relay lets go of the tier it was following before it follows another, so neither the old tier's pushes nor its slots remain reachable. A scope no tier serves withdraws the point.",
-      "file": "tests/m7-caller/tst_m7.cpp",
+      "file": "tests/caller/tst_caller.cpp",
       "test": "aScopeChangeUnderALiveConnectionRePointsAFront"
     },
     {
       "id": "a-relay-left-following-a-tier-it-was-moved-off",
       "what": "The generated relay connected every follow to the new target without disconnecting the old, so a front pointed at a second tier received both tiers' pushes and a caller moved off a tier still got its signals.",
       "defended_by": "synqtRelay disconnects everything the previous target and its models were delivering before it follows the next, and a null target follows and forwards to nobody.",
-      "file": "tests/m7-caller/tst_front.cpp",
+      "file": "tests/caller/tst_front.cpp",
       "test": "rePointingTheRelayLetsGoOfTheTierItWasFollowing"
     },
     {
@@ -990,35 +990,35 @@
       "id": "another-user-listens-at-a-local-owner-s-socket-path",
       "what": "A `transport: local` link is a path, by default under the shared temporary directory and derived from the project and point names. The owner asked the OS who connected to it; the consumer asked nothing about who was listening, so a process of another user on the host that bound the owner's name first was handed every call the consumer forwards and every session it forwards them for.",
       "defended_by": "One peer-credential primitive (SynQt::localPeerRunsAs, SO_PEERCRED on Linux and getpeereid on macOS) now runs at both ends: the owner on each accepted socket as before, and the consumer on the socket it connected, which it aborts and retries when the listener is not this user. The link stays colocation trust, never authentication, exactly as documented.",
-      "file": "tests/m3-mesh/tst_m3.cpp",
+      "file": "tests/mesh/tst_mesh.cpp",
       "test": "bothEndsOfALocalLinkAskWhoThePeerRunsAs"
     },
     {
       "id": "one-slow-login-holds-every-other-login-on-the-auth-entity",
       "what": "On a promoted auth entity (identity.provider_entity) the `exchangeCode` slot drove the provider round trip in a nested event loop and returned when it had an answer. A nested loop keeps serving, so every caller that arrived meanwhile stacked under the earlier one, and none could be answered before the slowest below it. Anyone who can reach an edge can start a login and complete its callback, so a handful of concurrent sign-ins against a slow provider made everybody else's sign-in wait on the slowest of them, with a chain of stack frames per concurrent login and nothing on the entity bounding how many (the edge bounds its own waits; the entity bounded none, and a replicated edge multiplies them).",
       "defended_by": "Nothing on the entity waits. OAuthBackend::exchangeAsync drives the token exchange and the identity lookup behind it as replies arrive, and IdentityService answers the Source that asked through its own emitExchangeResult, held as a QPointer so an edge whose link dropped meanwhile is simply not answered. The test measures it as ordering, which is a fact about the entity rather than about a timer: the first login's provider answers in 150 ms and the second's in 800, and the first must finish first.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aSlowLoginDoesNotHoldUpTheOneBehindIt"
     },
     {
       "id": "tokens-of-a-login-no-session-was-bound-to",
       "what": "A finished exchange stores the access and refresh tokens the provider issued under the login's state key and waits for the caller to bind a session to them. When that never happened, because the edge that asked went away in between, the entry stayed for the life of the process: a live refresh token belonging to somebody who was never signed in, and, with the refresh sweep on, one spent against the provider once an interval forever on their behalf.",
       "defended_by": "An entry is stored unclaimed and is marked claimed only by rekeyTokens, which is what binding a session does. A sweep of its own, on always rather than with the optional refresh sweep, lets go of anything still unclaimed past its window (five minutes, the same window a pending login already gets). An entry a session was bound to is never swept.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aLoginNoSessionWasBoundToDoesNotKeepItsTokens"
     },
     {
       "id": "a-proxy-credential-downgraded-to-plaintext",
       "what": "A deployment sets `HTTPS_PROXY=https://user:secret@proxy:3128`, meaning the proxy is reached over TLS and the credential travels inside it, as curl and every other runtime read it; Qt has no TLS-to-proxy type, so a naive reading would send the CONNECT and the Proxy-Authorization in the clear to a port expecting a handshake.",
       "defended_by": "The proxy policy refuses an https:// proxy URL with a warning naming why, rather than downgrading it to a plaintext HTTP proxy; only http:// and socks5 proxies, which Qt speaks as written, are taken from the environment.",
-      "file": "tests/m2-transport/tst_proxypolicy.cpp",
+      "file": "tests/browser-transport/tst_proxypolicy.cpp",
       "test": "aProxyReachedOverTlsIsNotOneQtCanSpeakTo"
     },
     {
       "id": "a-session-credential-weaker-than-the-framework-says",
       "what": "The session cookie is the one credential a visitor holds and the one every per-IP and per-session bound keys on; secrets.h states every opaque value the framework mints is 256 bits from the system generator, and the session id was the one exception, a 122-bit v4 UUID minted by its own code, where a weaker generator or a shorter value could have crept in unnoticed against the written claim.",
       "defended_by": "SessionManager mints its ids through SynQt::randomSecret like every other secret, and the test pins the length to SecretBytes so the claim and the code cannot drift apart again.",
-      "file": "tests/m7-caller/tst_sessions.cpp",
+      "file": "tests/caller/tst_sessions.cpp",
       "test": "tokensAreUniqueAndOpaque"
     },
     {
@@ -1032,7 +1032,7 @@
       "id": "the-device-store-is-a-copy-of-every-live-session",
       "what": "The device table on the edge outlives the process, as a SQLite file or a shared database, and it bound each session to its family by the session id, which is the credential itself: a backup of the file, a reader of the database, or a misplaced file permission handed out every live session the table named, for as long as the sessions lasted.",
       "defended_by": "The registry stores the session's key (SessionManager::keyFor, the same handle a downstream entity gets) and never the id; lookups derive the key from the id held in memory, and reuse detection revokes by key, so nothing on disk buys anyone a session.",
-      "file": "tests/m8-auth/tst_device.cpp",
+      "file": "tests/auth/tst_device.cpp",
       "test": "theStoreHoldsTheSessionKeyAndNeverTheCredential"
     },
     {
@@ -1074,7 +1074,7 @@
       "id": "a-revocation-that-read-the-credential-it-freed",
       "what": "Revoking a session by its handle (SessionManager::revokeByKey) is the one caller that hands SessionManager::revoke a reference into the very hash node it is about to erase: it walks the table and calls revoke(it.key()). revoke() erased that entry and then went on reading what it was handed (the name it emits as sessionRemoved, the handle it traces, and the id it tells the authoritative store to drop) out of a QByteArray whose heap block QHash::erase had already freed. The reads are inside precompiled Qt, so AddressSanitizer cannot see them; it is undefined behaviour, reachable from IdentityProvider::onReuseDetected (the response to a stolen device credential replayed), which is exactly when the id that crosses to the auth entity has to be the right one. With no session TTL (identity.session.ttl_minutes: 0) the table holds the only reference, so the erase frees it outright.",
       "defended_by": "revoke() copies the id into a local QByteArray before the erase and reads only the copy afterwards, so nothing reads the freed block. The test revokes a session by key with no TTL, through a recording stand-in for the authoritative store, and asserts the session actually removed is the one named to both the sessionRemoved signal and the store.",
-      "file": "tests/m7-caller/tst_sessions.cpp",
+      "file": "tests/caller/tst_sessions.cpp",
       "test": "revokingByKeyEndsExactlyTheSessionItNamed"
     },
     {
@@ -1088,21 +1088,21 @@
       "id": "one-visitor-behind-a-balancer-spends-the-sites-socket-ceiling",
       "what": "The socket ceiling is counted at accept, where there is no request to read a forwarding header from, so it was keyed by the peer's own address whatever public.trusted_proxies said. Behind a balancer the peer is one address for everybody, so max_connections_per_ip * SocketsPerLink sockets (160 at the defaults) was the ceiling for the whole site, and one visitor holding that many sockets through the balancer had every other visitor refused at accept.",
       "defended_by": "WebEdge::trackPendingUpgrade applies the per-address socket ceiling only to a peer public.trusted_proxies does not name, the same rule ApiServer::start applies to its own per-host ceiling; the global socket ceiling still holds for everybody, and the link ceiling still counts the visitor the forwarding header names.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "theSocketCeilingIsNotCountedAgainstABalancer"
     },
     {
       "id": "a-planted-cookie-redeemed-for-the-operator-session",
       "what": "SessionManager::setScope rotates the credential and, for ten minutes, lets the old id name its successor (rotationOf), so a browser elevated under a live socket is handed its new cookie on the next page load. The monitor's password gate elevated through the same call and then set the new cookie in its own response, so the browser that signed in already held it; the hand-off it left behind was only ever redeemed by somebody else holding the pre-sign-in id. A cookie planted in the operator's browser from a sibling subdomain (or on a plaintext edge) before they typed their password was exactly that: session fixation, the attack rotating on elevation exists to close, reopened for ten minutes on the most sensitive session in the system.",
       "defended_by": "SessionManager::Handoff::None: a route whose response carries the new cookie asks for no hand-off, so the old id is dead outright and no earlier credential can buy the session it became. The gate's own test presents the pre-sign-in cookie again after a successful sign-in and requires that it is neither live nor redeemed.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "thePasswordGateLeavesNoHandOffFromTheOldCredential"
     },
     {
       "id": "a-demoted-browser-asks-a-withdrawn-model-for-rows",
       "what": "A demotion withdraws a scope-gated point from the live connection with QRemoteObjectHostBase::disableRemoting(). QtRO registers each of the Source's models on the connection's node under its own name, and disableRemoting() frees them without taking the names back. The next request the demoted browser sent to one of those models (its own replica sends one on any cache miss, and a hand-written client sends one on purpose) was a call through freed memory on the edge: a crash on every platform, from any visitor whose scope was lowered.",
       "defended_by": "withdrawSource (src/edge/withdrawsource.cpp) records the sources QtRO built under the Source before it is withdrawn and removes their names afterwards, so a request to a withdrawn model finds nothing and is dropped. The test demotes a visitor, has their model replica ask the edge for a header nobody cached, and requires the connection to keep serving.",
-      "file": "tests/m7-caller/tst_m7.cpp",
+      "file": "tests/caller/tst_caller.cpp",
       "test": "aModelRequestAfterADemotionReachesNothing"
     },
     {
@@ -1116,7 +1116,7 @@
       "id": "a-refusal-forgotten-on-every-page-load",
       "what": "A default QSettings keeps nothing without an organization name on WebAssembly (Qt builds no localStorage prefix) or Windows (no registry key), and the generated client sets none. Every consent answer, a refusal included, was gone at the next page load: the banner asked every visit, and a visitor who had accepted a category was treated as never having answered.",
       "defended_by": "Privacy names its own organization instead of relying on the application's. The browser proof answers the banner in a real engine, reloads the page, and requires the first answer the reloaded client reports to be the one given.",
-      "file": "tests/m6-client/verify/verify.mjs",
+      "file": "tests/client/verify/verify.mjs",
       "test": "consentSurvivesAReload"
     },
     {
@@ -1172,7 +1172,7 @@
       "id": "an-unverified-address-signs-in-as-its-owner",
       "what": "On the OpenID Connect path the edge copied the ID token's `email` claim into the identity without reading `email_verified`, and took a profile's email the same way. A provider that lets anyone open an account under any address (a self-registration issuer, or one whose `email` claim is not verified) let a stranger sign in carrying the administrator's address, and a mapping hook that grants a scope by address, as the scaffolded one does, gave them that scope.",
       "defended_by": "The edge takes an ID token's email only when `email_verified` is true (a boolean or the text true), and none when the claim is missing; a profile that states its address unverified has none, and the verified primary from the emails endpoint is asked for instead. The test signs in through the stub provider with the moderator's address marked unverified, as false, as the text false, and with no claim, over both paths, and requires no email and the plain user scope; the pass side requires a verified address to map to moderator.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "anUnverifiedEmailGrantsNothing"
     },
     {
@@ -1207,35 +1207,35 @@
       "id": "a-few-requests-a-second-lock-every-visitor-out-of-signing-in",
       "what": "Anyone can open a pending login with a GET to /auth/login, each is held five minutes, and the table of them refused new logins once it held 1024. About 3.4 anonymous requests a second from one address kept it full, and every real visitor was refused sign-in for as long as that lasted.",
       "defended_by": "A full table drops its oldest pending login to start the new one, so nobody is refused; the visitor whose login was dropped starts again. Each visitor address may start at most 120 logins a minute, so one address cannot churn the table faster than a login completes. The tests fill the table and require a new login to complete and the oldest to be gone, and require the 121st start from one address in a minute to be answered 429 after 120 redirects.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "aFullLoginTableMakesRoomRatherThanLockingEveryoneOut"
     },
     {
       "id": "bytes-written-before-a-connection-moves-are-lost",
       "what": "A batch closed at the size ceiling crossed to the socket's thread at once, as a call queued to whichever thread held the socket then. Written before the edge handed a new connection to its socket thread, that call ran after the move on the old thread: the socket was written from the wrong thread (Qt's socket-notifier warning) and the bytes were lost, which a framed QtRO stream cannot survive.",
       "defended_by": "A closed batch waits for the same end-of-pass drain as the open one and crosses, in order, to the thread the socket is on when it crosses; a queued call that still finds its socket moved re-queues itself to the socket's thread. The test writes two halves past the ceiling before moving the connection through moveSocketToThread, fails on any cross-thread warning, and requires the whole stream in order.",
-      "file": "tests/m2-transport/tst_threadedsocket.cpp",
+      "file": "tests/browser-transport/tst_threadedsocket.cpp",
       "test": "whatWasSentBeforeTheMoveIsSentFromTheSocketsThread"
     },
     {
       "id": "a-name-that-looks-local-skips-the-egress-proxy",
       "what": "An entity decides which outbound calls skip the configured proxy. Loopback was a prefix test on the name, so `127.anything.example` went direct around an egress proxy; and a `::1` entry in NO_PROXY was cut at its first colon into an empty entry whose suffix, a dot, sent every name written with a trailing dot direct as well.",
       "defended_by": "Loopback is decided by parsing the host as an address (127.0.0.0/8, ::1); a NO_PROXY entry drops a port only in `host:port` or `[address]:port` form, and an address entry matches that address alone. The tests send a 127-prefixed name and a trailing-dot name through the proxy, and keep 127.0.0.9, [::1] and each listed address direct.",
-      "file": "tests/m2-transport/tst_proxypolicy.cpp",
+      "file": "tests/browser-transport/tst_proxypolicy.cpp",
       "test": "loopbackIsAnAddressNotAName"
     },
     {
       "id": "a-cache-hands-a-compressed-body-to-a-client-that-cannot-read-it",
       "what": "The edge gave a bundle file's plain, gzip and Brotli bodies one strong ETag, and only the encoded bodies said they vary with Accept-Encoding. A shared cache could store the plain response and serve it, or revalidate an encoded one with a 304 against the plain tag, so a client could be handed a body in an encoding it never asked for.",
       "defended_by": "The edge picks the representation before the conditional check; each encoding carries its own ETag (`\"<tag>-br\"`, `\"<tag>-gzip\"`), a validator earns a 304 for its own representation only, and every representation of a file with variants carries `Vary: Accept-Encoding`. The test compares the two tags, requires Vary on the plain body, and requires a 304 for the gzip tag only when gzip is accepted.",
-      "file": "tests/m5-webedge/tst_m5.cpp",
+      "file": "tests/webedge/tst_webedge.cpp",
       "test": "eachEncodingIsItsOwnRepresentation"
     },
     {
       "id": "an-id-token-issued-to-another-party-signs-in-here",
       "what": "The ID-token verifier took any correctly signed token that listed this client among its audiences, whoever it was issued to: a token another relying party asked for, naming several audiences, signed a visitor in here. It also accepted a key the provider published for encryption or for another algorithm.",
       "defended_by": "A token with more than one audience, or with an `azp` claim, must name this client in `azp` (OpenID Connect Core 3.1.3.7), and a key that states a `use` or an `alg` must state `sig` and `RS256`. The tests have the stub provider sign for several audiences with and without `azp`, name another client in `azp`, and publish the key for encryption and for PS256, and require each to be refused; the pass cases keep an `azp` naming this client and a key that states neither.",
-      "file": "tests/m8-auth/tst_m8.cpp",
+      "file": "tests/auth/tst_auth.cpp",
       "test": "anIdTokenForAnotherPartyOrUnderTheWrongKeyIsRefused"
     },
     {
@@ -1256,7 +1256,7 @@
       "id": "an-update-answers-differently-per-engine",
       "what": "Docs.update is documented to answer how many documents changed. The memory provider counted every document the filter matched, MongoDB counted the ones it modified, so the same entity code (a guard on 'did this update do anything') behaved one way under `synqt test` and in development and another in production.",
       "defended_by": "The memory provider counts a document only when a field the change names differs from what it held, as MongoDB counts modified documents. The test updates two matched documents of which one already holds the value, then repeats the update, and requires 1 and then 0 from the memory engine and from a live MongoDB.",
-      "file": "tests/m9-providers/tst_m9.cpp",
+      "file": "tests/providers/tst_providers.cpp",
       "test": "anUpdateCountsOnlyTheDocumentsItChanged"
     },
     {
@@ -1501,7 +1501,7 @@
       "id": "a-built-tree-names-the-build-machine",
       "what": "topology.json named every file an entity opens (its certificate and key, the CA, its Source QML, its spool directory) by the build machine's absolute path, though the deployment guide builds once and copies the tree to each host, so an entity on any host but the build machine could not find its credentials or its Source. The guide also said the QML was compiled into the binary and could stay behind, while the edge and services load it from generated/.",
       "defended_by": "The topology names those files relative to the project root, and the runtime resolves a relative path against its working directory, which every generated main is started from; an absolute path is kept as written. The guide lists generated/ among what a host needs. The tests read a written topology for any absolute path and resolve a relative one in C++ from a chosen working directory.",
-      "file": "tests/m4-topology/tst_m4.cpp",
+      "file": "tests/topology/tst_topology.cpp",
       "test": "topologyPathsResolveFromTheWorkingDirectory"
     },
     {

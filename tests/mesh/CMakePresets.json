@@ -1,0 +1,19 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "mesh",
+            "displayName": "Mesh transport test (native host kit)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../../build/mesh",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_PREFIX_PATH": "/opt/Qt/6.12.0/gcc_64"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "mesh", "configurePreset": "mesh" }
+    ]
+}

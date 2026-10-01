@@ -30,12 +30,12 @@ describe applies without change:
 - **It authenticates with a user session,** not a certificate. The two identity systems
   ([`Caller.isUser` versus `Caller.isEntity`](runtime-api.md#service-caller)) are
   unchanged: a desktop user is still a user.
-- **The server side does not change.** The edge, the mesh, every service entity and the
+- **The server side stays the same.** The edge, the mesh, every service entity and the
   authorization model stay the same. A desktop target changes only how the client is
   packaged and how it reaches the edge.
 
-With identical constraints, there is no separate desktop version to maintain: one client
-builds for two or more targets.
+With identical constraints, one client builds for two or more targets, and there is no
+separate desktop version to maintain.
 
 ## What differs on desktop
 
@@ -52,10 +52,10 @@ public `wss` endpoint as the browser; only who terminates TLS differs.
 
 ### Knowing where the edge is
 
-The edge serves a browser client, so the client learns the edge's origin from the page
-it loaded, which carries the runtime config. Nobody serves a desktop client, so you give
-it the edge's public URL in [`build.desktop.edge_url`](#configuration), which is compiled
-into the binary. An app that must reach several deployments needs one build per
+The edge serves a browser client, so the client learns the edge's origin from the page it
+loaded, which carries the runtime config. A desktop client is installed, never served, so
+you give it the edge's public URL in [`build.desktop.edge_url`](#configuration), which is
+compiled into the binary. An app that must reach several deployments needs one build per
 deployment, because users must not be able to point a client at a different edge.
 
 ### Signing in
@@ -83,12 +83,12 @@ secret, as in the browser. Only the way the finished session returns to the app 
    [`session_transport`](project-layout-and-config.md#security-browser-hardening-and-connection-gating)
    for the measurement.
 
-This flow is off unless a client entity lists the `desktop` target. You do not turn it on:
-the edge reads `targets:` and decides. A project with no desktop client has nothing that
+This flow turns on only when a client entity lists the `desktop` target: the edge reads
+`targets:` and decides, with no key to set. A project with no desktop client has nothing that
 could receive a loopback answer, so its edge refuses to issue one.
 
 Four rules make the round trip safe, each tested in
-[`m8-auth`](https://github.com/Kidev/SynQt/tree/main/tests/m8-auth):
+[`auth`](https://github.com/Kidev/SynQt/tree/main/tests/auth):
 
 - **The `return` URL has exactly one allowed shape:** `http`, a loopback literal
   (`127.0.0.1` or `[::1]`, never the name `localhost`) and a port, with no userinfo,
@@ -103,7 +103,7 @@ Four rules make the round trip safe, each tested in
   for this sign-in. Any local process can connect to that port, and a code from one of
   them would otherwise sign the visitor in as someone else.
 
-The system browser is not left signed in: the edge sets no session cookie at the end of a
+The system browser stays signed out: the edge sets no session cookie at the end of a
 desktop login, because the browser is not the app.
 
 `Session.logout()` calls the edge's logout route with the client's credential, drops it,
@@ -173,8 +173,8 @@ nothing about the credential, so the app waits and stays signed in.
 | Windows | Credential Manager, `CRED_PERSIST_LOCAL_MACHINE` | this OS user (DPAPI at rest) |
 | Linux | the Secret Service (`org.freedesktop.secrets`) through libsecret | this OS user |
 
-There is no file fallback, on any platform or build, development included. A machine
-without a store persists nothing, and its user signs in once per launch, as with
+Every platform and build, development included, keeps it there, with no file fallback. A
+machine without a store persists nothing, and its user signs in once per launch, as with
 `desktop_session: memory`. The credential is safe to issue only because nobody can copy
 it without defeating the OS store's protection.
 
@@ -184,7 +184,7 @@ Four limits apply:
   of that user can read the item. Only macOS has a real per-application boundary, and
   only for a signed build, so `synqt build --deploy --sign` matters for security there,
   not just for Gatekeeper.
-- **Nothing ever prompts.** A locked keyring returns no secret instead of showing a
+- **The store never prompts.** A locked keyring returns no secret instead of showing a
   password dialog, because the read happens before the first frame, and a dialog there
   would hang a headless or SSH session.
 - **A redeemed session carries the user's identity and scope, but no provider tokens.**
@@ -205,8 +205,8 @@ keeps the session it just signed in for, writes nothing, and behaves as under
 so you choose it knowingly. Whether a given machine qualifies depends on the machine, not
 the build, so the edge decides at enrollment.
 
-Two levels are usable. `hardware` exists in the vocabulary, but no store reports it:
-nothing in SynQt talks to a Secure Enclave or a TPM, so asking for it would turn
+Two levels are usable. `hardware` exists in the vocabulary, but every store stops below
+it, since SynQt talks to no Secure Enclave or TPM, so asking for it would turn
 persistence off on every platform. `synqt check` refuses that floor and says so, instead of
 leaving a feature switched on that does nothing.
 
@@ -221,7 +221,7 @@ never checks the target.
 
 Without a URL:
 
-- **There is no deep link at startup,** so a native client always opens on `/`.
+- **A native client always opens on `/`,** with no deep link at startup.
   `router.base` applies only to browsers and is ignored.
 - **The [login resume](security.md#deep-links-and-the-login-resume) lives in memory,** not
   in `sessionStorage`, because the desktop client stays alive across the loopback redirect
@@ -378,8 +378,8 @@ build:
     edge_url: wss://app.example.com/sync   # the public edge endpoint the app connects to
 ```
 
-`edge_url` is the whole section. There is no platform list (a run builds for its own
-host) and no application name (it is the client entity's name). Icons, bundle identifiers
+`edge_url` is the whole section, with no platform list (a run builds for its own host)
+and no application name (it is the client entity's name). Icons, bundle identifiers
 and signing belong to the platform deployment step above, in each platform's own
 tooling.
 
@@ -402,7 +402,7 @@ LGPLv3 terms of the modules it links, while the same app compiled to WASM carrie
 GPLv3 obligation. Any GPLv3-only add-on (Qt Quick 3D, Qt Quick 3D Physics, and the others
 listed in [licensing](licensing.md)) makes any build that links it GPLv3, WASM or native.
 
-Do not work this out by hand. `synqt build` generates a `THIRD-PARTY-LICENSES` file per
+`synqt build` works this out for you: it generates a `THIRD-PARTY-LICENSES` file per
 target from what that target links, so the desktop app and the WASM bundle each carry an
 accurate license list. [Licensing](licensing.md) has the full analysis, including the
 LGPL relinking obligation for a statically linked native app.

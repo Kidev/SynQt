@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The family interfaces and bundled providers. Persistence (sqlite: store,
+# query, persist across restart, injection inertness, no deadlock; the Source calls only
+# the Db interface; postgres refuses plaintext in release), cache (bounded eviction),
+# document round-trip, and the gateway/jobs helpers. Native host kit.
+
+cmake_minimum_required(VERSION 3.21)
+project(synqt_providers LANGUAGES CXX)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
+
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Gui Sql Network Qml Test)
+qt_standard_project_setup()
+
+# Guarded: configured on its own, this suite is what pulls the runtime library in;
+# configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
+if(NOT TARGET SynQtProviders)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/providers" "${CMAKE_BINARY_DIR}/SynQtProviders")
+endif()
+
+enable_testing()
+
+qt_add_executable(tst_providers tst_providers.cpp)
+target_compile_definitions(tst_providers PRIVATE PROVIDERS_SRCDIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tst_providers PRIVATE
+    SynQtProviders
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Sql
+    Qt6::Network
+    Qt6::Qml
+    Qt6::Test
+)
+
+add_test(NAME providers COMMAND tst_providers)

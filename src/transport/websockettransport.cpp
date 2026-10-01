@@ -481,7 +481,7 @@ qint64 WebSocketTransport::writeData(const char *data, qint64 maxSize)
 /// README).
 ///
 /// It must wait for aboutToBlock(): flushing inside writeData() makes two back-to-back QtRO
-/// calls reach the owner as one (tst_m6 catches it). Deferring also collapses a whole pass
+/// calls reach the owner as one (tst_client catches it). Deferring also collapses a whole pass
 /// into one syscall per socket.
 void WebSocketTransport::flushBeforeBlocking()
 {

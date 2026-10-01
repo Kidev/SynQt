@@ -38,7 +38,8 @@ The defaults `synqt add auth` sets:
 - **ID token signatures verified against the provider's JWKS** when ID tokens supply the
   identity, because Qt does not verify ID tokens. Qt has no JWT or JWKS API, so the
   framework verifies with the `jwt-cpp` library (MIT, v0.7.1 or newer), and fetches
-  and caches the JWKS with QNetworkAccessManager. No cryptography is written by hand.
+  and caches the JWKS with QNetworkAccessManager. All of the cryptography comes from
+  the library.
   The key must be RSA, and a key that states a `use` or an `alg` must state `sig` and
   `RS256`. The token must name this client among its audiences, and a token with several
   audiences, or with an `azp` claim, must name this client in `azp`.
@@ -55,7 +56,7 @@ The defaults `synqt add auth` sets:
 - **Login rate limiting,** plus the same origin and upgrade checks as the rest of the
   system.
 
-You wire none of these by hand; the command produces them.
+The command produces all of these, with nothing to wire by hand.
 
 ## Adding auth: one command
 
@@ -214,13 +215,13 @@ private window.
 This works through the cookie's name. RFC 6265 scopes a cookie to a host, not a port, so
 all tabs on one host share one cookie jar, and nothing else can tell them apart: the
 WebSocket subprotocol alternative is unavailable on Qt 6.12
-(`tests/m5-webedge/tst_m5.cpp::theUpgradePathCannotNegotiateASubprotocol` checks that).
+(`tests/webedge/tst_webedge.cpp::theUpgradePathCannotNegotiateASubprotocol` checks that).
 So choosing a single tab sends it to `/?s=<nonce>` and stores its session under
 `synqt_session_<nonce>`. The edge reads `s` from the page request and the sync URL to find
 this tab's cookie in the jar.
 
-The nonce is not a credential, and nothing treats it as one. It names which cookie to
-read; the cookie still holds the session id, which is what an attacker would need to
+The nonce only names which cookie to read, and nothing treats it as a credential: the
+cookie still holds the session id, which is what an attacker would need to
 steal. The edge validates the nonce on arrival, because it becomes part of a cookie name
 in a `Set-Cookie` header, and a value containing `;` or a newline would add attributes, or
 a second header, that nobody intended.
@@ -338,8 +339,8 @@ also its rank under `scopes.hierarchical`, and the edge resolves the answer by i
 by name. Because it is an enum and not a string, a scope the project never declared cannot
 be written here, and `synqt check` refuses a member the generator would not have written,
 naming the file and line. When the edge cannot place an answer (from a hook that was not
-regenerated, or one that failed to load), it refuses the login and logs why. There is no
-fallback scope: a login that cannot get a declared scope fails.
+regenerated, or one that failed to load), it refuses the login and logs why. A login that
+cannot get a declared scope fails, with no fallback scope.
 
 When roles live in a database, the hook can read a connect point the edge consumes (for
 example a `prop var assignments` pushed by a roles entity, looked up as

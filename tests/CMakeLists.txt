@@ -6,17 +6,17 @@
 #
 # In the order the layers build on each other, so a failure reads in dependency order.
 set(SYNQT_HOST_SUITES
-    m1-contract
-    m2-transport
-    m3-mesh
-    m4-topology
-    m5-webedge
-    m6-client
-    m6-clientupdate
+    contract
+    browser-transport
+    mesh
+    topology
+    webedge
+    client
+    clientupdate
     consumer-facade
-    m7-caller
-    m8-auth
-    m9-providers
+    caller
+    auth
+    providers
     prov4-runtime
     api-inbound
     fix1-auction
@@ -45,7 +45,7 @@ set(SYNQT_SCRIPT_SUITES
 
 # Suites run by another workflow, and the directories under tests/ that are not suites.
 set(SYNQT_SUITES_ELSEWHERE
-    m0-transport         # WASM client and a native edge, in a browser; browser-matrix.yml
+    transport-spike         # WASM client and a native edge, in a browser; browser-matrix.yml
     wasm-quick3dphysics  # WASM only; wasm-proofs.yml
     plaza-browser        # the 3D plaza, `synqt dev` and a browser; wasm-proofs.yml
     site-home            # the built docs site's front page in a browser; docs.yml

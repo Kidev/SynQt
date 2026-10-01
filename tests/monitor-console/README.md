@@ -56,7 +56,7 @@ only loading the console produces four of them per session.
 
 The deadline ends at the first byte the peer sends, which leaves it bounding what it is
 for: a socket that connects and stays silent.
-`tests/m5-webedge`'s `aKeepAliveConnectionThatFetchedThePageIsNotClosedUnderIt` is the
+`tests/webedge`'s `aKeepAliveConnectionThatFetchedThePageIsNotClosedUnderIt` is the
 regression guard, and it fails without that behaviour.
 
 [`tests/memory`](../memory)'s `theEdgeLetsGoOfABrowserThatComesAndGoes` measures what a

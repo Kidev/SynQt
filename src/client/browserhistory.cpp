@@ -42,7 +42,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE void synqt_browserhistory_popped(const char *pat
     if (s_instance) {
         // Called directly, not queued. A queued call posts a QEvent::MetaCall, and on this
         // platform one lost browser callback disables posted-event delivery for the life of
-        // the page (see tests/m0-transport/FIREFOX-LINUX.md), which would silently break
+        // the page (see tests/transport-spike/FIREFOX-LINUX.md), which would silently break
         // Back and Forward. Non-asyncify WebAssembly delivers every Qt event this way
         // (Module.qtSendPendingEvents() calls the handlers from the browser callback).
         // QString::fromUtf8 copies, so the caller may free the buffer on return.

@@ -32,7 +32,7 @@ column, so each measures an interval on one monotonic clock. Where a column cann
 part of that, it says so in the paragraph that reports its number, and it never quietly
 takes a different measurement into the same cell.
 
-The protocol on the wire is not held constant. QtRemoteObjects framing is neither a raw
+The protocol on the wire varies by column. QtRemoteObjects framing is neither a raw
 binary frame nor Socket.IO's envelope. Each stack is measured carrying its own protocol,
 because that is what a deployment would be running.
 
@@ -100,9 +100,9 @@ it and a compiler behind it can settle which one the table supports. If SynQt si
 them, that is the strongest statement this harness can make. If it does not, that gap is
 the number to know, and it is printed either way.
 
-Neither needs an exception to the contract. In both, the publisher and every subscriber
+Both meet the contract without an exception. In both, the publisher and every subscriber
 live in one process on one monotonic clock, and both carry ordinary binary WebSocket
-frames. Neither has a router or a framework in the path, because a router here would
+frames. Both run with no router or framework in the path, because a router here would
 measure the router. The runner builds Rust with `--release`, since a debug build measures
 the absence of the optimiser.
 
@@ -132,7 +132,7 @@ what the design costs a real deployment:
   line, a third more bytes on the wire, and an encode per frame per subscriber. This is
   the one place the "held constant" list gives, because the alternative is measuring a
   Next.js that does not exist.
-- SSE is one direction. There is nothing to compare on the way back. That costs this table
+- SSE is one direction, so the way back has nothing to compare. That costs this table
   nothing, since the workload has always been one publisher and N subscribers, but it is
   half of what the other columns' transports can do and adding it is not free.
 
@@ -155,7 +155,7 @@ serializer and the socket, which is precisely the transport every other column c
 a consequence the eight-byte stamp travels base64 inside Phoenix's JSON channel envelope,
 the same allowance Action Cable gets, because that is what Phoenix puts on the wire.
 
-There are two numbers about memory, and only one of them is in the table.
+Phoenix has two numbers about memory, and only one of them is in the table.
 `rss_total_bytes` is RSS as the OS reports it, like every other column. The result file
 also carries `beam_memory_total_bytes` (`:erlang.memory(:total)`), which is the BEAM's own
 accounting. It excludes the code the VM mapped and includes memory the allocators hold but
@@ -241,7 +241,7 @@ across the machine.
 
 ### What the two Python columns are, and what they are not
 
-Both are measured because they are not the same stack under different names.
+Both are measured because they are two different stacks.
 `python-fastapi` is a bare async endpoint and is Python's fast answer. `python-channels` is
 Django's ASGI application with the Channels consumer stack in front of the same sockets,
 and the gap between the two rows is what that machinery costs. A team with a Django
@@ -262,7 +262,7 @@ Two things about the Channels column are stated and not corrected for:
   through Redis pays a hop this row does not show.
 
 Both run in a virtual environment under `python/`, built by the runner on first use.
-Nothing is installed into the repository's environment or the user's.
+The repository's environment and the user's stay untouched.
 
 ### Why there is no Blazor Server column
 
@@ -338,8 +338,8 @@ expensive in memory. Whichever half is smaller is the wall a deployment hits fir
 
 ### Rules this harness follows
 
-- **Nothing inside a measured window spins.** Every column waits by blocking in the poll, as
-  Node's `await sleep()` does; a busy-wait would measure itself.
+- **Every wait inside a measured window blocks.** Each column blocks in the poll, as Node's
+  `await sleep()` does; a busy-wait would measure itself.
 - **Every cost claim is fitted across four subscriber counts.** Qt and Node have opposite
   cost shapes and cross near N=40, so one count cannot tell a fixed cost from a marginal
   one. See [what the gap is made of](#what-the-gap-against-node-is-made-of).
@@ -359,24 +359,24 @@ Propagation p50 in milliseconds, and every column delivered every frame at every
 | 100 | 0.873 | 0.721 | 0.302 | 0.308 | 0.861 | 0.814 | 0.285 | 0.276 | 1.778 | 1.631 | 1.278 | 1.238 | 2.978 | 1.557 | 2.158 | 2.184 |
 | 250 | 1.992 | 1.639 | 0.646 | 0.742 | 2.022 | 1.898 | 0.519 | 0.437 | 4.072 | 3.907 | 2.911 | 2.755 | 6.410 | 2.700 | 5.253 | 5.165 |
 
-SynQt is fifth of sixteen at N=10, behind both compiled floors, its own `qt-raw` control
-and SignalR. At N=250 it is seventh. SignalR at 0.437 ms, Phoenix at 0.519, Go at 0.646,
-Rust at 0.742, `qt-raw` at 1.639 and bare Node 26 at 1.898 come in ahead of its 1.992, and
-bare Node 24 at 2.022 is level with it. Everything else in the table is behind it. The ordering inverts across the sweep, which is the shape the Node comparison
-already showed.
+SynQt is fifth of sixteen at N=10, behind both compiled floors, its own `qt-raw` control and
+SignalR. At N=250 it is seventh. SignalR at 0.437 ms, Phoenix at 0.519, Go at 0.646, Rust at
+0.742, `qt-raw` at 1.639 and bare Node 26 at 1.898 come in ahead of its 1.992, and bare Node
+24 at 2.022 is level with it. Everything else in the table is behind it. The ordering
+inverts across the sweep, which is the shape the Node comparison already showed.
 
 Read the N=250 cell of the SynQt column with its spread. Measured eight times in a row on
 this machine, it read between 1.88 and 2.00 ms, and its CPU between 8.7 and 9.3 ms per
 thousand deliveries. The 1.992 above is the top of that range. So at N=250 SynQt is level
 with bare Node, a few percent either side of it depending on the major and the run.
 
-SynQt wins the fixed cost and loses the marginal one. Adding a subscriber costs it more
-than it costs a BEAM node or a SignalR hub, so on this machine Phoenix passes it between
-10 and 50 subscribers, and bare Node draws level between 50 and 100. The memory rows say
-the same thing the other way round. SynQt's marginal cost is 63.0 KiB a connection at
-N=250, behind Go at 33.8, Reverb at 41.1 and its own `qt-raw` at 46.0, and well under
-Phoenix's 159.1 and SignalR's 237.5, while its propagation is the higher of those. It is cheap to
-hold a connection and comparatively expensive to fan out to one.
+SynQt wins the fixed cost and loses the marginal one. Adding a subscriber costs it more than
+it costs a BEAM node or a SignalR hub, so on this machine Phoenix passes it between 10 and
+50 subscribers, and bare Node draws level between 50 and 100. The memory rows say the same
+thing the other way round. SynQt's marginal cost is 63.0 KiB a connection at N=250, behind
+Go at 33.8, Reverb at 41.1 and its own `qt-raw` at 46.0, and well under Phoenix's 159.1 and
+SignalR's 237.5, while its propagation is the higher of those. It is cheap to hold a
+connection and comparatively expensive to fan out to one.
 
 A single-edge SynQt deployment fanning one value to 250 live subscribers pays about 4x
 Phoenix's propagation, and about what bare Node pays. Two things
@@ -395,7 +395,7 @@ across cores without being asked, while `go-bare` and `rust-bare` do it the way 
 other column here does, from one publisher loop. The floors bound what a single loop
 costs, and they say nothing about what the machine can do.
 
-The two Node columns are not the same column. In this run Node 26 is ahead of the LTS or
+The two Node columns differ. In this run Node 26 is ahead of the LTS or
 level with it in most cells, by up to 9%, and its CPU figure for bare Node at N=250 is
 lower (8.1 against 9.9 ms per thousand deliveries). The LTS still wins a few cells: bare
 Node at N=50 and Next.js at N=10. The margins are a few percent and the order changes from
@@ -457,8 +457,7 @@ fact read the other way. What it gains from a second process is nearer to a whol
 process's worth.
 
 SynQt loses plenty of cells in [the headline table](#the-headline-table), and those cells
-are printed. A stack that only publishes the benchmarks it wins is not publishing
-benchmarks.
+are printed.
 
 ### What each column is better at
 
@@ -480,7 +479,7 @@ and between 8.7 and 9.3 ms of CPU over eight runs, see [the headline
 table](#the-headline-table)). Against bare Node those rows are level within that spread.
 Against the other two columns the lead holds at either end of the range.
 
-Four things this says, and none of them is "SynQt is faster":
+Four things this says, each narrower than "SynQt is faster":
 
 - Against Socket.IO, which is the stack a Node team would deploy, SynQt is ahead on every
   row. That is the comparison a reader choosing between frameworks is making, and it is
@@ -553,12 +552,11 @@ one-core cells are the same code doing the same work through two different drive
 agreement (135,200 against 136,433) is a check on the harness rather than a result.
 
 A split connection gathers each pass and crosses to each socket thread once, carrying every
-connection's bytes for that thread in one call. `tests/m2-transport/tst_threadedsocket.cpp`
+connection's bytes for that thread in one call. `tests/browser-transport/tst_threadedsocket.cpp`
 holds the crossing count to one per thread.
 
-`threads:` buys about two cores of delivery and never eight,
-because the Source still serialises once on the thread that owns it, and adding sockets
-does not divide that work.
+`threads:` buys about two cores of delivery and never eight, because the Source still
+serialises once on the thread that owns it, and adding sockets does not divide that work.
 
 ## What the gap against Node is made of
 
@@ -592,8 +590,8 @@ Fitting `cost = fixed + N x marginal` across those four sizes, with
 | Socket.IO (Node 24) | about 0 | 14.1 us |
 
 At saturation, SynQt and bare Node pay the same 5.8 microseconds a subscriber at a 256-byte
-payload, and Qt's own socket path pays 10% less than Node's. No fixed cost is left to
-resolve: every intercept fits within a few microseconds of zero, which a four-point fit
+payload, and Qt's own socket path pays 10% less than Node's. The fixed costs vanish: every
+intercept fits within a few microseconds of zero, which a four-point fit
 cannot tell from zero.
 
 QtRemoteObjects costs about 12% on top of Qt's own socket path at this payload, 0.6
@@ -723,9 +721,9 @@ easier to find. The callgrind attribution above understates the cost for the sam
 Twenty subscribers is a short list to walk, and even there the dispatcher is 12% of the
 marginal cost.
 
-Both tables are medians of three runs on a quiet host. The two sweeps were re-run and
-agreed within 3%. Both arms come from the same binary, alternating run by run, so nothing
-but the environment variable differs between the columns.
+Both tables are medians of three runs on a quiet host. The two sweeps were re-run and agreed
+within 3%. Both arms come from the same binary, alternating run by run, so only the
+environment variable differs between the columns.
 
 So SynQt asks for the polling dispatcher. Every generated service, web edge and monitor
 calls `SynQt::preferPollingEventDispatcher()` as the first line of `main`, before the
@@ -736,7 +734,7 @@ own spelling (a zero does not). See
 [`pollingdispatcher.h`](../../src/transport/pollingdispatcher.h) and
 [the deployment note](../../docs/deploying.md#one-thing-your-entities-do-to-their-own-event-loop).
 
-It does not fix `QEventDispatcherUNIX` calling `poll()`, which hands the kernel every
+That leaves `QEventDispatcherUNIX` calling `poll()`, which hands the kernel every
 descriptor on every pass and is linear in their number. Node, Go and Rust all sit on
 `epoll`, which is not. Qt has no epoll dispatcher, so that bound stays, and it is a fair
 part of whatever marginal gap is left.
@@ -785,18 +783,15 @@ payload sweep settled two of them, and the marginal profile above settled the la
    [`websockettransport.cpp`](../../src/transport/websockettransport.cpp), where the
    comment on `deliver()` records what the fallback branch costs and why a backlog is one
    block.
-4. Neither runtime uses more than one core per process, but only one of them could. Node
-   reaches other cores with `cluster`, which gives every worker its own copy of the value
-   and needs a hop between processes to keep them agreeing. The sweep above gives Node its
-   best case by letting each worker publish independently, with nothing shared. SynQt is
-   C++ and can write a change from a pool of IO threads inside one process, with no hop at
-   all. This does not lower the marginal cost. It buys more cores to pay it with. Shipped
-   as [`threads: N`](../../docs/deploying.md#running-one-edge-on-more-than-one-core).
-   [The table above](#threads-the-core-that-is-not-a-process) is what it buys, which is
-   about 1.8x and never eight, because the Source still serialises once on the thread that owns
-   it. It was 1.9x until the hand-over to those threads stopped being paid once per
-   subscriber, which is
-   [under that table](#two-changes-moved-this-table-and-one-of-them-lowered-the-ratio).
+4. Each runtime uses one core per process, and only SynQt could use more. Node reaches other
+   cores with `cluster`, which gives every worker its own copy of the value and needs a hop
+   between processes to keep them agreeing. The sweep above gives Node its best case by
+   letting each worker publish independently, with nothing shared. SynQt is C++ and can
+   write a change from a pool of IO threads inside one process, with no hop at all. It
+   leaves the marginal cost as it is and buys more cores to pay it with. Shipped as
+   [`threads: N`](../../docs/deploying.md#running-one-edge-on-more-than-one-core). [The
+   table above](#threads-the-core-that-is-not-a-process) is what it buys, about 1.8x and
+   never eight, because the Source still serialises once on the thread that owns it.
 
 Already done, and worth about 3% of saturating throughput: the adapter asks each socket to
 put its buffered bytes on the wire just before the event loop blocks, instead of waiting a
@@ -806,10 +801,10 @@ a single frame each. See `flushBeforeBlocking` in
 why the obvious version of it corrupts the stream.
 
 Also done, and worth 14% to 18% but only on a threaded edge: the hand-over to the socket
-threads crosses once per thread instead of once per connection. That one is
-[under the threads table](#two-changes-moved-this-table-and-one-of-them-lowered-the-ratio),
-because it is a fact about `threads:` and not about the default single-threaded path
-every other number on this page was measured on.
+threads crosses once per thread instead of once per connection. That one is [under the
+threads table](#threads-the-core-that-is-not-a-process), because it is a fact about
+`threads:` and not about the default single-threaded path every other number on this page
+was measured on.
 
 ## The other direction: a caller asks and waits
 
@@ -841,14 +836,14 @@ There are two units of work, because one number cannot separate the pipeline fro
 `--work echo` has an empty function body, so what is left is the round trip and the
 framework around it. `--work lookup` reads one row from the same seeded ten-thousand-row
 table the HTTP routes read. On this host the two are within noise of each other on every
-column, which is itself the finding. At these sizes none of the three stacks is spending
-its time on the work.
+column, which is itself the finding. At these sizes all three stacks spend their time
+outside the work.
 
 ### The Next.js column is a real Server Function call
 
 The way to get this wrong is to `import {echo} from "./actions.js"` and call it, which
-measures the function body with Next.js removed from underneath it. This column does not
-do that. [`serveraction.mjs`](node/serveraction.mjs) reads the action id `next build`
+measures the function body with Next.js removed from underneath it. This column avoids
+that. [`serveraction.mjs`](node/serveraction.mjs) reads the action id `next build`
 assigned out of `.next/server/server-reference-manifest.json` and POSTs the flight-encoded
 arguments to the page route with a `Next-Action` header, which is the request React's
 client runtime makes. What is inside the measurement is therefore the action lookup, the
@@ -912,7 +907,7 @@ Node process without the framework, and its throughput stops improving after abo
 callers (3,059 calls a second there, 3,046 at 128) while its latency goes on climbing. That
 is the shape of a stack that is already CPU-bound and is queueing.
 
-None of it supports any claim about Next.js as a whole. This is one path through it, and
+It supports no claim about Next.js as a whole. This is one path through it, and
 its per-call overhead is a fixed cost that a handler doing real work would dilute. The
 things a Server Function is for, keeping a mutation next to the component that causes it
 and having it work before any client bundle loads, are not on any axis here.
@@ -945,8 +940,7 @@ the generator is not a variable between stacks.
 
 Every table on this page is one run of `run-bench.sh` and its sweeps, on one machine, in one
 session on 2026-09-25, on a desktop with a browser open beside it. That load is part of the
-spread the N=250 cells carry. Sixteen columns measured on sixteen afternoons would not be a
-comparison, so they were not.
+spread the N=250 cells carry. One session keeps the sixteen columns comparable.
 
 | | |
 | --- | --- |
@@ -978,7 +972,6 @@ committed baselines come from a run on an unrestricted host. The harness itself 
 anywhere. Every live column completes at small sizes. All six HTTP routes are verified
 correct on all three Node servers (including the 1..500 clamp on `queries` and the HTML
 escaping of the seeded `<script>` fortune) before anything is timed, and every call column
-asserts on what its first call returned before the clock starts. A benchmark of a wrong
-endpoint is worse than no benchmark. The Next.js columns add one build step and need its
-`.next` output present. Without it the harness says so and stops, instead of measuring a
-server answering 404.
+asserts on what its first call returned before the clock starts. The Next.js columns add one
+build step and need its `.next` output present. Without it the harness says so and stops,
+instead of measuring a server answering 404.

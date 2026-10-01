@@ -4,7 +4,7 @@
 // Host the minimal Quick3D Physics scene in a QQuickView so it renders through the RHI
 // (OpenGL/WebGL in the browser), and sample the falling box's height from C++ rather than
 // from QML. qWarning() is the evidence channel: it reaches the browser console in the WASM
-// runtime (the transport spike in tests/m0-transport relies on the same path), so the
+// runtime (the transport spike in tests/transport-spike relies on the same path), so the
 // harness sees these lines even in a release build where QML console.log routing is not
 // something to depend on. If the scene aborts during RHI/PhysX init, the event loop never
 // runs and no PHYS line appears, which is itself the answer.

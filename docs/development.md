@@ -224,11 +224,10 @@ compiler release whose new warnings are not yet triaged. Do not put it in a pres
 
 ## The test suites ([`tests/`](https://github.com/Kidev/SynQt/tree/main/tests))
 
-Each subdirectory is a standalone CMake project with its own `run-*.sh`. The `m0` to `m9`
-directories cover the runtime one layer at a time, numbered in the order the layers build on
-each other (the transport spike, the contract generator, the browser transport, the mesh,
-the topology, the web edge, the client, the caller, identity, the providers); the rest are
-focused fixtures.
+Each subdirectory is a standalone CMake project with its own `run-*.sh`. Eleven of them
+cover the runtime one layer at a time, in the order the layers build on each other
+(`transport-spike`, `contract`, `browser-transport`, `mesh`, `topology`, `webedge`,
+`client`, `clientupdate`, `caller`, `auth`, `providers`); the rest are focused fixtures.
 [`tests/CMakeLists.txt`](https://github.com/Kidev/SynQt/blob/main/tests/CMakeLists.txt)
 registers all of them. A suite neither built by the tree nor explicitly listed fails the
 configure step, because an unchecked list lets a suite stop running without anyone
@@ -236,17 +235,17 @@ noticing.
 
 | Directory                | What it proves |
 |--------------------------|----------------|
-| [`m0-transport`](https://github.com/Kidev/SynQt/tree/main/tests/m0-transport)           | QtRemoteObjects over QtWebSockets works in a real browser (the go or no go gate). Driven by the Playwright verifier, also run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
-| [`m1-contract`](https://github.com/Kidev/SynQt/tree/main/tests/m1-contract)            | a contract lowers to the correct rep with push properties and role limited models. |
-| [`m2-transport`](https://github.com/Kidev/SynQt/tree/main/tests/m2-transport)           | The `WebSocketTransport` carries a replica over a real WebSocket. |
-| [`m3-mesh`](https://github.com/Kidev/SynQt/tree/main/tests/m3-mesh)                | Mesh mutual TLS by default, plus the opt in local socket, with wrong or missing certificates rejected at the handshake. |
-| [`m4-topology`](https://github.com/Kidev/SynQt/tree/main/tests/m4-topology)            | The entity runtime resolves the topology and refuses a link that is not declared (deny by default). |
-| [`m5-webedge`](https://github.com/Kidev/SynQt/tree/main/tests/m5-webedge)             | The web edge serves the bundle with the right headers and runs the upgrade verifier before a socket exists. Also the development scope picker's runtime half: a development edge serves it only when `--identity-picker` asked, and refuses a scope the project never declared. It configures with `SYNQT_DEV_TOOLS`, because a picker that is not compiled cannot be asked what it does. |
-| [`m6-client`](https://github.com/Kidev/SynQt/tree/main/tests/m6-client)              | The client runtime and the counter example, synced across two clients. |
-| [`m6-clientupdate`](https://github.com/Kidev/SynQt/tree/main/tests/m6-clientupdate)        | The `App` accessor: an update no one handles reloads immediately, an app that handles `App.onUpdateReady` owns the timing, and the attached-handler syntax resolves in real QML. |
-| [`m7-caller`](https://github.com/Kidev/SynQt/tree/main/tests/m7-caller)              | Sessions, scopes, and the `Caller` accessor, on the three entity todo authorization matrix. |
-| [`m8-auth`](https://github.com/Kidev/SynQt/tree/main/tests/m8-auth)                | Provider login, the browser holding only a session cookie, and tokens never leaving the edge. Its second binary covers the desktop half: the loopback redirect, the one-time claim code, and a native client signing in end to end. |
-| [`m9-providers`](https://github.com/Kidev/SynQt/tree/main/tests/m9-providers)           | The persistence and cache providers behind their interfaces, injection safety, and write serialization. |
+| [`transport-spike`](https://github.com/Kidev/SynQt/tree/main/tests/transport-spike)           | QtRemoteObjects over QtWebSockets works in a real browser (the go or no go gate). Driven by the Playwright verifier, also run by [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml). |
+| [`contract`](https://github.com/Kidev/SynQt/tree/main/tests/contract)            | a contract lowers to the correct rep with push properties and role limited models. |
+| [`browser-transport`](https://github.com/Kidev/SynQt/tree/main/tests/browser-transport)           | The `WebSocketTransport` carries a replica over a real WebSocket. |
+| [`mesh`](https://github.com/Kidev/SynQt/tree/main/tests/mesh)                | Mesh mutual TLS by default, plus the opt in local socket, with wrong or missing certificates rejected at the handshake. |
+| [`topology`](https://github.com/Kidev/SynQt/tree/main/tests/topology)            | The entity runtime resolves the topology and refuses a link that is not declared (deny by default). |
+| [`webedge`](https://github.com/Kidev/SynQt/tree/main/tests/webedge)             | The web edge serves the bundle with the right headers and runs the upgrade verifier before a socket exists. Also the development scope picker's runtime half: a development edge serves it only when `--identity-picker` asked, and refuses a scope the project never declared. It configures with `SYNQT_DEV_TOOLS`, because a picker that is not compiled cannot be asked what it does. |
+| [`client`](https://github.com/Kidev/SynQt/tree/main/tests/client)              | The client runtime and the counter example, synced across two clients. |
+| [`clientupdate`](https://github.com/Kidev/SynQt/tree/main/tests/clientupdate)        | The `App` accessor: an update no one handles reloads immediately, an app that handles `App.onUpdateReady` owns the timing, and the attached-handler syntax resolves in real QML. |
+| [`caller`](https://github.com/Kidev/SynQt/tree/main/tests/caller)              | Sessions, scopes, and the `Caller` accessor, on the three entity todo authorization matrix. |
+| [`auth`](https://github.com/Kidev/SynQt/tree/main/tests/auth)                | Provider login, the browser holding only a session cookie, and tokens never leaving the edge. Its second binary covers the desktop half: the loopback redirect, the one-time claim code, and a native client signing in end to end. |
+| [`providers`](https://github.com/Kidev/SynQt/tree/main/tests/providers)           | The persistence and cache providers behind their interfaces, injection safety, and write serialization. |
 | [`prov4-runtime`](https://github.com/Kidev/SynQt/tree/main/tests/prov4-runtime)          | The entity runtime injects the configured provider into a typed entity, and refuses to start when the provider cannot be built. |
 | [`api-inbound`](https://github.com/Kidev/SynQt/tree/main/tests/api-inbound)            | The inbound HTTP surface `network.inbound` opens: routes declared on `Api` from the entity's own QML, the API key, origin, body-size and rate checks `ApiServer` runs before any handler is reached, and the TLS it serves over or refuses to start without. |
 | [`custom-provider`](https://github.com/Kidev/SynQt/tree/main/tests/custom-provider)        | The skeletons `synqt add provider` scaffolds compile, register themselves, and are selectable by `provider.name: custom:<Name>`. |
@@ -408,7 +407,7 @@ impose on an application.
 To run one suite, usually what you want while working on it, run its script:
 
 ```sh
-QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/m7-caller/run-m7.sh
+QT_HOST=/opt/Qt/6.12.0/gcc_64 tests/caller/run-caller.sh
 ```
 
 The scripts default `QT_HOST` to `/opt/Qt/6.12.0/gcc_64`, so with that layout you can omit
@@ -634,7 +633,7 @@ tests/memory/run-leakcheck.sh --soak       # the fast half, no instrumented rebu
 Both passes configure and build the tree themselves, with the same flags as
 [`tests/run-all.sh`](https://github.com/Kidev/SynQt/blob/main/tests/run-all.sh), so they
 measure the binaries you would run anyway. `-DSYNQT_DEV_TOOLS=ON` is required, because
-`tests/m8-auth` includes the stub identity server, whose header refuses a build that did not
+`tests/auth` includes the stub identity server, whose header refuses a build that did not
 enable it.
 
 The soak pass runs every suite at two `-repeat` counts and compares the peak resident set, a
@@ -838,7 +837,7 @@ Neither
 nor [`wasm-proofs.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/wasm-proofs.yml)
 runs on every push: each builds a Qt module from source for the WebAssembly kit (which ships
 no QtRemoteObjects, see
-[`tests/m0-transport/README.md`](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/README.md)),
+[`tests/transport-spike/README.md`](https://github.com/Kidev/SynQt/blob/main/tests/transport-spike/README.md)),
 which is too slow. They run on dispatch and when what they cover changes.
 [`browser-matrix.yml`](https://github.com/Kidev/SynQt/blob/main/.github/workflows/browser-matrix.yml)
 is the only workflow whose result depends on software outside this repository. The browser

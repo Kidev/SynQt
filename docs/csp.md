@@ -51,7 +51,7 @@ object-src 'none'; base-uri 'none'; frame-ancestors 'none'
 
 ## How the edge computes the policy
 
-The edge does not send `security.csp` as written. `computeCsp` walks your directives and
+The edge rewrites `security.csp` before sending it. `computeCsp` walks your directives and
 adjusts three of them, so the policy stays correct as the deployment's origin, threading
 and bundle change, without you editing the string:
 
@@ -71,7 +71,7 @@ and bundle change, without you editing the string:
     toolchain it was measured with (Qt 6.11.1 and Emscripten 4.0.7, before the pin moved to
     6.12.0), the loader spawns its workers from the same origin `client.js`, not from
     `blob:` URLs. The
-    [multi threaded proof](https://github.com/Kidev/SynQt/blob/main/tests/m0-transport/verify/verify-mt.mjs)
+    [multi threaded proof](https://github.com/Kidev/SynQt/blob/main/tests/transport-spike/verify/verify-mt.mjs)
     serves its threaded bundle under the strict policy, `worker-src 'self'` with no
     `blob:`, on every run and in every engine it can launch, and reports each engine's
     policy violations by directive. All three supported engines have been measured, and

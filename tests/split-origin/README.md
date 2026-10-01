@@ -14,11 +14,11 @@ it with `./run-split-origin.sh`.
 ## Verdict
 
 Split-origin works in current browsers and stops working the moment third-party
-cookies are restricted. It does not degrade. The client loads from the CDN, the browser
+cookies are restricted, with no gradual degradation. The client loads from the CDN, the browser
 ignores the session request, the `wss` upgrade arrives with no credential, and the edge
 refuses it. The app is on screen and permanently disconnected.
 
-The `Partitioned` (CHIPS) attribute is not the fix as things stand. It rescues the
+The `Partitioned` (CHIPS) attribute fails as a fix today. It rescues the
 bootstrap and the upgrade under restriction, and it breaks login everywhere, because the
 OAuth callback is a top-level navigation that lands on the edge. The browser stores the
 cookie under the edge's own partition, and the client site can never read it back. Adding
@@ -54,7 +54,7 @@ WebKit has been measured in CI since 2026-07-31. On a machine with no WebKit run
 the rig reports it as skipped instead of passing over it in silence, and WebKit has
 neither a host resolver flag nor a DNS pref, so it needs the names mapped.
 [`browser-matrix.yml`](../../.github/workflows/browser-matrix.yml) already
-installs WebKit for the M0 matrix, so it maps the two sites into `/etc/hosts` and runs
+installs WebKit for the spike's browser matrix, so it maps the two sites into `/etc/hosts` and runs
 this gate on a Linux and a macOS runner, and both agree:
 
 - The cross-site half is dead. Neither the bootstrap read nor the `wss` upgrade sees
@@ -63,12 +63,12 @@ this gate on a Linux and a macOS runner, and both agree:
   That is the restricted-Chromium row, in WebKit's default configuration, today.
 - The login read is the one place the two runners disagreed. The cookie set during the
   top-level navigation to the edge was readable from the client page afterwards on the
-  Linux runner and not on the macOS one. Nothing rests on which is right, because a
-  session that cannot be read by a cross-site fetch cannot reach the `wss` upgrade
-  either way, and that is the connection the whole mode exists to make.
+  Linux runner and not on the macOS one. Which runner is right changes nothing, because a
+  session that cannot be read by a cross-site fetch cannot reach the `wss` upgrade either
+  way, and that is the connection the whole mode exists to make.
 
-So split-origin is already broken in Safari's engine, and it is not only at risk from a
-policy that is coming. That is measured.
+So split-origin already fails in Safari's engine today, before any coming policy change.
+That is measured.
 
 ## What would make split-origin durable
 
@@ -77,7 +77,7 @@ site carrying a one-time code instead, and the boot script would exchange that c
 credentialed request from the client context, which writes the cookie in the client site's
 partition. Every column above then passes under restriction, with `Partitioned` on.
 
-That is not built. Split-origin is a hand-written setting for people who have read this
+This remains unbuilt. Split-origin is a hand-written setting for people who have read this
 page. The direction that removes the problem instead of managing it is to put the client
 and the edge back on one site (see the load distribution note in
 [project layout and config](../../docs/project-layout-and-config.md)).

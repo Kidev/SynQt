@@ -8,10 +8,10 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="${SPLIT_ORIGIN_WORK:-${TMPDIR:-/tmp}/synqt-split-origin}"
-PLAYWRIGHT="$HERE/../m0-transport/verify/node_modules/playwright"
+PLAYWRIGHT="$HERE/../transport-spike/verify/node_modules/playwright"
 
 if [ ! -d "$PLAYWRIGHT" ]; then
-    echo "SKIP: playwright is not installed; run 'npm install' in tests/m0-transport/verify"
+    echo "SKIP: playwright is not installed; run 'npm install' in tests/transport-spike/verify"
     exit 0
 fi
 

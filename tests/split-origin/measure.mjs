@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { chromium, firefox, webkit }
-    from "../m0-transport/verify/node_modules/playwright/index.mjs";
+    from "../transport-spike/verify/node_modules/playwright/index.mjs";
 
 const PORT = Number(process.env.SPLIT_ORIGIN_PORT || 8443);
 const CDN = `https://synqtcdn.test:${PORT}`;

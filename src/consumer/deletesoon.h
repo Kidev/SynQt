@@ -19,7 +19,7 @@ namespace SynQt {
 /// `QCoreApplication::sendEvent()` by `QTimerInfoList::activateTimers()`, so a zero-delay
 /// timer gives the same "after this stack unwinds" guarantee by an independent path.
 ///
-/// See tests/m0-transport/FIREFOX-LINUX.md for the fix in Qt itself. Everywhere but
+/// See tests/transport-spike/FIREFOX-LINUX.md for the fix in Qt itself. Everywhere but
 /// WebAssembly this is `deleteLater()`.
 ///
 /// Passing nullptr is a no-op. Deleting the object by other means first is safe: the pending

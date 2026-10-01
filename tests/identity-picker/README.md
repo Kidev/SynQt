@@ -11,7 +11,7 @@ bash tests/identity-picker/run-identity-picker.sh
 
 ## What only a browser can say
 
-`tests/m5-webedge` already drives the picker's routes. It proves the page lists the
+`tests/webedge` already drives the picker's routes. It proves the page lists the
 project's declared scopes and nothing else, that a posted index is bounds-checked, that a
 per-tab choice answers `303` with `Location: /?s=<nonce>` and a `synqt_session_<nonce>`
 cookie, and that the routes do not exist at all in an edge nobody asked for the picker.

@@ -123,12 +123,12 @@ PY
     exit 1
 fi
 
-# m3's crash-safe trace, when there is one.
-trace="$BUILD_DIR/tests/m3-mesh/m3-trace.log"
+# The mesh suite's crash-safe trace, when there is one.
+trace="$BUILD_DIR/tests/mesh/mesh-trace.log"
 if [ -f "$trace" ]; then
-    echo "----- m3 crash-safe trace ($trace) -----"
+    echo "----- mesh crash-safe trace ($trace) -----"
     cat "$trace"
-    echo "----- end m3 crash-safe trace -----"
+    echo "----- end mesh crash-safe trace -----"
 fi
 
 fi # SYNQT_PHASES != generated

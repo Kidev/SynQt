@@ -41,7 +41,7 @@ done
 
 status=0
 
-# tests/run-all.sh's configure line. SYNQT_DEV_TOOLS is required: tests/m8-auth compiles
+# tests/run-all.sh's configure line. SYNQT_DEV_TOOLS is required: tests/auth compiles
 # against the stub identity server.
 configure_tree() { # directory, extra cmake arguments...
     local directory="$1"

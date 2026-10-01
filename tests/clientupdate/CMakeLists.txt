@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# The client update default (the QML `App` accessor). Native: the decision itself is
+# platform-independent, and the browser half needs a real WebAssembly build.
+
+cmake_minimum_required(VERSION 3.21)
+project(clientupdate LANGUAGES CXX)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/SynQtBuildFlags.cmake")
+set(CMAKE_AUTOMOC ON)
+
+find_package(Qt6 6.12 REQUIRED COMPONENTS Core Qml Test)
+
+enable_testing()
+
+# Guarded: configured on its own, this suite is what pulls the runtime library in;
+# configured from the tree root, the root has already added it (see tests/CMakeLists.txt).
+if(NOT TARGET SynQtClient)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../src/client" "${CMAKE_BINARY_DIR}/SynQtClient")
+endif()
+
+add_executable(tst_clientupdate tst_clientupdate.cpp)
+target_link_libraries(tst_clientupdate PRIVATE SynQtClient Qt6::Test)
+
+add_test(NAME clientupdate COMMAND tst_clientupdate)
+
+add_executable(tst_qmlsyntax tst_qmlsyntax.cpp)
+target_link_libraries(tst_qmlsyntax PRIVATE SynQtClient Qt6::Qml Qt6::Test)
+
+add_test(NAME client-qmlsyntax COMMAND tst_qmlsyntax)

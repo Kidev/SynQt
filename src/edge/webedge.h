@@ -353,7 +353,7 @@ private:
 
     /// Socket caps: every socket accepted and not yet destroyed, keyed by the peer's own address.
     /// Counted on the raw socket's destruction, since Qt's own ceilings never count a WebSocket
-    /// link back down. See trackPendingUpgrade and tests/m5-webedge's
+    /// link back down. See trackPendingUpgrade and tests/webedge's
     /// aClosedWebSocketLinkGivesItsSocketBack.
     int m_socketsGlobal{0};
     QHash<QString, int> m_socketsPerIp;

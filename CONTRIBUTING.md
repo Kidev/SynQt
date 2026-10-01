@@ -13,14 +13,13 @@ the Contributor License Agreement in [CLA.md](CLA.md) before their contribution 
 In short, the CLA lets you keep ownership of your contribution while granting the
 project a broad license, including the right to relicense your contribution as part
 of SynQt under other terms. This is the same mechanism Qt itself and many
-sustainable open source projects use. It does not change the fact that the public
-SynQt releases are Apache-2.0.
+sustainable open source projects use. The public SynQt releases stay Apache-2.0.
 
 To accept it, open your pull request as normal. On your first one a bot comments with
 a link to the CLA and the sentence to reply with, and records your reply against the
 commit you agreed at. Later pull requests do not ask again. The record lives on the
 `cla-signatures` branch of this repository rather than in a third-party service, so it
-can be audited. Nothing is merged before you accept the CLA.
+can be audited. A pull request merges only after you accept the CLA.
 
 ## Every source file needs an SPDX header
 
@@ -73,8 +72,9 @@ everywhere, without exception:
    no op on your platform (`static_cast<qint64>(size())` is a real widening on a 32 bit
    target).
 
-Also, no exceptions and no RTTI (`dynamic_cast`/`typeid`), `Q_OBJECT` in every QObject
-subclass, `override` (never `virtual`) when reimplementing, and lines under 100 columns.
+Also: use neither exceptions nor RTTI (`dynamic_cast`/`typeid`), put `Q_OBJECT` in every
+QObject subclass, use `override` (never `virtual`) when reimplementing, and keep lines
+under 100 columns.
 
 The language is C++20, and warnings are errors, `-Wall -Wextra -Werror` for GCC and
 Clang, `/W4 /WX /permissive-` for MSVC and `clang-cl`. Both come from
@@ -105,7 +105,7 @@ Read it before your first change.
 - Run the formatters yourself (clang-format, qmlformat).
 - Run the suites your change touches: `make test` for the CLI and the contract compiler,
   `make test-cpp QT_HOST=<kit>` for the runtime. If you touched the transport, also run
-  the browser proof in [tests/m0-transport](tests/m0-transport/README.md) (the QtRO over
+  the browser proof in [tests/transport-spike](tests/transport-spike/README.md) (the QtRO over
   WebSockets path is the highest risk area).
 - Describe what changed and why. Link the issue if there is one.
 

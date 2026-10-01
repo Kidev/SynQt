@@ -9,7 +9,7 @@
 
 <!--
 What you ran, and what it reported. Name the suite or the command rather than
-saying it works: "tools/synqt: 199 passed", "tests/m3-mesh: 6/6", "built the arena client
+saying it works: "tools/synqt: 199 passed", "tests/mesh: 6/6", "built the arena client
 and loaded it in Firefox". If something could not be checked here, say which and why.
 -->
 
