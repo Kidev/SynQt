@@ -113,7 +113,12 @@ _PROPERTY_MODIFIERS = ("readonly", "default", "required", "final", "virtual", "o
 
 
 def exported_names(point: Dict[str, Any]) -> frozenset:
-    """Every member name a point's `export:` block names, written out or by name only."""
+    """Every member name a point's `export:` block names, written out or by name only.
+
+    A model written out is left out: a Source never declares one (it publishes the rows
+    through `<model>Rows` or `set<Model>()`), so a root property of that name is the
+    author's own, and no QML value can be assigned to the generated model property.
+    """
     names = set()
     for line in contractgen.export_text(point).splitlines():
         code = contractgen.split_gate(line.split("//", 1)[0].strip())[1].strip()
@@ -122,7 +127,7 @@ def exported_names(point: Dict[str, Any]) -> frozenset:
             names.add(bare)
             continue
         words = code.split("(", 1)[0].split()
-        if len(words) >= 2 and words[0] in ("prop", "model", "signal", "slot"):
+        if len(words) >= 2 and words[0] in ("prop", "signal", "slot"):
             names.add(words[-1])
     return frozenset(names)
 

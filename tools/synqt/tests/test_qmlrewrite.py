@@ -291,6 +291,23 @@ def test_a_declared_contract_member_is_left_to_the_generated_type():
     assert mirrored.count("\n") == SOURCE_DECLARING.count("\n")
 
 
+def test_a_property_named_after_an_exported_model_is_the_authors(tmp_path):
+    # The plaza keeps its walkers in a map named after the model it publishes. Rewritten
+    # into `walkers: ({})`, the map was assigned to the generated model property and the
+    # edge failed to load.
+    (tmp_path / "web" / "edge").mkdir(parents=True)
+    (tmp_path / "web" / "edge" / "Edge.qml").write_text(
+        "EdgeContract {\n    id: plaza\n    property var walkers: ({})\n}\n")
+    config = {"entities": [{"name": "edge", "type": "web_edge"},
+                           {"name": "app", "type": "client"}],
+              "connect_points": [{"owner": "edge", "consumers": ["app"],
+                                  "export": "model walkers(string id, real x)\n"
+                                            "slot walk(real forward)\n"}]}
+    qmlrewrite.write_entity_qml(tmp_path, config)
+    mirrored = (tmp_path / appmodel.GENERATED_DIR / "web" / "edge" / "Edge.qml").read_text()
+    assert "    property var walkers: ({})\n" in mirrored
+
+
 def test_a_declaration_without_a_value_leaves_nothing_behind():
     mirrored = qmlrewrite.without_contract_declarations(
         "Store {\n    id: root\n    property var items\n}\n", frozenset({"items"}))
