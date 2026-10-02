@@ -1,5 +1,7 @@
 # SynQt Contributor License Agreement
 
+Version 1.0, 2026-10-02
+
 This Contributor License Agreement (the "Agreement") applies to any contribution
 you make to SynQt. Read it before contributing. It preserves the project's freedom
 to license SynQt both as open source now and, if it chooses, under other terms in
@@ -17,7 +19,7 @@ accept it.
 addition to existing work, that you intentionally submit to the project for
 inclusion in SynQt, in any form and through any medium.
 
-"the Maintainer" means Alexandre 'kidev' Poumaroux, who owns and stewards the SynQt
+"Maintainer" means Alexandre 'kidev' Poumaroux, who owns and stewards the SynQt
 project and accepts Contributions on its behalf, and any successor to that role.
 
 ## 2. You keep your copyright
@@ -40,8 +42,9 @@ no-charge, royalty-free, irrevocable (except as stated in this section) patent
 license to make, have made, use, offer to sell, sell, import, and otherwise
 transfer your Contribution, for those patent claims you can license that are
 necessarily infringed by your Contribution alone or combined with SynQt. If any
-entity brings patent litigation alleging that SynQt or a Contribution infringes,
-the patent licenses you granted for that work terminate.
+entity institutes patent litigation alleging that SynQt or a Contribution infringes,
+the patent licenses granted to that entity under this Agreement for that work
+terminate.
 
 ## 5. Right to relicense
 
@@ -67,6 +70,5 @@ is" basis, without warranties or conditions of any kind.
 ## 8. Acceptance
 
 You accept this Agreement by replying to the bot on your first pull request with the
-sentence it asks for. Your acceptance is recorded against the commit it was given at,
-on the `cla-signatures` branch of the repository. Contributions cannot be merged until
-this Agreement is accepted.
+sentence it asks for. Your acceptance is recorded on the `cla-signatures` branch of the
+repository. Contributions cannot be merged until this Agreement is accepted.
