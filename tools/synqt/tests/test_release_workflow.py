@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -167,6 +168,10 @@ def test_the_release_publishes_a_checksum_for_every_asset(tmp_path):
     assert steps[publish]["with"]["files"] == "dist/*"
     writers = [i for i, step in enumerate(steps) if "SHA256SUMS" in str(step.get("run", ""))]
     assert writers and writers[-1] < publish, "no step writes dist/SHA256SUMS before publishing"
+    # The step is run as the release job runs it: on Linux, with GNU find and sha256sum.
+    assert str(workflow["jobs"]["release"]["runs-on"]).startswith("ubuntu")
+    if not sys.platform.startswith("linux"):
+        pytest.skip("the release job runs on Linux")
     if BASH is None or shutil.which("sha256sum") is None:
         pytest.skip("needs bash and sha256sum to run the step")
     dist = tmp_path / "dist"

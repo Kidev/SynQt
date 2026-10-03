@@ -58,8 +58,10 @@ esac
 
 ASSET = "synqt-linux-x86_64.tar.gz"
 
+# install.sh serves Linux and macOS; Windows gets install.ps1.
 posix_only = pytest.mark.skipif(
-    shutil.which("sh") is None or shutil.which("tar") is None, reason="needs sh and tar")
+    os.name == "nt" or shutil.which("sh") is None or shutil.which("tar") is None,
+    reason="install.sh runs on Linux and macOS, with sh and tar")
 
 
 def _release(tmp_path, sums):
