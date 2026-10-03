@@ -132,9 +132,9 @@ why. Then it starts all three entities and waits for these lines:
 stock: SYNQT-CPP stock restock SKU-1 x3 for till
 stock: Stock.restock: 'sku' is declared string[16] and the value is 17 characters; refused
 lobby: SYNQT-CPP lobby greets till for till
-till:  SYNQT-CPP till stock.total=3
-till:  SYNQT-CPP till lobby.stockedCount=3
-till:  SYNQT-CPP till lobby.headline=Lobby over stocked in C++
+till: SYNQT-CPP till stock.total=3
+till: SYNQT-CPP till lobby.stockedCount=3
+till: SYNQT-CPP till lobby.headline=Lobby over stocked in C++
 ```
 
 `stock` must print exactly one restock line. `till` also sends a restock whose `sku` is

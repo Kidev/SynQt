@@ -47,6 +47,20 @@ _VIEW_ROLES = ("index", "model", "modelData")
 _FACADE_MEMBERS = ("ready", "readyChanged")
 
 
+#: `onCountChanged` with no parameters is the notify signal of the property `count`.
+_CHANGED_SUFFIX = "Changed"
+
+
+def _handled(name: str, params: Tuple[Param, ...], evidence: Tuple[str, ...]) -> Member:
+    """What a handler named `on<Name>` receives from an owner: a property's change when the
+    name ends in `Changed` and nothing is passed, a contract signal otherwise.
+    """
+    stem = name[:-len(_CHANGED_SUFFIX)] if name.endswith(_CHANGED_SUFFIX) else ""
+    if stem and not params:
+        return _settled(Member("prop", stem, "var", evidence=evidence, notify=True))
+    return _settled(Member("signal", name, params=params, evidence=evidence))
+
+
 class InferError(Exception):
     """An inference error surfaced to the CLI or the editor (no traceback)."""
 
@@ -74,6 +88,9 @@ class Member:
     roles: Tuple[Param, ...] = ()
     certain: bool = True
     evidence: Tuple[str, ...] = ()
+    #: Read through its change handler (`on<Name>Changed`), which is also how a contract
+    #: signal named `<name>Changed` would be handled.
+    notify: bool = False
 
 
 #: The column the prose in a report and in a rendered header wraps at.
@@ -675,9 +692,7 @@ def _read_attached_handlers(reading: "_Reading", tokens: Sequence[qmlscan.Token]
             paren = _matching(tokens, index + 4)
             if paren > 0:
                 params = _declared_parameters(tokens, index + 5, paren)
-        uses.append(Use(owner, point,
-                        _settled(Member("signal", name, params=params,
-                                        evidence=(_where(reading, handler),)))))
+        uses.append(Use(owner, point, _handled(name, params, (_where(reading, handler),))))
 
 
 def _read_reference(reading: "_Reading", tokens: Sequence[qmlscan.Token], index: int,
@@ -820,10 +835,8 @@ def _read_connections(reading: "_Reading", tokens: Sequence[qmlscan.Token],
             if not name or name in _FACADE_MEMBERS or paren < 0:
                 continue
             uses.append(Use(owner, point,
-                            _settled(Member("signal", name,
-                                            params=_declared_parameters(tokens, position + 3,
-                                                                        paren),
-                                            evidence=(_where(reading, name_token),)))))
+                            _handled(name, _declared_parameters(tokens, position + 3, paren),
+                                     (_where(reading, name_token),))))
 
 
 def _connections_target(tokens: Sequence[qmlscan.Token], start: int, end: int,
@@ -1196,7 +1209,8 @@ def _merged(first: Member, second: Member) -> Member:
         params=_better_params(first.params, second.params),
         roles=_better_roles(first.roles, second.roles),
         evidence=first.evidence + tuple(entry for entry in second.evidence
-                                        if entry not in first.evidence))
+                                        if entry not in first.evidence),
+        notify=first.notify or second.notify)
 
 
 def _settled(member: Member) -> Member:

@@ -137,3 +137,71 @@ def test_check_project_reports_drift(tmp_path):
     ok, messages = checkmod.check_project(project)
     assert ok
     assert isinstance(messages, list)
+
+
+def _handle_on_the_edge(project, handlers):
+    """Add QML on the edge that reacts to its `Books` neighbour."""
+    edge = project / "web" / "edge" / "Edge.qml"
+    edge.write_text(edge.read_text().replace(
+        "    Books.onReadyChanged: lot.refresh()\n",
+        "    Books.onReadyChanged: lot.refresh()\n" + handlers))
+
+
+def test_a_property_change_handler_reads_that_property(tmp_path):
+    # `onCountChanged` is the notify signal of `prop int count`, in both forms QML writes it.
+    project = _copy(tmp_path, "gavel")
+    _handle_on_the_edge(project,
+                        "    Connections {\n"
+                        "        target: Books\n"
+                        "        function onCountChanged() { lot.refresh(); }\n"
+                        "    }\n"
+                        "    Books.onCountChanged: lot.refresh()\n")
+    messages = checkmod.lint_contract_drift(_config(project), project)
+    assert not any("countChanged" in m for m in messages), messages
+
+
+def test_a_property_used_only_through_its_change_handler_is_used(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    _declare(project, "books", "prop int stamp")
+    _handle_on_the_edge(project,
+                        "    Connections {\n"
+                        "        target: Books\n"
+                        "        function onStampChanged() { lot.refresh(); }\n"
+                        "    }\n")
+    messages = checkmod.lint_contract_drift(_config(project), project)
+    assert not any("'stamp'" in m or "stampChanged" in m for m in messages), messages
+
+
+def test_a_declared_signal_named_like_a_change_is_still_that_signal(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    _declare(project, "books", "signal tickChanged()")
+    _handle_on_the_edge(project,
+                        "    Connections {\n"
+                        "        target: Books\n"
+                        "        function onTickChanged() { lot.refresh(); }\n"
+                        "    }\n")
+    messages = checkmod.lint_contract_drift(_config(project), project)
+    assert not any("tick" in m for m in messages), messages
+
+
+def test_a_change_handler_for_nothing_declared_is_still_an_error(tmp_path):
+    project = _copy(tmp_path, "gavel")
+    _handle_on_the_edge(project,
+                        "    Connections {\n"
+                        "        target: Books\n"
+                        "        function onMissingChanged() { lot.refresh(); }\n"
+                        "    }\n")
+    messages = checkmod.lint_contract_drift(_config(project), project)
+    assert any(m.startswith("error:") and "'missing'" in m for m in messages), messages
+
+
+def test_a_change_handler_with_parameters_is_a_signal(tmp_path):
+    # A property's notify signal carries nothing, so one with parameters is a contract signal.
+    project = _copy(tmp_path, "gavel")
+    _handle_on_the_edge(project,
+                        "    Connections {\n"
+                        "        target: Books\n"
+                        "        function onCountChanged(by) { lot.refresh(); }\n"
+                        "    }\n")
+    messages = checkmod.lint_contract_drift(_config(project), project)
+    assert any(m.startswith("error:") and "countChanged" in m for m in messages), messages

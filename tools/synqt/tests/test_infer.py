@@ -191,6 +191,25 @@ def test_an_on_signal_handler_is_a_signal():
     assert _use(uses, "eaten").member.kind == "signal"
 
 
+def test_a_change_handler_with_nothing_passed_reads_a_property():
+    source = ("Item {\n"
+              "    Connections { target: Server; function onScoreChanged() {} }\n"
+              "    Server.onRoundChanged: {}\n"
+              "}\n")
+    uses = infer.scan_consumer("client/Main.qml", source, {"Server": "web"},
+                               attached={"Server": ("web", "web")})
+    for name in ("score", "round"):
+        member = _use(uses, name).member
+        assert (member.kind, member.notify) == ("prop", True)
+    assert not any(use.member.name.endswith("Changed") for use in uses)
+
+
+def test_a_change_handler_that_is_passed_something_is_a_signal():
+    source = "Item { Connections { target: Server; function onScoreChanged(by) {} } }"
+    uses = infer.scan_consumer("client/Main.qml", source, {"Server": "web"})
+    assert _use(uses, "scoreChanged").member.kind == "signal"
+
+
 def test_every_use_names_the_owner_and_the_point_it_crosses():
     uses = infer.scan_consumer("client/Main.qml", CONSUMER, {"Server": "web"})
     assert {(u.owner, u.point) for u in uses} == {("web", "web")}

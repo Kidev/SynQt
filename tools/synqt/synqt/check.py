@@ -3676,6 +3676,11 @@ def _use_messages(use: "infer.Use", points: Dict[str, Any],
     where = use.member.evidence[0] if use.member.evidence else use.point
     contract = appmodel.contract_of(points[use.point])
     match = next((member for member in members if member["name"] == use.member.name), None)
+    if match is None and use.member.notify:
+        # `on<Name>Changed` with no property behind it is the handler of a contract signal.
+        changed = f"{use.member.name}Changed"
+        if any(member["name"] == changed and member["kind"] == "signal" for member in members):
+            return []
     if match is None:
         return [f"error: {where}: connect point '{use.point}' has no '{use.member.name}': "
                 f"the {contract} contract declares no member of that name, so this reaches "
@@ -3714,6 +3719,8 @@ def _unused_messages(edge: "infer.Edge", points: Dict[str, Any],
     contract = appmodel.contract_of(points[edge.point])
     where = f"connect point '{edge.point}'"
     seen = {member.name for member in edge.members}
+    # A change handler is also how a contract signal named `<name>Changed` is received.
+    seen |= {f"{member.name}Changed" for member in edge.members if member.notify}
     return [f"note: {where}: '{member['name']}' is declared on the "
             f"{contract} contract and nothing on either end of '{edge.point}' uses it"
             for member in members if member["name"] not in seen]

@@ -493,6 +493,11 @@ consumes from another entity. In the web edge, reacting to the books entity's si
 Books.onWinnersChanged: hall.refresh()
 ```
 
+A handler named `on<Name>Changed` that receives nothing reacts to the change of the prop or
+model `<name>`, so `synqt check` holds it to the contract as a read of that member. With no
+such member, it is the handler of a contract signal named `<name>Changed`, if one is
+declared.
+
 Handlers fire only while the connect point is live. Before it is acquired (a browser below
 the required scope, or a link still connecting) they do not fire, and they resume on
 reconnect, because the framework manages the replica's lifecycle.
