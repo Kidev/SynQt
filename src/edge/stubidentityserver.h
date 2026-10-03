@@ -92,6 +92,10 @@ public:
     quint16 port() const;
     QString baseUrl() const;                  // http://127.0.0.1:<port>
 
+Q_SIGNALS:
+    /// A token request arrived; its answer is computed and waits out the delay.
+    void tokenRequested();
+
 private:
     QHttpServerResponse handleAuthorize(const QHttpServerRequest &request);
     QHttpServerResponse handleToken(const QHttpServerRequest &request);

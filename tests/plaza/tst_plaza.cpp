@@ -328,7 +328,8 @@ private slots:
         QVERIFY(!start.isEmpty());
 
         // A thousand times a full push, as from the browser console, kept up as a browser
-        // keeps it up.
+        // keeps it up, until the walker has gone somewhere. A loaded host steps the plaza
+        // less often, so the time it takes is not the measurement; the speed is.
         QElapsedTimer clock;
         clock.start();
         QTimer keys;
@@ -338,6 +339,13 @@ private slots:
         });
         keys.start(100);
         QTest::qWait(1000);
+        while (clock.elapsed() < 10000) {
+            const QVariantMap now{rowOf(plaza, sub)};
+            if (!now.isEmpty() && distance(start, now) > 50.0) {
+                break;
+            }
+            QTest::qWait(100);
+        }
         keys.stop();
         const QVariantMap later{settledRowOf(plaza, sub)};
         const double seconds{static_cast<double>(clock.elapsed()) / 1000.0};
@@ -402,17 +410,24 @@ private slots:
         QVERIFY(!firstTarget.isEmpty() && !firstSelf.isEmpty());
         const double apartAtFirst{distance(firstTarget, firstSelf)};
 
-        // Long enough to walk between any two places a walker can arrive at (at most 2830
-        // apart, 8.1 s at walking speed, round the pillars included), read every tick.
+        // Until the pusher reaches the other walker, and a second of pushing into it after
+        // that, read every tick. Two places a walker can arrive at are at most 2830 apart
+        // (8.1 s at walking speed, round the pillars included); a loaded host steps the
+        // plaza less often, so the deadline leaves room for that.
         double closest{apartAtFirst};
         QElapsedTimer clock;
         clock.start();
-        while (clock.elapsed() < 11000) {
+        qint64 reachedAt{-1};
+        while (clock.elapsed() < 30000
+               && (reachedAt < 0 || (clock.elapsed() - reachedAt) < 1000)) {
             QTest::qWait(50);
             const QVariantMap self{rowOf(mine, pusher)};
             const QVariantMap target{rowOf(mine, still)};
             if (!self.isEmpty() && !target.isEmpty()) {
                 closest = std::min(closest, distance(self, target));
+            }
+            if (reachedAt < 0 && closest <= (2.0 * kRadius) + 1.0) {
+                reachedAt = clock.elapsed();
             }
         }
         keys.stop();

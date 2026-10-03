@@ -269,6 +269,7 @@ bool StubIdentityServer::start(quint16 port)
         } else {
             QTimer::singleShot(m_tokenDelayMs, this, deliver);
         }
+        Q_EMIT tokenRequested();
         return future;
     });
     m_server->route(QStringLiteral("/userinfo"), [this](const QHttpServerRequest &request) {

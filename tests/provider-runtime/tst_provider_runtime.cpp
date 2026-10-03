@@ -135,9 +135,9 @@ private:
         connectPoint.serverFile = sourceFile;
         connectPoint.shared = false;
         connectPoint.endpoint.mode = MeshTransportMode::LocalSocket;
+        // macOS caps a socket path at 104 bytes, and $TMPDIR there takes about half of it.
         connectPoint.endpoint.socketName =
-            QStringLiteral("synqt-provider-runtime-%1")
-                .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+            QStringLiteral("synqt-runtime-%1").arg(QUuid::createUuid().toString(QUuid::Id128));
         topology.connectPoints = QList<ConnectPointConfig>{connectPoint};
         return topology;
     }

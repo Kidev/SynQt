@@ -2062,7 +2062,8 @@ private slots:
     // Asserted as ordering, which makes it a fact about the entity rather than about a
     // timer. The first login's provider answers in 150 ms and the second's in 800, so the
     // first login must finish first. Nested, it cannot: its event loop has the second one's
-    // on top of it.
+    // on top of it. The second login starts once the provider holds the first request, so
+    // a slow host cannot hand the first one the second one's delay.
     //
     // The same wait is why an edge dropping mid-login could take the entity down; the case
     // below covers that half.
@@ -2094,7 +2095,7 @@ private slots:
         // The second login is started from inside the first, which is the only way it can
         // be. A real one arrives as a QtRemoteObjects packet the entity reads while the
         // first slot is still running, and a nested loop is precisely what reads it.
-        QTimer::singleShot(50, source.data(), [this, &source, secondState, secondCode]() {
+        const auto startSecond{[this, &source, secondState, secondCode]() {
             m_stub->setTokenDelayMs(800);
             QMetaObject::invokeMethod(source.data(), "exchangeCode", Qt::DirectConnection,
                                       Q_ARG(QString, QStringLiteral("second")),
@@ -2102,7 +2103,12 @@ private slots:
                                       Q_ARG(QString, secondCode),
                                       Q_ARG(QString, edgeUrl(QStringLiteral("/auth/callback"))),
                                       Q_ARG(QString, QString{}));
-        });
+        }};
+        const QMetaObject::Connection firstRequest{
+            connect(m_stub.get(), &StubIdentityServer::tokenRequested, source.data(),
+                    startSecond,
+                    static_cast<Qt::ConnectionType>(Qt::SingleShotConnection
+                                                    | Qt::QueuedConnection))};
         m_stub->setTokenDelayMs(150);
         QMetaObject::invokeMethod(source.data(), "exchangeCode", Qt::DirectConnection,
                                   Q_ARG(QString, QStringLiteral("first")),
@@ -2112,6 +2118,7 @@ private slots:
                                   Q_ARG(QString, QString{}));
 
         QTRY_COMPARE_WITH_TIMEOUT(answered.count(), 2, 20000);
+        disconnect(firstRequest);
         m_stub->setTokenDelayMs(0);
         QCOMPARE(answered.at(0).at(0).toString(), QStringLiteral("first"));
         QCOMPARE(answered.at(1).at(0).toString(), QStringLiteral("second"));

@@ -172,7 +172,9 @@ private slots:
                                 "server": "generated/service/store/Store.qml"}]
         })json"};
         const Topology topology{topologyFromJson(QJsonDocument::fromJson(json).object())};
-        const QDir here{root.path()};
+        // The working directory as the runtime reads it (macOS reports /var/folders as
+        // /private/var/folders once it is the current directory).
+        const QDir here{QDir::currentPath()};
         QCOMPARE(topology.credentials.caCertPath, here.absoluteFilePath("synqt/mesh/ca.crt"));
         QCOMPARE(topology.credentials.certPath, here.absoluteFilePath("synqt/mesh/store.crt"));
         QCOMPARE(topology.credentials.keyPath, QStringLiteral("/etc/keys/store.key"));
