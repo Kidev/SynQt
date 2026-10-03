@@ -884,6 +884,25 @@ class SourceWatcherTest(unittest.TestCase):
         self.assertIn(qml, changed)
         self.assertIn(root / "synqt.yaml", changed)
 
+    def test_detects_what_an_entity_written_in_cpp_is_built_from(self):
+        root = Path(tempfile.mkdtemp())
+        folder = root / "service" / "lobby"
+        folder.mkdir(parents=True)
+        files = [folder / "lobby.h", folder / "lobby.cpp", folder / "CMakeLists.txt"]
+        for path in files:
+            path.write_text("// one\n")
+        (folder / "notes.txt").write_text("not built\n")
+        watcher = runmod.SourceWatcher(root)
+        self.assertEqual(watcher.poll(), set())
+
+        import os as _os
+        for path in files + [folder / "notes.txt"]:
+            _os.utime(path, ns=(2 ** 40, 2 ** 40))
+        self.assertEqual(watcher.poll(), set(files))
+        # A service's C++ rebuilds the host side only.
+        config = {"entities": [{"name": "lobby", "type": "service", "cpp": True}]}
+        self.assertEqual(runmod._categorize(set(files), root, config), (True, False))
+
     def test_categorize_routes_changes_to_the_right_side(self):
         root = Path("/proj")
         config = {"entities": [

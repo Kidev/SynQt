@@ -38,7 +38,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from synqt import appmodel, contractgen, qmlscan, writer
+from synqt import appmodel, contractgen, cppentity, qmlscan, writer
 
 #: What a self-named root becomes when nothing of that name exists to be rooted at.
 FALLBACK_ROOT = "QtObject"
@@ -283,5 +283,11 @@ def write_entity_qml(project_dir: os.PathLike[str] | str,
                                retype=relative != window,
                                exported=sources.get(relative, frozenset()))
             writer.write_if_changed(root / target, text)
+            written.append(target)
+        # A C++ entity may leave its Source to the class alone; the runtime still loads a file.
+        relative = appmodel.entity_file_path(entity)
+        if cppentity.is_cpp(entity) and not (root / relative).is_file():
+            target = mirrored_path(relative)
+            writer.write_if_changed(root / target, cppentity.render_stub_qml(entity))
             written.append(target)
     return written

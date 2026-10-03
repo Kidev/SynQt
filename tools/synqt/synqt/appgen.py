@@ -26,7 +26,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import (appmodel, authentity, cmakegen, contractgen, graphics as graphicsmod,
+from . import (appmodel, authentity, cmakegen, contractgen, cppentity, graphics as graphicsmod,
                maingen, qmlrewrite, scopegen, writer)
 
 
@@ -132,6 +132,9 @@ def generate(project_dir: os.PathLike[str] | str, config: Dict[str, Any], *,
         writer.write_if_changed(scope_file, scopegen.render_scope_qml(
             appmodel.scope_vocab(config)))
         written.append(relative)
+
+    # `<SynQtService>` for every entity written in C++.
+    written += cppentity.write_generated(root, config)
 
     # Last: it mirrors the entity folders, including the auth Sources written above.
     written += qmlrewrite.write_entity_qml(root, config)

@@ -389,14 +389,16 @@ def dev(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
 class SourceWatcher:
     """Poll the project sources for changes.
 
-    Watches ``*.qml`` and ``*.syn`` and the configuration files in play, ignoring
-    ``generated/``, ``build/``, ``synqt/`` and ``.git``. ``config_names`` includes the
-    active profile file, since it is part of the topology.
+    Watches ``*.qml``, the C++ and ``CMakeLists.txt`` an entity written in C++ is built
+    from, and the configuration files in play, ignoring ``generated/``, ``build/``,
+    ``synqt/`` and ``.git``. ``config_names`` includes the active profile file, since it is
+    part of the topology.
     """
 
     _IGNORED_DIRS = {appmodel.GENERATED_DIR, "build", ".git", "synqt", "node_modules",
                      "toolchain"}
-    _WATCHED_SUFFIXES = {".qml"}
+    _WATCHED_SUFFIXES = {".qml", ".h", ".cpp"}
+    _WATCHED_NAMES = {"CMakeLists.txt"}
 
     def __init__(self, root: os.PathLike[str] | str,
                  config_names: Tuple[str, ...] = ("synqt.yaml",)) -> None:
@@ -411,7 +413,8 @@ class SourceWatcher:
                            if d not in self._IGNORED_DIRS and not d.startswith(".")]
             for filename in filenames:
                 path = Path(dirpath) / filename
-                if path.suffix in self._WATCHED_SUFFIXES or filename in self._config_names:
+                if (path.suffix in self._WATCHED_SUFFIXES or filename in self._WATCHED_NAMES
+                        or filename in self._config_names):
                     try:
                         found[path] = path.stat().st_mtime_ns
                     except OSError:

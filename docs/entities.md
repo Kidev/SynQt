@@ -417,6 +417,132 @@ A custom entity is a full peer: it can own a connect point, consume others, run 
 logic a native process can, and link any C++ library through the standard Qt build. Only
 the client cannot be customized this way, because of the browser sandbox.
 
+### Writing an entity in C++ { #writing-an-entity-in-c }
+
+A `service` entity can be a C++ class instead of a QML file. Use it for work that is slow
+in JavaScript or needs a C++ library, and keep the rest in QML. Its consumers cannot tell
+the difference: they reach it over the mesh with the same accessor
+(`Lobby.headline`, `Lobby.restock(...)`) as any other owner.
+
+```sh
+synqt add entity lobby --cpp
+```
+
+That marks the entity in `synqt.yaml`, adds its connect point with a starter `export:`, and
+writes three files:
+
+```yaml
+  - name: lobby
+    type: service
+    cpp: true
+```
+
+```text
+service/lobby/
+  lobby.h             # class Lobby, one override per exported slot
+  lobby.cpp
+  CMakeLists.txt      # empty: libraries go here
+  Lobby.qml           # optional, written by you
+```
+
+The class derives from `SynQt::Service`:
+
+```cpp
+// service/lobby/lobby.h
+#pragma once
+
+#include <SynQtService>
+
+class Lobby : public SynQt::Service
+{
+    Q_OBJECT
+
+public:
+    explicit Lobby(QObject *parent = nullptr);
+
+protected:
+    void componentComplete() override;
+    void restock(SynQt::Caller *caller, const QString &sku, int count) override;
+    int total(SynQt::Caller *caller) override;
+};
+```
+
+`<SynQtService>` is generated for the entity under `generated/`. `SynQt::Service` is a
+class built from the entity's contract, so it already has every member the `export:`
+declares:
+
+- Props, models and signals are its own. Write them as any Qt class does:
+  `setHeadline(text)`, `setCatalogue(rows)` (only the declared roles cross, as with
+  `catalogueRows`), and `emit restocked(sku, count)`.
+- Each slot is declared twice. The one the wire calls checks the argument bounds and
+  the `<scope>` gate, opens the call's trace span, and forwards the call when the entity is
+  shared or behind a front. It is `final`, so nothing below it can skip those steps. It
+  then calls the overload that takes the `Caller` first, which is the one you override.
+  `caller` is what `Caller` is in QML, for this call only: check `caller->entity()` or
+  `caller->hasScope(...)` before acting.
+- What the entity's QML sees by name is offered as a method: `log()` returns `Log`,
+  `http()` and `api()` return `Http` and `Api` where the [`network`
+  block](project-layout-and-config.md#network-what-an-entity-may-reach-and-who-may-reach-it)
+  installs them, and one method per entity this one consumes, named after it, returns that
+  entity's accessor (`stock()` returns the `StockConsumer` whose props, signals and slots
+  QML reaches as `Stock`). They read the QML context the runtime builds the Source in, so
+  they answer from `componentComplete()` on, never in the constructor. A contract member
+  named like one of them is refused.
+- `componentComplete()` is the C++ side of `Component.onCompleted`: the object is built,
+  its QML bindings are set and its context is in place.
+
+#### Adding QML on top
+
+`Lobby.qml` is optional. When the folder has one, its root is an instance of the class,
+spelled `Lobby` as for any other owner, and it adds whatever is easier in QML: a binding, a
+`Timer`, a slot written as a function.
+
+```qml
+import SynQt
+
+Lobby {
+    id: root
+
+    headline: qsTr("Lobby over %1").arg(Stock.headline)
+
+    function greet(who: string) {
+        console.log("greeting", who, "for", Caller.entity);
+    }
+}
+```
+
+Each slot is answered in exactly one place: an override in the header or a function in the
+QML. `synqt check` refuses a slot with both, since the override answers every call and the
+function would never run, and a slot with neither. Without `Lobby.qml`, the build writes
+one rooted at the class with nothing added, so the runtime loads every Source the same way.
+
+#### Libraries
+
+Every `.h` and `.cpp` directly in the entity folder is compiled into the entity. A
+`CMakeLists.txt` in the folder is added to its build, so plain CMake works there, with the
+entity's name as the target:
+
+```cmake
+find_package(OpenCV REQUIRED COMPONENTS core)
+target_link_libraries(lobby PRIVATE opencv_core)
+target_sources(lobby PRIVATE detect/detector.cpp)
+
+# More Qt modules, found at the project's Qt version:
+synqt_entity_qt_modules(lobby Concurrent)
+```
+
+The build records what each entity ends up linking, and
+[THIRD-PARTY-LICENSES](licensing.md#the-ones-synqt-build-generates-for-your-application) is
+generated from that record. Linking a GPLv3-only Qt module from this file makes the entity
+GPLv3 there too, and a library from outside Qt is listed by name for you to check.
+
+#### Testing it
+
+`synqt test` runs QML. The test runner does not compile a C++ entity's class, so
+`EntityTest` refuses to load its Source and says why, instead of loading the generated
+helper in its place. An entity that consumes it can still be tested, as any neighbour is.
+Test the class in C++ with Qt Test, or through the entities that call it.
+
 ## Deploying entities
 
 Entities are independent binaries, so you can deploy them flexibly:

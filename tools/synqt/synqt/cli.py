@@ -256,6 +256,8 @@ def build_parser() -> argparse.ArgumentParser:
                         choices=sorted(addentity.TYPES),
                         help="what the entity is (default: %(default)s)")
     entity.add_argument("--provider")
+    entity.add_argument("--cpp", action="store_true",
+                        help="write the entity as a C++ class (a service only)")
     provider = add_sub.add_parser("provider"); provider.add_argument("name")
     provider.add_argument("--family", required=True)
     connect_point = add_sub.add_parser("connect-point")
@@ -306,7 +308,7 @@ def _run_add(args: argparse.Namespace) -> int:
                                    provider_entity=args.provider_entity)
     elif args.what == "entity":
         message = addentity.scaffold(args.project_dir, args.name, args.entity_type,
-                                     provider=args.provider)
+                                     provider=args.provider, cpp=args.cpp)
     elif args.what == "provider":
         message = addprovider.scaffold(args.project_dir, args.name, args.family)
     else: # connect-point

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import appmodel, clientmodules
 
@@ -28,7 +28,23 @@ _MODULE_LICENSE = {
     "Qt HTTP Server": "GPL-3.0-only", "Qt Network Authorization": "GPL-3.0-only",
     "Qt Quick 3D": "GPL-3.0-only", "Qt Quick 3D Physics": "GPL-3.0-only",
     "Qt for WebAssembly platform": "GPL-3.0-only",
+    # What an entity's own CMakeLists.txt may link, as each module's sources license it.
+    "Qt Concurrent": "LGPL-3.0-only", "Qt XML": "LGPL-3.0-only", "Qt D-Bus": "LGPL-3.0-only",
+    "Qt Test": "LGPL-3.0-only", "Qt Widgets": "LGPL-3.0-only", "Qt SVG": "LGPL-3.0-only",
+    "Qt Multimedia": "LGPL-3.0-only", "Qt Serial Port": "LGPL-3.0-only",
+    "Qt Serial Bus": "LGPL-3.0-only", "Qt Positioning": "LGPL-3.0-only",
+    "Qt 5 Core Compatibility APIs": "LGPL-3.0-only", "Qt WebChannel": "LGPL-3.0-only",
+    "Qt Sensors": "LGPL-3.0-only", "Qt Bluetooth": "LGPL-3.0-only", "Qt NFC": "LGPL-3.0-only",
+    "Qt SCXML": "LGPL-3.0-only", "Qt State Machine": "LGPL-3.0-only",
+    "Qt TextToSpeech": "LGPL-3.0-only", "Qt OPC UA": "LGPL-3.0-only",
+    "Qt GRPC": "LGPL-3.0-only", "Qt Protobuf": "LGPL-3.0-only",
+    "Qt Charts": "GPL-3.0-only", "Qt Data Visualization": "GPL-3.0-only",
+    "Qt Graphs": "GPL-3.0-only", "Qt MQTT": "GPL-3.0-only", "Qt CoAP": "GPL-3.0-only",
+    "Qt Virtual Keyboard": "GPL-3.0-only", "Qt Quick Timeline": "GPL-3.0-only",
 }
+
+#: The license listed for a library synqt has no record of.
+UNKNOWN_LICENSE = "license unknown to synqt"
 
 #: The CMake component each client Qt module is linked as. `cmakegen` writes the client
 #: `target_link_libraries` from it too; test_cli_flow checks both.
@@ -42,6 +58,30 @@ CLIENT_MODULES = {
     "Qt6::RemoteObjects": "Qt RemoteObjects",
     "Qt6::WebSockets": "Qt WebSockets",
 }
+
+#: The CMake target of every module :data:`_MODULE_LICENSE` knows, beyond the client's own.
+#: An entity's link record names its modules this way.
+QT_TARGET_MODULES = {
+    **CLIENT_MODULES,
+    "Qt6::Sql": "Qt Sql", "Qt6::HttpServer": "Qt HTTP Server",
+    "Qt6::NetworkAuth": "Qt Network Authorization", "Qt6::Quick3D": "Qt Quick 3D",
+    "Qt6::Quick3DPhysics": "Qt Quick 3D Physics", "Qt6::Concurrent": "Qt Concurrent",
+    "Qt6::Xml": "Qt XML", "Qt6::DBus": "Qt D-Bus", "Qt6::Test": "Qt Test",
+    "Qt6::Widgets": "Qt Widgets", "Qt6::Svg": "Qt SVG", "Qt6::Multimedia": "Qt Multimedia",
+    "Qt6::SerialPort": "Qt Serial Port", "Qt6::SerialBus": "Qt Serial Bus",
+    "Qt6::Positioning": "Qt Positioning", "Qt6::Core5Compat": "Qt 5 Core Compatibility APIs",
+    "Qt6::WebChannel": "Qt WebChannel", "Qt6::Sensors": "Qt Sensors",
+    "Qt6::Bluetooth": "Qt Bluetooth", "Qt6::Nfc": "Qt NFC", "Qt6::Scxml": "Qt SCXML",
+    "Qt6::StateMachine": "Qt State Machine", "Qt6::TextToSpeech": "Qt TextToSpeech",
+    "Qt6::OpcUa": "Qt OPC UA", "Qt6::Grpc": "Qt GRPC", "Qt6::Protobuf": "Qt Protobuf",
+    "Qt6::Charts": "Qt Charts", "Qt6::DataVisualization": "Qt Data Visualization",
+    "Qt6::Graphs": "Qt Graphs", "Qt6::Mqtt": "Qt MQTT", "Qt6::Coap": "Qt CoAP",
+    "Qt6::VirtualKeyboard": "Qt Virtual Keyboard", "Qt6::QuickTimeline": "Qt Quick Timeline",
+}
+
+#: Where the build records what each service entity links (cmake/SynQtEntity.cmake), under
+#: the host build tree: `<dir>/<entity>.txt`, one name per line.
+ENTITY_LINKED_DIR = "synqt-linked"
 
 # Third-party (non-Qt) libraries a bundled provider or entity type may link.
 _THIRD_PARTY = {
@@ -77,6 +117,28 @@ def provider_libraries(host_build_dir: os.PathLike[str] | str) -> List[str]:
     except OSError:
         return []
     return [PROVIDER_LIBRARY_NAMES[name] for name in names if name in PROVIDER_LIBRARY_NAMES]
+
+
+def entity_libraries(host_build_dir: os.PathLike[str] | str, name: str) -> List[str]:
+    """What the build recorded entity `name` linking, as CMake names it. Empty when there is no
+    record (a build not configured yet).
+    """
+    record = Path(host_build_dir) / ENTITY_LINKED_DIR / f"{name}.txt"
+    try:
+        return record.read_text(encoding="utf-8").split()
+    except OSError:
+        return []
+
+
+def _linked_qt_module(library: str) -> Optional[str]:
+    """The listed module name of a Qt CMake target, or None for anything else. A Qt module
+    missing from the table is named after its target.
+    """
+    for prefix in ("Qt6::", "Qt::"):
+        if library.startswith(prefix):
+            target = "Qt6::" + library[len(prefix):]
+            return QT_TARGET_MODULES.get(target, f"Qt {library[len(prefix):]}")
+    return None
 
 
 def entity_modules(entity: Dict[str, Any], target: str = "wasm",
@@ -150,6 +212,19 @@ def entity_third_party(entity: Dict[str, Any],
     return sorted(set(libs))
 
 
+def linked_beyond_topology(entity_linked: Optional[List[str]]) -> Tuple[List[str], List[str]]:
+    """Split an entity's link record into Qt modules and every other library, each sorted."""
+    modules: List[str] = []
+    others: List[str] = []
+    for library in entity_linked or []:
+        module = _linked_qt_module(library)
+        if module is not None:
+            modules.append(module)
+        else:
+            others.append(library)
+    return sorted(set(modules)), sorted(set(others))
+
+
 def effective_license(modules: List[str], qt_license_mode: str = "open_source") -> str:
     if qt_license_mode == "commercial":
         return "Commercial (proprietary permitted)"
@@ -162,12 +237,19 @@ def generate(entity: Dict[str, Any], *, target: str = "wasm",
              qt_license_mode: str = "open_source",
              config: Optional[Dict[str, Any]] = None,
              project_dir: Optional[os.PathLike[str] | str] = None,
-             linked: Optional[List[str]] = None) -> str:
-    """The THIRD-PARTY-LICENSES text for one entity/target."""
+             linked: Optional[List[str]] = None,
+             entity_linked: Optional[List[str]] = None) -> str:
+    """The THIRD-PARTY-LICENSES text for one entity/target. `entity_linked` is the build's
+    record of what this entity links (entity_libraries()), which adds what its own CMake
+    linked to what the topology implies.
+    """
     name = entity.get("name", "entity")
     modules = entity_modules(entity, target, config, project_dir)
+    extra_modules, others = linked_beyond_topology(entity_linked)
+    modules += [module for module in extra_modules if module not in modules]
     third_party = entity_third_party(entity, config, target, linked)
     effective = effective_license(modules, qt_license_mode)
+    unknown = [module for module in modules if module not in _MODULE_LICENSE] + others
 
     lines = [
         f"THIRD-PARTY-LICENSES for entity '{name}'"
@@ -179,13 +261,22 @@ def generate(entity: Dict[str, Any], *, target: str = "wasm",
         f"Qt {qt_license_mode.replace('_', '-')} modules linked:",
     ]
     for module in modules:
-        lines.append(f"  - {module}: {_MODULE_LICENSE.get(module, 'LGPL-3.0-only')}")
+        lines.append(f"  - {module}: {_MODULE_LICENSE.get(module, UNKNOWN_LICENSE)}")
     if third_party:
         lines.append("")
         lines.append("Third-party libraries linked:")
         for lib in third_party:
             lines.append(f"  - {lib}: {_THIRD_PARTY.get(lib, 'see upstream')}")
+    if others:
+        lines.append("")
+        lines.append("Other libraries linked:")
+        for lib in others:
+            lines.append(f"  - {lib}: {UNKNOWN_LICENSE}")
     lines += ["", f"Effective license of this entity artifact: {effective}"]
+    if unknown:
+        lines.append(
+            f"That assumes {', '.join(unknown)} impose nothing stricter, which synqt cannot "
+            "know. Check each license, and ship each notice it requires beside this file.")
     if effective == "GPL-3.0-only" and appmodel.is_client(entity):
         lines.append(
             "This client is conveyed to every visitor, so you must offer its complete "

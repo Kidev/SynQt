@@ -153,6 +153,8 @@ synqt --version         #   ... the same three lines; the flag every other tool 
 synqt add entity <name> [--type <type>]          # Scaffold a new entity (a plain service by default).
 synqt add entity <name> --type <type> --provider <engine>
                                                   # Scaffold an entity backed by a chosen engine.
+synqt add entity <name> --cpp                    # Scaffold a service written in C++, with its
+                                                 # connect point and one override per slot.
 synqt add auth <provider> [--required]           # Add secure by default user authentication.
 synqt add auth <provider> --provider-entity <name>
                                                  # ... with the identity engine on that
@@ -193,6 +195,11 @@ it shows the helper in use. Every entity gets one, so none starts as an empty di
 the entity's name, because an owner cannot host a point without one, and nothing would say
 so until the entity started. It rewrites the file only while it is exactly what the
 scaffolder wrote; after you edit it, it tells you what to change instead.
+
+`synqt add entity <name> --cpp` writes no QML. It adds the entity's connect point with
+the starter `export:`, then `<name>.h` and `<name>.cpp`, a class with one override per
+slot that export declares, and an empty `CMakeLists.txt` for libraries. See
+[writing an entity in C++](entities.md#writing-an-entity-in-c).
 
 An entity's name becomes a QML type, so it must start with a letter, and it may not match a
 name SynQt already puts in scope in its folder: `Caller`, `Server`, `Session`, `Client`,

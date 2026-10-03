@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+# SPDX-License-Identifier: Apache-2.0
+
+# Two service entities written in C++, reached by one written in QML.
+#
+# `stock` is C++ alone: no Stock.qml, so the build writes the Source file. It links a Qt
+# module of its own from service/stock/CMakeLists.txt. `lobby` is C++ with a Lobby.qml rooted
+# at the class: C++ answers one slot, counts what it hears from stock and says when it hears
+# it, QML answers the other slot and binds the headline. `till` consumes both over the mesh
+# and prints what each answered.
+project:
+  name: cppservice
+  version: 0.1.0
+  qt_version: 6.12.0
+
+entities:
+  - name: stock
+    type: service
+    cpp: true
+
+  - name: lobby
+    type: service
+    cpp: true
+
+  - name: till
+    type: service
+
+connect_points:
+  - owner: stock
+    consumers: [lobby, till]
+    export: |
+      prop string[80] headline
+      model shelf(string[64] sku, int count)
+      signal restocked(string[64] sku, int count)
+      slot restock(string[16] sku, int count)
+      slot int total()
+
+  - owner: lobby
+    consumers: [till]
+    export: |
+      prop string[80] headline
+      prop bool watching
+      prop int stocked
+      slot int stockedCount()
+      slot greet(string[40] who)

@@ -188,16 +188,26 @@ class TestAdd:
     def test_add_entity_with_no_type_makes_a_plain_service(self, tmp_path, monkeypatch):
         seen = {}
         monkeypatch.setattr(addentity, "scaffold",
-                            lambda project_dir, name, entity_type, provider=None:
-                            seen.update(name=name, type=entity_type, provider=provider)
+                            lambda project_dir, name, entity_type, provider=None, cpp=False:
+                            seen.update(name=name, type=entity_type, provider=provider,
+                                        cpp=cpp)
                             or "entity added")
         assert _run(["add", "entity", "billing", "--project-dir", str(tmp_path)])[0] == 0
-        assert seen == {"name": "billing", "type": "service", "provider": None}
+        assert seen == {"name": "billing", "type": "service", "provider": None, "cpp": False}
+
+    def test_add_entity_cpp_is_forwarded(self, tmp_path, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(addentity, "scaffold",
+                            lambda project_dir, name, entity_type, provider=None, cpp=False:
+                            seen.update(name=name, type=entity_type, cpp=cpp) or "entity added")
+        assert _run(["add", "entity", "lobby", "--cpp",
+                     "--project-dir", str(tmp_path)])[0] == 0
+        assert seen == {"name": "lobby", "type": "service", "cpp": True}
 
     def test_add_entity_passes_the_name_and_type_through(self, tmp_path, monkeypatch):
         seen = {}
         monkeypatch.setattr(addentity, "scaffold",
-                            lambda project_dir, name, entity_type, provider=None:
+                            lambda project_dir, name, entity_type, provider=None, cpp=False:
                             seen.update(name=name, type=entity_type) or "entity added")
         assert _run(["add", "entity", "rollups", "--type", "jobs",
                      "--project-dir", str(tmp_path)])[0] == 0

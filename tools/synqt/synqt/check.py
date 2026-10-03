@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import yaml
 
 from . import (addentity, appmodel, clientcache, config as configmod, contractgen,
-               designdoc, graphics, infer, qmlscan, scopegen, toolchain,
+               cppentity, designdoc, graphics, infer, qmlscan, scopegen, toolchain,
                topologywriter, typebackend)
 
 
@@ -166,7 +166,7 @@ def _section_key_messages(config: Dict[str, Any]) -> List[str]:
 _ENTITY_KEYS = frozenset({
     "name", "type", "targets", "shared", "provider", "settings", "schema", "mesh", "public",
     "tls", "network", "identity", "bundles", "routes", "env", "replicas", "threads",
-    "console", "edge", "export", "retention",
+    "console", "edge", "export", "retention", "cpp",
 })
 
 #: The keys a connect point may carry. `name` and `contract` have rules of their own; the
@@ -682,6 +682,110 @@ def _shared_messages(declared: List[Dict[str, Any]]) -> List[str]:
     return messages
 
 
+def _cpp_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> List[str]:
+    """Refuse a `cpp:` that is not a boolean, or that is set where nothing would build it.
+
+    Only a plain service is written in C++. Its class is its QML type and the Source of the
+    point it owns, so it needs a name C++ can spell and a point to own, and no contract member
+    may take the name of a method the generated base offers.
+    """
+    messages: List[str] = []
+    for entity in declared:
+        if cppentity.CPP_KEY not in entity:
+            continue
+        name = str(entity.get("name") or "")
+        value = entity.get(cppentity.CPP_KEY)
+        if not isinstance(value, bool):
+            messages.append(
+                f"error: entity '{name}' has cpp '{value}'; it is true (the entity is a C++ "
+                "class) or left out")
+            continue
+        if not value:
+            continue
+        kind = appmodel.entity_type(entity)
+        if kind != appmodel.PLAIN_TYPE:
+            messages.append(
+                f"error: entity '{name}' is a {kind} and sets 'cpp: true'; only a "
+                f"'type: {appmodel.PLAIN_TYPE}' entity is written in C++, since every other "
+                "type's runtime is the framework's own")
+            continue
+        if appmodel.provider_entity(config) == name:
+            messages.append(
+                f"error: entity '{name}' runs the sign-in (identity.provider_entity) and sets "
+                "'cpp: true'; its Sources are generated, so there is no class to write")
+            continue
+        if not cppentity.CPP_IDENTIFIER.match(name):
+            messages.append(
+                f"error: entity '{name}' sets 'cpp: true', and its class would be called "
+                f"'{cppentity.class_name(entity)}', which C++ cannot spell; a C++ entity is "
+                "named with letters, digits and underscores")
+            continue
+        point = cppentity.owned_point(config, entity)
+        if point is None:
+            messages.append(
+                f"error: entity '{name}' sets 'cpp: true' and owns no connect point; its class "
+                "is the Source of the point it owns, so with none nothing would ever create "
+                "it. Give it a point, or leave it in QML")
+            continue
+        taken = {accessor.method: accessor for accessor in cppentity.accessors(config, entity)}
+        for member in _exported_names(point):
+            accessor = taken.get(member)
+            if accessor is None:
+                continue
+            messages.append(
+                f"error: connect point '{appmodel.point_name(point)}' exports '{member}', and "
+                f"entity '{name}' is written in C++, where {member}() already returns its "
+                f"{accessor.context_name}. Rename the member")
+    return messages
+
+
+def _exported_names(point: Dict[str, Any]) -> List[str]:
+    """The member names a point's `export:` declares, in order, bare names included."""
+    names: List[str] = []
+    for line in contractgen.export_text(point).splitlines():
+        named = contractgen.bare_name(line)
+        declared = _declared_member(line)
+        if named:
+            names.append(named)
+        elif declared is not None:
+            names.append(declared[1])
+    return names
+
+
+def lint_cpp_entities(config: Dict[str, Any],
+                      project_dir: os.PathLike[str] | str) -> List[str]:
+    """Hold each entity folder to what synqt.yaml says it is.
+
+    A C++ entity needs its header and its source file. Any other entity is QML, and a C++ file
+    or a CMakeLists.txt in its folder would be ignored without a word, so both are refused.
+    """
+    root = Path(project_dir)
+    messages: List[str] = []
+    for entity in appmodel.entities(config):
+        name = str(entity.get("name") or "")
+        if not name or appmodel.is_client(entity):
+            continue
+        folder = appmodel.entity_dir(entity)
+        if cppentity.is_cpp(entity):
+            if not cppentity.CPP_IDENTIFIER.match(name):
+                continue   # _cpp_messages says why
+            for relative in (cppentity.header_path(entity), cppentity.source_path(entity)):
+                if not (root / relative).is_file():
+                    messages.append(
+                        f"error: entity '{name}' is written in C++ and {relative} does not "
+                        f"exist; `synqt add entity {name} --cpp` writes a starting pair")
+            continue
+        stray = cppentity.cpp_files(root, entity)
+        if (root / folder / cppentity.ENTITY_CMAKE).is_file():
+            stray.append(f"{folder}/{cppentity.ENTITY_CMAKE}")
+        if stray:
+            messages.append(
+                f"error: {', '.join(stray)}: entity '{name}' is written in QML, so nothing "
+                f"builds {'these' if len(stray) > 1 else 'this'}. Set 'cpp: true' on the entity "
+                "to build it as a C++ class, or move the file out of the entity folder")
+    return messages
+
+
 def _orphan_messages(config: Dict[str, Any], declared: List[Dict[str, Any]]) -> List[str]:
     """Warn about an entity that owns nothing and consumes nothing.
 
@@ -774,6 +878,7 @@ def validate(config: Dict[str, Any], *, release: bool = False,
     messages += _bind_address_messages(
         declared, [cp for cp in config.get("connect_points") or [] if isinstance(cp, dict)])
     messages += _shared_messages(declared)
+    messages += _cpp_messages(config, declared)
     messages += _orphan_messages(config, declared)
     messages += _replica_messages(config, entities)
     messages += _thread_messages(entities)
@@ -2906,6 +3011,8 @@ def lint_connect_point_sources(config: Dict[str, Any],
                 f"'{contract}', and fold anything the old {relative} held into it")
             continue
         source = root / relative
+        if not source.is_file() and cppentity.is_cpp(owning):
+            continue   # the class alone is the Source
         if not source.is_file():
             messages.append(
                 f"error: connect point '{name}': {relative} does not exist, so {owner} has "
@@ -3340,6 +3447,13 @@ def lint_exports(config: Dict[str, Any],
         where = f"connect point '{appmodel.point_name(point)}'"
         implemented = infer.owner_members(root, config, point)
         server = infer.server_path(config, point)
+        owning = _owner_entity(config, point)
+        if owning is not None and cppentity.is_cpp(owning):
+            for line in contractgen.export_text(point).splitlines():
+                messages += _cpp_export_line_messages(
+                    line, where, root, owning, server, implemented,
+                    cppentity.implemented_slots(root, owning))
+            continue
         if not implemented and not _rooted_at_contract(root / server, point):
             # No Source, or a wrong root: lint_connect_point_sources reports it. A Source that
             # is there and implements nothing is held to the export like any other.
@@ -3347,6 +3461,57 @@ def lint_exports(config: Dict[str, Any],
         for line in contractgen.export_text(point).splitlines():
             messages += _export_line_messages(line, where, server, implemented)
     return messages
+
+
+def _owner_entity(config: Dict[str, Any], point: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    owner = str(point.get("owner") or "")
+    return next((entity for entity in appmodel.entities(config)
+                 if str(entity.get("name") or "") == owner), None)
+
+
+def _cpp_export_line_messages(line: str, where: str, root: Path, owning: Dict[str, Any],
+                              server: str, implemented: Dict[str, Any],
+                              cpp_slots: Dict[str, str]) -> List[str]:
+    """One export line against an owner written in C++, with or without a QML file.
+
+    Props, models and signals come with the class, so only a slot needs an implementation,
+    and it needs exactly one: a C++ override answers before the QML function is looked for.
+    """
+    header = cppentity.header_path(owning)
+    has_qml = (root / server).is_file()
+    named = contractgen.bare_name(line)
+    if named:
+        if named in implemented:
+            return _bare_name_messages(named, where, server, implemented)
+        return [f"error: {where}: '{named}' is exported by name, and the owner is written in "
+                f"C++, where synqt reads no types. Write the member out in full"]
+    declared = _declared_member(line)
+    if declared is None:
+        return []
+    kind, name, _ = declared
+    found = implemented.get(name)
+    if kind != "slot":
+        if found is not None and found.kind != kind:
+            return [f"error: {where}: '{name}' is exported as a {kind}, and {server} "
+                    f"{_OWNER_VERBS[found.kind]} it as a {found.kind}"]
+        return []
+    in_cpp = cpp_slots.get(name)
+    in_qml = found is not None and found.kind == "slot"
+    if in_cpp and in_qml:
+        return [f"error: {where}: slot '{name}' is implemented in {in_cpp} and as a function "
+                f"in {server}. The C++ override answers every call, so the QML function "
+                "would never run; keep one of them"]
+    if in_cpp or in_qml:
+        return []
+    if found is not None:
+        return [f"error: {where}: '{name}' is exported as a slot, and {server} "
+                f"{_OWNER_VERBS[found.kind]} it as a {found.kind}"]
+    if has_qml:
+        return [f"error: {where}: slot '{name}' is exported, and neither {header} overrides "
+                f"it nor {server} implements it, so nothing would answer for it"]
+    return [f"error: {where}: slot '{name}' is exported and {header} does not override it, "
+            f"so nothing would answer for it. Override {name}(SynQt::Caller *caller, ...) "
+            "there"]
 
 
 def _rooted_at_contract(source: Path, point: Dict[str, Any]) -> bool:
@@ -3484,10 +3649,18 @@ def lint_contract_drift(config: Dict[str, Any], project_dir: os.PathLike[str] | 
         if members is not None:
             declared[name] = members
 
+    # An end written in C++ is not read, so it cannot be said to use nothing.
+    cpp_names = {str(entity.get("name") or "") for entity in appmodel.entities(config)
+                 if cppentity.is_cpp(entity)}
+    unread = {name for name, point in points.items()
+              if str(point.get("owner") or "") in cpp_names
+              or cpp_names & {str(consumer) for consumer in point.get("consumers") or []}}
     messages: List[str] = []
     for use in found.uses:
         messages += _use_messages(use, points, declared)
     for edge in found.edges:
+        if edge.point in unread:
+            continue
         messages += _unused_messages(edge, points, declared)
     return messages
 
@@ -3806,6 +3979,7 @@ def check_project(project_dir: os.PathLike[str] | str, *, release: bool = False,
     loading_messages = lint_loading(project_dir)
     client_root_messages = lint_client_root(project_dir)
     source_messages = lint_connect_point_sources(config, project_dir)
+    source_messages += lint_cpp_entities(config, project_dir)
     source_messages += lint_mapping_hook(config, project_dir)
     caller_messages = lint_caller_use(config, project_dir)
     caller_messages += lint_source_connections(config, project_dir)

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from synqt import appmodel, qmlscan, yamledit
+from synqt import appmodel, cppentity, qmlscan, yamledit
 
 #: The starter `export:` of a new connect point. Only declared model roles reach a consumer,
 #: and props are READPUSH.
@@ -252,11 +252,20 @@ def scaffold_connect_point(project_dir: os.PathLike[str] | str, owner: str, *,
     config_path.write_text(yamledit.append_item(
         config_path.read_text(encoding="utf-8"), "connect_points", block), encoding="utf-8")
     owning = owner_entity(project_dir, owner)
-    # The Source implements the starter export, so the point passes `synqt check` as written.
-    written = write_source(project_dir, owning, contract, point=owner, body=_STARTER_BODY)
     steps = [f"Added the connect point '{owner}' exports (contract {contract}, "
              f"consumers {', '.join(consumers) or 'none'}). "
              "Deny-by-default: only listed consumers may acquire it."]
+    if cppentity.is_cpp(owning):
+        # The class is the Source, and its stubs answer the starter export's slots.
+        for relative in cppentity.write_scaffold(project_dir, owning, block):
+            steps.append(f"  - {relative} written.")
+        steps.append(f"  - {cppentity.header_path(owning)} answers each exported slot with an "
+                     "override taking the Caller first; authorize the caller in every one.")
+        steps.append("  - What crosses it is the point's 'export:' block in synqt.yaml; "
+                     "the starter one there is an example to replace.")
+        return "\n".join(steps)
+    # The Source implements the starter export, so the point passes `synqt check` as written.
+    written = write_source(project_dir, owning, contract, point=owner, body=_STARTER_BODY)
     if written:
         steps.append(f"  - {written} is the entity and now exports this point, rooted at "
                      f"'{contract}'. Fill in the slots there and authorize Caller in every "

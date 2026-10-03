@@ -807,11 +807,11 @@ def build(project_dir: os.PathLike[str] | str, *, profile_name: str = "debug",
         else:
             out = build_dir / name
             out.mkdir(parents=True, exist_ok=True)
+            host_build = root / profiles.build_dir("host", profile_name, dev_tools=dev_tools)
             (out / "THIRD-PARTY-LICENSES").write_text(
                 licenses.generate(entity, qt_license_mode=qt_license_mode, config=config,
-                                  linked=licenses.provider_libraries(
-                                      root / profiles.build_dir("host", profile_name,
-                                                                dev_tools=dev_tools))),
+                                  linked=licenses.provider_libraries(host_build),
+                                  entity_linked=licenses.entity_libraries(host_build, name)),
                 encoding="utf-8")
             # into build/<entity>/, which `synqt serve` launches. It holds the last profile
             # built.

@@ -104,7 +104,7 @@ the generated strings can:
 | Suite | What it holds to account |
 | --- | --- |
 | [custom-provider](custom-provider) | The skeletons `synqt add provider` writes compile clean, register themselves, and stay on their family interface |
-| [appgen-native](appgen-native) | The entity mains `appgen.py` emits for a whole topology compile and link, and a generated client resolves every declared route |
+| [appgen-native](appgen-native) | The entity mains `appgen.py` emits for a whole topology compile and link, a generated client resolves every declared route, and entities written in C++ answer a QML consumer |
 | [desktop-client](desktop-client) | The same client QML as a native desktop app: compiled, installed, its edge URL baked in, and booting |
 | [monitor-console](monitor-console) | A scaffolded monitor, built and driven in a browser: the delivery gate, the sign-in form under the strict CSP, and the console |
 | [identity-picker](identity-picker) | The development scope picker in a browser, with three tabs of one browser as three people |

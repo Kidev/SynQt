@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from synqt import (addcontract, appgen, appmodel, monitorscaffold, newproject,
+from synqt import (addcontract, appgen, appmodel, cppentity, monitorscaffold, newproject,
                    presets, yamledit)
 
 # Family to bundled providers, default first. The list the C++ factories accept. Anything
@@ -212,9 +212,17 @@ def entity_block(name: str, entity_type: str, provider: Optional[str]) -> Dict[s
 
 def scaffold(project_dir: os.PathLike[str] | str, name: str,
              entity_type: str = appmodel.PLAIN_TYPE,
-             provider: Optional[str] = None) -> str:
+             provider: Optional[str] = None, *, cpp: bool = False) -> str:
     if entity_type not in TYPES:
         raise AddEntityError(f"unknown entity type '{entity_type}'; one of {sorted(TYPES)}")
+    if cpp and entity_type != appmodel.PLAIN_TYPE:
+        raise AddEntityError(
+            f"--cpp writes a '{appmodel.PLAIN_TYPE}' entity; a {entity_type} entity's runtime "
+            "is the framework's own, so it has no class to write")
+    if cpp and not cppentity.CPP_IDENTIFIER.match(name):
+        raise AddEntityError(
+            f"'{name[:80]}' cannot name a C++ entity: its class is the name capitalized, so it "
+            "is made of letters, digits and underscores, starting with a letter")
     family = TYPES.get(entity_type)
     if provider and family and provider not in PROVIDERS[family]:
         raise AddEntityError(
@@ -231,6 +239,8 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     # Built before the name check: `Http` is only reserved when `network.outbound` is
     # declared.
     block = entity_block(name, entity_type, provider)
+    if cpp:
+        block[cppentity.CPP_KEY] = True
     try:
         addcontract.check_qml_name(f"{name[:1].upper()}{name[1:]}",
                                    entity_type=entity_type, entity=block)
@@ -256,6 +266,8 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
     # exports a point.
     entity_dir = root / appmodel.entity_dir(block)
     entity_dir.mkdir(parents=True, exist_ok=True)
+    if cpp:
+        return _scaffold_cpp(root, block)
     own = appmodel.entity_file_path(block)
     (root / own).write_text(entity_qml(entity_type, name), encoding="utf-8")
     if entity_type == "relational":
@@ -298,6 +310,25 @@ def scaffold(project_dir: os.PathLike[str] | str, name: str,
                  f"--consumers <a,b>' turns that same file into the Source, rooted at "
                  f"'{contract}', and you declare what crosses it beside that.")
     return "\n".join(steps)
+
+
+def _scaffold_cpp(root: Path, block: Dict[str, Any]) -> str:
+    """The rest of `synqt add entity <name> --cpp`, once the entity is in synqt.yaml.
+
+    A C++ entity's class is the Source of the point it owns, so the point is added with it,
+    with the starter export, and the class answers that export's slots.
+    """
+    name = str(block["name"])
+    added = addcontract.scaffold_connect_point(root, name, consumers=[])
+    config = yaml.safe_load((root / "synqt.yaml").read_text(encoding="utf-8")) or {}
+    presets.write(root, config)
+    appgen.generate(root, config)
+    return "\n".join([
+        f"Entity '{name}' scaffolded ({appmodel.PLAIN_TYPE}, written in C++).",
+        added,
+        f"  - {cppentity.class_name(block)}.qml is optional: write one rooted at "
+        f"'{cppentity.class_name(block)}' for what is easier in QML.",
+        f"  - Name its consumers in the connect point's 'consumers:' in synqt.yaml."])
 
 
 def list_providers() -> str:

@@ -41,6 +41,13 @@ my-app/
       schema.sql
       .env
 
+  service/                # every plain service entity
+    lobby/                # added with: synqt add entity lobby --cpp
+      lobby.h             # the entity as a C++ class
+      lobby.cpp
+      Lobby.qml           # optional, rooted at the class
+      CMakeLists.txt      # optional: libraries and more sources
+
   synqt/                  # framework managed; toolchain and mesh CA
     toolchain/            # the pinned Qt and Emscripten kits
     mesh/                 # the project private CA and per entity certs (never committed)
@@ -367,6 +374,15 @@ the upgrade path described in [providers](providers.md):
       pool_size: 8
 ```
 
+A plain service can be written in C++ instead of QML (see
+[writing an entity in C++](entities.md#writing-an-entity-in-c)):
+
+```yaml
+  - name: lobby
+    type: service
+    cpp: true                 # service/lobby/lobby.h and lobby.cpp hold class Lobby
+```
+
 Notes:
 
 - **`name`** identifies the entity everywhere: its directory, its build target, the
@@ -381,6 +397,10 @@ Notes:
   `jobs`, `service`). It decides the entity's folder, the helper the runtime puts in its
   QML, and whether it faces the internet. Without it, the entity is a `service`: no engine,
   no browser-facing side, reachable only over the mesh.
+- **`cpp`** makes a `service` entity a C++ class, named after the entity and kept in
+  `<name>.h` and `<name>.cpp` in its folder. Every `.h` and `.cpp` directly in the folder is
+  compiled in, and a `CMakeLists.txt` there joins the build. `<Name>.qml` becomes optional.
+  Leave the key out for an entity written in QML.
 - **`provider`** selects the engine behind a type that has one (see
   [providers](providers.md)). Omit it to use the type's embedded default.
   `provider.name` picks the engine, and the other keys carry the connection.
@@ -1492,6 +1512,11 @@ first failure. These checks always run:
   like one that works.
 - A `shared` value other than true or false is rejected, and so is `shared` on a client: a
   client is one browser and shares with nobody.
+- `cpp` is rejected unless it is true or false, on any type but `service`, on the entity
+  `identity.provider_entity` names, on a name C++ cannot spell as a class (a hyphen), and on
+  an entity that owns no connect point, since its class is that point's Source. A C++
+  entity without `<name>.h` or `<name>.cpp` is rejected, and so is a `.h`, a `.cpp` or a
+  `CMakeLists.txt` in the folder of an entity written in QML, which nothing would build.
 - A connect point `scope` missing from `scopes.order` is rejected, and so is a member gated
   on one. `<root> slot purge()` requires a scope no session can hold, so the member would
   reach nobody.

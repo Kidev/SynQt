@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import appmodel, clientbuild, clientmodules, toolchain
+from . import appmodel, clientbuild, clientmodules, cppentity, toolchain
 
 _HEADER_CMAKE = ("# SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux\n"
                  "# SPDX-License-Identifier: Apache-2.0\n")
@@ -85,7 +85,10 @@ def render_root_cmakelists(config: Dict[str, Any], synqt_root: os.PathLike[str] 
                         "# The language version, the warnings that fail the build, and what",
                         "# release strips: the same settings the framework uses.",
                         'include("${SYNQT_ROOT}/cmake/SynQtBuildFlags.cmake")',
-                        'include("${SYNQT_ROOT}/cmake/SynQtContracts.cmake")', "",
+                        'include("${SYNQT_ROOT}/cmake/SynQtContracts.cmake")',
+                        "# What an entity's own CMakeLists.txt can call, at this Qt version.",
+                        f'set(SYNQT_QT_VERSION "{qt_version}")',
+                        'include("${SYNQT_ROOT}/cmake/SynQtEntity.cmake")', "",
                         f"find_package(Qt6 {qt_version} REQUIRED COMPONENTS "
                         "Core Gui Qml Quick QuickControls2 Network RemoteObjects WebSockets)",
                         "qt_standard_project_setup(REQUIRES 6.12)", ""]
@@ -364,7 +367,39 @@ def _service_cmake(config: Dict[str, Any], entity: Dict[str, Any]) -> List[str]:
               f"        {link} {qt_modules}",
               "        Qt6::RemoteObjects Qt6::WebSockets)"]
     lines += _custom_provider_cmake(entity, name)
+    lines += _cpp_entity_cmake(entity, name)
+    # licenses.py reads it for THIRD-PARTY-LICENSES.
+    lines.append(f"    synqt_record_linked({name})")
     return lines
+
+
+def _cpp_entity_cmake(entity: Dict[str, Any], name: str) -> List[str]:
+    """Compile a C++ entity's folder in, and add its own CMakeLists.txt when it has one.
+
+    Globbed with CONFIGURE_DEPENDS and not recursive: a subfolder is the entity's own
+    CMakeLists.txt to add. Its binary directory is apart from `${CMAKE_BINARY_DIR}/<name>`,
+    which is the executable.
+    """
+    if not cppentity.is_cpp(entity):
+        return []
+    folder = appmodel.entity_dir(entity)
+    variable = "SYNQT_CPP_%s" % name.upper().replace("-", "_")
+    source = f"${{SYNQT_APP_ROOT}}/{folder}"
+    generated = f"${{SYNQT_GENERATED}}/{folder}"
+    return ["",
+            f"    # {name} is written in C++: every .h and .cpp in its folder, and"
+            f" <{cppentity.INCLUDE_HEADER}>.",
+            f"    file(GLOB {variable} CONFIGURE_DEPENDS",
+            f'        "{source}/*.h" "{source}/*.cpp")',
+            f"    target_sources({name} PRIVATE ${{{variable}}}",
+            f'        "{generated}/{cppentity.SERVICE_HEADER}")',
+            f'    target_include_directories({name} PRIVATE "{source}" "{generated}")',
+            "    # The class overrides one of the two declarations each slot has.",
+            f"    target_compile_options({name} PRIVATE",
+            '        "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-overloaded-virtual>")',
+            f'    if(EXISTS "{source}/{cppentity.ENTITY_CMAKE}")',
+            f'        add_subdirectory("{source}" "${{CMAKE_BINARY_DIR}}/entity-cmake/{name}")',
+            "    endif()"]
 
 
 def _custom_provider_cmake(entity: Dict[str, Any], name: str) -> List[str]:

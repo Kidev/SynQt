@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import appmodel, clientbuild, clientcache, graphics
+from . import appmodel, clientbuild, clientcache, cppentity, graphics
 
 #: The default of `ApiConfig::maxBodyBytes` (src/gateway/apiconfig.h). The edge's HTTP ceiling
 #: is derived from it, so the server never buffers more than the API accepts.
@@ -1334,6 +1334,15 @@ def render_service_main(config: Dict[str, Any], entity: Dict[str, Any],
     registration_lines = [f"    synqtRegister{contract}Sources();" for contract in contracts]
     registration_lines += [f"    synqtRegister{contract}Consumers();"
                            for contract in consumed_contracts]
+    # A C++ entity's class is its QML type in place of the generated helper. The last
+    # registration of a name wins, so it comes after the helper's.
+    if cppentity.is_cpp(entity) and cppentity.owned_point(config, entity) is not None:
+        cpp_class = cppentity.class_name(entity)
+        includes.append(f'\n#include "{cppentity.file_stem(entity)}.h"')
+        registration_lines += [
+            f"    // {name} is written in C++, so `{cpp_class}` is the class in"
+            f" {cppentity.file_stem(entity)}.h.",
+            f'    qmlRegisterType<{cpp_class}>("SynQt", 1, 0, "{cpp_class}");']
     registrations = "\n".join(registration_lines)
 
     # A service with pragma Shared QML gets --qml-dir (default cwd) and registers each
@@ -1516,9 +1525,29 @@ public:
     }}
 }};
 """ for stem in consumed)
-    registrations += "".join(f"\n        synqtRegister{stem}Consumers();\n"
-                             f'        qmlRegisterType<{stem}TestType>("SynQt", 1, 0, '
-                             f'"{stem}");' for stem in consumed)
+    # A C++ entity's class is not compiled into the runner, and the helper alone is not that
+    # entity, so its type refuses to be created and says why. Attached handlers still work.
+    in_cpp = {appmodel.contract_of(point): str(point.get("owner") or "")
+              for point in appmodel.app_points(appmodel.connect_points(config))
+              for entity in appmodel.entities(config)
+              if cppentity.is_cpp(entity) and entity.get("name") == point.get("owner")}
+
+    def refusal(stem: str) -> str:
+        return cxx_string_literal(
+            f"{in_cpp[stem]} is written in C++, and synqt test runs QML only; test it in C++, "
+            "or through an entity that consumes it")
+
+    for stem in consumed:
+        registrations += f"\n        synqtRegister{stem}Consumers();"
+        if stem in in_cpp:
+            registrations += (f'\n        qmlRegisterUncreatableType<{stem}TestType>("SynQt", 1, '
+                              f'0, "{stem}",\n            QStringLiteral("{refusal(stem)}"));')
+        else:
+            registrations += f'\n        qmlRegisterType<{stem}TestType>("SynQt", 1, 0, "{stem}");'
+    for stem in sorted(set(in_cpp) - set(consumed)):
+        if stem in stems:
+            registrations += (f'\n        qmlRegisterTypeNotAvailable("SynQt", 1, 0, "{stem}",'
+                              f'\n            QStringLiteral("{refusal(stem)}"));')
     for owner, accessor, contract, point in consumption:
         if contract not in stems:
             continue

@@ -126,6 +126,11 @@ signed-out visitor:
 | `cacheValue(key)` | read the in-memory cache directly. |
 | `recorded()` | what the entity recorded while this test ran, oldest first. One object per event, carrying `severity` and `category` as numbers, `severityName` and `categoryName` as the words, plus `message` and `attributes`. Drained on every `load()`. |
 
+The runner is QML. It does not compile the class of an
+[entity written in C++](entities.md#writing-an-entity-in-c), so `load()` on that entity's
+Source returns false, and `errorString` says the entity is written in C++. An entity that
+consumes it loads as usual.
+
 ## What is real and what is substituted
 
 This line decides what a test here can prove.

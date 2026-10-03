@@ -26,7 +26,7 @@ export QTDIR="$QT_HOST"
 
 WORK="$REPO_ROOT/build/appgen-native"
 SRC="$WORK/gavel"
-echo "== [1/8] Materialize the gavel topology and run appgen over it =="
+echo "== [1/9] Materialize the gavel topology and run appgen over it =="
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cp -r "$REPO_ROOT/examples/gavel" "$SRC"
@@ -43,14 +43,14 @@ written = appgen.generate(app, config, synqt_root=repo)
 print("  appgen wrote:", ", ".join(written))
 PY
 
-echo "== [2/8] Configure + build every entity with the native host kit =="
+echo "== [2/9] Configure + build every entity with the native host kit =="
 cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_PREFIX_PATH="$QT_HOST" \
     -DSYNQT_ROOT="$REPO_ROOT" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build "$SRC/build"
 
-echo "== [3/8] Assert each generated entity produced a native executable =="
+echo "== [3/9] Assert each generated entity produced a native executable =="
 rc=0
 for entity in app edge books; do
     assert_native_exe "$SRC/build/$entity" "$entity" || rc=1
@@ -60,7 +60,7 @@ if [ "$rc" -ne 0 ]; then
     exit 1
 fi
 
-echo "== [4/8] A generated client with routes: build it, and watch the router resolve them =="
+echo "== [4/9] A generated client with routes: build it, and watch the router resolve them =="
 # Every route's view, and everything it reaches, must be in the client's QML module.
 ROUTED="$WORK/routed"
 cp -r "$REPO_ROOT/tests/appgen-native/routed" "$ROUTED"
@@ -114,7 +114,7 @@ if grep -nE '\.qml:[0-9]+:' "$routed_log"; then
 fi
 echo "  routed client : OK (every route resolved Ready, each to the view it names)"
 
-echo "== [5/8] Promoted identity: one line moves the OAuth engine off the edge =="
+echo "== [5/9] Promoted identity: one line moves the OAuth engine off the edge =="
 # `identity.provider_entity: auth`: run the pair and ask the edge for a login it cannot
 # answer alone.
 PROMOTED="$WORK/promoted"
@@ -310,7 +310,7 @@ echo "                  endpoint and no secret; the auth entity holds the first 
 echo "                  reads the secret from its own environment; the development"
 echo "                  sign-in runs in the edge and the auth entity reaches it)"
 
-echo "== [6/8] A front: an edge that owns a point it does not implement =="
+echo "== [6/9] A front: an edge that owns a point it does not implement =="
 # A front: the edge has no server file for that point, and its relay resolves against a
 # contract its binary knows only by name. Building it is the check.
 FRONTED="$WORK/fronted"
@@ -346,7 +346,7 @@ for entity in gate lobby backoffice; do
 done
 echo "  front : OK (the edge builds with no Source of its own for the point it fronts)"
 
-echo "== [7/8] An entity with a network: block: build it, and call the API it serves =="
+echo "== [7/9] An entity with a network: block: build it, and call the API it serves =="
 # The generated main must set `Api` before the entity singleton exists and listen after.
 # Only running it shows that.
 GATEWAY="$WORK/gateway"
@@ -481,7 +481,7 @@ cleanup_gateway
 echo "  gateway       : OK (serves the routes its own QML declared, refuses an unkeyed"
 echo "                  caller before the handler, and calls only what it is allowed to)"
 
-echo "== [8/8] A monitor: two halves of one entity, and a console that outlives the topology =="
+echo "== [8/9] A monitor: two halves of one entity, and a console that outlives the topology =="
 # The monitor: a mesh owner and a browser-facing server whose Sources come from framework
 # contracts. Building it is the check.
 MONITORED="$WORK/monitored"
@@ -519,8 +519,131 @@ echo "  monitored     : OK (the monitor hosts its mesh point and serves its cons
 echo "                  one binary, and the console compiles against a contract no"
 echo "                  project file declares)"
 
+echo "== [9/9] Entities written in C++: build them, run them, and reach them from QML =="
+# `stock` is a C++ class with no QML file and a Qt module of its own. `lobby` is a C++ class
+# with a Lobby.qml rooted at it. `till` is QML and consumes both over mutual TLS.
+CPPSERVICE="$WORK/cppservice"
+cp -r "$REPO_ROOT/tests/appgen-native/cppservice" "$CPPSERVICE"
+PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$CPPSERVICE" "$REPO_ROOT" <<'CPPPY'
+import sys, yaml
+from pathlib import Path
+from synqt import appgen, check, mesh, topologywriter
+
+app, repo = Path(sys.argv[1]), sys.argv[2]
+ok, messages = check.check_project(app)
+for message in messages:
+    print("  synqt check:", message)
+if not ok:
+    raise SystemExit("the cppservice fixture does not pass synqt check")
+config = yaml.safe_load((app / "synqt.yaml").read_text())
+print("  appgen wrote:", ", ".join(appgen.generate(app, config, synqt_root=repo)))
+mesh.init(app)
+print("  " + mesh.cert_all(app, ["stock", "lobby", "till"]).replace("\n", "\n  "))
+print("  topology:", ", ".join(topologywriter.write(app, config)))
+CPPPY
+
+# Out of tree: topologywriter owns build/<entity>/.
+cmake -S "$CPPSERVICE" -B "$CPPSERVICE/out" -G Ninja \
+    -DCMAKE_PREFIX_PATH="$QT_HOST" \
+    -DSYNQT_ROOT="$REPO_ROOT" \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build "$CPPSERVICE/out"
+
+cpp_rc=0
+for entity in stock lobby till; do
+    assert_native_exe "$CPPSERVICE/out/$entity" "$entity" || cpp_rc=1
+done
+if [ "$cpp_rc" -ne 0 ]; then
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+
+# The Qt module service/stock/CMakeLists.txt linked reaches THIRD-PARTY-LICENSES.
+cpp_licenses="$(PYTHONPATH="$REPO_ROOT/tools/synqt" python3 - "$CPPSERVICE" <<'LICPY'
+import sys, yaml
+from pathlib import Path
+from synqt import licenses
+
+app = Path(sys.argv[1])
+config = yaml.safe_load((app / "synqt.yaml").read_text())
+stock = next(e for e in config["entities"] if e["name"] == "stock")
+print(licenses.generate(stock, config=config,
+                        entity_linked=licenses.entity_libraries(app / "out", "stock")))
+LICPY
+)"
+if ! grep -qF "Qt Concurrent: LGPL-3.0-only" <<<"$cpp_licenses"; then
+    echo "$cpp_licenses" | sed 's/^/  /'
+    echo "  THIRD-PARTY-LICENSES for stock must list the Qt Concurrent its CMakeLists.txt links"
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+
+# synqt test runs QML only, so the runner refuses lobby's Source instead of loading the
+# generated helper in its place (tests/tst_cpp.qml).
+if ! ctest --test-dir "$CPPSERVICE/out" --output-on-failure; then
+    echo "  a C++ entity's Source must refuse to load in the QML test runner, naming why"
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+
+cleanup_cppservice() {
+    kill "${stock_pid:-}" "${lobby_pid:-}" "${till_pid:-}" 2>/dev/null || true
+}
+trap cleanup_cppservice EXIT
+(cd "$CPPSERVICE" && exec ./out/stock >"$WORK/cpp-stock.log" 2>&1) &
+stock_pid=$!
+(cd "$CPPSERVICE" && exec ./out/lobby >"$WORK/cpp-lobby.log" 2>&1) &
+lobby_pid=$!
+(cd "$CPPSERVICE" && exec ./out/till --qml-dir generated >"$WORK/cpp-till.log" 2>&1) &
+till_pid=$!
+
+# What each end must say: the C++ owners answering with the caller's name, the bound refusing
+# before the C++ runs, the hybrid's QML function, and everything till read back.
+cpp_expected=(
+    "stock:SYNQT-CPP stock has its log: yes"
+    "stock:SYNQT-CPP stock restock SKU-1 x3 for till"
+    "stock:Stock.restock: 'sku' is declared string[16] and the value is 17 characters; refused"
+    "lobby:SYNQT-CPP lobby sees stock: yes"
+    "lobby:SYNQT-CPP lobby greets till for till"
+    "till:SYNQT-CPP till stock.total=3"
+    "till:SYNQT-CPP till stock.headline=stocked in C++"
+    "till:SYNQT-CPP till stock.shelf=1"
+    "till:SYNQT-CPP till lobby.stockedCount=3"
+    "till:SYNQT-CPP till lobby.headline=Lobby over stocked in C++"
+)
+cpp_missing=()
+for _ in $(seq 1 30); do
+    cpp_missing=()
+    for expected in "${cpp_expected[@]}"; do
+        if ! grep -qF "${expected#*:}" "$WORK/cpp-${expected%%:*}.log"; then
+            cpp_missing+=("$expected")
+        fi
+    done
+    if [ "${#cpp_missing[@]}" -eq 0 ]; then
+        break
+    fi
+    sleep 1
+done
+cleanup_cppservice
+for entity in stock lobby till; do
+    sed "s/^/  $entity: /" "$WORK/cpp-$entity.log"
+done
+# The over-bound restock never reached the class: one restock line, not two.
+cpp_restocks="$(grep -c "SYNQT-CPP stock restock" "$WORK/cpp-stock.log" || true)"
+if [ "${#cpp_missing[@]}" -ne 0 ] || [ "$cpp_restocks" -ne 1 ]; then
+    for expected in "${cpp_missing[@]}"; do
+        echo "  expected ${expected%%:*} to say: ${expected#*:}"
+    done
+    echo "  stock restocked $cpp_restocks times; the call over the bound must never reach it"
+    echo "APPGEN-NATIVE GATE: NO-GO"
+    exit 1
+fi
+echo "  cppservice    : OK (a C++ entity with no QML and a C++ entity with a QML file both"
+echo "                  answer a QML consumer over the mesh, behind the generated checks)"
+
 echo "APPGEN-NATIVE GATE: GO (appgen output compiles and links for every entity, a"
 echo "                       generated client resolves every declared route to its view,"
 echo "                       a promoted identity signs in from the auth entity, a"
-echo "                       gateway serves the surface its network: block opened, and a"
-echo "                       monitor assembles both of its halves into one binary)"
+echo "                       gateway serves the surface its network: block opened, a"
+echo "                       monitor assembles both of its halves into one binary, and"
+echo "                       entities written in C++ answer a QML consumer)"

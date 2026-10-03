@@ -135,7 +135,11 @@ The table describes only what SynQt links for you. Linking a GPL-only module int
 yourself (Qt Quick 3D for a rendering service, HTTP Server for a custom inbound surface)
 makes that service GPLv3. The generated THIRD-PARTY-LICENSES file follows what each entity
 actually links, which is why it is derived from the build: the same function that picks an
-entity's runtime library writes its module list.
+entity's runtime library writes its module list, and the configure step records what each
+service entity links on top of it, such as a module or library added by the `CMakeLists.txt`
+of an [entity written in C++](entities.md#writing-an-entity-in-c). A Qt module is listed with
+its license. A Qt module synqt has no record of, and any library from outside Qt, is listed
+as unknown with a line saying so, never assumed to be LGPL.
 
 With a commercial Qt license, none of the GPL terms apply and every entity can be
 proprietary.

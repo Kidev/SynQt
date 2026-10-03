@@ -112,6 +112,34 @@ binary search counts matches instead of using `grep -q`. The script runs under
 entity is launched with `exec` inside its subshell, so `$!` is the process itself and not
 a shell wrapping it, which is what lets the cleanup stop it.
 
+## Entities written in C++
+
+`cppservice/` has two service entities written in C++ and one written in QML that consumes
+both. `stock` is a class with no QML file, so the build writes its Source file, and its
+`CMakeLists.txt` links Qt Concurrent through `synqt_entity_qt_modules`. `lobby` is a class
+with a `Lobby.qml` rooted at it: C++ counts what it hears from `stock`, publishes whether
+its link to `stock` is up, and answers one slot, and QML binds the headline and answers the
+other. `till` is a `pragma Shared` QML file that waits until `lobby` hears `stock`, calls
+both over mutual TLS and prints what each answered. The three start at once, so each step
+waits for what it reads.
+
+The phase checks the fixture with `synqt check`, generates and builds it, and requires the
+THIRD-PARTY-LICENSES for `stock` to list Qt Concurrent. It runs the project's app tests,
+where `tests/tst_cpp.qml` expects the QML test runner to refuse `lobby`'s Source and name
+why. Then it starts all three entities and waits for these lines:
+
+```
+stock: SYNQT-CPP stock restock SKU-1 x3 for till
+stock: Stock.restock: 'sku' is declared string[16] and the value is 17 characters; refused
+lobby: SYNQT-CPP lobby greets till for till
+till:  SYNQT-CPP till stock.total=3
+till:  SYNQT-CPP till lobby.stockedCount=3
+till:  SYNQT-CPP till lobby.headline=Lobby over stocked in C++
+```
+
+`stock` must print exactly one restock line. `till` also sends a restock whose `sku` is
+over its bound, and the generated helper refuses that call before the class sees it.
+
 ## Run it
 
 ```sh
@@ -120,10 +148,11 @@ tests/appgen-native/run-appgen-native.sh
 
 It needs the pinned host kit (`/opt/Qt/6.12.0/gcc_64`). It writes everything under
 `build/appgen-native/`, which is git-ignored, and prints `APPGEN-NATIVE GATE: GO` once
-three things hold: every generated entity compiles and links (the `web` edge, the
+every phase holds: every generated entity compiles and links (the `web` edge, the
 `database` service, and the `client`, built here as a native desktop app), the routed
-client above resolves every one of its routes, and the promoted pair signs in from the
-auth entity with an edge that holds no secret.
+client above resolves every one of its routes, the promoted pair signs in from the auth
+entity with an edge that holds no secret, and the entities written in C++ answer their
+QML consumer.
 
 The client's WebAssembly build and the browser bring-up of a generated app are covered
 separately by `synqt dev`, proven in headless Chromium. This fixture is the native half,

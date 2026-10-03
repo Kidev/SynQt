@@ -83,6 +83,12 @@ owner's Source. These are errors:
 - **A property exported with a type the owner clearly contradicts.** `int` against `real`
   is fine, since JavaScript has one numeric type. `string` against `int` is not.
 
+An owner [written in C++](entities.md#writing-an-entity-in-c) has its props, models and
+signals from the generated class it derives from, so only its slots are held to an
+implementation, and each slot to exactly one: an override in the header or a function in
+the entity's QML file. Both is an error too, because the override answers every call and
+the function would never run.
+
 The check matches the shape of the QML instead of compiling it, so it reports what clearly
 disagrees and stays quiet where it cannot tell. `synqt infer` prints the same reading, and
 [`synqt infer --write`](build-system-and-cli.md) fills an empty `export:` from it.
@@ -180,6 +186,9 @@ the member:
 - a member named like one the generator derives from another member: `setCount` or
   `countChanged` beside `prop int count`, `itemsRows`, `setItems` or `itemsChanged` beside
   `model items(...)`, and `emitRejected` beside `signal rejected(...)`;
+- on an owner written in C++, a member named like a method its generated base adds:
+  `log`, `http` or `api` where that helper is installed, or the name of an entity it
+  consumes;
 - one name twice in a parameter, role or field list;
 - a slot with more than 10 parameters, or a signal with more than 8. Group the rest into a
   `record` and send that.
