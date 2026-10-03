@@ -115,3 +115,26 @@ target_link_libraries(tst_front PRIVATE
 )
 
 add_test(NAME front COMMAND tst_front)
+
+# An owner written in C++: a subclass overriding each slot's implementation overload, behind
+# the helper's checks.
+qt_add_executable(tst_cppowner tst_cppowner.cpp)
+
+synqt_add_contract(tst_cppowner ROLE source SYN
+    "${CMAKE_CURRENT_SOURCE_DIR}/shared/Stock.syn")
+
+target_link_libraries(tst_cppowner PRIVATE
+    SynQtService
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::RemoteObjects
+    Qt6::Test
+)
+
+# An owner written in C++ overrides one of the two declarations each slot has, as the
+# generated build of a C++ entity allows.
+target_compile_options(tst_cppowner PRIVATE
+    "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-overloaded-virtual>")
+
+add_test(NAME cppowner COMMAND tst_cppowner)

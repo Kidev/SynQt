@@ -67,4 +67,9 @@ target_link_libraries(tst_memory PRIVATE
     Qt6::Test
 )
 
+# An owner written in C++ overrides one of the two declarations each slot has, as the
+# generated build of a C++ entity allows.
+target_compile_options(tst_memory PRIVATE
+    "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-overloaded-virtual>")
+
 add_test(NAME memory COMMAND tst_memory)

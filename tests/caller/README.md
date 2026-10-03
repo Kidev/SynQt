@@ -62,6 +62,23 @@ and no transport:
   revoked. An entity caller has no scope at all, and it reports the colocation-trusted
   case as unverified.
 
+## What the C++ owner test checks (`tst_cppowner.cpp`)
+
+An entity written in C++ derives from the generated helper and overrides the overload of
+each slot that takes the `Caller` first. The wire slot stays the helper's and is `final`.
+`tst_cppowner` builds such a class over `shared/Stock.syn` and proves that the helper's
+checks still run in front of it:
+
+- The override answers, handed the Caller the call arrived with, and what it publishes
+  (a prop, a model, a signal) is the helper's own.
+- A bounded argument over its bound and a call the `<admin>` gate refuses never reach the
+  override, and the same calls within the rules do.
+- A Source with no Caller bound hands the override nobody, and the gate refuses it.
+- A shared entity's mirror forwards to the one C++ owner, which sees the Caller of
+  whoever is calling.
+- A QML file rooted at the class answers the slot the class leaves alone, with `Caller`
+  in its context, beside the slots C++ answers on the same object.
+
 ## Notes carried from the build
 
 - The generator dispatches a slot with parameters to the owner's QML `function` by
@@ -81,5 +98,4 @@ and no transport:
 ./run-caller.sh
 ```
 
-It builds and runs both tests: `caller`, the acceptance matrix, and `sessions`, the unit
-cases.
+It builds and runs every test above, with `ctest`.

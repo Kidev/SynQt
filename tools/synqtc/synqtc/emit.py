@@ -64,6 +64,40 @@ def _slot_params(syn: SynFile, slot, records, path) -> str:
     return ", ".join(declared)
 
 
+#: The C++ types an implementation overload takes by value. Every other type is taken by
+#: const reference, as Qt API does.
+BY_VALUE_TYPES = {"bool", "int", "double"}
+
+
+def _caller_param(slot) -> str:
+    """The name of the Caller parameter on a slot's implementation overload: `caller`, unless
+    the contract already names a parameter that.
+    """
+    return "synqtCaller" if any(param.name == "caller" for param in slot.params) else "caller"
+
+
+def _impl_params(slot, records, path, *, named_caller: bool = True) -> str:
+    """The parameter list of a slot's implementation overload: the Caller, then the declared
+    parameters, without the session (which the Caller has already taken).
+    """
+    caller = f"SynQt::Caller *{_caller_param(slot)}" if named_caller else "SynQt::Caller *"
+    declared = [caller]
+    for param in slot.params:
+        ctype = cpp_type(param.type, records, path=path, line=param.line, col=param.col)
+        if ctype in BY_VALUE_TYPES:
+            declared.append(f"{ctype} {param.name}")
+        else:
+            declared.append(f"const {ctype} &{param.name}")
+    return ", ".join(declared)
+
+
+def _impl_signature(slot, records, path) -> str:
+    """How a slot's implementation overload is declared in the helper."""
+    ret = "void" if slot.return_type is None else cpp_type(
+        slot.return_type, records, path=path, line=slot.line, col=slot.col)
+    return f"{ret} {slot.name}({_impl_params(slot, records, path)})"
+
+
 def _slot_args(syn: SynFile, slot) -> str:
     """A slot's arguments as they are passed on, session first when there is one."""
     passed = [param.name for param in slot.params]
@@ -210,6 +244,20 @@ public:
 #endif
 """
 
+CALLER_OF_SHIM = """// The Caller a slot's implementation overload is handed. A contract-only
+// target has no service runtime, so no Caller, and hands it nobody.
+#if __has_include(<caller.h>)
+#  include <caller.h>
+namespace {
+SynQt::Caller *synqtCallerOf(QObject *caller) { return qobject_cast<SynQt::Caller *>(caller); }
+} // namespace
+#else
+namespace {
+SynQt::Caller *synqtCallerOf(QObject *) { return nullptr; }
+} // namespace
+#endif
+"""
+
 
 VARIANT_BYTES_HELPER = """namespace {
 // The serialized size of a var, which is what `var[n]` bounds.
@@ -297,9 +345,24 @@ def emit_source_helper_header(syn: SynFile, lstem: str) -> str:
         out += ["#include <sourcemodel.h>", "#include <QVariantList>", ""]
     records = syn.record_names
     path = f"{syn.stem}.syn"
+    if any(contract.slots for contract in syn.contracts):
+        # Named by every slot's implementation overload. Complete only where the service
+        # runtime is linked, which a contract-only target does not need.
+        out += ["namespace SynQt {", "class Caller;", "} // namespace SynQt", ""]
     for contract in syn.contracts:
+        if contract.slots:
+            # The helper's wire slot hides the overload below it on purpose (repc takes its
+            # address), so clang's warning about that is off for these classes.
+            out += ["QT_WARNING_PUSH",
+                    'QT_WARNING_DISABLE_CLANG("-Woverloaded-virtual")', ""]
+            out.append(_slots_class(contract, records, path))
+            out.append("")
         out.append(_source_helper_class(syn, contract, records, path))
         out.append("")
+        out.append(_source_base_class(contract))
+        out.append("")
+        if contract.slots:
+            out += ["QT_WARNING_POP", ""]
     # The typed Caller subclass needs the service runtime's caller.h; guarded so a rep-only
     # target compiles.
     caller_subclasses = [_caller_subclass(contract, records, path)
@@ -312,6 +375,72 @@ def emit_source_helper_header(syn: SynFile, lstem: str) -> str:
     out.append(f"void synqtRegister{_cap(syn.stem)}Sources();")
     out.append("")
     return "\n".join(out)
+
+
+def _answer_name(slot) -> str:
+    """The trampoline the helper calls a slot's implementation through."""
+    return f"synqtAnswer{_cap(slot.name)}"
+
+
+def _slots_class(contract: Contract, records, path) -> str:
+    """The class holding each slot's implementation overload, between the repc Source and the
+    helper.
+
+    Apart from the helper so that the helper's wire slot hides it: repc's typed
+    enableRemoting<T>() takes `&<Contract>SourceHelper::<slot>`, which must name one
+    function. An override in a subclass still overrides by signature.
+    """
+    name = contract.name
+    lines = [
+        f"// What each {name} slot does once the call is accepted, with the Caller it answers.",
+        "// The default calls the owner's QML function of the same name; a slot the owner did",
+        "// not implement is a no-op (or returns a default). A C++ owner overrides these.",
+        f"class {name}SourceSlots : public {name}SimpleSource",
+        "{",
+        "public:",
+        f"    using {name}SimpleSource::{name}SimpleSource;",
+        "    // The wire slots stay in scope beside the overloads below.",
+    ]
+    for slot in contract.slots:
+        lines.append(f"    using {name}SimpleSource::{slot.name};")
+    lines += ["", "protected:"]
+    for slot in contract.slots:
+        lines.append("    virtual " + _impl_signature(slot, records, path) + ";")
+    lines.append("")
+    lines.append("    // How the helper reaches the overloads above, which its wire slots hide.")
+    for slot in contract.slots:
+        ret = "void" if slot.return_type is None else cpp_type(
+            slot.return_type, records, path=path, line=slot.line, col=slot.col)
+        caller = _caller_param(slot)
+        args = ", ".join([caller] + [param.name for param in slot.params])
+        keyword = "" if ret == "void" else "return "
+        lines.append(f"    {ret} {_answer_name(slot)}({_impl_params(slot, records, path)})")
+        lines.append(f"    {{ {keyword}{slot.name}({args}); }}")
+    lines.append("};")
+    return "\n".join(lines)
+
+
+def _source_base_class(contract: Contract) -> str:
+    """The class a C++ owner derives from: the helper, with both declarations of each slot in
+    scope again (the wire slot public, the implementation overload protected), so an override
+    in a subclass is an override of something its base shows.
+    """
+    name = contract.name
+    lines = [
+        f"// What a {name} owner written in C++ derives from (through SynQt::Service).",
+        f"class {name}SourceBase : public {name}SourceHelper",
+        "{",
+        "public:",
+        f"    using {name}SourceHelper::{name}SourceHelper;",
+    ]
+    for slot in contract.slots:
+        lines.append(f"    using {name}SourceHelper::{slot.name};")
+    if contract.slots:
+        lines += ["", "protected:"]
+        for slot in contract.slots:
+            lines.append(f"    using {name}SourceSlots::{slot.name};")
+    lines.append("};")
+    return "\n".join(lines)
 
 
 def _caller_subclass(contract: Contract, records, path) -> str:
@@ -340,6 +469,12 @@ def _caller_subclass(contract: Contract, records, path) -> str:
     return "\n".join(lines)
 
 
+def _helper_base(contract: Contract) -> str:
+    """The class the helper derives from: the slots class when there are slots."""
+    return (f"{contract.name}SourceSlots" if contract.slots
+            else f"{contract.name}SimpleSource")
+
+
 def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str:
     name = contract.name
     lines = [
@@ -348,7 +483,7 @@ def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str
         "// owns). Props and signals come from the generated Source. Publish a model by binding",
         "// <model>Rows to where the rows live, or by calling set<Model>(rows). Both keep only",
         "// the declared roles.",
-        f"class {name}SourceHelper : public {name}SimpleSource",
+        f"class {name}SourceHelper : public {_helper_base(contract)}",
         "{",
         "    Q_OBJECT",
         "    // A generated Source is not a visual item, so its default property is a QObject",
@@ -453,11 +588,13 @@ def _source_helper_class(syn: SynFile, contract: Contract, records, path) -> str
             lines.append(f"    void set{_cap(prop.name)}({ctype} {prop.name}) override;")
         lines.append("")
     if contract.slots:
-        lines.append("    // Consumer -> owner requests. Each dispatches to the owner's QML")
-        lines.append("    // implementation (a QML function of the same name); a slot the owner")
-        lines.append("    // did not implement is a no-op (or returns a default).")
+        lines.append("    // Consumer -> owner requests, as they arrive. Each checks bounds and")
+        lines.append("    // scope, opens the call's span, and forwards for a front or a shared")
+        lines.append(f"    // entity. Final: an owner implements the {name}SourceSlots overload")
+        lines.append("    // instead.")
         for slot in contract.slots:
-            lines.append("    " + _slot_signature(syn, slot, records, path) + " override;")
+            lines.append("    " + _slot_signature(syn, slot, records, path)
+                         + " final;")
         lines.append("")
 
     if contract.models:
@@ -699,6 +836,7 @@ def emit_source_helper_source(syn: SynFile, lstem: str) -> str:
     if any(contract.slots for contract in syn.contracts):
         out += [ACTING_FOR_SHIM, ""]
         out += [CALL_SPAN_SHIM, ""]
+        out += [CALLER_OF_SHIM, ""]
     if _bounds_a_var(syn):
         out += [VARIANT_BYTES_HELPER, ""]
     has_slots = any(contract.slots for contract in syn.contracts)
@@ -771,7 +909,7 @@ def _source_helper_impl(syn: SynFile, contract: Contract, records, path) -> str:
     lines: List[str] = []
 
     lines.append(f"{name}SourceHelper::{name}SourceHelper(QObject *parent)")
-    lines.append(f"    : {name}SimpleSource{{parent}}")
+    lines.append(f"    : {_helper_base(contract)}{{parent}}")
     lines.append("{")
     for model in contract.models:
         # Publish an empty model from the constructor: enableRemoting() reads the model when
@@ -824,7 +962,6 @@ def _source_helper_impl(syn: SynFile, contract: Contract, records, path) -> str:
 
     for slot in contract.slots:
         lines.append(_slot_impl(syn, name, slot, records, path))
-    if contract.slots:
         lines.append("")
 
     for signal in contract.signals:
@@ -1323,26 +1460,36 @@ def _slot_impl(syn: SynFile, class_name: str, slot: Slot, records, path) -> str:
     if is_void:
         lines.append("        return;")
     lines.append("    }")
-    lines += [
+    # Accepted: the owner's implementation answers, in C++ or in QML.
+    implementation = (f"{_answer_name(slot)}(synqtCallerOf(m_synqtCaller.data())"
+                      + "".join(f", {param.name}" for param in slot.params) + ")")
+    lines.append(f"    {'return ' if not is_void else ''}{implementation};")
+    body = "\n".join(lines)
+
+    # The default implementation: the owner's QML function of the same name. The Caller is
+    # already in the QML context, so it is not passed on.
+    impl_head = (f"{ret} {class_name}SourceSlots::{slot.name}("
+                 f"{_impl_params(slot, records, path, named_caller=False)})")
+    impl = [
         f'    const int synqtIndex{{synqtQmlSlotIndex(this, "{slot.name}", {len(slot.params)},',
         f"                                          {helper}::staticMetaObject.methodCount())}};",
     ]
     if is_void:
-        lines += [
+        impl += [
             "    if (synqtIndex >= 0) {",
             f"        synqtInvokeQmlSlot(this, synqtIndex, {arguments}, nullptr);",
             "    }",
         ]
     else:
-        lines += [
+        impl += [
             "    QVariant synqtResult{};",
             "    if (synqtIndex >= 0) {",
             f"        synqtInvokeQmlSlot(this, synqtIndex, {arguments}, &synqtResult);",
             "    }",
             f"    return qvariant_cast<{ret}>(synqtResult);",
         ]
-    body = "\n".join(lines)
-    return f"{head}\n{{\n{body}\n}}"
+    impl_body = "\n".join(impl)
+    return f"{head}\n{{\n{body}\n}}\n\n{impl_head}\n{{\n{impl_body}\n}}"
 
 
 # Consumer side.

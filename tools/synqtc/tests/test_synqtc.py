@@ -139,7 +139,8 @@ class SourceHelperTest(unittest.TestCase):
         syn = parse_text(TODO, stem="Todo")
         header = emit_source_helper_header(syn, "todo")
         source = emit_source_helper_source(syn, "todo")
-        self.assertIn("class TodoSourceHelper : public TodoSimpleSource", header)
+        self.assertIn("class TodoSourceHelper : public TodoSourceSlots", header)
+        self.assertIn("class TodoSourceSlots : public TodoSimpleSource", header)
         self.assertIn("Q_INVOKABLE void setItems(const QVariantList &rows)", header)
         # The declared roles, and nothing else, drive the published model.
         self.assertIn('QByteArrayLiteral("text")', source)
@@ -160,11 +161,127 @@ class SourceHelperTest(unittest.TestCase):
         registration = source.split("void synqtRegisterTodoSources()", 1)[1]
         self.assertIn("SynQt::registerModuleImports();", registration)
 
-    def test_slots_are_concrete_overrides(self):
+    def test_slots_are_final_overrides(self):
+        # The wire slot keeps every check, so nothing below the helper can override it.
         syn = parse_text(TODO, stem="Todo")
         header = emit_source_helper_header(syn, "todo")
-        self.assertIn("void add(QString text) override;", header)
-        self.assertIn("bool clear() override;", header)
+        self.assertIn("void add(QString text) final;", header)
+        self.assertIn("bool clear() final;", header)
+
+    def test_each_slot_has_an_implementation_overload_taking_the_caller(self):
+        syn = parse_text(TODO, stem="Todo")
+        header = emit_source_helper_header(syn, "todo")
+        slots = header.split("class TodoSourceSlots", 1)[1].split("};", 1)[0]
+        protected = slots.split("protected:", 1)[1]
+        self.assertIn("virtual void add(SynQt::Caller *caller, const QString &text);",
+                      protected)
+        self.assertIn("virtual bool clear(SynQt::Caller *caller);", protected)
+        # Declared, never included: a contract-only target has no service runtime.
+        self.assertIn("namespace SynQt {\nclass Caller;\n} // namespace SynQt", header)
+
+    def test_the_helper_declares_only_the_wire_slot_under_each_name(self):
+        # repc's typed enableRemoting<T>() takes `&TodoSourceHelper::add`, which has to name
+        # one function, so the overloads live in the class below the helper.
+        syn = parse_text(TODO, stem="Todo")
+        header = emit_source_helper_header(syn, "todo")
+        helper = header.split("class TodoSourceHelper", 1)[1].split("\n};", 1)[0]
+        self.assertEqual(helper.count(" add("), 1)
+        self.assertEqual(helper.count(" clear("), 1)
+        self.assertNotIn("SynQt::Caller *", helper)
+
+    def test_the_deliberate_hiding_is_silenced_for_those_classes_only(self):
+        syn = parse_text(TODO, stem="Todo")
+        header = emit_source_helper_header(syn, "todo")
+        silenced = header.split('QT_WARNING_DISABLE_CLANG("-Woverloaded-virtual")', 1)[1]
+        silenced = silenced.split("QT_WARNING_POP", 1)[0]
+        self.assertIn("class TodoSourceSlots", silenced)
+        self.assertIn("class TodoSourceHelper", silenced)
+        self.assertIn("class TodoSourceBase", silenced)
+        self.assertNotIn("class TodoCaller", silenced)
+        self.assertLess(header.index("QT_WARNING_PUSH"), header.index("class TodoSourceSlots"))
+
+    def test_the_slots_class_keeps_the_wire_slot_in_scope(self):
+        # Otherwise its overload hides the repc one, which gcc reports at the repc header.
+        syn = parse_text(TODO, stem="Todo")
+        header = emit_source_helper_header(syn, "todo")
+        slots = header.split("class TodoSourceSlots", 1)[1].split("protected:", 1)[0]
+        self.assertIn("using TodoSimpleSource::add;", slots)
+        self.assertIn("using TodoSimpleSource::clear;", slots)
+
+    def test_a_cpp_owner_derives_from_a_base_showing_both_declarations(self):
+        syn = parse_text(TODO, stem="Todo")
+        header = emit_source_helper_header(syn, "todo")
+        base = header.split("class TodoSourceBase : public TodoSourceHelper", 1)[1]
+        base = base.split("};", 1)[0]
+        public, protected = base.split("protected:", 1)
+        self.assertIn("using TodoSourceHelper::add;", public)
+        self.assertIn("using TodoSourceSlots::add;", protected)
+
+    def test_the_helper_reaches_the_overloads_through_a_trampoline(self):
+        syn = parse_text(TODO, stem="Todo")
+        header = emit_source_helper_header(syn, "todo")
+        self.assertIn("void synqtAnswerAdd(SynQt::Caller *caller, const QString &text)\n"
+                      "    { add(caller, text); }", header)
+        self.assertIn("bool synqtAnswerClear(SynQt::Caller *caller)\n"
+                      "    { return clear(caller); }", header)
+
+    def test_a_scalar_is_taken_by_value_and_anything_else_by_const_reference(self):
+        syn = parse_text("contract Shelf { slot put(int count, real price, bool fresh, "
+                         "string sku, list tags, var extra) }", stem="Shelf")
+        header = emit_source_helper_header(syn, "shelf")
+        self.assertIn("virtual void put(SynQt::Caller *caller, int count, double price, "
+                      "bool fresh, const QString &sku, const QVariantList &tags, "
+                      "const QVariant &extra);", header)
+
+    def test_a_parameter_named_caller_moves_the_caller_aside(self):
+        syn = parse_text("contract Desk { slot ring(string caller) }", stem="Desk")
+        header = emit_source_helper_header(syn, "desk")
+        self.assertIn("virtual void ring(SynQt::Caller *synqtCaller, const QString &caller);",
+                      header)
+
+    def test_the_wire_slot_hands_the_accepted_call_to_the_implementation(self):
+        syn = parse_text(TODO, stem="Todo")
+        source = emit_source_helper_source(syn, "todo")
+        wire = source.split("void TodoSourceHelper::add(QString text)", 1)[1]
+        wire = wire.split("\n}\n", 1)[0]
+        self.assertIn("synqtAnswerAdd(synqtCallerOf(m_synqtCaller.data()), text);", wire)
+        self.assertNotIn("synqtQmlSlotIndex", wire)
+        returning = source.split("bool TodoSourceHelper::clear()", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("return synqtAnswerClear(synqtCallerOf(m_synqtCaller.data()));",
+                      returning)
+
+    def test_the_default_implementation_is_the_owners_qml_function(self):
+        syn = parse_text(TODO, stem="Todo")
+        source = emit_source_helper_source(syn, "todo")
+        default = source.split(
+            "void TodoSourceSlots::add(SynQt::Caller *, const QString &text)", 1)[1]
+        default = default.split("\n}\n", 1)[0]
+        self.assertIn('synqtQmlSlotIndex(this, "add", 1,', default)
+        self.assertIn("synqtInvokeQmlSlot(this, synqtIndex, "
+                      "QVariantList{QVariant::fromValue(text)}, nullptr);", default)
+
+    def test_the_caller_handed_over_is_nobody_without_a_service_runtime(self):
+        syn = parse_text(TODO, stem="Todo")
+        source = emit_source_helper_source(syn, "todo")
+        self.assertIn("qobject_cast<SynQt::Caller *>(caller)", source)
+        self.assertIn("SynQt::Caller *synqtCallerOf(QObject *) { return nullptr; }", source)
+
+    def test_a_forwarded_session_never_reaches_the_implementation(self):
+        # The Caller has taken the session before the implementation runs.
+        syn = parse_text(TODO, stem="Todo")
+        syn.forwards_session = True
+        header = emit_source_helper_header(syn, "todo")
+        source = emit_source_helper_source(syn, "todo")
+        self.assertIn("void add(QVariantMap synqtSession, QString text) final;", header)
+        self.assertIn("virtual void add(SynQt::Caller *caller, const QString &text);", header)
+        self.assertIn("synqtAnswerAdd(synqtCallerOf(m_synqtCaller.data()), text);", source)
+
+    def test_a_contract_without_slots_declares_no_caller(self):
+        syn = parse_text("contract Board { prop int count }", stem="Board")
+        header = emit_source_helper_header(syn, "board")
+        self.assertNotIn("class Caller;", header)
+        self.assertNotIn("BoardSourceSlots", header)
+        self.assertIn("class BoardSourceHelper : public BoardSimpleSource", header)
 
     def test_contract_with_signals_emits_typed_caller_sugar(self):
         # A contract with a signal gets a <Contract>Caller with emit<Signal>(...), guarded

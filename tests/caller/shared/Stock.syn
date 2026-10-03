@@ -1,0 +1,18 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+
+// An owner written in C++, with one slot left to its QML. Each member exercises one thing the
+// generated helper keeps doing in front of a C++ implementation: a bound, a scope gate, a
+// returning slot, a signal raised from C++, and the QML dispatch for a slot C++ does not
+// implement.
+
+contract Stock {
+    prop string[80] headline
+    model shelf(string[64] sku, int count)
+    signal restocked(string[64] sku, int count)
+
+    slot restock(string[16] sku, int count)
+    slot int total()
+    slot note(string[80] text)
+    <admin> slot clear()
+}

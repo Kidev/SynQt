@@ -22,6 +22,7 @@
 #include "api.h"
 #include "apiconfig.h"
 #include "apiserver.h"
+#include "caller.h"
 #include "entityruntime.h"
 #include "identityprovider.h"
 #include "meshserver.h"
@@ -318,6 +319,25 @@ ConnectPointConfig localProbe(const QString &socketName)
     connectPoint.endpoint.socketName = socketName;
     return connectPoint;
 }
+
+/// An owner written in C++: what a `cpp: true` entity's class is, over the generated base.
+/// owner/Probe.qml, rooted at `Probe`, is then the QML half of the same object.
+class CppProbe : public ProbeSourceBase
+{
+    Q_OBJECT
+
+public:
+    using ProbeSourceBase::ProbeSourceBase;
+
+protected:
+    void poke(SynQt::Caller *caller, int n) override
+    {
+        // Answered only for the consumer, so a value that arrives proves the Caller did too.
+        if ((caller != nullptr) && (caller->entity() == QLatin1String("b"))) {
+            setValue(n);
+        }
+    }
+};
 
 } // namespace
 
@@ -1084,6 +1104,79 @@ private slots:
         QVERIFY2(growth.completed, "the consumer did not find the restarted owner again");
         QVERIFY2(withinBudget(growth, AllowedBytesPerRetiredLink),
                  qPrintable(growth.describe("an owner restart the consumer recovered from",
+                                            budgetFor(growth, AllowedBytesPerRetiredLink))));
+    }
+
+    // The same restart, with the owner written in C++ and its Probe.qml rooted at the class,
+    // and a slot answered by the C++ override on every pass. Each restart builds and drops
+    // the C++ Source with its QML half. Last in this file: from here on `Probe` is the class.
+    void aCppOwnerLetsGoOfEverySourceItAnswered()
+    {
+        qmlRegisterType<CppProbe>("SynQt", 1, 0, "Probe");
+
+        QTemporaryDir sockets;
+        QVERIFY(sockets.isValid());
+        const QString socketName{sockets.filePath(QStringLiteral("probe.sock"))};
+
+        Topology owner;
+        owner.entity = QStringLiteral("a");
+        owner.connectPoints = {localProbe(socketName)};
+
+        Topology consumer;
+        consumer.entity = QStringLiteral("b");
+        consumer.connectPoints = {localProbe(socketName)};
+
+        QQmlEngine ownerEngine;
+        QQmlEngine consumerEngine;
+
+        auto runtimeA{std::make_unique<EntityRuntime>(owner, &ownerEngine)};
+        QVERIFY2(runtimeA->start(), qPrintable(runtimeA->errorString()));
+
+        EntityRuntime runtimeB{consumer, &consumerEngine};
+        QVERIFY2(runtimeB.start(), qPrintable(runtimeB.errorString()));
+
+        int poked{100};
+        // A slot call the C++ override answers, seen as the value it publishes.
+        const auto pokeAndSee{[&runtimeB, &poked]() {
+            QRemoteObjectDynamicReplica *replica{
+                runtimeB.consumedReplica(QStringLiteral("a"), QStringLiteral("probe"))};
+            if ((replica == nullptr)
+                || !QTest::qWaitFor([replica]() { return replica->isInitialized(); }, 20000)) {
+                return false;
+            }
+            poked += 1;
+            QMetaObject::invokeMethod(replica, "poke", Q_ARG(int, poked));
+            const int wanted{poked};
+            return QTest::qWaitFor([replica, wanted]() {
+                return replica->property("value").toInt() == wanted;
+            }, 5000);
+        }};
+        // The QML half set the first value, and the C++ half answers the slot.
+        QRemoteObjectDynamicReplica *replica{nullptr};
+        QTRY_VERIFY((replica = runtimeB.consumedReplica(QStringLiteral("a"),
+                                                        QStringLiteral("probe"))) != nullptr);
+        QTRY_VERIFY(replica->isInitialized());
+        QTRY_COMPARE(replica->property("value").toInt(), 7);
+        QVERIFY(pokeAndSee());
+
+        const auto oneRestart{[&]() {
+            QSignalSpy ready{&runtimeB, &EntityRuntime::consumedReplicaReady};
+            runtimeA.reset();
+            QTest::qWait(50);
+            runtimeA = std::make_unique<EntityRuntime>(owner, &ownerEngine);
+            if (!runtimeA->start()) {
+                return false;
+            }
+            if (!QTest::qWaitFor([&ready]() { return ready.count() >= 1; }, 20000)) {
+                return false;
+            }
+            return pokeAndSee();
+        }};
+
+        const Growth growth{measureConfirmed(2, 20, AllowedBytesPerRetiredLink, oneRestart)};
+        QVERIFY2(growth.completed, "the consumer did not reach the restarted C++ owner again");
+        QVERIFY2(withinBudget(growth, AllowedBytesPerRetiredLink),
+                 qPrintable(growth.describe("a C++ owner restart with a slot it answered",
                                             budgetFor(growth, AllowedBytesPerRetiredLink))));
     }
 };

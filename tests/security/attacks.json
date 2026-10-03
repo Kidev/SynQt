@@ -203,6 +203,20 @@
       "test": "aRoleOverItsBoundRefusesThePublish"
     },
     {
+      "id": "oversized-argument-to-an-owner-written-in-cpp",
+      "what": "A consumer sends a slot argument over its declared width to an owner written in C++, whose class could otherwise take whatever arrives.",
+      "defended_by": "The slot the wire calls is the generated helper's and is final, so its bound runs before the class's override can be reached.",
+      "file": "tests/caller/tst_cppowner.cpp",
+      "test": "aBoundStillRefusesBeforeTheCppImplementation"
+    },
+    {
+      "id": "gated-slot-on-an-owner-written-in-cpp",
+      "what": "A caller without the scope a slot is gated on calls it on an owner written in C++.",
+      "defended_by": "The scope gate is in the same final wire slot, ahead of the override, for a caller with no Caller bound too.",
+      "file": "tests/caller/tst_cppowner.cpp",
+      "test": "aScopeGateStillRefusesBeforeTheCppImplementation"
+    },
+    {
       "id": "signal-argument-past-a-declared-width",
       "what": "The same, on the way out, where nothing on the receiving side would ever see the original.",
       "defended_by": "The signal is not raised at all.",
